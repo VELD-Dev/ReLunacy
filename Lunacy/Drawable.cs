@@ -45,7 +45,7 @@ namespace Lunacy
 			SetVertexTexCoords(mesh.vTexCoords);
 			SetIndices(mesh.indices);
             //Texture? tex = (mesh.shader.albedo == null ? null : new Texture(mesh.shader.albedo));
-            SetMaterial(new Material(MaterialManager.materials["stdv;whitef"], null, CShader.RenderingMode.Opaque));
+            SetMaterial(new Material(mesh.shader));
         }
 
 		public void Prepare()

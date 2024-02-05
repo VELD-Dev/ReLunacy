@@ -17,13 +17,13 @@ namespace LibLunacy
 		[FileStructure(0x80)]
 		public struct NewTFrag
 		{
+			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x30)] public Vector3 position;
 			[FileOffset(0x40)] public uint indexOffset;
 			[FileOffset(0x44)] public uint vertexOffset;
 			[FileOffset(0x48)] public ushort indexCount;
 			[FileOffset(0x4A)] public ushort vertexCount;
-
-			// The legend tells that the shader index of the UFrag is hidden somewhere in this mess.
+			[FileOffset(0x50)] public ushort shaderIndex;
             public float[] vPositions;
 			public float[] vTexCoords;
 			public uint[] indices;
@@ -36,23 +36,10 @@ namespace LibLunacy
             [FileOffset(0x00)] public short x;
             [FileOffset(0x02)] public short y;
             [FileOffset(0x04)] public short z;
-            [FileOffset(0x06)] public ushort unkConst;  // Not an interesting thing afaik
+            //[FileOffset(0x06)] public ushort unkConst;  // Not an interesting thing afaik
             [FileOffset(0x08)] public Half UVx;
             [FileOffset(0x0A)] public Half UVy;
-            [FileOffset(0x0C)] public float unk1;
-            [FileOffset(0x10)] public Half unk2;
-			[FileOffset(0x12)] public Half unk3;
-			[FileOffset(0x14)] public short unk4;
-			[FileOffset(0x16)] public ushort unk5;
         }
-
-		[FileStructure(0x10)]
-		public struct UFragShaderIndexIDK
-		{
-			[FileOffset(0x00)] public uint shaderIndex;
-			[FileOffset(0x04)] public ulong unk;
-			[FileOffset(0x0C)] public uint padder;
-		}
 
 		/// <summary>
 		/// For debug purposes.
@@ -77,7 +64,6 @@ namespace LibLunacy
         public int index;
 		public Dictionary<ulong, CTieInstance> tieInstances = new Dictionary<ulong, CTieInstance>();
 		public NewTFrag[] tfrags;
-		public UFragShaderIndexIDK[] shadersRef;
 		public string name;
 
 		public class CTieInstance
@@ -164,39 +150,36 @@ namespace LibLunacy
 
 			IGFile.SectionHeader vertexSection;
             IGFile.SectionHeader indexSection;
-			IGFile.SectionHeader shaderRelatedMaybe;
 			IGFile.SectionHeader shaderSection;
 
 			if(al.fm.isOld)
 			{
 				tfragSection = file.QuerySection(0x6200);
-
                 geometryFile = al.fm.igfiles["vertices.dat"];
 				vertexSection = file.QuerySection(0x9000);
 				indexSection = file.QuerySection(0x9100);
-                shaderRelatedMaybe = file.QuerySection(0x9400);
-				shaderSection = file.QuerySection(0x6400);
+				shaderSection = file.QuerySection(0x71A0);
 			}
 			else
 			{
 				tfragSection = file.QuerySection(0x6200);
-
                 geometryFile = file;
 				vertexSection = file.QuerySection(0x6000);
 				indexSection = file.QuerySection(0x6100);
-				shaderSection = file.QuerySection(0x5C00);
+				shaderSection = file.QuerySection(0x71A0);
 			}
+
+			file.sh.Seek(shaderSection.offset);
+			ulong[] shaders = file.sh.ReadStructArray<ulong>(shaderSection.count);
 
             file.sh.Seek(tfragSection.offset);
 			tfrags = FileUtils.ReadStructureArray<NewTFrag>(file.sh, tfragSection.count);
             for (int i = 0; i < tfrags.Length; i++)
             {
-				// Debug.
-				file.sh.Seek(tfragSection.offset + 0x80 * i);
-
                 tfrags[i].vPositions = new float[tfrags[i].vertexCount * 3];
                 tfrags[i].vTexCoords = new float[tfrags[i].vertexCount * 2];
                 tfrags[i].indices = new uint[tfrags[i].indexCount];
+				tfrags[i].shader = al.shaders[shaders[tfrags[i].shaderIndex]];
 
 				geometryFile.sh.Seek(vertexSection.offset + tfrags[i].vertexOffset);
 				var uFragVertices = FileUtils.ReadStructureArray<UFragVertex>(geometryFile.sh, tfrags[i].vertexCount);
@@ -204,12 +187,13 @@ namespace LibLunacy
 				for(int j = 0; j < tfrags[i].vertexCount; j++)
 				{
 					var uFragVertex = uFragVertices[j];
-                    tfrags[i].vPositions[j * 3 + 0] = uFragVertex.x / (float)256f;
-                    tfrags[i].vPositions[j * 3 + 1] = uFragVertex.y / (float)256f;
-					tfrags[i].vPositions[j * 3 + 2] = uFragVertex.z / (float)256f;
-
-					tfrags[i].vTexCoords[j * 2 + 0] = (float)uFragVertex.UVx;
-					tfrags[i].vTexCoords[j * 2 + 1] = (float)uFragVertex.UVy;
+					geometryFile.sh.Seek(vertexSection.offset + tfrags[i].vertexOffset + 0x18 * j);
+                    tfrags[i].vPositions[j * 3 + 0] = uFragVertex.x;
+                    tfrags[i].vPositions[j * 3 + 1] = uFragVertex.y;
+					tfrags[i].vPositions[j * 3 + 2] = uFragVertex.z;
+					geometryFile.sh.Seek(0x08, SeekOrigin.Current);
+					tfrags[i].vTexCoords[j * 2 + 0] = (float)geometryFile.sh.ReadHalf();
+					tfrags[i].vTexCoords[j * 2 + 1] = (float)geometryFile.sh.ReadHalf();
 				}
 
                 geometryFile.sh.Seek(indexSection.offset + tfrags[i].indexOffset);

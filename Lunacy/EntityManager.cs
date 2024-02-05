@@ -185,16 +185,11 @@ namespace Lunacy
 		{
 			instance = ufrag;
 			drawable = new Drawable(ref ufrag);
-			name = "ufrag";
-			//transform = new Transform(Utils.ToOpenTK(ufrag.position), Vector3.Zero, Vector3.One);
-			//Matrix4 transposed = ufrag.transformation.ToOpenTK();
+			name = $"UFrag_{ufrag.tuid:X08}";
+			transform = new Transform(ufrag.position.ToOpenTK(), Vector3.Zero, Vector3.One / (float)256f);
 
-			//transposed.DecomposeMatrix4(out var pos, out var rotQuat, out var scale);
-
-			//Console.WriteLine($"pos:{pos}; scale:{scale}");
-
-			transform = new Transform(ufrag.position.ToOpenTK(), Vector3.Zero, Vector3.One);
-			//Console.WriteLine(Utils.ToString(transform));
+			((Drawable)drawable).AddDrawCall(transform);
+			((Drawable)drawable).ConsolidateDrawCalls();
 		}
 
 		public void SetPosition(Vector3 position)
