@@ -134,12 +134,8 @@ namespace LibLunacy
 			}
 
 			//tfrags = new NewTFrag[0];
+			
 			LoadTFrags(file, al);
-		}
-
-		public CZone(IGFile f, AssetLoader al, int ind) : this(f, al)
-		{
-			index = ind;
 		}
 
 		private void LoadTFrags(IGFile file, AssetLoader al)
@@ -153,8 +149,9 @@ namespace LibLunacy
 			IGFile.SectionHeader shaderSection;
 
 			if(al.fm.isOld)
-			{
-				tfragSection = file.QuerySection(0x6200);
+            {
+                return;
+                tfragSection = file.QuerySection(0x6200);
                 geometryFile = al.fm.igfiles["vertices.dat"];
 				vertexSection = file.QuerySection(0x9000);
 				indexSection = file.QuerySection(0x9100);

@@ -1,17 +1,23 @@
 using ImGuiNET;
-using System.Numerics;
+using System.Collections.Specialized;
+using System.Text.RegularExpressions;
+using Matrix4 = OpenTK.Mathematics.Matrix4;
 using Vector2 = System.Numerics.Vector2;
 using Vector3 = System.Numerics.Vector3;
 using Vector4 = System.Numerics.Vector4;
-using Matrix4 = OpenTK.Mathematics.Matrix4;
-using System.Text.RegularExpressions;
 
 namespace Lunacy
 {
-	public class GUI
+    public class GUI
 	{
 		ImGuiController controller;
 		Window wnd;
+        int RegionsCount;
+        int ZonesCount;
+        int MobyHandleCount;
+        int TieInstancesCount;
+        int UfragsCount;
+        int ShadersCount;
 
 		Entity selectedEntity = null;
 
@@ -21,6 +27,15 @@ namespace Lunacy
 		{
 			controller = new ImGuiController(wnd.ClientSize.X, wnd.ClientSize.Y);
 			this.wnd = wnd;
+            foreach (var m in EntityManager.Singleton.MobyHandles.Values)
+                MobyHandleCount += m.Count;
+            foreach (var t in EntityManager.Singleton.TieInstances)
+                TieInstancesCount += t.Count;
+            foreach (var u in EntityManager.Singleton.TFrags)
+                UfragsCount += u.Count;
+            ShadersCount = Window.al.shaders.Count;
+            ZonesCount = EntityManager.Singleton.zones.Count;
+            RegionsCount = EntityManager.Singleton.regions.Count;
 		}
 
 		public void Resize()
@@ -36,10 +51,11 @@ namespace Lunacy
 		public void ShowRegionsWindow()
 		{
             RenderDockspace();
-            ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
-			RenderRegionsExplorer();
-            ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
-            RenderZonesExplorer();
+
+            //ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
+			//RenderRegionsExplorer();
+            //ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
+            //RenderZonesExplorer();
 
 			if(true)
 			{
@@ -125,30 +141,62 @@ namespace Lunacy
             ImGui.PopStyleVar();
         }
 
+        void SearchEntities(in Dictionary<string, List<Entity>> dict, string args, out Dictionary<string, List<Entity>> searchResult)
+        {
+            searchResult = new();
+            foreach (var kvp in dict)
+            {
+                var catResults = new List<Entity>();
+                foreach(var entity in kvp.Value)
+                {
+                    string name = entity.name;
+                    string searchRegex = string.Join("|", Regex.Escape(args.ToLower()).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+                    if(Regex.IsMatch(name.ToLower(), searchRegex))
+                    { 
+                        catResults.Add(entity);
+                    }
+                }
+
+                if (catResults.Count == 0)
+                    continue;
+
+                searchResult.Add(kvp.Key, catResults);
+            }
+        }
+
+        Dictionary<string, List<Entity>> FilteredMobyHandles;
         string mobysSearchArgs = string.Empty;
+        bool mobysDictInitialized = false;
 		public void RenderRegionsExplorer()
         {
+            if(!mobysDictInitialized)
+            {
+                FilteredMobyHandles = EntityManager.Singleton.MobyHandles;
+                mobysDictInitialized = true;
+            }
+
             uint dockspaceId = ImGui.GetID("dockspace");
             ImGui.SetNextWindowDockID(dockspaceId, ImGuiCond.Once);
             ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.FirstUseEver);
             ImGui.Begin("Regions", ImGuiWindowFlags.AlwaysVerticalScrollbar);
-            ImGui.InputTextWithHint("Search", "blob_small, QWARK_NURSE, etc...", ref mobysSearchArgs, 0xFF);
-            ImGui.Separator();
-            foreach (KeyValuePair<string, List<Entity>> mobys in EntityManager.Singleton.MobyHandles)
+            if(ImGui.InputTextWithHint("Search", "blob_small, QWARK_NURSE, etc...", ref mobysSearchArgs, 0xFF, ImGuiInputTextFlags.EnterReturnsTrue))
             {
-                bool hasMobys = false;
+                if (mobysSearchArgs.Length < 3)
+                {
+                    FilteredMobyHandles = EntityManager.Singleton.MobyHandles;
+                }
+                else
+                {
+                    SearchEntities(in EntityManager.Singleton.MobyHandles, mobysSearchArgs, out FilteredMobyHandles);
+                }
+            }
+            ImGui.Separator();
+            foreach (var mobys in FilteredMobyHandles)
+            {
                 if (ImGui.CollapsingHeader(mobys.Key))
                 {
                     for (int i = 0; i < mobys.Value.Count; i++)
                     {
-                        string mobyName = mobys.Value[i].name;
-                        string searchRegex = string.Join("|", Regex.Escape(mobysSearchArgs.ToLower()).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-                        if (Regex.IsMatch(mobyName.ToLower(), searchRegex) || mobysSearchArgs.Length == 0)
-                        {
-                            hasMobys = true;
-                        }
-                        else continue;
-
                         ImGui.PushID($"{mobys.Key}:{i}:{mobys.Value[i].name}");
                         if (ImGui.Button(mobys.Value[i].name))
                         {
@@ -158,52 +206,63 @@ namespace Lunacy
                         ImGui.PopID();
                     }
                 }
-
-                if(!hasMobys)
-                {
-                    ImGui.SetNextItemOpen(false, ImGuiCond.Once);
-                }
             }
             ImGui.End();
         }
 
         string tiesSearchArgs = string.Empty;
+        readonly Dictionary<string, List<Entity>> TieInstances = new();
+        Dictionary<string, List<Entity>> TieInstancesFiltered;
+        bool tiesDictInitialized = false;
         public void RenderZonesExplorer()
 		{
+            if(tiesDictInitialized == false)
+            {
+                for (int i = 0; i < EntityManager.Singleton.TieInstances.Count; i++)
+                {
+                    var l = new List<Entity>();
+                    foreach(var tie in EntityManager.Singleton.TieInstances[i])
+                    {
+                        l.Add(tie);
+                    }
+                    TieInstances.Add(EntityManager.Singleton.zones[i].name, l);
+                }
+                tiesDictInitialized = true;
+                TieInstancesFiltered = TieInstances;
+            }
+
             uint dockspaceId = ImGui.GetID("dockspace");
             ImGui.SetNextWindowDockID(dockspaceId, ImGuiCond.Once);
             ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.FirstUseEver);
             ImGui.Begin("Zones", ImGuiWindowFlags.AlwaysVerticalScrollbar);
-            ImGui.InputTextWithHint("Search", "terrain, host, etc...", ref tiesSearchArgs, 0xFF);
-            ImGui.Separator();
-            for (int j = 0; j < EntityManager.Singleton.TieInstances.Count; j++)
+            if(ImGui.InputTextWithHint("Search", "terrain, host, etc...", ref tiesSearchArgs, 0xFF, ImGuiInputTextFlags.EnterReturnsTrue))
             {
-                bool hasTies = false;
-                if (ImGui.CollapsingHeader(EntityManager.Singleton.zones[j].name))
+                if(tiesSearchArgs.Length < 3)
                 {
-                    for (int i = 0; i < EntityManager.Singleton.TieInstances[j].Count; i++)
+                    TieInstancesFiltered = TieInstances;
+                }
+                else
+                {
+                    SearchEntities(in TieInstances, tiesSearchArgs, out TieInstancesFiltered);
+                }
+            }
+            ImGui.Separator();
+            foreach(var ties in TieInstancesFiltered)
+            {
+                if (ImGui.CollapsingHeader(ties.Key))
+                {
+                    for(int i = 0; i < ties.Value.Count; i++)
                     {
-                        string tieName = EntityManager.Singleton.TieInstances[j][i].name;
-                        string searchRegex = string.Join("|", Regex.Escape(tiesSearchArgs.ToLower()).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-                        if (Regex.IsMatch(tieName.ToLower(), searchRegex) || tiesSearchArgs.Length == 0)
-                        {
-                            hasTies = true;
-                        }
-                        else continue;
+                        string tieName = ties.Value[i].name;
 
-                        ImGui.PushID($"{j}:{i}:{tieName}");
+                        ImGui.PushID($"{ties.Key}:{i}:{tieName}");
                         if (ImGui.Button(tieName))
                         {
-                            Camera.transform.position = -EntityManager.Singleton.TieInstances[j][i].transform.position;
-                            selectedEntity = EntityManager.Singleton.TieInstances[j][i];
+                            Camera.transform.position = -ties.Value[i].transform.position;
+                            selectedEntity = ties.Value[i];
                         }
                         ImGui.PopID();
                     }
-                }
-
-                if (!hasTies)
-                {
-                    ImGui.SetNextItemOpen(false, ImGuiCond.Once);
                 }
             }
             ImGui.End();
@@ -213,7 +272,6 @@ namespace Lunacy
         {
             ImGuiIOPtr io = ImGui.GetIO();
             ImGuiWindowFlags windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav;
-
             float padding = 10f;
             ImGuiViewportPtr viewport = ImGui.GetMainViewport();
             Vector2 work_pos = viewport.WorkPos;
@@ -229,17 +287,9 @@ namespace Lunacy
             ImGui.SetNextWindowBgAlpha(0.4f);
             if (ImGui.Begin("Stats", windowFlags))
             {
-                var ufragsCount = 0;
-                for (int i = 0; i < EntityManager.Singleton.TFrags.Count - 1; i++)
-                    ufragsCount += EntityManager.Singleton.TFrags[i].Count;
-                var mobysCount = Window.al.mobys.Count;
-                var tiesCount = 0;
-                for (int i = 0; i < EntityManager.Singleton.TieInstances.Count - 1; i++)
-                    tiesCount += EntityManager.Singleton.TieInstances[i].Count;
-
                 ImGui.Text("Camera info");
                 ImGui.Separator();
-                ImGui.Text($"Pos: {Camera.transform.position}");
+                ImGui.Text($"Pos: {-Camera.transform.position}");
                 ImGui.Text($"Rot: {Camera.transform.eulerRotation}");
                 ImGui.Spacing();
                 ImGui.Text("Statistics");
@@ -247,12 +297,12 @@ namespace Lunacy
                 ImGui.Text("Framerate: ");
                 ImGui.SameLine();
                 ImGui.TextColored(Window.framerate > 25 ? new Vector4(0.15f, 1f, 0.15f, 1f) : new Vector4(1f, 0.15f, 0.15f, 1f), $"{Math.Round(Window.framerate)}FPS");
-                ImGui.Text($"Regions: {EntityManager.Singleton.regions.Count}");
-                ImGui.Text($"Zones: {EntityManager.Singleton.zones.Count}");
-                ImGui.Text($"MobyHandles: {mobysCount}");
-                ImGui.Text($"Ties: {tiesCount}");
-                ImGui.Text($"UFrags: {ufragsCount}");
-                ImGui.Text($"Shaders: {Window.al.shaders.Count}");
+                ImGui.Text($"Regions: {RegionsCount}");
+                ImGui.Text($"Zones: {ZonesCount}");
+                ImGui.Text($"FilteredMobyHandles: {MobyHandleCount}");
+                ImGui.Text($"Ties: {TieInstancesCount}");
+                ImGui.Text($"UFrags: {UfragsCount}");
+                ImGui.Text($"Shaders: {ShadersCount}");
             }
             ImGui.End();
         }
