@@ -46,9 +46,9 @@ namespace Lunacy
 					TFrags.Add(new List<Entity>());
 					if(loadUfrags)
 					{
-						for(uint k = 0; k < gp.regions[i].zones[j].tfrags.Length; k++)
+						for(uint k = 0; k < gp.regions[i].zones[j].ufrags.Length; k++)
 						{
-							var ufrag = new Entity(gp.regions[i].zones[j].tfrags[k]);
+							var ufrag = new Entity(gp.regions[i].zones[j].ufrags[k]);
                             TFrags.Last().Add(ufrag);
 						}
 					}
@@ -65,9 +65,9 @@ namespace Lunacy
 				TFrags.Add(new List<Entity>());
 				if(loadUfrags)
 				{
-					for(uint j = 0; j < gp.zones[i].tfrags.Length; j++)
+					for(uint j = 0; j < gp.zones[i].ufrags.Length; j++)
 					{
-						TFrags[i].Add(new Entity(gp.zones[i].tfrags[j]));
+						TFrags[i].Add(new Entity(gp.zones[i].ufrags[j]));
 					}
 				}
 			}*/
@@ -181,12 +181,12 @@ namespace Lunacy
 			(drawable as DrawableList).AddDrawCall(transform);
 			boundingSphere = new Vector4(Utils.ToOpenTK(tieInstance.boundingPosition), tieInstance.boundingRadius);
 		}
-		public Entity(CZone.NewTFrag ufrag)
+		public Entity(CZone.UFrag ufrag)
 		{
 			instance = ufrag;
 			drawable = new Drawable(ref ufrag);
-			name = $"UFrag_{ufrag.tuid:X08}";
-			transform = new Transform(ufrag.position.ToOpenTK(), Vector3.Zero, Vector3.One / (float)256f);
+			name = $"UFrag_{ufrag.GetTuid():X08}";
+			transform = new Transform(ufrag.GetPosition().ToOpenTK(), Vector3.Zero, Vector3.One / (float)255f);
 
 			((Drawable)drawable).AddDrawCall(transform);
 			((Drawable)drawable).ConsolidateDrawCalls();

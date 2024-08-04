@@ -173,7 +173,7 @@ namespace LibLunacy
 			{
 				CZone zone = new(main, this);
 
-				Console.WriteLine("[0x{0:X}] Zone {1} ({2}) has {3} ufrags", "unk", zone.name, i, zone.tfrags?.Length ?? 0);
+				Console.WriteLine("[0x{0:X}] Zone {1} ({2}) has {3} ufrags", "unk", zone.name, i, zone.ufrags?.Length ?? 0);
 				zones.Add((ulong)i, zone);
 				 
 			}
@@ -193,7 +193,7 @@ namespace LibLunacy
 				MemoryStream zonems = new MemoryStream(zonedat);
 				IGFile igzone = new IGFile(zonems);
 				CZone zone = new CZone(igzone, this);
-				Console.WriteLine("[0x{0:X}] Zone {1} (0x{2:X}) has {3} ufrags. ({4})", zonePtrs[i].offset, zone.name, zonePtrs[i].tuid, zone.tfrags.Length, i);
+				Console.WriteLine("[0x{0:X}] Zone {1} (0x{2:X}) has {3} ufrags. ({4})", zonePtrs[i].offset, zone.name, zonePtrs[i].tuid, zone.ufrags.Length, i);
 				zones.Add(zonePtrs[i].tuid, zone);
 			}
 		}

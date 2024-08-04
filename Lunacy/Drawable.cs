@@ -38,14 +38,14 @@ namespace Lunacy
 			SetIndices(indices);
 			SetMaterial(new Material(mesh.shader));
 		}
-		public Drawable(ref CZone.NewTFrag mesh)
+		public Drawable(ref CZone.UFrag mesh)
 		{
 			Prepare();
-			SetVertexPositions(mesh.vPositions);
-			SetVertexTexCoords(mesh.vTexCoords);
-			SetIndices(mesh.indices);
+			SetVertexPositions(mesh.GetVertPositions());
+			SetVertexTexCoords(mesh.GetUVs());
+			SetIndices(mesh.GetIndices());
             //Texture? tex = (mesh.shader.albedo == null ? null : new Texture(mesh.shader.albedo));
-            SetMaterial(new Material(mesh.shader));
+            SetMaterial(new Material(mesh.GetShader()));
         }
 
 		public void Prepare()
