@@ -78,12 +78,12 @@ namespace LibLunacy
 		public struct OldUFrag : UFrag
 		{
 			[FileOffset(0x00)] public ulong tuid;
-			[FileOffset(0x08)] public uint indexOffset;
-			[FileOffset(0x0C)] public uint vertexOffset;
-			[FileOffset(0x0E)] public ushort indexCount;
-			[FileOffset(0x10)] public ushort vertexCount;
-			[FileOffset(0x14)] public ushort shaderIndex;
-			[FileOffset(0x20)] public Vector3 position;
+			[FileOffset(0x40)] public uint indexOffset;
+			[FileOffset(0x44)] public uint vertexOffset;
+			[FileOffset(0x46)] public ushort indexCount;
+			[FileOffset(0x48)] public ushort vertexCount;
+			[FileOffset(0x4E)] public ushort shaderIndex;
+			[FileOffset(0x5E)] public Vector3 position;
 			public float[] vPositions;
 			public float[] vTexCoords;
 			public uint[] indices;
