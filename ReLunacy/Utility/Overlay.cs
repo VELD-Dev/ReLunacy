@@ -6,11 +6,11 @@ namespace ReLunacy.Utility;
 public class Overlay
 {
     public static bool showOverlay = false;
-    public static bool showFramerate = true;
-    public static bool showLevelStats = false;
-    public static bool showProfiler = false;
+    public static bool showFramerate { get => Windows.Singleton.Settings.OverlayFramerate; }
+    public static bool showLevelStats { get => Window.Singleton.Settings.OverlayLevelStats; }
+    public static bool showProfiler { get => Window.Singleton.Settings.OverlayProfiler; }
     public static int location = 0;
-    public static float overlayAlpha = 0.35f;
+    public static float overlayAlpha { get => Window.Singleton.Settings.OverlayOpacity; }
 
     public static void DrawOverlay(bool p_open)
     {
