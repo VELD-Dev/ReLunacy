@@ -114,9 +114,9 @@ public class Window : GameWindow
 
         RenderUI((float)eventArgs.Time);
 
-        if(showOverlay)
+        if(Overlay.showOverlay)
         {
-            //ShowOverlay
+            Overlay.DrawOverlay();
         }
 
         GL.ClearColor(new Color4(0, 0, 0, 255));
@@ -129,7 +129,7 @@ public class Window : GameWindow
 
     protected override void OnUpdateFrame(FrameEventArgs args)
     {
-        if(showOverlay)
+        if(Overlay.showOverlay)
         {
             framerate = (float)Math.Round(1 / (float)args.Time, 1);
         }
