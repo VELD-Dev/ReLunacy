@@ -10,6 +10,7 @@ namespace LibLunacy
 		public Dictionary<ulong, CShader> shaders = new Dictionary<ulong, CShader>();
 		public Dictionary<uint, CTexture> textures = new Dictionary<uint, CTexture>();
 		public Dictionary<ulong, CZone> zones = new Dictionary<ulong, CZone>();
+		public Dictionary<ulong, CZone.UFrag> ufrags = new Dictionary<ulong, CZone.UFrag>();
 		public List<CShader> shaderDB = new List<CShader>();							//Copy of shaders except it's only used on old engine, should probably find a better way to do this
 
 		public AssetLoader(FileManager fileManager)
@@ -175,8 +176,13 @@ namespace LibLunacy
 
 				Console.WriteLine("[0x{0:X}] Zone {1} ({2}) has {3} ufrags", "unk", zone.name, i, zone.ufrags?.Length ?? 0);
 				zones.Add((ulong)i, zone);
-				 
-			}
+
+
+                for (int j = 0; j < zone.ufrags.Length; j++)
+                {
+                    ufrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
+                }
+            }
 		}
 		private void LoadZonesNew()
 		{
@@ -195,6 +201,10 @@ namespace LibLunacy
 				CZone zone = new CZone(igzone, this);
 				Console.WriteLine("[0x{0:X}] Zone {1} (0x{2:X}) has {3} ufrags. ({4})", zonePtrs[i].offset, zone.name, zonePtrs[i].tuid, zone.ufrags.Length, i);
 				zones.Add(zonePtrs[i].tuid, zone);
+				for(int j = 0; j < zone.ufrags.Length; j++)
+				{
+					ufrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
+				}
 			}
 		}
 
