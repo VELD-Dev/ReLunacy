@@ -204,7 +204,7 @@ public class Window : GameWindow
         if(ImGui.BeginMenu("View"))
         {
             ImGui.SeparatorText("Overlay");
-
+            ViewMenuDraw.ShowOverlay();
             ImGui.SeparatorText("Windows");
             ImGui.EndMenu();
         }
