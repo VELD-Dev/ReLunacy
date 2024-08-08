@@ -116,7 +116,7 @@ public class Window : GameWindow
 
         if(Overlay.showOverlay)
         {
-            Overlay.DrawOverlay();
+            Overlay.DrawOverlay(Overlay.showOverlay);
         }
 
         GL.ClearColor(new Color4(0, 0, 0, 255));
