@@ -6,7 +6,7 @@ namespace ReLunacy.Utility;
 public class Overlay
 {
     public static bool showOverlay = false;
-    public static bool showFramerate { get => Windows.Singleton.Settings.OverlayFramerate; }
+    public static bool showFramerate { get => Window.Singleton.Settings.OverlayFramerate; }
     public static bool showLevelStats { get => Window.Singleton.Settings.OverlayLevelStats; }
     public static bool showProfiler { get => Window.Singleton.Settings.OverlayProfiler; }
     public static int location = 0;
@@ -47,13 +47,14 @@ public class Overlay
             {
                 ImGui.Text("Performances");
                 ImGui.Separator();
+                ImGui.BeginGroup();
                 if (showFramerate)
                 {
-                    Vector4 colGreen = new(40, 255, 40, 255);
-                    Vector4 colYellow = new(142, 255, 40, 255);
-                    Vector4 colRed = new(255, 40, 40, 255);
+                    Vector4 colGreen = new(40f/255f, 1, 40f/255f, 1);
+                    Vector4 colYellow = new(142f/255f, 1, 40f/255f, 1);
+                    Vector4 colRed = new(1, 40f/255f, 40f/255f, 1);
                     Vector4 textCol;
-                    float fps = Window.Singleton.framerate;
+                    float fps = PerformanceProfiler.Singleton.Framerate;
                     switch (true)
                     {
                         case true when fps < 15f:
@@ -69,9 +70,30 @@ public class Overlay
 
                     ImGui.Text($"Framerate: ");
                     ImGui.SameLine();
-                    ImGui.TextColored(textCol, $"{fps}FPS");
-
+                    ImGui.TextColored(textCol, $"{Math.Round(fps)}FPS");
                 }
+                if(showProfiler)
+                {
+                    ImGui.Text($"Render delay: {Math.Round(PerformanceProfiler.Singleton.RenderTime, 3)}ms");
+                    ImGui.Text($"Total RAM Usage: {Math.Round(PerformanceProfiler.Singleton.RAMUsage / Math.Pow(10, 6), 2)}MB");
+                    ImGui.Text($"Total VRAM Usage: {Math.Round(PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6), 2)}MB");
+                    ImGui.Text($"Shaders: {MaterialManager.Materials.Count}");
+                }
+                ImGui.EndGroup();
+            }
+            if(showLevelStats)
+            {
+                ImGui.Spacing();
+                ImGui.Text("Level Stats");
+                ImGui.Separator();
+                ImGui.BeginGroup();
+                ImGui.Text($"Loaded level: {(Program.ProvidedPath != "" ? Program.ProvidedPath.Split(Path.PathSeparator)[^1] : "None")}");
+                // ... YES I AM CHEATING, WHAT NOW ?
+                ImGui.Text($"Mobys: {EntityManager.Singleton.Mobys.Count}");
+                ImGui.Text($"Moby Handles: {EntityManager.Singleton.MobyHandles.Count}");
+                ImGui.Text($"Ties: {AssetManager.Singleton.Ties.Count}");
+                ImGui.Text($"UFrags: {AssetManager.Singleton.UFrags.Count}");
+                ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count}");
             }
         }
     }

@@ -11,6 +11,7 @@ public class EditorSettings
     public bool OverlayFramerate;
     public bool OverlayLevelStats;
     public bool OverlayProfiler;
+    public int ProfilerRefreshRate;
     public float OverlayOpacity;
     public Dictionary<string, string> CustomShaders;
 
@@ -28,6 +29,7 @@ public class EditorSettings
         OverlayFramerate = true;
         OverlayLevelStats = false;
         OverlayProfiler = false;
+        ProfilerRefreshRate = 250;
         OverlayOpacity = 0.35f;
         
         CustomShaders = [];

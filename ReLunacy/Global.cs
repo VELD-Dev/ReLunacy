@@ -35,6 +35,7 @@ global using Newtonsoft.Json.Serialization;
 
 global using ReLunacy;
 global using ReLunacy.Frames;
+global using ReLunacy.Frames.DockedFrames;
 global using ReLunacy.MenuBar;
 global using ReLunacy.Engine;
 global using ReLunacy.Engine.Rendering;

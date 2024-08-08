@@ -206,6 +206,7 @@ public class Window : GameWindow
             ImGui.SeparatorText("Overlay");
             ViewMenuDraw.ShowOverlay();
             ImGui.SeparatorText("Windows");
+            ViewMenuDraw.ShowView3D();
             ImGui.EndMenu();
         }
     }

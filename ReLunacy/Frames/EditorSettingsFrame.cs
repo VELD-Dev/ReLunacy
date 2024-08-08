@@ -6,6 +6,7 @@ internal class EditorSettingsFrame : Frame
 
     public EditorSettings Settings => Window.Singleton?.Settings;
     public int currentMsaa = 0;
+    public int currentVSync = (int)Window.Singleton.Settings.VSyncMode;
 
     public EditorSettingsFrame() : base()
     {
@@ -17,7 +18,8 @@ internal class EditorSettingsFrame : Frame
         ImGui.Text("Visual settings");
         ImGui.BeginGroup();
         ImGui.DragFloat("Render distance", ref Settings.RenderDistance);
-        ImGui.Combo("MSAA Level", ref currentMsaa, ["Disabled", "x2", "x4", "x8", "x16", "x32"], 6);
+        ImGui.Combo("MSAA Level", ref currentMsaa, ["Disabled", "x2", "x4", "x8", "x16", "x32"], 5);
+        ImGui.Combo("V-Sync", ref currentVSync, ["Off", "On", "Adaptative"], 3);
         if(ImGui.CollapsingHeader("Advanced"))
         {
             ImGui.Text("Custom shaders");
@@ -36,6 +38,12 @@ internal class EditorSettingsFrame : Frame
 
         ImGui.Text("Overlay settings");
         ImGui.BeginGroup();
+        ImGui.Checkbox("Show Framerate", ref Settings.OverlayFramerate);
+        ImGui.Checkbox("Show Profiler", ref Settings.OverlayProfiler);
+        ImGui.Bullet();
+        ImGui.SameLine();
+        ImGui.DragInt("Profiler Refresh Rate", ref Settings.ProfilerRefreshRate, 50, 0, 1000, "%dms");
+        ImGui.Checkbox("Show Level Stats", ref Settings.OverlayLevelStats);
         ImGui.SliderFloat("Background Opacity", ref Settings.OverlayOpacity, 0f, 1f);
         ImGui.EndGroup();
 
@@ -44,6 +52,7 @@ internal class EditorSettingsFrame : Frame
         ImGui.BeginGroup();
         if(ImGui.Button("Save"))
         {
+            Settings.VSyncMode = (VSyncMode)currentVSync;
             Settings.SaveSettingsToFile();
         }
         ImGui.SameLine();
