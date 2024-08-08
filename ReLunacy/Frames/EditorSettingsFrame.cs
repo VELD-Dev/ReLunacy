@@ -34,6 +34,13 @@ internal class EditorSettingsFrame : Frame
 
         ImGui.Separator();
 
+        ImGui.Text("Overlay settings");
+        ImGui.BeginGroup();
+        ImGui.SliderFloat("Background Opacity", ref Settings.OverlayOpacity, 0f, 1f);
+        ImGui.EndGroup();
+
+        ImGui.Separator();
+
         ImGui.BeginGroup();
         if(ImGui.Button("Save"))
         {
