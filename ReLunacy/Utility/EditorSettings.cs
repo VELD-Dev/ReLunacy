@@ -8,6 +8,9 @@ public class EditorSettings
     public float MaxSpeed;
     public uint MSAA_Level;
     public VSyncMode VSyncMode;
+    public bool OverlayFramerate;
+    public bool OverlayLevelStats;
+    public bool OverlayProfiler;
     public Dictionary<string, string> CustomShaders;
 
     [JsonIgnore]
@@ -21,6 +24,10 @@ public class EditorSettings
         MoveSpeed = 5f;
         MaxSpeed = MoveSpeed * (4f / 3f);
         VSyncMode = VSyncMode.Off;
+        OverlayFramerate = true;
+        OverlayLevelStats = false;
+        OverlayProfiler = false;
+        
         CustomShaders = [];
     }
 
