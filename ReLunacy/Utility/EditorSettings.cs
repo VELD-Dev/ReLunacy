@@ -11,6 +11,7 @@ public class EditorSettings
     public bool OverlayFramerate;
     public bool OverlayLevelStats;
     public bool OverlayProfiler;
+    public float OverlayOpacity;
     public Dictionary<string, string> CustomShaders;
 
     [JsonIgnore]
@@ -27,6 +28,7 @@ public class EditorSettings
         OverlayFramerate = true;
         OverlayLevelStats = false;
         OverlayProfiler = false;
+        OverlayOpacity = 0.35f;
         
         CustomShaders = [];
     }
