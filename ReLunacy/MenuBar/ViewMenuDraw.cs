@@ -10,6 +10,8 @@ internal static class ViewMenuDraw
 {
     internal static void ShowOverlay()
     {
+        if(ImGui.Button("Show Overlay", "", Overlay.showOverlay, true)) return;
         
+        Overlay.showOverlay = !Overlay.showOverlay;
     }
 }
