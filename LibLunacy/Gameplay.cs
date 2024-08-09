@@ -9,6 +9,7 @@ namespace LibLunacy
 
 		public Gameplay(AssetLoader al)
 		{
+			Console.WriteLine("Reading Gameplay.dat.");
 			file = al.fm.igfiles["gameplay.dat"];
 
 			if(al.fm.isOld)

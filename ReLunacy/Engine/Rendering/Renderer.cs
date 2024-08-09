@@ -13,6 +13,7 @@ public class Renderer
 
     Material composite;
     Material screen;
+    Drawable quad;
 
     public Renderer()
     {
@@ -77,21 +78,90 @@ public class Renderer
         fbec = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
         if (fbec != FramebufferErrorCode.FramebufferComplete)
         {
-            throw new Exception($"transFbo incomplete, error {fbec.ToString()}");
+            throw new Exception($"transFbo incomplete, error {fbec}");
         }
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+
+        quad = new();
+        quad.SetVertexPositions([
+            -1, -1,  0,
+            -1,  1,  0,
+             1,  1,  0,
+             1, -1,  0
+        ]);
+        quad.SetVertexTexCoords([
+            0, 0,
+            0, 1,
+            1, 1,
+            1, 0
+        ]);
+        quad.SetIndices([
+            0, 1, 2,
+            2, 3, 0
+        ]);
 
         composite = new Material(MaterialManager.Materials["screenv;compositef"]);
         screen = new Material(MaterialManager.Materials["screenv;screenf"]);
 
         // Create camera perspective
         Camera.Main = new();
-        Camera.Main.SetPerspective(MathHelper.PiOver2, Window.Singleton.ClientSize.X / (float)Window.Singleton.ClientSize.Y, 0.1f, Window.Singleton.Settings.RenderDistance);
+        Camera.Main.SetPerspective(MathHelper.PiOver2, Window.Singleton.ClientSize.X / (float)Window.Singleton.ClientSize.Y, 0.1f, Program.Settings.RenderDistance);
+    }
+
+    internal void RenderFrame()
+    {
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, transFbo);
+        GL.ClearColor(0.1f, 0.1f, 0.1f, 0.1f);
+        GL.Enable(EnableCap.DepthTest);
+        GL.DepthFunc(DepthFunction.Less);
+        GL.DepthMask(true);
+        GL.Disable(EnableCap.DepthTest);
+        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+        EntityManager.Singleton.RenderOpaque();
+
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, transFbo);
+        GL.DepthMask(false);
+        GL.Enable(EnableCap.Blend);
+        GL.BlendFunc(0, BlendingFactorSrc.One, BlendingFactorDest.One);
+        GL.BlendFunc(1, BlendingFactorSrc.Zero, BlendingFactorDest.OneMinusSrcColor);
+        GL.BlendEquation(BlendEquationMode.FuncAdd);
+        GL.ClearBuffer(ClearBuffer.Color, 0, cClearBuf);
+        GL.ClearBuffer(ClearBuffer.Color, 1, dClearBuf);
+
+        EntityManager.Singleton.RenderTransparent();
+
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, opaqueFbo);
+        GL.DepthFunc(DepthFunction.Always);
+        GL.Enable(EnableCap.Blend);
+        GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+
+        quad.SetMaterial(composite);
+        quad.material.SimpleUse();
+        GL.ActiveTexture(TextureUnit.Texture0);
+        GL.BindTexture(TextureTarget.Texture2D, accumTex);
+        GL.ActiveTexture(TextureUnit.Texture1);
+        GL.BindTexture(TextureTarget.Texture2D, revealTex);
+        quad.material.SetInt("accum", 0);
+        quad.material.SetInt("reveal", 1);
+        quad.SimpleDraw();
+
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        GL.Disable(EnableCap.DepthTest);
+        GL.DepthMask(true);
+        GL.Disable(EnableCap.Blend);
+        GL.ClearColor(0, 0, 0, 0);
+
+        quad.SetMaterial(screen);
+        GL.ActiveTexture(TextureUnit.Texture0);
+        GL.BindTexture(TextureTarget.Texture2D, opaqueTex);
+        quad.material.SetInt("screen", 0);
+        quad.SimpleDraw();
     }
 
     public void UpdatePerspective(float aspect)
     {
-        Camera.Main.SetPerspective(MathHelper.PiOver2, aspect, 0.1f, Window.Singleton.Settings.RenderDistance);
+        Camera.Main.SetPerspective(MathHelper.PiOver2, aspect, 0.1f, Program.Settings.RenderDistance);
     }
 }

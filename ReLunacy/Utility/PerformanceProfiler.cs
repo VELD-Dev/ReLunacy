@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Utility;
+﻿using System.Diagnostics;
+
+namespace ReLunacy.Utility;
 
 public class PerformanceProfiler
 {
@@ -11,6 +13,7 @@ public class PerformanceProfiler
     /// </summary>
     public float RenderTime { get; private set; }
     public ulong RAMUsage { get; private set; }
+    public ulong GCRAMUsage { get; private set; }
     public ulong VRAMUsage { get; private set; }
     public readonly DateTime ProfilerStartTime = DateTime.Now;
     public uint FetchInterval
@@ -24,6 +27,8 @@ public class PerformanceProfiler
     }
     private uint fetchInterval = 250;
     private readonly Timer GrabLoop;
+    
+    private Process lunaProcess = Process.GetCurrentProcess();
 
     public PerformanceProfiler()
     {
@@ -32,7 +37,8 @@ public class PerformanceProfiler
 
     private void UpdateProfiler(object? _)
     {
-        RAMUsage = (ulong)GC.GetTotalMemory(true);
+        RAMUsage = (ulong)lunaProcess.PrivateMemorySize64;
+        GCRAMUsage = (ulong)GC.GetTotalMemory(true);
         Framerate = 1f / (float)Window.Singleton.UpdateTime;
         RenderTime = (float)(Window.Singleton.UpdateTime * 1000);
         VRAMUsage = 0;

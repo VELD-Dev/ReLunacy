@@ -22,6 +22,7 @@ namespace LibLunacy
 			isOld = files.Any(x => x.Name == "main.dat");
 			if(isOld)
 			{
+				Console.WriteLine("Luna Engine version: Old");
 				//Load IGFiles
 				LoadFile("main.dat", false);
 				LoadFile("vertices.dat", false);
@@ -39,6 +40,7 @@ namespace LibLunacy
 			}
 			else
 			{
+				Console.WriteLine("Luna Engine version: New");
 				//Load IGFiles
 				LoadFile("gameplay.dat", false);
 				LoadFile("assetlookup.dat", false);
@@ -63,7 +65,8 @@ namespace LibLunacy
 
 			//The following doesn't use as much ram but holds onto files
 			Stream? ms = null;
-			if(File.Exists($"{folderPath}/{name}"))
+			string path = Path.Combine(folderPath, name);
+			if(File.Exists(path))
 			{
 #if READ_TO_MS
 			FileStream fs = File.Open($"{folderPath}/{name}", FileMode.Open, FileAccess.Read);
@@ -71,8 +74,12 @@ namespace LibLunacy
 			fs.CopyTo(ms);
 			fs.Close();
 #else
-				ms = File.Open($"{folderPath}/{name}", FileMode.Open, FileAccess.Read);
+				ms = File.Open(path, FileMode.Open, FileAccess.Read);
 #endif
+			}
+			else
+			{
+				Console.WriteLine($"File '{path}' doesn't exist !");
 			}
 
 			if(isRaw)

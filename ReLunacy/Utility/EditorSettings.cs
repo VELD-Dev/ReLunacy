@@ -13,6 +13,7 @@ public class EditorSettings
     public bool OverlayProfiler;
     public int ProfilerRefreshRate;
     public float OverlayOpacity;
+    internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders;
 
     [JsonIgnore]
@@ -31,7 +32,12 @@ public class EditorSettings
         OverlayProfiler = false;
         ProfilerRefreshRate = 250;
         OverlayOpacity = 0.35f;
-        
+#if DEBUG
+        LogLevel = LunaLog.LogLevel.Debug;
+#else
+        LogLevel = LunaLog.LogLevel.Info;
+#endif
+
         CustomShaders = [];
     }
 

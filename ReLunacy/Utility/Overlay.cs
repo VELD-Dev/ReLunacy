@@ -6,11 +6,11 @@ namespace ReLunacy.Utility;
 public class Overlay
 {
     public static bool showOverlay = false;
-    public static bool showFramerate { get => Window.Singleton.Settings.OverlayFramerate; }
-    public static bool showLevelStats { get => Window.Singleton.Settings.OverlayLevelStats; }
-    public static bool showProfiler { get => Window.Singleton.Settings.OverlayProfiler; }
+    public static bool ShowFramerate { get => Program.Settings.OverlayFramerate; }
+    public static bool ShowLevelStats { get => Program.Settings.OverlayLevelStats; }
+    public static bool ShowProfiler { get => Program.Settings.OverlayProfiler; }
     public static int location = 0;
-    public static float overlayAlpha { get => Window.Singleton.Settings.OverlayOpacity; }
+    public static float OverlayAlpha { get => Program.Settings.OverlayOpacity; }
 
     public static void DrawOverlay(bool p_open)
     {
@@ -40,52 +40,43 @@ public class Overlay
             flags |= ImGuiWindowFlags.NoMove;
         }
 
-        ImGui.SetNextWindowBgAlpha(overlayAlpha);
+        ImGui.SetNextWindowBgAlpha(OverlayAlpha);
         if(ImGui.Begin("Stats Overlay", ref p_open, flags)) 
         {
-            if(showFramerate || showProfiler)
+            if(ShowFramerate || ShowProfiler)
             {
-                ImGui.Text("Performances");
-                ImGui.Separator();
+                ImGui.SeparatorText("Performances");
                 ImGui.BeginGroup();
-                if (showFramerate)
+                if (ShowFramerate)
                 {
                     Vector4 colGreen = new(40f/255f, 1, 40f/255f, 1);
                     Vector4 colYellow = new(142f/255f, 1, 40f/255f, 1);
                     Vector4 colRed = new(1, 40f/255f, 40f/255f, 1);
-                    Vector4 textCol;
                     float fps = PerformanceProfiler.Singleton.Framerate;
-                    switch (true)
+                    var textCol = true switch
                     {
-                        case true when fps < 15f:
-                            textCol = colRed;
-                            break;
-                        case true when fps >= 15f && fps < 50f:
-                            textCol = colYellow;
-                            break;
-                        default:
-                            textCol = colGreen;
-                            break;
-                    }
-
+                        true when fps < 15f => colRed,
+                        true when fps >= 15f && fps < 50f => colYellow,
+                        _ => colGreen,
+                    };
                     ImGui.Text($"Framerate: ");
                     ImGui.SameLine();
                     ImGui.TextColored(textCol, $"{Math.Round(fps)}FPS");
                 }
-                if(showProfiler)
+                if(ShowProfiler)
                 {
                     ImGui.Text($"Render delay: {Math.Round(PerformanceProfiler.Singleton.RenderTime, 3)}ms");
-                    ImGui.Text($"Total RAM Usage: {Math.Round(PerformanceProfiler.Singleton.RAMUsage / Math.Pow(10, 6), 2)}MB");
-                    ImGui.Text($"Total VRAM Usage: {Math.Round(PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6), 2)}MB");
+                    ImGui.Text($"RAM Usage: {Math.Round(PerformanceProfiler.Singleton.RAMUsage / Math.Pow(10, 6), 2)}MB");
+                    ImGui.Text($"GC Size: {Math.Round(PerformanceProfiler.Singleton.GCRAMUsage / Math.Pow(10, 6), 2)}MB");
+                    ImGui.Text($"VRAM Usage: {Math.Round(PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6), 2)}MB");
                     ImGui.Text($"Shaders: {MaterialManager.Materials.Count}");
                 }
                 ImGui.EndGroup();
             }
-            if(showLevelStats)
+            if(ShowLevelStats)
             {
                 ImGui.Spacing();
-                ImGui.Text("Level Stats");
-                ImGui.Separator();
+                ImGui.SeparatorText("Rendering Stats");
                 ImGui.BeginGroup();
                 ImGui.Text($"Loaded level: {(Program.ProvidedPath != "" ? Program.ProvidedPath.Split(Path.PathSeparator)[^1] : "None")}");
                 // ... YES I AM CHEATING, WHAT NOW ?
@@ -94,7 +85,9 @@ public class Overlay
                 ImGui.Text($"Ties: {AssetManager.Singleton.Ties.Count}");
                 ImGui.Text($"UFrags: {AssetManager.Singleton.UFrags.Count}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count}");
+                ImGui.EndGroup();
             }
         }
+        ImGui.End();
     }
 }

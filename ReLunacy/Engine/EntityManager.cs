@@ -5,7 +5,6 @@ public class EntityManager
     private static readonly Lazy<EntityManager> lazy = new(() => new EntityManager());
 
     public static EntityManager Singleton => lazy.Value;
-    public bool loadUfrags = false;
 
     public List<Region> Regions = [];
     public List<CZone> Zones = [];
@@ -19,44 +18,53 @@ public class EntityManager
     internal List<Drawable> opaqueDrawables = [];
     public void LoadGameplay(Gameplay gp)
     {
+        LunaLog.LogDebug("Loading Gameplay into EntityManager.");
         for (int i = 0; i < gp.regions.Length; i++)
         {
+            LunaLog.LogDebug($"Working on Region {i}");
             Regions.Add(gp.regions[i]);
             MobyHandles.Add(gp.regions[i].name, []);
             KeyValuePair<ulong, Region.CMobyInstance>[] mobys = [.. gp.regions[i].mobyInstances];
+            LunaLog.LogDebug($"Loading {mobys.Length} MobyHandles...");
             for (ulong j = 0; j < (ulong)mobys.Length; j++)
             {
                 MobyHandles[gp.regions[i].name].Add(new Entity(mobys[j].Value));
             }
+            LunaLog.LogDebug($"Loading {gp.regions[i].zones.Length} zones...");
             for (int j = 0; j < gp.regions[i].zones.Length; j++)
             {
                 if (Zones.Contains(gp.regions[i].zones[j])) continue;
+
+                LunaLog.LogDebug($"Loading Zone {j}");
 
                 CZone zone = gp.regions[i].zones[j];
                 Zones.Add(zone);
 
                 TieInstances.Add(new List<Entity>());
-                KeyValuePair<ulong, CZone.CTieInstance>[] ties = zone.tieInstances.ToArray();
+                KeyValuePair<ulong, CZone.CTieInstance>[] ties = [.. zone.tieInstances];
+                LunaLog.LogDebug($"Loading {ties.Length} ties...");
                 for (uint k = 0; k < ties.Length; k++)
                 {
                     TieInstances.Last().Add(new Entity(ties[k].Value));
                 }
-                UFrags.Add(new List<Entity>());
-                if (loadUfrags)
+                UFrags.Add([]);
+                LunaLog.LogDebug($"Loading {gp.regions[i].zones[j].ufrags.Length} UFrags");
+                for (uint k = 0; k < gp.regions[i].zones[j].ufrags.Length; k++)
                 {
-                    for (uint k = 0; k < gp.regions[i].zones[j].ufrags.Length; k++)
-                    {
-                        var ufrag = new Entity(gp.regions[i].zones[j].ufrags[k]);
-                        UFrags.Last().Add(ufrag);
-                    }
+                    var ufrag = new Entity(gp.regions[i].zones[j].ufrags[k]);
+                    UFrags.Last().Add(ufrag);
                 }
             }
         }
 
+        LunaLog.LogDebug("Consolidating Mobys");
         AssetManager.Singleton.ConsolidateMobys();
+        LunaLog.LogDebug("Consolidating Ties");
         AssetManager.Singleton.ConsolidateTies();
+        LunaLog.LogDebug("Consolidating UFrags");
         AssetManager.Singleton.ConsolidateUFrags();
 
+        LunaLog.LogDebug("Reallocating drawable lists");
         ReallocDrawableLists();
 
         /*for(int i = 0; i < gp.Zones.Length; i++)

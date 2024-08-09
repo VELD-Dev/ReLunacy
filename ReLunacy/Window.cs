@@ -9,11 +9,11 @@ public class Window : GameWindow
     public static Window? Singleton { get; private set; }
     public static string AppPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
     public string oglVersionStr = "Unknown OpenGL version";
-    public EditorSettings Settings { get; private set; } = EditorSettings.LoadOrCreate(Path.Combine(AppPath, "EditorSettings.json"));
     public ImGuiController controller;
     public List<Frame> openFrames = [];
     public bool showOverlay = false;
     public bool showHoveredObject = false;
+    public bool debugMode = false;
     public float framerate;
     public Vec4 screenSafeSpace;
     public Renderer OGLRenderer { get; private set; }
@@ -27,23 +27,39 @@ public class Window : GameWindow
     public Window(GameWindowSettings gws, NativeWindowSettings nws) : base(gws, nws)
     {
         Singleton = this;
-        VSync = Settings.VSyncMode;
+        VSync = Program.Settings.VSyncMode;
     }
 
     public async void LoadLevel(string path)
     {
-        FileManager = new();
-        var lfTask = Task.Run(() => FileManager.LoadFolder(path));
-        AssetLoader = new(FileManager);
-        var laTask = Task.Run(() => AssetLoader.LoadAssets());
+        LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
 
-        await laTask;
+        FileManager = new();
+        LunaLog.LogDebug("Starting FileManager threaded task.");
+        var fmTask = Task.Run(() => FileManager.LoadFolder(path));
+
+        LunaLog.LogDebug("Awaiting for FileManager to finish its work");
+        await fmTask;
+        AssetLoader = new(FileManager);
+        LunaLog.LogDebug("Starting AssetLoader threaded task.");
+        var alTask = Task.Run(() => AssetLoader.LoadAssets());
+
+        LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
+        await alTask;
+
+        LunaLog.LogDebug("AssetLoader done. Initializing AssetManager.");
         AssetManager.Singleton.Initialize(AssetLoader);
+
+
+        LunaLog.LogDebug("Starting Gameplay threaded task.");
 
         var gpTask = Task.Run(() => Gameplay = new(AssetLoader));
 
+        LunaLog.LogDebug("Awaiting for Gameplay to finish its work...");
         await gpTask;
+        LunaLog.LogDebug("Loading Gameplay into EntityManager.");
         EntityManager.Singleton.LoadGameplay(Gameplay);
+        LunaLog.LogDebug("Level loaded.");
     }
 
     public void AddFrame(Frame frame)
@@ -75,6 +91,7 @@ public class Window : GameWindow
 
     protected override void OnLoad()
     {
+        LunaLog.LogInfo("Loading window.");
         base.OnLoad();
 
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
@@ -84,6 +101,7 @@ public class Window : GameWindow
 
         screenSafeSpace = new(0, 0, ImGui.GetMainViewport().Size.X, ImGui.GetMainViewport().Size.Y);
 
+        LunaLog.LogInfo("Loading the OpenGL renderer.");
         OGLRenderer = new Renderer();
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
@@ -112,15 +130,14 @@ public class Window : GameWindow
 
         controller?.Update(this, (float)eventArgs.Time);
 
+        OGLRenderer.RenderFrame();
+
         RenderUI((float)eventArgs.Time);
 
         if(Overlay.showOverlay)
         {
             Overlay.DrawOverlay(Overlay.showOverlay);
         }
-
-        GL.ClearColor(new Color4(0, 0, 0, 255));
-        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
 
         controller?.Render();
 

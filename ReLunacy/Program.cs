@@ -6,8 +6,10 @@ internal class Program
     public const string AppDisplayName = "ReLunacy";
     public const string Version = "0.01";
     public static string ProvidedPath = "";
+    public static string AppPath { get => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
 
     public static Window MainWindow { get => Window.Singleton; }
+    public static EditorSettings Settings { get; private set; } = EditorSettings.LoadOrCreate(Path.Combine(AppPath, "EditorSettings.json"));
 
     internal static GameWindowSettings gameWindowSettings = new();
     internal static NativeWindowSettings nativeWindowSettings = new()
@@ -22,6 +24,7 @@ internal class Program
 
     static void Main(string[] args)
     {
+        LunaLog.LogInfo($"ReLunacy v{Version} by VELD-Dev. Fork of Lunacy, by NefariousTechSupport.");
         cmds = args;
         Console.Title = AppName;
         Window wnd = new(gameWindowSettings, nativeWindowSettings);

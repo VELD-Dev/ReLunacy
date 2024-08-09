@@ -10,8 +10,10 @@ namespace LibLunacy
 		public Dictionary<ulong, CShader> shaders = new Dictionary<ulong, CShader>();
 		public Dictionary<uint, CTexture> textures = new Dictionary<uint, CTexture>();
 		public Dictionary<ulong, CZone> zones = new Dictionary<ulong, CZone>();
-		public Dictionary<ulong, CZone.UFrag> ufrags = new Dictionary<ulong, CZone.UFrag>();
-		public List<CShader> shaderDB = new List<CShader>();							//Copy of shaders except it's only used on old engine, should probably find a better way to do this
+		public Dictionary<ulong, Dictionary<ulong, CZone.UFrag>> ufrags = new();
+
+		public List<CShader> shaderDB = new List<CShader>();
+		//Copy of shaders except it's only used on old engine, should probably find a better way to do this
 
 		public AssetLoader(FileManager fileManager)
 		{
@@ -42,7 +44,16 @@ namespace LibLunacy
 		}
 		private void LoadMobysNew()
 		{
-			IGFile assetlookup = fm.igfiles["assetlookup.dat"];
+			if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
+			{
+				Console.WriteLine("Cannot find assetlookup.dat.");
+				return;
+			}
+			if (assetlookup is null)
+			{
+				Console.WriteLine("Assetlookup is null.");
+				return;
+			}
 			IGFile.SectionHeader mobySection = assetlookup.QuerySection(0x1D600);
 			assetlookup.sh.Seek(mobySection.offset);
 			AssetPointer[] mobyPtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, mobySection.length / 0x10);
@@ -77,9 +88,18 @@ namespace LibLunacy
 			}
 		}
 		private void LoadTiesNew()
-		{
-			IGFile assetlookup = fm.igfiles["assetlookup.dat"];
-			IGFile.SectionHeader tieSection = assetlookup.QuerySection(0x1D300);
+        {
+            if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
+            {
+                Console.WriteLine("Cannot find assetlookup.dat.");
+                return;
+            }
+            if (assetlookup is null)
+            {
+                Console.WriteLine("Assetlookup is null.");
+                return;
+            }
+            IGFile.SectionHeader tieSection = assetlookup.QuerySection(0x1D300);
 			assetlookup.sh.Seek(tieSection.offset);
 			AssetPointer[] tiePtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, tieSection.length / 0x10);
 			Stream tieStream = fm.rawfiles["ties.dat"];
@@ -114,9 +134,18 @@ namespace LibLunacy
 			}
 		}
 		private void LoadShadersNew()
-		{
-			IGFile assetlookup = fm.igfiles["assetlookup.dat"];
-			IGFile.SectionHeader shaderSection = assetlookup.QuerySection(0x1D100);
+        {
+            if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
+            {
+                Console.WriteLine("Cannot find assetlookup.dat.");
+                return;
+            }
+            if (assetlookup is null)
+            {
+                Console.WriteLine("Assetlookup is null.");
+                return;
+            }
+            IGFile.SectionHeader shaderSection = assetlookup.QuerySection(0x1D100);
 			assetlookup.sh.Seek(shaderSection.offset);
 			AssetPointer[] shaderPtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, shaderSection.length / 0x10);
 			Stream shaderStream = fm.rawfiles["shaders.dat"];
@@ -148,9 +177,18 @@ namespace LibLunacy
 			}
 		}
 		private void LoadTexturesNew()
-		{
-			IGFile assetlookup = fm.igfiles["assetlookup.dat"];
-			IGFile.SectionHeader highmipSection = assetlookup.QuerySection(0x1D1C0);
+        {
+            if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
+            {
+                Console.WriteLine("Cannot find assetlookup.dat.");
+                return;
+            }
+            if (assetlookup is null)
+            {
+                Console.WriteLine("Assetlookup is null.");
+                return;
+            }
+            IGFile.SectionHeader highmipSection = assetlookup.QuerySection(0x1D1C0);
 			assetlookup.sh.Seek(highmipSection.offset);
 			AssetPointer[] highmips = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, highmipSection.length / 0x10);
 
@@ -173,20 +211,30 @@ namespace LibLunacy
 			for (int i = 0; i < zoneSection.count; i++)
 			{
 				CZone zone = new(main, this);
+				zone.index = i;
 
 				Console.WriteLine("[0x{0:X}] Zone {1} ({2}) has {3} ufrags", "unk", zone.name, i, zone.ufrags?.Length ?? 0);
 				zones.Add((ulong)i, zone);
 
-
+				ufrags.Add((ulong)zone.index, new());
+				var locUfrags = ufrags[(ulong)zone.index];
                 for (int j = 0; j < zone.ufrags.Length; j++)
                 {
-                    ufrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
+                    locUfrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
                 }
             }
 		}
 		private void LoadZonesNew()
-		{
-			IGFile assetlookup = fm.igfiles["assetlookup.dat"];
+		{			if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
+			{
+				Console.WriteLine("Cannot find assetlookup.dat.");
+				return;
+			}
+			if (assetlookup is null)
+			{
+				Console.WriteLine("Assetlookup is null.");
+				return;
+			}
 			IGFile.SectionHeader zoneSection = assetlookup.QuerySection(0x1DA00);
 			assetlookup.sh.Seek(zoneSection.offset);
 			AssetPointer[] zonePtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, zoneSection.length / 0x10);
@@ -197,15 +245,19 @@ namespace LibLunacy
 				zoneStream.Seek(zonePtrs[i].offset, SeekOrigin.Begin);
 				zoneStream.Read(zonedat, 0x00, (int)zonePtrs[i].length);
 				MemoryStream zonems = new MemoryStream(zonedat);
-				IGFile igzone = new IGFile(zonems);
-				CZone zone = new CZone(igzone, this);
-				Console.WriteLine("[0x{0:X}] Zone {1} (0x{2:X}) has {3} ufrags. ({4})", zonePtrs[i].offset, zone.name, zonePtrs[i].tuid, zone.ufrags.Length, i);
+				IGFile igzone = new(zonems);
+				CZone zone = new(igzone, this) { index = i };
+				Console.WriteLine($"[0x{zonePtrs[i].offset:X}] Zone {zone.index} {zone.name} (0x{zonePtrs[i].tuid:X}) has {zone.ufrags.Length} ufrags.");
 				zones.Add(zonePtrs[i].tuid, zone);
+				
+				var localUfrags = new Dictionary<ulong, CZone.UFrag>();
 				for(int j = 0; j < zone.ufrags.Length; j++)
 				{
-					ufrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
+					localUfrags.TryAdd(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
 				}
-			}
+				ufrags.Add((ulong)zone.index, localUfrags);
+
+            }
 		}
 
 		public void Dispose()
