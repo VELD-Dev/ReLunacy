@@ -1,6 +1,6 @@
 ﻿namespace ReLunacy.Engine.Rendering;
 
-public class Texture
+public unsafe class Texture
 {
     public int textureId;
     public CTexture.TexFormat format;

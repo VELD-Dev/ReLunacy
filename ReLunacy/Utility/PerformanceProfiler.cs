@@ -8,6 +8,16 @@ public class PerformanceProfiler
     public static PerformanceProfiler Singleton => lazy.Value;
 
     public float Framerate { get; private set; }
+    public float FramerateAvg
+    {
+        get
+        {
+            if (framerateSamples.Count < 2) return float.NaN;
+            int sampleSize = Program.Settings.ProfilerFrameSampleSize - 1;
+            sampleSize = Math.Clamp(sampleSize, 1, framerateSamples.Count - 1);
+            return framerateSamples[0..sampleSize].Average();
+        }
+    }
     /// <summary>
     /// In milliseconds.
     /// </summary>
@@ -25,10 +35,12 @@ public class PerformanceProfiler
             GrabLoop.Change(0, value);
         }
     }
+
     private uint fetchInterval = 250;
+
+    private readonly List<float> framerateSamples = new(1000);
     private readonly Timer GrabLoop;
-    
-    private Process lunaProcess = Process.GetCurrentProcess();
+    private readonly Process lunaProcess = Process.GetCurrentProcess();
 
     public PerformanceProfiler()
     {
@@ -40,8 +52,10 @@ public class PerformanceProfiler
         RAMUsage = (ulong)lunaProcess.PrivateMemorySize64;
         GCRAMUsage = (ulong)GC.GetTotalMemory(true);
         Framerate = 1f / (float)Window.Singleton.UpdateTime;
+        framerateSamples.Insert(0, Framerate);
         RenderTime = (float)(Window.Singleton.UpdateTime * 1000);
         VRAMUsage = 0;
+        lunaProcess.Refresh();
     }
 
     public void Dispose()

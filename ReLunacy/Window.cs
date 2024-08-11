@@ -1,6 +1,13 @@
 ﻿using ReLunacy.Engine.Rendering;
 using Vec2 = System.Numerics.Vector2;
+using Vector2 = OpenTK.Mathematics.Vector2;
+using Vec3 = System.Numerics.Vector3;
+using Vector3 = OpenTK.Mathematics.Vector3;
 using Vec4 = System.Numerics.Vector4;
+using Vector4 = OpenTK.Mathematics.Vector4;
+using Quaternion = OpenTK.Mathematics.Quaternion;
+using Keys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
+using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
 
 namespace ReLunacy;
 
@@ -13,9 +20,9 @@ public class Window : GameWindow
     public List<Frame> openFrames = [];
     public bool showOverlay = false;
     public bool showHoveredObject = false;
-    public bool debugMode = false;
     public float framerate;
     public Vec4 screenSafeSpace;
+    public Vector2 freecamLocal;
     public Renderer OGLRenderer { get; private set; }
 
     public AssetLoader AssetLoader { get; private set; }
@@ -151,6 +158,35 @@ public class Window : GameWindow
             framerate = (float)Math.Round(1 / (float)args.Time, 1);
         }
 
+        float moveSpeed = Program.Settings.CamMoveSpeed;
+        float sensivity = Program.Settings.CamSensivity; // Change to settings later
+
+        if (KeyboardState.IsKeyDown(Keys.LeftShift)) moveSpeed = Program.Settings.CamMaxSpeed;
+
+        var camTransform = Camera.Main.transform;
+
+        if (KeyboardState.IsKeyDown(Keys.W)) camTransform.position += camTransform.Forward * (float)args.Time * moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.A)) camTransform.position += camTransform.Right * (float)args.Time * moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.S)) camTransform.position -= camTransform.Forward * (float)args.Time * moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.D)) camTransform.position -= camTransform.Right * (float)args.Time * moveSpeed;
+        if (KeyboardState.IsKeyDown(Keys.E)) camTransform.position += (0, 0, (float)args.Time * moveSpeed);
+        if (KeyboardState.IsKeyDown(Keys.Q)) camTransform.position -= (0, 0, (float)args.Time * moveSpeed);
+
+        if (MouseState.IsButtonDown(MouseButton.Right))
+        {
+            CursorState = CursorState.Grabbed;
+
+            freecamLocal += MouseState.Delta * sensivity;
+
+            freecamLocal.X = MathHelper.Clamp(freecamLocal.X, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
+
+            camTransform.SetRotation(Quaternion.FromAxisAngle(Vector3.UnitX, freecamLocal.X) * Quaternion.FromAxisAngle(Vector3.UnitY, freecamLocal.Y));
+        }
+        else if (MouseState.IsButtonReleased(MouseButton.Right))
+        {
+            CursorState = CursorState.Normal;
+        }
+
         base.OnUpdateFrame(args);
     }
 
@@ -226,5 +262,7 @@ public class Window : GameWindow
             ViewMenuDraw.ShowView3D();
             ImGui.EndMenu();
         }
+
+        DebugMenuDraw.Menu();
     }
 }

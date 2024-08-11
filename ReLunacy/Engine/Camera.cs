@@ -1,4 +1,4 @@
-﻿namespace ReLunacy.Utility;
+﻿namespace ReLunacy.Engine;
 
 public class Camera
 {
@@ -11,9 +11,9 @@ public class Camera
     private float _farClip;
 
     public float FOV
-    { 
-        get => _fov; 
-        set 
+    {
+        get => _fov;
+        set
         {
             _fov = value;
             UpdatePerspective();

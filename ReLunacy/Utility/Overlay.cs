@@ -9,8 +9,21 @@ public class Overlay
     public static bool ShowFramerate { get => Program.Settings.OverlayFramerate; }
     public static bool ShowLevelStats { get => Program.Settings.OverlayLevelStats; }
     public static bool ShowProfiler { get => Program.Settings.OverlayProfiler; }
+    public static bool ShowCamInfo { get => Program.Settings.OverlayCamInfo; }
     public static int location = 0;
     public static float OverlayAlpha { get => Program.Settings.OverlayOpacity; }
+
+    private static string levelName
+    {
+        get
+        {
+            if (Program.ProvidedPath == "") return "None";
+
+            List<string> chunks = [.. Program.ProvidedPath.Split(Path.DirectorySeparatorChar)];
+            chunks.RemoveAll(s => s == "");
+            return chunks[^1];
+        }
+    }
 
     public static void DrawOverlay(bool p_open)
     {
@@ -61,15 +74,16 @@ public class Overlay
                     };
                     ImGui.Text($"Framerate: ");
                     ImGui.SameLine();
-                    ImGui.TextColored(textCol, $"{Math.Round(fps)}FPS");
+                    ImGui.TextColored(textCol, $"{fps:N0}FPS");
                 }
                 if(ShowProfiler)
                 {
-                    ImGui.Text($"Render delay: {Math.Round(PerformanceProfiler.Singleton.RenderTime, 3)}ms");
-                    ImGui.Text($"RAM Usage: {Math.Round(PerformanceProfiler.Singleton.RAMUsage / Math.Pow(10, 6), 2)}MB");
-                    ImGui.Text($"GC Size: {Math.Round(PerformanceProfiler.Singleton.GCRAMUsage / Math.Pow(10, 6), 2)}MB");
-                    ImGui.Text($"VRAM Usage: {Math.Round(PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6), 2)}MB");
-                    ImGui.Text($"Shaders: {MaterialManager.Materials.Count}");
+                    ImGui.Text($"Framerate Avg.: {PerformanceProfiler.Singleton.FramerateAvg:N0}FPS");
+                    ImGui.Text($"Render delay: {PerformanceProfiler.Singleton.RenderTime:N3}ms");
+                    ImGui.Text($"RAM Usage: {PerformanceProfiler.Singleton.RAMUsage / Math.Pow(10, 6):N2}MB");
+                    ImGui.Text($"GC Size: {PerformanceProfiler.Singleton.GCRAMUsage / Math.Pow(10, 6):N2}MB");
+                    ImGui.Text($"VRAM Usage: {PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6):N2}MB");
+                    ImGui.Text($"Shaders: {MaterialManager.Materials.Count:N0}");
                 }
                 ImGui.EndGroup();
             }
@@ -78,13 +92,25 @@ public class Overlay
                 ImGui.Spacing();
                 ImGui.SeparatorText("Rendering Stats");
                 ImGui.BeginGroup();
-                ImGui.Text($"Loaded level: {(Program.ProvidedPath != "" ? Program.ProvidedPath.Split(Path.PathSeparator)[^1] : "None")}");
+                ImGui.Text($"Loaded level: {levelName}");
                 // ... YES I AM CHEATING, WHAT NOW ?
-                ImGui.Text($"Mobys: {EntityManager.Singleton.Mobys.Count}");
-                ImGui.Text($"Moby Handles: {EntityManager.Singleton.MobyHandles.Count}");
-                ImGui.Text($"Ties: {AssetManager.Singleton.Ties.Count}");
-                ImGui.Text($"UFrags: {AssetManager.Singleton.UFrags.Count}");
-                ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count}");
+                ImGui.Text($"Mobys: {EntityManager.Singleton.Mobys.Count:N0}");
+                ImGui.Text($"Moby Handles: {EntityManager.Singleton.MobyHandles.Count:N0}");
+                ImGui.Text($"Ties: {AssetManager.Singleton.Ties.Count:N0}");
+                ImGui.Text($"UFrags: {AssetManager.Singleton.UFrags.Count:N0}");
+                ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
+                ImGui.EndGroup();
+            }
+            if(ShowCamInfo)
+            {
+                float x, y;
+                x = Camera.Main.transform.eulerRotation.X * (180f / MathHelper.Pi);
+                y = Camera.Main.transform.eulerRotation.Y * (180f / MathHelper.Pi);
+                ImGui.Spacing();
+                ImGui.SeparatorText("Camera Info");
+                ImGui.BeginGroup();
+                ImGui.Text($"Position: {Camera.Main.transform.position:N3}");
+                ImGui.Text($"Rotation: ({x:N3}°, {y:N3}°)");
                 ImGui.EndGroup();
             }
         }

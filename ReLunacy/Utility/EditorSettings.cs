@@ -4,17 +4,24 @@ public class EditorSettings
 {
     public bool DebugMode;
     public float RenderDistance;
-    public float MoveSpeed;
-    public float MaxSpeed;
+    public float CamMoveSpeed;
+    public float CamMaxSpeed;
+    public float CamFOV;
+    public float CamSensivity;
     public uint MSAA_Level;
     public VSyncMode VSyncMode;
     public bool OverlayFramerate;
     public bool OverlayLevelStats;
     public bool OverlayProfiler;
+    public bool OverlayCamInfo;
     public int ProfilerRefreshRate;
+    public int ProfilerFrameSampleSize;
     public float OverlayOpacity;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders;
+
+    [JsonIgnore]
+    public float CamFOVRad { get => CamFOV * (MathHelper.Pi / 180f); }
 
     [JsonIgnore]
     public string SettingsFilePath { get; private set; }
@@ -24,13 +31,17 @@ public class EditorSettings
     {
         DebugMode = false;
         RenderDistance = 300f;
-        MoveSpeed = 5f;
-        MaxSpeed = MoveSpeed * (4f / 3f);
+        CamMoveSpeed = 5f;
+        CamMaxSpeed = CamMoveSpeed * (4f / 3f);
+        CamFOV = 90f;
+        CamSensivity = 0.01f;
         VSyncMode = VSyncMode.Off;
         OverlayFramerate = true;
         OverlayLevelStats = false;
         OverlayProfiler = false;
+        OverlayCamInfo = false;
         ProfilerRefreshRate = 250;
+        ProfilerFrameSampleSize = 10;
         OverlayOpacity = 0.35f;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;

@@ -106,13 +106,13 @@ public class Renderer
 
         // Create camera perspective
         Camera.Main = new();
-        Camera.Main.SetPerspective(MathHelper.PiOver2, Window.Singleton.ClientSize.X / (float)Window.Singleton.ClientSize.Y, 0.1f, Program.Settings.RenderDistance);
+        Camera.Main.SetPerspective(Program.Settings.CamFOVRad, Window.Singleton.ClientSize.X / (float)Window.Singleton.ClientSize.Y, 0.1f, Program.Settings.RenderDistance);
     }
 
     internal void RenderFrame()
     {
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, transFbo);
-        GL.ClearColor(0.1f, 0.1f, 0.1f, 0.1f);
+        GL.ClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Less);
         GL.DepthMask(true);
@@ -162,6 +162,6 @@ public class Renderer
 
     public void UpdatePerspective(float aspect)
     {
-        Camera.Main.SetPerspective(MathHelper.PiOver2, aspect, 0.1f, Program.Settings.RenderDistance);
+        Camera.Main.SetPerspective(Program.Settings.CamFOVRad, aspect, 0.1f, Program.Settings.RenderDistance);
     }
 }

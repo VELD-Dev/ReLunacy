@@ -2,7 +2,7 @@
 
 public abstract class Frame
 {
-    private string frameName = "frame";
+    protected string frameName = "frame";
     public string FrameName { get => frameName.Split("###")[0].TrimEnd(); set => frameName = $"{value} ###{frameId}"; }
     protected abstract ImGuiWindowFlags WindowFlags { get; set; }
     public bool isOpen = true;
