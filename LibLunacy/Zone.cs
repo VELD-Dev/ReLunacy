@@ -44,12 +44,12 @@ namespace LibLunacy
 			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x30)] public Vector3 position;
 			[FileOffset(0x40)] public uint indexOffset;
-			[FileOffset(0x44)] public uint vertexOffset;
+            [FileOffset(0x44)] public uint vertexOffset;
 			[FileOffset(0x48)] public ushort indexCount;
 			[FileOffset(0x4A)] public ushort vertexCount;
 			[FileOffset(0x50)] public ushort shaderIndex;
             public float[] vPositions;
-			public float[] vTexCoords;
+            public float[] vTexCoords;
 			public uint[] indices;
 			public CShader shader;
 
@@ -74,16 +74,16 @@ namespace LibLunacy
             public void SetVertPositions(float[] vpos) => vPositions = vpos;
         }
 
-		[FileStructure(0x88)]
+		[FileStructure(0x80)]
 		public struct OldUFrag : UFrag
 		{
 			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x40)] public uint indexOffset;
 			[FileOffset(0x44)] public uint vertexOffset;
-			[FileOffset(0x46)] public ushort indexCount;
-			[FileOffset(0x48)] public ushort vertexCount;
-			[FileOffset(0x4E)] public ushort shaderIndex;
-			[FileOffset(0x5E)] public Vector3 position;
+			[FileOffset(0x48)] public ushort indexCount;
+			[FileOffset(0x4A)] public ushort vertexCount;
+			[FileOffset(0x50)] public ushort shaderIndex;
+			[FileOffset(0x60)] public Vector3 position;
 			public float[] vPositions;
 			public float[] vTexCoords;
 			public uint[] indices;

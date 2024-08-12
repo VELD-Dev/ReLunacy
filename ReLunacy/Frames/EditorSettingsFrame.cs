@@ -22,7 +22,7 @@ internal class EditorSettingsFrame : Frame
             if(ImGui.BeginTabItem("Visual settings"))
             {
                 ImGui.BeginGroup();
-                ImGui.DragFloat("Render distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%f.1m");
+                ImGui.DragFloat("Render distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.Combo("MSAA Level", ref currentMsaa, ["Disabled", "x2", "x4", "x8", "x16", "x32"], 5);
                 ImGui.Combo("V-Sync", ref currentVSync, ["Off", "On", "Adaptative"], 3);
                 if (ImGui.CollapsingHeader("Advanced"))

@@ -11,6 +11,8 @@ public class Renderer
     float[] cClearBuf = [0, 0, 0, 1];
     float[] dClearBuf = [1, 1, 1, 1];
 
+    public static readonly Color4 ClearColour = new(48, 96, 48, 255);
+
     Material composite;
     Material screen;
     Drawable quad;
@@ -112,7 +114,7 @@ public class Renderer
     internal void RenderFrame()
     {
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, transFbo);
-        GL.ClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        GL.ClearColor(ClearColour);
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Less);
         GL.DepthMask(true);

@@ -18,6 +18,27 @@ public class PerformanceProfiler
             return framerateSamples[0..sampleSize].Average();
         }
     }
+    public float FramerateMin
+    {
+        get
+        {
+            if(framerateSamples.Count < 2) return float.NaN;
+            int sampleSize = Program.Settings.ProfilerFrameSampleSize - 1;
+            sampleSize = Math.Clamp(sampleSize, 1, framerateSamples.Count - 1);
+            return framerateSamples[0..sampleSize].Min();
+        }
+    }
+    public float FramerateMax
+    {
+        get
+        {
+            if(framerateSamples.Count < 2) return float.NaN;
+            int sampleSize = Program.Settings.ProfilerFrameSampleSize - 1;
+            sampleSize = Math.Clamp(sampleSize, 1, framerateSamples.Count - 1);
+            return framerateSamples[0..sampleSize].Max();
+        }
+    }
+
     /// <summary>
     /// In milliseconds.
     /// </summary>
@@ -26,6 +47,7 @@ public class PerformanceProfiler
     public ulong GCRAMUsage { get; private set; }
     public ulong VRAMUsage { get; private set; }
     public readonly DateTime ProfilerStartTime = DateTime.Now;
+    public int Threads { get; private set; }
     public uint FetchInterval
     {
         get => fetchInterval;
@@ -54,6 +76,7 @@ public class PerformanceProfiler
         Framerate = 1f / (float)Window.Singleton.UpdateTime;
         framerateSamples.Insert(0, Framerate);
         RenderTime = (float)(Window.Singleton.UpdateTime * 1000);
+        Threads = Process.GetCurrentProcess().Threads.Count;
         VRAMUsage = 0;
         lunaProcess.Refresh();
     }
