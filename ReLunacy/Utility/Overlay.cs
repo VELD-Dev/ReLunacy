@@ -86,7 +86,7 @@ public class Overlay
                     ImGui.Text($"GC Size: {PerformanceProfiler.Singleton.GCRAMUsage / Math.Pow(10, 6):N2}MB");
                     ImGui.Text($"VRAM Usage: {PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6):N2}MB");
                     ImGui.Text($"Shaders: {MaterialManager.Materials.Count:N0}");
-                    ImGui.Text($"Threads: {PerformanceProfiler.Singleton.Threads:N0}");
+                    ImGui.Text($"Threads: {PerformanceProfiler.Singleton.Threads:N0}"); 
                 }
                 ImGui.EndGroup();
             }

@@ -8,6 +8,7 @@ using Vector4 = OpenTK.Mathematics.Vector4;
 using Quaternion = OpenTK.Mathematics.Quaternion;
 using Keys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
 using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
+using ReLunacy.Frames.ModalFrames;
 
 namespace ReLunacy;
 
@@ -39,34 +40,62 @@ public class Window : GameWindow
 
     public async void LoadLevel(string path)
     {
+        var loadingFrame = new LoadingModal([
+            new("Loading level", new(0, 5)),
+            new("Loading files...", new(0, 1))
+        ]);
+        AddFrame(loadingFrame);
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
 
         FileManager = new();
         LunaLog.LogDebug("Starting FileManager threaded task.");
         var fmTask = Task.Run(() => FileManager.LoadFolder(path));
-
         LunaLog.LogDebug("Awaiting for FileManager to finish its work");
         await fmTask;
+        loadingFrame.UpdateProgress(0, new(1, 5));
+        loadingFrame.UpdateProgress(1, new(1, 1));
+
+        Thread.Sleep(100);
+
+        loadingFrame.UpdateProgress(1, new(0, 1), "Loading assets...");
         AssetLoader = new(FileManager);
         LunaLog.LogDebug("Starting AssetLoader threaded task.");
         var alTask = Task.Run(() => AssetLoader.LoadAssets());
-
         LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
         await alTask;
+        loadingFrame.UpdateProgress(0, new(2, 5));
+        loadingFrame.UpdateProgress(1, new(1, 1));
+
+        Thread.Sleep(100);
 
         LunaLog.LogDebug("AssetLoader done. Initializing AssetManager.");
+        loadingFrame.UpdateProgress(1, new(0, 1), "Loading asset manager...");
         AssetManager.Singleton.Initialize(AssetLoader);
+        loadingFrame.UpdateProgress(0, new(3, 5));
+        loadingFrame.UpdateProgress(1, new(1, 1));
 
+        Thread.Sleep(100);
 
         LunaLog.LogDebug("Starting Gameplay threaded task.");
 
+        loadingFrame.UpdateProgress(1, new(0, 1), "Loading gameplay data...");
         var gpTask = Task.Run(() => Gameplay = new(AssetLoader));
 
         LunaLog.LogDebug("Awaiting for Gameplay to finish its work...");
         await gpTask;
+        loadingFrame.UpdateProgress(0, new(4, 5));
+        loadingFrame.UpdateProgress(1, new(1, 1));
+
+        Thread.Sleep(100);
+
         LunaLog.LogDebug("Loading Gameplay into EntityManager.");
+        loadingFrame.UpdateProgress(1, new(0, 1), "Initializing entity manager...");
         EntityManager.Singleton.LoadGameplay(Gameplay);
+        loadingFrame.UpdateProgress(0, new(5, 5));
+        loadingFrame.UpdateProgress(1, new(1, 1));
         LunaLog.LogDebug("Level loaded.");
+        Thread.Sleep(500);
+        loadingFrame.CloseModal();
     }
 
     public void AddFrame(Frame frame)
@@ -104,12 +133,13 @@ public class Window : GameWindow
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
         Title = $"{Program.AppDisplayName} {Program.Version} ({oglVersionStr})";
 
+        OGLRenderer = new Renderer();
+
         controller = new ImGuiController(ClientSize.X, ClientSize.Y);
 
         screenSafeSpace = new(0, 0, ImGui.GetMainViewport().Size.X, ImGui.GetMainViewport().Size.Y);
 
         LunaLog.LogInfo("Loading the OpenGL renderer.");
-        OGLRenderer = new Renderer();
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 5f);
@@ -122,7 +152,7 @@ public class Window : GameWindow
     {
         base.OnResize(e);
 
-        GL.Viewport(0, 0, ClientSize.X, ClientSize.Y);
+        OGLRenderer.OnResize(new(ClientSize.X, ClientSize.Y));
 
         controller?.WindowResized(ClientSize.X, ClientSize.Y);
     }
@@ -133,18 +163,16 @@ public class Window : GameWindow
 
         openFrames.RemoveAll(FrameMustClose);
 
-        GL.Viewport(0, 0, ClientSize.X, ClientSize.Y);
-
         controller?.Update(this, (float)eventArgs.Time);
 
         OGLRenderer.RenderFrame();
 
-        RenderUI((float)eventArgs.Time);
-
-        if(Overlay.showOverlay)
+        if (Overlay.showOverlay)
         {
             Overlay.DrawOverlay(Overlay.showOverlay);
         }
+
+        RenderUI((float)eventArgs.Time);
 
         controller?.Render();
 
@@ -213,6 +241,7 @@ public class Window : GameWindow
         {
             frame.RenderAsWindow(deltaTime);
         }
+        ImGui.End();
     }
 
     private void RenderDockSpace()
@@ -230,8 +259,9 @@ public class Window : GameWindow
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
+        ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0);
         ImGui.Begin("dockspace", windowFlags);
-        ImGui.PopStyleVar(2);
+        ImGui.PopStyleVar();
 
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.DockSpace(dockspaceId, new Vec2(0, 0), ImGuiDockNodeFlags.None);

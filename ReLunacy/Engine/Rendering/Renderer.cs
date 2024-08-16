@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Engine.Rendering;
+﻿using Vector2 = System.Numerics.Vector2;
+
+namespace ReLunacy.Engine.Rendering;
 
 public class Renderer
 {
@@ -11,7 +13,7 @@ public class Renderer
     float[] cClearBuf = [0, 0, 0, 1];
     float[] dClearBuf = [1, 1, 1, 1];
 
-    public static readonly Color4 ClearColour = new(48, 96, 48, 255);
+    public static readonly Color4 ClearColour = new(48, 48, 96, 255);
 
     Material composite;
     Material screen;
@@ -52,7 +54,7 @@ public class Renderer
         FramebufferErrorCode fbec = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
         if (fbec != FramebufferErrorCode.FramebufferComplete)
         {
-            throw new Exception($"opaqueFbo incomplete, error {fbec.ToString()}");
+            throw new Exception($"opaqueFbo incomplete, error {fbec}");
         }
 
         accumTex = GL.GenTexture();
@@ -61,6 +63,8 @@ public class Renderer
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
         GL.BindTexture(TextureTarget.Texture2D, 0);
+
+        GL.GetError();
 
         revealTex = GL.GenTexture();
         GL.BindTexture(TextureTarget.Texture2D, revealTex);
@@ -74,7 +78,7 @@ public class Renderer
         GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment1, TextureTarget.Texture2D, revealTex, 0);
         GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, depthTex, 0);
 
-        DrawBuffersEnum[] transDrawBuffers = new DrawBuffersEnum[] { DrawBuffersEnum.ColorAttachment0, DrawBuffersEnum.ColorAttachment1 };
+        DrawBuffersEnum[] transDrawBuffers = [DrawBuffersEnum.ColorAttachment0, DrawBuffersEnum.ColorAttachment1];
         GL.DrawBuffers(2, transDrawBuffers);
 
         fbec = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
@@ -109,11 +113,12 @@ public class Renderer
         // Create camera perspective
         Camera.Main = new();
         Camera.Main.SetPerspective(Program.Settings.CamFOVRad, Window.Singleton.ClientSize.X / (float)Window.Singleton.ClientSize.Y, 0.1f, Program.Settings.RenderDistance);
+
     }
 
     internal void RenderFrame()
     {
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, transFbo);
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, opaqueFbo);
         GL.ClearColor(ClearColour);
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Less);
@@ -132,12 +137,24 @@ public class Renderer
         GL.ClearBuffer(ClearBuffer.Color, 0, cClearBuf);
         GL.ClearBuffer(ClearBuffer.Color, 1, dClearBuf);
 
+        var status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+        if (status != FramebufferErrorCode.FramebufferComplete)
+        {
+            throw new Exception($"Framebuffer incomplete, error {status}");
+        }
+
         EntityManager.Singleton.RenderTransparent();
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, opaqueFbo);
         GL.DepthFunc(DepthFunction.Always);
         GL.Enable(EnableCap.Blend);
         GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+
+        status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+        if (status != FramebufferErrorCode.FramebufferComplete)
+        {
+            throw new Exception($"Framebuffer incomplete, error {status}");
+        }
 
         quad.SetMaterial(composite);
         quad.material.SimpleUse();
@@ -154,12 +171,37 @@ public class Renderer
         GL.DepthMask(true);
         GL.Disable(EnableCap.Blend);
         GL.ClearColor(0, 0, 0, 0);
+        status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+        if (status != FramebufferErrorCode.FramebufferComplete)
+        {
+            throw new Exception($"Framebuffer incomplete, error {status}");
+        }
 
         quad.SetMaterial(screen);
         GL.ActiveTexture(TextureUnit.Texture0);
         GL.BindTexture(TextureTarget.Texture2D, opaqueTex);
         quad.material.SetInt("screen", 0);
         quad.SimpleDraw();
+    }
+
+    public void OnResize(Vector2 frameSize)
+    {
+        GL.Viewport(0, 0, (int)frameSize.X, (int)frameSize.Y);
+        UpdatePerspective(frameSize.X / frameSize.Y);
+
+        GL.BindTexture(TextureTarget.Texture2D, opaqueTex);
+        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba16f, (int)frameSize.X, (int)frameSize.Y, 0, PixelFormat.Rgba, PixelType.HalfFloat, IntPtr.Zero);
+
+        GL.BindTexture(TextureTarget.Texture2D, depthTex);
+        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.DepthComponent, (int)frameSize.X, (int)frameSize.Y, 0, PixelFormat.DepthComponent, PixelType.Float, IntPtr.Zero);
+
+        GL.BindTexture(TextureTarget.Texture2D, accumTex);
+        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba16f, (int)frameSize.X, (int)frameSize.Y, 0, PixelFormat.Rgba, PixelType.HalfFloat, IntPtr.Zero);
+
+        GL.BindTexture(TextureTarget.Texture2D, revealTex);
+        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.R8, (int)frameSize.X, (int)frameSize.Y, 0, PixelFormat.Red, PixelType.Float, IntPtr.Zero);
+
+        GL.BindTexture(TextureTarget.Texture2D, 0);
     }
 
     public void UpdatePerspective(float aspect)
