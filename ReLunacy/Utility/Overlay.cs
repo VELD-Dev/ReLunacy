@@ -97,11 +97,21 @@ public class Overlay
                 ImGui.BeginGroup();
                 ImGui.Text($"Loaded level: {levelName}");
                 // ... YES I AM CHEATING, WHAT NOW ?
-                ImGui.Text($"Mobys: {EntityManager.Singleton.Mobys.Count:N0}");
+                int mobysCount = 0;
+                foreach (var mobylist in EntityManager.Singleton.MobyHandles)
+                    mobysCount += mobylist.Value.Count;
+                ImGui.Text($"Mobys: {mobysCount:N0}");
                 ImGui.Text($"Moby Handles: {EntityManager.Singleton.MobyHandles.Count:N0}");
-                ImGui.Text($"Ties: {AssetManager.Singleton.Ties.Count:N0}");
-                ImGui.Text($"UFrags: {AssetManager.Singleton.UFrags.Count:N0}");
+                int tiesList = 0;
+                foreach (var tieList in AssetManager.Singleton.Ties)
+                    tiesList += tieList.Value.Count;
+                ImGui.Text($"Ties: {tiesList:N0}");
+                int ufragsCount = 0;
+                foreach (var zone in AssetManager.Singleton.UFrags)
+                    ufragsCount += zone.Value.Count;
+                ImGui.Text($"UFrags: {ufragsCount:N0}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
+                ImGui.Text($"Materials: {((Window.Singleton.FileManager?.isOld ?? false) ? Window.Singleton.AssetLoader?.shaderDB.Count : Window.Singleton.AssetLoader?.shaders.Count):N0}");
                 ImGui.EndGroup();
             }
             if(ShowCamInfo)

@@ -20,6 +20,15 @@ public class DrawableList : List<Drawable>
             Add(new Drawable(tie, tie.meshes[i]));
         }
     }
+
+    public DrawableList(CZone zone)
+    {
+        Capacity = zone.ufrags.Length;
+        foreach(var ufrag in  zone.ufrags)
+        {
+            Add(new Drawable(ufrag));
+        }
+    }
     public void AddDrawCall(Transform transform)
     {
         for (int i = 0; i < Count; i++)

@@ -9,11 +9,14 @@ public class Entity
     public object drawable;                 //Is either a DrawableListList or a DrawableList depending on if it's a moby or tie respectively
     public int id;
     public string name = string.Empty;
+    public bool draw = true;
 
     public Transform transform;
 
     //xyz is pos, w is radius
     public Vec4 boundingSphere;
+
+    public static uint drawCalls;
 
     public Entity(Region.CMobyInstance mobyInstance)
     {
@@ -68,6 +71,7 @@ public class Entity
     }
     public void Draw()
     {
+        if (!draw) return;
         if (drawable is DrawableListList dll) dll.Draw();
         else if (drawable is DrawableList dl) dl.Draw();
         else if (drawable is Drawable d) d.Draw(transform);

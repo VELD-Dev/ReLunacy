@@ -13,7 +13,6 @@ public abstract class DockedFrame : Frame
     {
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.SetNextWindowDockID(dockspaceId, DockingConditions);
-        ImGui.SetNextWindowPos(DefaultPosition, DockingConditions);
         base.RenderAsWindow(deltaTime);
     }
 }

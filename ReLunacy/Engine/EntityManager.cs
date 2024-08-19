@@ -14,6 +14,8 @@ public class EntityManager
 
     internal List<Entity> Mobys = [];
 
+    internal List<Drawable> drawables = [];
+
     internal List<Drawable> transparentDrawables = [];
     internal List<Drawable> opaqueDrawables = [];
     public void LoadGameplay(Gameplay gp)
@@ -24,11 +26,11 @@ public class EntityManager
             LunaLog.LogDebug($"Working on Region {i}");
             Regions.Add(gp.regions[i]);
             MobyHandles.Add(gp.regions[i].name, []);
-            KeyValuePair<ulong, Region.CMobyInstance>[] mobys = [.. gp.regions[i].mobyInstances];
+            Region.CMobyInstance[] mobys = [.. gp.regions[i].mobyInstances.Values];
             LunaLog.LogDebug($"Loading {mobys.Length} MobyHandles...");
-            for (ulong j = 0; j < (ulong)mobys.Length; j++)
+            for (ulong j = 0; j < (ulong)mobys.LongLength; j++)
             {
-                MobyHandles[gp.regions[i].name].Add(new Entity(mobys[j].Value));
+                MobyHandles[gp.regions[i].name].Add(new Entity(mobys[j]));
             }
             LunaLog.LogDebug($"Loading {gp.regions[i].zones.Length} zones...");
             for (int j = 0; j < gp.regions[i].zones.Length; j++)
@@ -40,12 +42,12 @@ public class EntityManager
                 CZone zone = gp.regions[i].zones[j];
                 Zones.Add(zone);
 
-                TieInstances.Add(new List<Entity>());
-                KeyValuePair<ulong, CZone.CTieInstance>[] ties = [.. zone.tieInstances];
-                LunaLog.LogDebug($"Loading {ties.Length} ties...");
-                for (uint k = 0; k < ties.Length; k++)
+                TieInstances.Add([]);
+                List<CZone.CTieInstance> ties = [.. zone.tieInstances.Values];
+                LunaLog.LogDebug($"Loading {ties.Count} ties...");
+                for (int k = 0; k < ties.Count; k++)
                 {
-                    TieInstances.Last().Add(new Entity(ties[k].Value));
+                    TieInstances.Last().Add(new Entity(ties[k]));
                 }
                 UFrags.Add([]);
                 LunaLog.LogDebug($"Loading {gp.regions[i].zones[j].ufrags.Length} UFrags");
@@ -82,74 +84,48 @@ public class EntityManager
 
     private void ReallocEntities()
     {
-        foreach (KeyValuePair<string, List<Entity>> region in MobyHandles)
+        foreach (List<Entity> regionHandles in MobyHandles.Values)
         {
-            Mobys.AddRange(region.Value);
+            Mobys.AddRange(regionHandles);
         }
     }
 
     private void ReallocDrawableLists()
     {
+        drawables.Clear();
+
         transparentDrawables.Clear();
         opaqueDrawables.Clear();
 
-        KeyValuePair<ulong, DrawableListList>[] mobys = AssetManager.Singleton.Mobys.ToArray();
-        for (int i = 0; i < mobys.Length; i++)
+        DrawableListList[] mobys = [.. AssetManager.Singleton.Mobys.Values];
+        foreach(var drawableLists in mobys)
         {
-            List<DrawableList> drawableLists = mobys[i].Value;
             for (int j = 0; j < drawableLists.Count; j++)
             {
-                for (int k = 0; k < drawableLists[j].Count; k++)
-                {
-                    if (drawableLists[j][k].material.asset.renderingMode != CShader.RenderingMode.AlphaBlend)
-                    {
-                        opaqueDrawables.Add(drawableLists[j][k]);
-                    }
-                    else
-                    {
-                        transparentDrawables.Add(drawableLists[j][k]);
-                    }
-                }
+                drawables.AddRange(drawableLists[j]);
             }
         }
 
-        KeyValuePair<ulong, DrawableList>[] ties = AssetManager.Singleton.Ties.ToArray();
-        for (int i = 0; i < ties.Length; i++)
+        DrawableList[] ties = [.. AssetManager.Singleton.Ties.Values];
+        foreach (var drawableList in ties)
         {
-            List<Drawable> drawables = ties[i].Value;
-            for (int j = 0; j < drawables.Count; j++)
-            {
-                if (drawables[j].material.asset.renderingMode != CShader.RenderingMode.AlphaBlend)
-                {
-                    opaqueDrawables.Add(drawables[j]);
-                }
-                else
-                {
-                    transparentDrawables.Add(drawables[j]);
-                }
-            }
+            drawables.AddRange(drawableList);
+        }
+
+        DrawableList[] ufrags = [.. AssetManager.Singleton.UFrags.Values];
+
+        foreach (var drawable in ufrags)
+        {
+            drawables.AddRange(drawable);
         }
     }
 
-    public void RenderOpaque()
+    public void Render()
     {
-        for (int i = 0; i < opaqueDrawables.Count; i++)
+        foreach(var drawable in drawables)
         {
-            opaqueDrawables[i].Draw();
+            drawable.Draw();
         }
-        for (int i = 0; i < UFrags.Count; i++)
-        {
-            for (int j = 0; j < UFrags[i].Count; j++)
-            {
-                UFrags[i][j].Draw();
-            }
-        }
-    }
-    public void RenderTransparent()
-    {
-        for (int i = 0; i < transparentDrawables.Count; i++)
-        {
-            transparentDrawables[i].Draw();
-        }
+
     }
 }

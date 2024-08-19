@@ -33,6 +33,7 @@ public class Material
     {
         asset = cshad;
         Texture? tex = cshad.albedo == null ? null : AssetManager.Singleton.Textures[cshad.albedo.id];
+        Texture? exp = cshad.expensive == null ? null : AssetManager.Singleton.Textures[cshad.expensive.id];
         if (tex == null && cshad.albedo != null) Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.albedo.id.ToString("X08")} AKA {cshad.albedo.name}");
         if (cshad.renderingMode != CShader.RenderingMode.AlphaBlend)
         {
@@ -43,6 +44,7 @@ public class Material
             programId = MaterialManager.Materials["stdv;transparentf"];
         }
         albedo = tex;
+        expensive = exp;
         drawType = PrimitiveType.Triangles;
     }
 

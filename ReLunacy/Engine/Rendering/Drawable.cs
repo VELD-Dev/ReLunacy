@@ -169,7 +169,7 @@ public class Drawable
         int index = transforms.FindIndex(0, transforms.Count, x => x == transform);
 
         GL.BindBuffer(BufferTarget.ArrayBuffer, VwBO);
-        Matrix4[] matrix = new Matrix4[1] { Matrix4.Transpose(transform.GetLocalToWorldMatrix()) };
+        Matrix4[] matrix = [ Matrix4.Transpose(transform.GetLocalToWorldMatrix()) ];
 
         GL.BufferSubData(BufferTarget.ArrayBuffer, sizeof(float) * 16 * index, sizeof(float) * 16, matrix);
     }

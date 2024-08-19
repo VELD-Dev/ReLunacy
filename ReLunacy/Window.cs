@@ -146,13 +146,15 @@ public class Window : GameWindow
         ImGui.PushStyleVar(ImGuiStyleVar.TabRounding, 5f);
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 2.5f);
         ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 2.5f);
+        ImGuiIOPtr io = ImGui.GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
+
+        AddFrame(new View3DFrame());
     }
 
     protected override void OnResize(ResizeEventArgs e)
     {
         base.OnResize(e);
-
-        OGLRenderer.OnResize(new(ClientSize.X, ClientSize.Y));
 
         controller?.WindowResized(ClientSize.X, ClientSize.Y);
     }
@@ -164,8 +166,6 @@ public class Window : GameWindow
         openFrames.RemoveAll(FrameMustClose);
 
         controller?.Update(this, (float)eventArgs.Time);
-
-        OGLRenderer.RenderFrame();
 
         if (Overlay.showOverlay)
         {
@@ -239,32 +239,34 @@ public class Window : GameWindow
 
         foreach(Frame frame in openFrames)
         {
+            //ImGui.SetNextWindowDockID(ImGui.GetID("dockspace"), ImGuiCond.Appearing);
             frame.RenderAsWindow(deltaTime);
         }
-        ImGui.End();
     }
 
     private void RenderDockSpace()
     {
+        ImGuiDockNodeFlags dockspaceFlags = ImGuiDockNodeFlags.PassthruCentralNode;
         ImGuiWindowFlags windowFlags = ImGuiWindowFlags.NoDocking
             | ImGuiWindowFlags.NoTitleBar
             | ImGuiWindowFlags.NoCollapse
             | ImGuiWindowFlags.NoResize
             | ImGuiWindowFlags.NoMove
             | ImGuiWindowFlags.NoBringToFrontOnFocus
-            | ImGuiWindowFlags.NoNavFocus;
+            | ImGuiWindowFlags.NoNavFocus
+            | ImGuiWindowFlags.NoBackground;
         ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
         ImGui.SetNextWindowPos(ImGui.GetMainViewport().WorkPos);
         ImGui.SetNextWindowSize(ImGui.GetMainViewport().WorkSize);
 
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
-        ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0);
         ImGui.Begin("dockspace", windowFlags);
-        ImGui.PopStyleVar();
+        ImGui.PopStyleVar(3);
 
         uint dockspaceId = ImGui.GetID("dockspace");
-        ImGui.DockSpace(dockspaceId, new Vec2(0, 0), ImGuiDockNodeFlags.None);
+        ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);
     }
 
     private void RenderMenuBar()

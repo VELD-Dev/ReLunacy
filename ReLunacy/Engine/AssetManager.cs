@@ -14,7 +14,7 @@ public class AssetManager
 
     public Dictionary<ulong, DrawableListList> Mobys { get; private set; } = [];
     public Dictionary<ulong, DrawableList> Ties { get; private set; } = [];
-    public Dictionary<ulong, Dictionary<ulong, Drawable>> UFrags { get; private set; } = [];
+    public Dictionary<ulong, DrawableList> UFrags { get; private set; } = [];
     public Dictionary<uint, Texture> Textures { get; private set; } = [];
 
     public void Initialize(AssetLoader loader)
@@ -31,15 +31,11 @@ public class AssetManager
         {
             Ties.Add(tie.Key, new(tie.Value));
         }
-        foreach(var zoneUfrags in loader.ufrags)
+        foreach(var zoneUfrags in loader.zones)
         {
+            // To be rewritten... like really this system is shit
             var locKey = zoneUfrags.Key;
-            var dict = new Dictionary<ulong, Drawable>();
-            foreach (var ufrag in zoneUfrags.Value)
-            {
-                dict.Add(ufrag.Key, new(ufrag.Value));
-            }
-            UFrags.Add(zoneUfrags.Key, dict);
+            UFrags.Add(locKey, new(zoneUfrags.Value));
         }
     }
 
@@ -65,7 +61,7 @@ public class AssetManager
         {
             foreach(var ufrag in zoneUfrags.Value)
             {
-                ufrag.Value.ConsolidateDrawCalls();
+                ufrag.ConsolidateDrawCalls();
             }
         }
     }
