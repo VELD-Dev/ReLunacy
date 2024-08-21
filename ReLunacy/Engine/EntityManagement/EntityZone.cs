@@ -21,19 +21,14 @@ public class EntityZone
         ZoneIndex = zone.index;
 
         LunaLog.LogDebug($"Zone {ZoneName} ({ZoneIndex}) has {zone.tieInstances.Count} tie instances and {zone.ufrags.Length} UFrags.");
-        var tiesEntities = new List<Entity>();
         foreach (var tie in zone.tieInstances)
         {
-            tiesEntities.Add(new(tie.Value));
+            TieInstances.Add(tie.Value);
         }
-        TieInstances = new(tiesEntities);
-
-        var ufragEntities = new List<Entity>();
         foreach (var uf in zone.ufrags)
         {
-            ufragEntities.Add(new(uf));
+            UFrags.Add(uf);
         }
-        UFrags = new(ufragEntities);
     }
 
     public void Render()

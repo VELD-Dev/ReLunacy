@@ -103,7 +103,7 @@ public class Overlay
                 ImGui.Text($"Mobys: {EntityManager.Singleton.MobysCount:N0}");
                 ImGui.Text($"Ties: {EntityManager.Singleton.TiesCount:N0}");
                 ImGui.Text($"UFrags: {EntityManager.Singleton.UFragsCount:N0}");
-                ImGui.Text($"Total entities: {EntityManager.Singleton.Drawables.Length:N0}");
+                ImGui.Text($"Total entities: {EntityCluster.TotalEntities:N0}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
                 ImGui.Text($"Materials: {((Window.Singleton.FileManager?.isOld ?? false) ? Window.Singleton.AssetLoader?.shaderDB.Count : Window.Singleton.AssetLoader?.shaders.Count):N0}");
                 ImGui.EndGroup();

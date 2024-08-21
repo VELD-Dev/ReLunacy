@@ -2,6 +2,7 @@
 
 public class EntityCluster
 {
+    public static int TotalEntities { get; private set; } = 0;
     public List<Entity> Entities = [];
     public bool AllowRender = true;
 
@@ -16,6 +17,7 @@ public class EntityCluster
     {
         LunaLog.LogDebug($"New Entity Cluster has {entities.Count} entities.");
         Entities = entities;
+        TotalEntities += Size;
     }
 
     public void Render()
@@ -28,10 +30,26 @@ public class EntityCluster
         }
     }
 
-    public void Add(Entity entity) => Entities.Add(entity);
-    public void Add(Region.CMobyInstance mobyInstance) => Entities.Add(new(mobyInstance));
-    public void Add(CZone.CTieInstance tieInstance) => Entities.Add(new(tieInstance));
-    public void Add(CZone.UFrag ufrag) => Entities.Add(new(ufrag));
+    public void Add(Entity entity)
+    {
+        TotalEntities++;
+        Entities.Add(entity);
+    }
+    public void Add(Region.CMobyInstance mobyInstance)
+    {
+        TotalEntities++;
+        Entities.Add(new(mobyInstance));
+    }
+    public void Add(CZone.CTieInstance tieInstance)
+    {
+        TotalEntities++;
+        Entities.Add(new(tieInstance));
+    }
+    public void Add(CZone.UFrag ufrag)
+    {
+        TotalEntities++;
+        Entities.Add(new(ufrag));
+    }
 
     public bool TryGetEntity(int id, out Entity entity)
     {

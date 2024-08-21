@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Engine.EntityManagement;
+﻿using System.Security.Cryptography.X509Certificates;
+
+namespace ReLunacy.Engine.EntityManagement;
 
 public class EntityManager
 {
@@ -69,6 +71,7 @@ public class EntityManager
         {
             Regions.Add(new EntityRegion(region));
         }
+        LunaLog.LogDebug($"Total entities: {EntityCluster.TotalEntities}");
 
         LunaLog.LogDebug("Consolidating Mobys");
         AssetManager.Singleton.ConsolidateMobys();
@@ -77,12 +80,14 @@ public class EntityManager
         LunaLog.LogDebug("Consolidating UFrags");
         AssetManager.Singleton.ConsolidateUFrags();
 
+        /*
         var drawables = new List<Drawable>();
         foreach(var region in Regions)
         {
             drawables.AddRange(region.GetDrawables());
         }
         Drawables = [.. drawables];
+        */
     }
 
     public void Render()
