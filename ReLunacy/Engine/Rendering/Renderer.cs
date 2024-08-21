@@ -1,19 +1,18 @@
-﻿using Vector2 = System.Numerics.Vector2;
+﻿using ReLunacy.Engine.EntityManagement;
+using Vector2 = System.Numerics.Vector2;
 
 namespace ReLunacy.Engine.Rendering;
 
 public class Renderer
 {
     public nint ColourFramebuffer { get; private set; }
-    int opaqueTex;
-    int colourTex;
-    int depthTex;
-    int accumTex;
-    int revealTex;
+    public nint ColourTex { get; private set; }
+    nint depthTex;
     float[] cClearBuf = [0, 0, 0, 1];
     float[] dClearBuf = [1, 1, 1, 1];
 
-    public static readonly Color4 ClearColour = new(48, 48, 96, 255);
+    public static readonly Color4 ClearColour = new(0x20, 0x20, 0x30, 0xFF);
+    public static readonly Color4 BgClearColour = new(0x1B, 0x1B, 0x1B, 0xFF);
 
     public Vector2i oldSize;
     private readonly bool initialized = false;
@@ -25,7 +24,6 @@ public class Renderer
     public Renderer()
     {
         GL.Enable(EnableCap.DepthTest);
-        GL.Enable(EnableCap.Texture2D);
 
         MaterialManager.LoadMaterial("stdv;transparentf", "Shaders/stdv.glsl", "Shaders/transparentf.glsl");
         MaterialManager.LoadMaterial("stdv;solidf", "Shaders/stdv.glsl", "Shaders/solidf.glsl");
@@ -72,29 +70,29 @@ public class Renderer
         if(initialized)
         {
             GL.DeleteFramebuffer((int)ColourFramebuffer);
-            GL.DeleteTexture(colourTex);
-            GL.DeleteTexture(depthTex);
+            GL.DeleteTexture((int)ColourTex);
+            GL.DeleteTexture((int)depthTex);
         }
 
         ColourFramebuffer = GL.GenFramebuffer();
 
-        colourTex = GL.GenTexture();
-        GL.BindTexture(TextureTarget.Texture2D, colourTex);
+        ColourTex = GL.GenTexture();
+        GL.BindTexture(TextureTarget.Texture2D, (int)ColourTex);
         GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, newSize.X, newSize.Y, 0, PixelFormat.Rgba, PixelType.UnsignedInt8888, nint.Zero);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
         GL.BindTexture(TextureTarget.Texture2D, 0);
 
         depthTex = GL.GenTexture();
-        GL.BindTexture(TextureTarget.Texture2D, depthTex);
+        GL.BindTexture(TextureTarget.Texture2D, (int)depthTex);
         GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.DepthComponent, newSize.X, newSize.Y, 0, PixelFormat.DepthComponent, PixelType.Float, nint.Zero);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
         GL.BindTexture(TextureTarget.Texture2D, 0);
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, (int)ColourFramebuffer);
-        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, colourTex, 0);
-        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, depthTex, 0);
+        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, (int)ColourTex, 0);
+        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, (int)depthTex, 0);
 
         var fboStatus = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
         if (fboStatus != FramebufferErrorCode.FramebufferComplete)
@@ -115,7 +113,8 @@ public class Renderer
         EntityManager.Singleton.Render();
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         GL.Viewport(0, 0, Window.Singleton.ClientSize.X, Window.Singleton.ClientSize.Y);
-        GL.ClearColor(0, 0, 0, 0);
+        GL.ClearColor(BgClearColour);
+        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
     }
 
     /*

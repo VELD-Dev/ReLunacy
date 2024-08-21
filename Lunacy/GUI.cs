@@ -12,11 +12,38 @@ namespace Lunacy
 	{
 		ImGuiController controller;
 		Window wnd;
-        int RegionsCount;
-        int ZonesCount;
-        int MobyHandleCount;
-        int TieInstancesCount;
-        int UfragsCount;
+        int RegionsCount { get => EntityManager.Singleton.regions.Count; }
+        int ZonesCount { get => EntityManager.Singleton.TFrags.Count; }
+        int MobyHandleCount
+        {
+            get
+            {
+                var c = 0;
+                foreach (var ti in EntityManager.Singleton.MobyHandles)
+                    c += ti.Value.Count;
+                return c;
+            }
+        }
+        int TieInstancesCount
+        {
+            get
+            {
+                var c = 0;
+                foreach (var ti in EntityManager.Singleton.TieInstances)
+                    c += ti.Count;
+                return c;
+            }
+        }
+        int UFragsCount
+        {
+            get
+            {
+                var c = 0;
+                foreach (var uf in EntityManager.Singleton.TFrags)
+                    c += uf.Count;
+                return c;
+            }
+        }
         int ShadersCount;
 
 		Entity selectedEntity = null;
@@ -27,15 +54,6 @@ namespace Lunacy
 		{
 			controller = new ImGuiController(wnd.ClientSize.X, wnd.ClientSize.Y);
 			this.wnd = wnd;
-            foreach (var m in EntityManager.Singleton.MobyHandles.Values)
-                MobyHandleCount += m.Count;
-            foreach (var t in EntityManager.Singleton.TieInstances)
-                TieInstancesCount += t.Count;
-            foreach (var u in EntityManager.Singleton.TFrags)
-                UfragsCount += u.Count;
-            ShadersCount = Window.al.shaders.Count;
-            ZonesCount = EntityManager.Singleton.zones.Count;
-            RegionsCount = EntityManager.Singleton.regions.Count;
 		}
 
 		public void Resize()
@@ -301,8 +319,9 @@ namespace Lunacy
                 ImGui.Text($"Zones: {ZonesCount}");
                 ImGui.Text($"FilteredMobyHandles: {MobyHandleCount}");
                 ImGui.Text($"Ties: {TieInstancesCount}");
-                ImGui.Text($"UFrags: {UfragsCount}");
+                ImGui.Text($"UFrags: {UFragsCount}");
                 ImGui.Text($"Shaders: {ShadersCount}");
+                ImGui.Text($"Drawables: {EntityManager.Singleton.opaqueDrawables.Count + EntityManager.Singleton.transparentDrawables.Count}");
             }
             ImGui.End();
         }

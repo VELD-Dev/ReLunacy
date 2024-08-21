@@ -7,6 +7,9 @@ internal class EditorSettingsFrame : Frame
     public int currentMsaa = 0;
     public int currentVSync = (int)Program.Settings.VSyncMode;
     public int currentLogLevel = (int)Program.Settings.LogLevel;
+    public bool doRenderMobys = true;
+    public bool doRenderTies = true;
+    public bool doRenderUFrags = true;
 
     public EditorSettingsFrame() : base()
     {
@@ -57,6 +60,21 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Checkbox("Show Level Stats", ref Program.Settings.OverlayLevelStats);
                 ImGui.Checkbox("Show Camera Info", ref Program.Settings.OverlayCamInfo);
                 ImGui.SliderFloat("Background Opacity", ref Program.Settings.OverlayOpacity, 0f, 1f);
+                ImGui.InputFloat2("Box Padding", ref Program.Settings.OverlayPadding, "%0.1f");
+                ImGui.EndGroup();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Core settings"))
+            {
+                ImGui.BeginGroup();
+                ImGui.Checkbox("Legacy Rendering Mode", ref Program.Settings.LegacyRenderingMode);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker("If unsure, leave it unchecked.");
+                ImGui.BeginDisabled(Program.Settings.LegacyRenderingMode);
+                ImGui.Checkbox("Render Mobys", ref doRenderMobys);
+                ImGui.Checkbox("Render Ties", ref doRenderTies);
+                ImGui.Checkbox("Render UFrags", ref doRenderUFrags);
+                ImGui.EndDisabled();
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
@@ -80,6 +98,9 @@ internal class EditorSettingsFrame : Frame
             Program.Settings.LogLevel = (LunaLog.LogLevel)currentLogLevel;
             Camera.Main.FOV = Program.Settings.CamFOVRad;
             Camera.Main.RenderDistance = Program.Settings.RenderDistance;
+            EntityManager.Singleton.SwitchAllMobys(doRenderMobys);
+            EntityManager.Singleton.SwitchAllTies(doRenderTies);
+            EntityManager.Singleton.SwitchAllUFrags(doRenderUFrags);
             Program.Settings.SaveSettingsToFile();
         }
         ImGui.SameLine();

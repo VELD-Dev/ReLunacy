@@ -1,7 +1,7 @@
 ﻿using Vec3 = OpenTK.Mathematics.Vector3;
-using Vec4 = OpenTK.Mathematics.Vector4; 
+using Vec4 = OpenTK.Mathematics.Vector4;
 
-namespace ReLunacy.Engine;
+namespace ReLunacy.Engine.EntityManagement;
 
 public class Entity
 {
@@ -9,7 +9,7 @@ public class Entity
     public object drawable;                 //Is either a DrawableListList or a DrawableList depending on if it's a moby or tie respectively
     public int id;
     public string name = string.Empty;
-    public bool draw = true;
+    public bool AllowRender = true;
 
     public Transform transform;
 
@@ -23,8 +23,8 @@ public class Entity
         instance = mobyInstance;
         drawable = AssetManager.Singleton.Mobys[mobyInstance.moby.id];
         transform = new Transform(
-            mobyInstance.position.ToOpenTK(), 
-            mobyInstance.rotation.ToOpenTK(), 
+            mobyInstance.position.ToOpenTK(),
+            mobyInstance.rotation.ToOpenTK(),
             Vec3.One * mobyInstance.scale
         );
         name = mobyInstance.name;
@@ -71,7 +71,7 @@ public class Entity
     }
     public void Draw()
     {
-        if (!draw) return;
+        if (!AllowRender) return;
         if (drawable is DrawableListList dll) dll.Draw();
         else if (drawable is DrawableList dl) dl.Draw();
         else if (drawable is Drawable d) d.Draw(transform);

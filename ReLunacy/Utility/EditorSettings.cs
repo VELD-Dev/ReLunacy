@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Utility;
+﻿using Vector2 = System.Numerics.Vector2;
+
+namespace ReLunacy.Utility;
 
 public class EditorSettings
 {
@@ -17,8 +19,10 @@ public class EditorSettings
     public int ProfilerRefreshRate;
     public int ProfilerFrameSampleSize;
     public float OverlayOpacity;
+    public Vector2 OverlayPadding;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders;
+    public bool LegacyRenderingMode;
 
     [JsonIgnore]
     public float CamFOVRad { get => CamFOV * (MathHelper.Pi / 180f); }
@@ -30,11 +34,11 @@ public class EditorSettings
     public EditorSettings()
     {
         DebugMode = false;
-        RenderDistance = 300f;
-        CamMoveSpeed = 5f;
-        CamMaxSpeed = CamMoveSpeed * (4f / 3f);
-        CamFOV = 90f;
-        CamSensivity = 0.01f;
+        RenderDistance = 3000f;
+        CamMoveSpeed = 15f;
+        CamMaxSpeed = 25f;
+        CamFOV = 82.4f;
+        CamSensivity = 1f;
         VSyncMode = VSyncMode.Off;
         OverlayFramerate = true;
         OverlayLevelStats = false;
@@ -43,6 +47,8 @@ public class EditorSettings
         ProfilerRefreshRate = 250;
         ProfilerFrameSampleSize = 10;
         OverlayOpacity = 0.35f;
+        OverlayPadding = new(10f, 10f);
+        LegacyRenderingMode = false;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;
 #else

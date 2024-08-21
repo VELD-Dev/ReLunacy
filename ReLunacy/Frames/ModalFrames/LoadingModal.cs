@@ -54,7 +54,7 @@ public class LoadingModal : Frame
 
     public void CloseModal(bool force = false)
     {
-        if (loadingFinished && !force) return;
+        if (!loadingFinished && !force) return;
 
         isOpen = false;
     }

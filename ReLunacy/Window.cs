@@ -9,6 +9,7 @@ using Quaternion = OpenTK.Mathematics.Quaternion;
 using Keys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
 using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
 using ReLunacy.Frames.ModalFrames;
+using ReLunacy.Engine.EntityManagement;
 
 namespace ReLunacy;
 
@@ -30,99 +31,14 @@ public class Window : GameWindow
     public FileManager FileManager { get; private set; }
     public Gameplay Gameplay { get; private set; }
 
+    private bool doLoadEntities = false;
+
     public string[] args { get => Program.cmds; }
 
     public Window(GameWindowSettings gws, NativeWindowSettings nws) : base(gws, nws)
     {
         Singleton = this;
         VSync = Program.Settings.VSyncMode;
-    }
-
-    public async void LoadLevel(string path)
-    {
-        var loadingFrame = new LoadingModal([
-            new("Loading level", new(0, 5)),
-            new("Loading files...", new(0, 1))
-        ]);
-        AddFrame(loadingFrame);
-        LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
-
-        FileManager = new();
-        LunaLog.LogDebug("Starting FileManager threaded task.");
-        var fmTask = Task.Run(() => FileManager.LoadFolder(path));
-        LunaLog.LogDebug("Awaiting for FileManager to finish its work");
-        await fmTask;
-        loadingFrame.UpdateProgress(0, new(1, 5));
-        loadingFrame.UpdateProgress(1, new(1, 1));
-
-        Thread.Sleep(100);
-
-        loadingFrame.UpdateProgress(1, new(0, 1), "Loading assets...");
-        AssetLoader = new(FileManager);
-        LunaLog.LogDebug("Starting AssetLoader threaded task.");
-        var alTask = Task.Run(() => AssetLoader.LoadAssets());
-        LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
-        await alTask;
-        loadingFrame.UpdateProgress(0, new(2, 5));
-        loadingFrame.UpdateProgress(1, new(1, 1));
-
-        Thread.Sleep(100);
-
-        LunaLog.LogDebug("AssetLoader done. Initializing AssetManager.");
-        loadingFrame.UpdateProgress(1, new(0, 1), "Loading asset manager...");
-        AssetManager.Singleton.Initialize(AssetLoader);
-        loadingFrame.UpdateProgress(0, new(3, 5));
-        loadingFrame.UpdateProgress(1, new(1, 1));
-
-        Thread.Sleep(100);
-
-        LunaLog.LogDebug("Starting Gameplay threaded task.");
-
-        loadingFrame.UpdateProgress(1, new(0, 1), "Loading gameplay data...");
-        var gpTask = Task.Run(() => Gameplay = new(AssetLoader));
-
-        LunaLog.LogDebug("Awaiting for Gameplay to finish its work...");
-        await gpTask;
-        loadingFrame.UpdateProgress(0, new(4, 5));
-        loadingFrame.UpdateProgress(1, new(1, 1));
-
-        Thread.Sleep(100);
-
-        LunaLog.LogDebug("Loading Gameplay into EntityManager.");
-        loadingFrame.UpdateProgress(1, new(0, 1), "Initializing entity manager...");
-        EntityManager.Singleton.LoadGameplay(Gameplay);
-        loadingFrame.UpdateProgress(0, new(5, 5));
-        loadingFrame.UpdateProgress(1, new(1, 1));
-        LunaLog.LogDebug("Level loaded.");
-        Thread.Sleep(500);
-        loadingFrame.CloseModal();
-    }
-
-    public void AddFrame(Frame frame)
-    {
-        openFrames.Add(frame);
-    }
-
-    public bool IsAnyFrameOpened<T>() where T : Frame
-    {
-        return openFrames.Any(f => f.GetType() == typeof(T));
-    }
-
-    public void TryCloseFirstFrame<T>() where T : Frame
-    {
-        if(IsAnyFrameOpened<T>())
-        {
-            var frameToClose = openFrames.First(f => f.GetType() == typeof(T));
-            frameToClose.isOpen = false;
-        }
-    }
-
-    static bool FrameMustClose(Frame frame) => !frame.isOpen;
-
-    protected override void OnClosing(CancelEventArgs e)
-    {
-        Environment.Exit(0);
-        base.OnClosing(e);
     }
 
     protected override void OnLoad()
@@ -150,13 +66,6 @@ public class Window : GameWindow
         io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 
         AddFrame(new View3DFrame());
-    }
-
-    protected override void OnResize(ResizeEventArgs e)
-    {
-        base.OnResize(e);
-
-        controller?.WindowResized(ClientSize.X, ClientSize.Y);
     }
 
     protected override void OnRenderFrame(FrameEventArgs eventArgs)
@@ -204,32 +113,49 @@ public class Window : GameWindow
         {
             CursorState = CursorState.Grabbed;
 
-            freecamLocal += MouseState.Delta * sensivity;
+            freecamLocal += MouseState.Delta * 0.01f * sensivity;
 
-            freecamLocal.X = MathHelper.Clamp(freecamLocal.X, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
+            freecamLocal.Y = MathHelper.Clamp(freecamLocal.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
 
-            camTransform.SetRotation(Quaternion.FromAxisAngle(Vector3.UnitX, freecamLocal.X) * Quaternion.FromAxisAngle(Vector3.UnitY, freecamLocal.Y));
+            camTransform.SetRotation(Quaternion.FromAxisAngle(Vector3.UnitX, freecamLocal.Y) * Quaternion.FromAxisAngle(Vector3.UnitY, freecamLocal.X));
         }
         else if (MouseState.IsButtonReleased(MouseButton.Right))
         {
             CursorState = CursorState.Normal;
         }
 
+        DoLoadEntitiesCheck();
+
         base.OnUpdateFrame(args);
     }
-
-    protected override void OnTextInput(TextInputEventArgs e)
+    public async void LoadLevelDataAsync(string path, LoadingModal loadingFrame)
     {
-        base.OnTextInput(e);
+        AddFrame(loadingFrame);
+        LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
 
-        controller?.PressChar((char)e.Unicode);
+        FileManager = new();
+        LunaLog.LogDebug("Starting FileManager threaded task.");
+        FileManager.LoadFolder(path);
+
+        LunaLog.LogDebug("Starting AssetLoader threaded task.");
+        AssetLoader = new(FileManager);
+        var alTask = Task.Run(() => AssetLoader.LoadAssets());
+        LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
+        await alTask;
+        loadingFrame.UpdateProgress(0, new(1, 1));
+        doLoadEntities = true;
+        LunaLog.LogDebug("Level loaded.");
+        loadingFrame.CloseModal();
     }
-
-    protected override void OnMouseWheel(MouseWheelEventArgs e)
+    private void DoLoadEntitiesCheck()
     {
-        base.OnMouseWheel(e);
+        if (!doLoadEntities) return;
+        doLoadEntities = false;
 
-        controller?.MouseScroll(e.Offset);
+        AssetManager.Singleton.Initialize(AssetLoader);
+        Gameplay = new(AssetLoader);
+        LunaLog.LogDebug("Loading Gameplay into EntityManager.");
+        EntityManager.Singleton.LoadGameplay(Gameplay);
     }
 
     private void RenderUI(float deltaTime)
@@ -237,7 +163,7 @@ public class Window : GameWindow
         RenderMenuBar();
         RenderDockSpace();
 
-        foreach(Frame frame in openFrames)
+        foreach (Frame frame in openFrames)
         {
             //ImGui.SetNextWindowDockID(ImGui.GetID("dockspace"), ImGuiCond.Appearing);
             frame.RenderAsWindow(deltaTime);
@@ -262,8 +188,9 @@ public class Window : GameWindow
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0);
         ImGui.Begin("dockspace", windowFlags);
-        ImGui.PopStyleVar(3);
+        ImGui.PopStyleVar(4);
 
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);
@@ -274,19 +201,19 @@ public class Window : GameWindow
         if (!ImGui.BeginMainMenuBar())
             return;
 
-        if(ImGui.BeginMenu("File"))
+        if (ImGui.BeginMenu("File"))
         {
             FileMenuDraw.OpenLevelMenuItem();
             ImGui.EndMenu();
         }
 
-        if(ImGui.BeginMenu("Edit"))
+        if (ImGui.BeginMenu("Edit"))
         {
             EditMenuDraw.EditorSettingsMenuItem();
             ImGui.EndMenu();
         }
 
-        if(ImGui.BeginMenu("View"))
+        if (ImGui.BeginMenu("View"))
         {
             ImGui.SeparatorText("Overlay");
             ViewMenuDraw.ShowOverlay();
@@ -296,5 +223,53 @@ public class Window : GameWindow
         }
 
         DebugMenuDraw.Menu();
+    }
+
+    public void AddFrame(Frame frame)
+    {
+        openFrames.Add(frame);
+    }
+
+    public bool IsAnyFrameOpened<T>() where T : Frame
+    {
+        return openFrames.Any(f => f.GetType() == typeof(T));
+    }
+
+    public void TryCloseFirstFrame<T>() where T : Frame
+    {
+        if (IsAnyFrameOpened<T>())
+        {
+            var frameToClose = openFrames.First(f => f.GetType() == typeof(T));
+            frameToClose.isOpen = false;
+        }
+    }
+
+    static bool FrameMustClose(Frame frame) => !frame.isOpen;
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        Environment.Exit(0);
+        base.OnClosing(e);
+    }
+
+    protected override void OnResize(ResizeEventArgs e)
+    {
+        base.OnResize(e);
+
+        controller?.WindowResized(ClientSize.X, ClientSize.Y);
+    }
+
+    protected override void OnTextInput(TextInputEventArgs e)
+    {
+        base.OnTextInput(e);
+
+        controller?.PressChar((char)e.Unicode);
+    }
+
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
+    {
+        base.OnMouseWheel(e);
+
+        controller?.MouseScroll(e.Offset);
     }
 }

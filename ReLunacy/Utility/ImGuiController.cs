@@ -195,7 +195,7 @@ void main()
     }
 
     /// <summary>
-    /// Renders the ImGui draw list data.
+    /// Renders the ImGui AllowRender list data.
     /// </summary>
     public void Render()
     {

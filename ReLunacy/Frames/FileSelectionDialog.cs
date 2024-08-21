@@ -1,4 +1,6 @@
 ﻿
+using ReLunacy.Frames.ModalFrames;
+
 namespace ReLunacy.Frames
 {
     internal class FileSelectionDialog : Frame
@@ -28,7 +30,8 @@ namespace ReLunacy.Frames
                 else
                 {
                     Program.ProvidedPath = levelPath;
-                    Task.Run(() => Window.Singleton.LoadLevel(levelPath));
+                    var lm = new LoadingModal([ new("Loading level", new(0, 1)) ]);
+                    Task.Run(() => Window.Singleton.LoadLevelDataAsync(levelPath, lm));
                     isOpen = false;
                 }
             }

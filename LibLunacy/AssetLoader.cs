@@ -247,7 +247,7 @@ namespace LibLunacy
 				MemoryStream zonems = new MemoryStream(zonedat);
 				IGFile igzone = new(zonems);
 				CZone zone = new(igzone, this) { index = i };
-				Console.WriteLine($"[0x{zonePtrs[i].offset:X}] Zone {zone.index} {zone.name} (0x{zonePtrs[i].tuid:X}) has {zone.ufrags.Length} ufrags.");
+				Console.WriteLine($"[0x{zonePtrs[i].offset:X}] Zone {zone.index} {zone.name} (0x{zonePtrs[i].tuid:X}) has {zone.ufrags.Length} ufrags and {zone.tieInstances.Count} ties.");
 				zones.Add(zonePtrs[i].tuid, zone);
 				
 				var localUfrags = new Dictionary<ulong, CZone.UFrag>();

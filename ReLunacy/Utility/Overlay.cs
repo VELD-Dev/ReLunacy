@@ -1,4 +1,5 @@
-﻿using Vector2 = System.Numerics.Vector2;
+﻿using ReLunacy.Engine.EntityManagement;
+using Vector2 = System.Numerics.Vector2;
 using Vector4 = System.Numerics.Vector4;
 
 namespace ReLunacy.Utility;
@@ -10,6 +11,7 @@ public class Overlay
     public static bool ShowLevelStats { get => Program.Settings.OverlayLevelStats; }
     public static bool ShowProfiler { get => Program.Settings.OverlayProfiler; }
     public static bool ShowCamInfo { get => Program.Settings.OverlayCamInfo; }
+    public static Vector2 Padding { get => Program.Settings.OverlayPadding; }
     public static int location = 0;
     public static float OverlayAlpha { get => Program.Settings.OverlayOpacity; }
 
@@ -36,12 +38,11 @@ public class Overlay
             | ImGuiWindowFlags.NoNav;
         if(location >= 0)
         {
-            float PAD = 10.0f;
             Vector2 workPos = viewport.WorkPos;
             Vector2 workSize = viewport.WorkSize;
             Vector2 windowPos, windowPosPivot;
-            windowPos.X = (location == 1) ? (workPos.X + workSize.X - PAD) : (workPos.X + PAD);
-            windowPos.Y = (location == 2) ? (workPos.Y + workSize.Y - PAD) : (workPos.Y + PAD);
+            windowPos.X = (location == 1) ? (workPos.X + workSize.X - Padding.X) : (workPos.X + Padding.X);
+            windowPos.Y = (location == 2) ? (workPos.Y + workSize.Y - Padding.Y) : (workPos.Y + Padding.Y);
             windowPosPivot.X = (location == 1) ? 1.0f : 0.0f;
             windowPosPivot.Y = (location == 2) ? 1.0f : 0.0f;
             ImGui.SetNextWindowPos(windowPos, ImGuiCond.Always, windowPosPivot);
@@ -97,19 +98,12 @@ public class Overlay
                 ImGui.BeginGroup();
                 ImGui.Text($"Loaded level: {levelName}");
                 // ... YES I AM CHEATING, WHAT NOW ?
-                int mobysCount = 0;
-                foreach (var mobylist in EntityManager.Singleton.MobyHandles)
-                    mobysCount += mobylist.Value.Count;
-                ImGui.Text($"Mobys: {mobysCount:N0}");
-                ImGui.Text($"Moby Handles: {EntityManager.Singleton.MobyHandles.Count:N0}");
-                int tiesList = 0;
-                foreach (var tieList in AssetManager.Singleton.Ties)
-                    tiesList += tieList.Value.Count;
-                ImGui.Text($"Ties: {tiesList:N0}");
-                int ufragsCount = 0;
-                foreach (var zone in AssetManager.Singleton.UFrags)
-                    ufragsCount += zone.Value.Count;
-                ImGui.Text($"UFrags: {ufragsCount:N0}");
+                ImGui.Text($"Regions: {EntityManager.Singleton.Regions.Count:N0}");
+                ImGui.Text($"Zones: {EntityManager.Singleton.ZonesCount:N0}");
+                ImGui.Text($"Mobys: {EntityManager.Singleton.MobysCount:N0}");
+                ImGui.Text($"Ties: {EntityManager.Singleton.TiesCount:N0}");
+                ImGui.Text($"UFrags: {EntityManager.Singleton.UFragsCount:N0}");
+                ImGui.Text($"Total entities: {EntityManager.Singleton.Drawables.Length:N0}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
                 ImGui.Text($"Materials: {((Window.Singleton.FileManager?.isOld ?? false) ? Window.Singleton.AssetLoader?.shaderDB.Count : Window.Singleton.AssetLoader?.shaders.Count):N0}");
                 ImGui.EndGroup();

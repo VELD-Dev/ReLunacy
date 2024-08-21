@@ -6,7 +6,7 @@ internal class View3DFrame : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
-    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
+    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
     public Renderer OGLRenderer { get => Window.Singleton.OGLRenderer; }
 
@@ -22,7 +22,7 @@ internal class View3DFrame : DockedFrame
         OGLRenderer.Resize3DView(new((int)viewSize.X, (int)viewSize.Y));
         OGLRenderer.RenderFrame();
 
-        ImGui.Image(OGLRenderer.ColourFramebuffer, viewSize, Vector2.UnitY, Vector2.UnitX);
+        ImGui.Image(OGLRenderer.ColourTex, viewSize, Vector2.UnitY, Vector2.UnitX);
 
     }
 
@@ -31,7 +31,10 @@ internal class View3DFrame : DockedFrame
         //ImGui.SetNextWindowSize(ImGui.GetWindowViewport().WorkSize);
         //ImGui.SetNextWindowPos(ImGui.GetWindowViewport().GetWorkCenter(), ImGuiCond.Always, new(0.5f));
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0);
         base.RenderAsWindow(deltaTime);
-        ImGui.PopStyleVar();
+        ImGui.PopStyleVar(4);
     }
 }
