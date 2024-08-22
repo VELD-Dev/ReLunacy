@@ -62,7 +62,7 @@ public class Material
             }
             else
             {
-                SetFloat("alphaClip", 0);
+                SetFloat("alphaClip", 0.01f);
             }
         }
         else

@@ -1,4 +1,11 @@
-﻿namespace ReLunacy.Engine;
+﻿using Vector2 = System.Numerics.Vector2;
+using Vector3 = System.Numerics.Vector3;
+using Vec2 = OpenTK.Mathematics.Vector2;
+using Vec3 = OpenTK.Mathematics.Vector3;
+using Quaternion = System.Numerics.Quaternion;
+using Quat = OpenTK.Mathematics.Quaternion;
+
+namespace ReLunacy.Engine;
 
 public class Camera
 {
@@ -65,8 +72,27 @@ public class Camera
         UpdatePerspective();
     }
 
+    public void SetRotation(Vector2 angle)
+    {
+        angle.Y = Math.Clamp(angle.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
+        transform.SetRotation(Quat.FromAxisAngle(Vec3.UnitY, angle.X) * Quat.FromAxisAngle(Vec3.UnitX, angle.Y));
+    }
+
+    public void Rotate(Vector2 angle)
+    {
+        var rot = transform.eulerRotation;
+        
+        rot.Z -= angle.X;
+        rot.X -= angle.Y;
+        rot.X = Math.Clamp(rot.X, MathHelper.Pi / 180f * -89.9f, MathHelper.Pi / 180f * 89.9f);
+
+        transform.SetRotation(rot);
+    }
+
     public void UpdatePerspective()
     {
         ViewToClip = Matrix4.CreatePerspectiveFieldOfView(FOV, Aspect, NearClipDistance, RenderDistance);
     }
+
+    public void ViewToWorldRay(Matrix4 projection, Matrix4 view)
 }
