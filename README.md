@@ -12,7 +12,8 @@
 <p align="center">
     <a href="#features">Features</a> •
     <a href="#usage">Usage</a> •
-    <a href="#building">Building</a> 
+    <a href="#building">Building</a> •
+    <a href="#credits">Credits</a>
     <!--<a href="#technology">Technology</a> •
     <a href="#licensing">Licensing</a> •
     <a href="CONTRIBUTING.md">Contributing</a>-->
@@ -44,12 +45,12 @@ ReLunacy is still in early development, but it comes with very interesting featu
 
 ## Usage
 
-ReLunacy is meant to be simple to use. Here is how to use the core feautres:
-- Loading level:
-  - In first place, you need to extract the game you want to inspect the level of, with a tool like **PS3GameExtractor** or simply by using **RPCS3**.
-  - Then, you need a tool to extract the `.psarc` files, **PS3GameExtractor** can do it, but otherwise use [**PSArcTool**](https://github.com/periander/PSArcTool) by Periander.
-  - Reach the level of your choice inside `/packed/levels/<level_name>/` and extract `level_cached.psarc` and `level_uncached.psarc` with one of the previous tools.
-  - Finally, go to the extracted files `/packed/levels/<level_name>/built/levels/<level_name>/` and copy the full address, and paste it in the `File > Open File` dialog frame.
+In first place, you need to extract the game you want to inspect the level of, with a tool like **PS3GameExtractor** or simply by using **RPCS3**.  
+Then, you need a tool to extract the `.psarc` files, **PS3GameExtractor** can do it, but otherwise use [**PSArcTool**](https://github.com/periander/PSArcTool) by Periander.  
+Reach the level of your choice inside `/packed/levels/<level_name>/` and extract `level_cached.psarc` and `level_uncached.psarc` with one of the previous tools.  
+Finally, go to the extracted files `/packed/levels/<level_name>/built/levels/<level_name>/` and copy the full address, and paste it in the `File > Open File` dialog frame.  
+  
+Controls:
 - Keybindings:
   - `[W][A][S][D]` / `[Z][Q][S][D]` to move around, depending on your keyboard.
   - `[E][Q]` / `[E][A]` to go up and down, depending on your keyboard.
@@ -108,3 +109,11 @@ ReLunacy is meant to be simple to use. Here is how to use the core feautres:
 
 * Including the `texstream.dat` file in the same place as `main.dat` will improve texture resolution (found in `level_textures.psarc`)
 * Including the `debug.dat` file for a level in the same place as `main.dat` will include asset and instance names
+
+## Credits
+
+Of course, I haven't been working alone on this, I wrote ReLunacy, but it would be very impolite to not credit everyone who's involved!
+- [**@NefariousTechSupport**](https://github.com/NefariousTechSupport?tab=repositories) is the original developer of Lunacy, they are also an important reverse engineer for the PS3 games. The new renderer is inspired by their 7th [igRewrite](https://github.com/NefariousTechSupport/igRewrite7) (a Skylander level editor)
+- [**@chaoticgd**](https://github.com/chaoticgd) greatly helped me with the 3D rendering
+- [**@MilchRatchet**](https://github.com/MilchRatchet): I strongly inspired the global level editor from [Replanetizer](https://github.com/RatchetModding/Replanetizer), of which they are the maintainer, mostly for the Frames systems.
+- [**@PredatorCZ**](https://github.com/PredatorCZ) is one of the pioneer of Ratchet & Clank: Future Series reverse engineer, it makes sense that a lot of the code is based on their [InsomniaToolset](https://github.com/PredatorCZ/InsomniaToolset).
