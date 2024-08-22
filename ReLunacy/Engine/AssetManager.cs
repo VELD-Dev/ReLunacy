@@ -101,6 +101,7 @@ public class AssetManager
         Mobys.Clear();
         Ties.Clear();
         UFrags.Clear();
+        Cube.transforms.Clear();
     }
 
     public void ConsolidateMobys()

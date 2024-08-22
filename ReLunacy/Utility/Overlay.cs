@@ -129,9 +129,7 @@ public class Overlay
                     float resx, resy;
                     resx = view3d.FrameContentSize.X;
                     resy = view3d.FrameContentSize.Y;
-                    ImGui.Text($"Resolution: {view3d.FrameContentSize}");
-                    ImGui.Text($"Region: {view3d.Region}");
-                    ImGui.Text($"Position: {view3d.FramePos}");
+                    ImGui.Text($"Resolution: ({resx}x{resy})");
                 }
                 ImGui.EndGroup();
             }

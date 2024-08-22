@@ -9,5 +9,5 @@ uniform bool useTexture;
 
 void main()
 {
-	color = vec4(1, 1, 0, 0.5);
+	color = vec4(1, 1, 1, 1);
 }

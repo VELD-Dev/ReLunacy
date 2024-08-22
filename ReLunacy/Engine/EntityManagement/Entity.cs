@@ -16,8 +16,6 @@ public class Entity
     //xyz is pos, w is radius
     public Vec4 boundingSphere;
 
-    public static uint drawCalls;
-
     public Entity(Region.CMobyInstance mobyInstance)
     {
         instance = mobyInstance;
