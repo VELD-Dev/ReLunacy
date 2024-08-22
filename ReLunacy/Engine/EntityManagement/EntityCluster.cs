@@ -76,6 +76,11 @@ public class EntityCluster
         return true;
     }
 
+    public static void Wipe()
+    {
+        TotalEntities = 0;
+    }
+
     // FOR DEBUG PURPOSE
     public Drawable[] GetDrawables()
     {

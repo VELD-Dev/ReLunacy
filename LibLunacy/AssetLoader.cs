@@ -208,16 +208,21 @@ namespace LibLunacy
 		{
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader zoneSection = main.QuerySection(0x5000);
+			Console.WriteLine($"{zoneSection.count} zones detected (0x{zoneSection.length:X} bytes long)");
 			for (int i = 0; i < zoneSection.count; i++)
 			{
-				CZone zone = new(main, this);
-				zone.index = i;
+                CZone zone = new(main, this)
+                {
+                    index = i
+                };
 
-				Console.WriteLine("[0x{0:X}] Zone {1} ({2}) has {3} ufrags", "unk", zone.name, i, zone.ufrags?.Length ?? 0);
+                Console.WriteLine("[0x{0:X}] Zone {1} ({2}/{3}) has {4} ufrags", "unk", zone.name, i, zoneSection.count, zone.ufrags.Length);
 				zones.Add((ulong)i, zone);
 
 				ufrags.Add((ulong)zone.index, new());
 				var locUfrags = ufrags[(ulong)zone.index];
+
+				if (zone.ufrags is null) continue;
                 for (int j = 0; j < zone.ufrags.Length; j++)
                 {
                     locUfrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);

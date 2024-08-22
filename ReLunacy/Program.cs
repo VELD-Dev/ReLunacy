@@ -4,7 +4,7 @@ internal class Program
 {
     public const string AppName = "Lunacy_v2";
     public const string AppDisplayName = "ReLunacy";
-    public const string Version = "0.01";
+    public const string Version = "0.01.1";
     public static string ProvidedPath = "";
     public static string AppPath { get => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
 

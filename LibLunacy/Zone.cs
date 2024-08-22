@@ -214,11 +214,13 @@ namespace LibLunacy
 			}
 
 			//ufrags = new NewUFrag[0];
-			
-			LoadTFrags(file, al);
+
+			ufrags = Array.Empty<UFrag>();
+			if (al.fm.isOld) return;
+			LoadUFrags(file, al);
 		}
 
-		private void LoadTFrags(IGFile file, AssetLoader al)
+		private void LoadUFrags(IGFile file, AssetLoader al)
 		{
 			IGFile.SectionHeader ufragSection;
 

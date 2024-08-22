@@ -68,6 +68,11 @@ public class Window : GameWindow
         io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 
         AddFrame(new View3DFrame());
+
+        if(Program.ProvidedPath != string.Empty)
+        {
+            LoadLevelDataAsync(Program.ProvidedPath, new("Loading level...", new(0, 1)));
+        }
     }
 
     protected override void OnRenderFrame(FrameEventArgs eventArgs)
@@ -135,6 +140,7 @@ public class Window : GameWindow
         TryWipeLevel();
         AddFrame(loadingFrame);
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
+        Program.ProvidedPath = path;
 
         FileManager = new();
         LunaLog.LogDebug("Starting FileManager threaded task.");
@@ -157,6 +163,7 @@ public class Window : GameWindow
             return;
 
         EntityManager.Singleton.Wipe();
+        EntityCluster.Wipe();
         AssetManager.Singleton.Wipe();
         AssetLoader = null;
         FileManager = null;
