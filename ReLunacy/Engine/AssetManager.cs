@@ -86,9 +86,9 @@ public class AssetManager
         {
             Ties.Add(tie.Key, new(tie.Value));
         }
-        foreach(var zoneUfrags in loader.zones)
+        foreach(var zone in loader.zones)
         {
-            foreach(var ufrag in zoneUfrags.Value.ufrags)
+            foreach(var ufrag in zone.Value.ufrags)
             {
                 UFrags.TryAdd(ufrag.GetTuid(), new(ufrag));
             }
