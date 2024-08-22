@@ -5,7 +5,7 @@
     </p>
 </h1>
 <h3>
-    <p align="center" style="font-size: 20em; font-weight: 500;">
+    <p align="center">
         Level Editor for the Ratchet and Clank: Future Series and Resistance PS3 opuses
     </p>
 </h3>
