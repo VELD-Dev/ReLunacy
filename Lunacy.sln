@@ -9,10 +9,16 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Lunacy", "Lunacy\Lunacy.csp
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetExtractor", "AssetExtractor\AssetExtractor.csproj", "{DD2066B5-AC6A-4844-8F69-CA4CD521CA66}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReLunacy", "ReLunacy\ReLunacy.csproj", "{0DE34278-CF55-428E-AD79-93B1EFD69E5D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ReLunacy", "ReLunacy\ReLunacy.csproj", "{0DE34278-CF55-428E-AD79-93B1EFD69E5D}"
 	ProjectSection(ProjectDependencies) = postProject
 		{51E3CA4C-84C7-4605-B342-770EC5F0451E} = {51E3CA4C-84C7-4605-B342-770EC5F0451E}
 		{DD2066B5-AC6A-4844-8F69-CA4CD521CA66} = {DD2066B5-AC6A-4844-8F69-CA4CD521CA66}
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{EBEC1050-353F-4BEA-9675-F40667FD721A}"
+	ProjectSection(SolutionItems) = preProject
+		.gitignore = .gitignore
+		README.md = README.md
 	EndProjectSection
 EndProject
 Global
