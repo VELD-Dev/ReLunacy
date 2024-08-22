@@ -94,5 +94,5 @@ public class Camera
         ViewToClip = Matrix4.CreatePerspectiveFieldOfView(FOV, Aspect, NearClipDistance, RenderDistance);
     }
 
-    public void ViewToWorldRay(Matrix4 projection, Matrix4 view)
+    public void ViewToWorldRay(Matrix4 projection, Matrix4 view) { }
 }

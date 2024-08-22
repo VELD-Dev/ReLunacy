@@ -63,6 +63,8 @@ internal class View3DFrame : DockedFrame
             return;
 
         CheckMovementInput(deltaTime);
+
+        Vector3 mouseRay = 
     }
 
     private bool CheckRotationInput(float deltaTime, bool allowGrab)
