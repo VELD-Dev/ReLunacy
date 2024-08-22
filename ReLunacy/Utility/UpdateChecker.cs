@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -32,11 +33,14 @@ public class UpdateChecker
 
             if (newReleaseTag == null) return;
             if (time == null) return;
+            if (url == null) return;
             var parsedReleaseTag = new Version(newReleaseTag);
             if (parsedReleaseTag > new Version(Program.Version))
             {
-                LunaLog.LogInfo($"An update is available: v{parsedReleaseTag} ({(DateTime.Now - DateTime.Parse(time)):dd days, hhh and mmm} ago)");
-                var updateFrame = new UpdateInfoFrame(url, newReleaseTag, DateTime.Parse(time));
+                var timeParsed = DateTime.ParseExact(time, "MM/dd/yyyy HH:mm:ss", CultureInfo.InvariantCulture);
+                LunaLog.LogInfo($"An update is available: v{parsedReleaseTag} ({(DateTime.Now - timeParsed)} ago)");
+                var updateFrame = new UpdateInfoFrame(url, newReleaseTag, timeParsed);
+                Window.Singleton.AddFrame(updateFrame);
             }
             else if(parsedReleaseTag < new Version(Program.Version))
             {
