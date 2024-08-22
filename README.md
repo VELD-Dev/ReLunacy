@@ -1,15 +1,14 @@
 <h1>
     <p align="center">
         <!--<img src="media/Logo.svg" alt="Logo" width="110" height="110" title="Logo made by Nooga.">  Replanetizer leftovers :p-->
-        <p align="center" style="font-weight: bold">ReLunacy</p>
+        <p align="center" style="font-weight: 1000">ReLunacy</p>
     </p>
 </h1>
-<p align="center">
+<p align="center" style="font-size: 20px; font-weight: 500;">
     Level Editor for the Ratchet and Clank: Future Series and Resistance PS3 opuses
-    <br/>
-    </p>
 </p>
-<p align="center">
+<hr style="margin: 0 auto 1em auto; width: 40%; height: 1px;">
+<p align="center" style="font-weight: 300;">
     <a href="#features">Features</a> •
     <a href="#prerequisites">Prerequisites</a> •
     <a href="#usage">Usage</a> •
