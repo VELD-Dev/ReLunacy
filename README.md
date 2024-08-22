@@ -1,6 +1,6 @@
 <h1>
     <p align="center">
-        <!--<img src="media/Logo500px.ico" alt="Logo" width="110" height="110" title="Logo made by Nooga.">  Replanetizer leftovers :p-->
+        <!--<img src="media/Logo.svg" alt="Logo" width="110" height="110" title="Logo made by Nooga.">  Replanetizer leftovers :p-->
         <p align="center" style="font-weight: bold">ReLunacy</p>
     </p>
 </h1>
@@ -11,22 +11,25 @@
 </p>
 <p align="center">
     <a href="#features">Features</a> •
+    <a href="#prerequisites">Prerequisites</a> •
     <a href="#usage">Usage</a> •
     <a href="#building">Building</a> •
+    <a href="#running">Running</a> •
+    <a href="#notes">Notes</a> •
+    <a href="./LICENSE">License</a> •
     <a href="#credits">Credits</a>
     <!--<a href="#technology">Technology</a> •
-    <a href="#licensing">Licensing</a> •
     <a href="CONTRIBUTING.md">Contributing</a>-->
 </p>
 
 <p align="center">
     <img alt="Demo" src="media/demo.gif">
+    <img alt="GitHub License" src="https://img.shields.io/github/license/VELD-Dev/ReLunacy?style=for-the-badge">
     <img alt="GitHub Release" src="https://img.shields.io/github/v/release/VELD-Dev/ReLunacy?style=for-the-badge&color=00DD00">
     <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/VELD-Dev/ReLunacy/total?style=for-the-badge&label=tot.%20downloads&color=7E7EDD">
-
 </p>
 
-## Features
+<h2 id="features">🌙 Features</h2>
 
 ReLunacy is still in early development, but it comes with very interesting features, modders and speedrunners will really like it.
 
@@ -43,11 +46,21 @@ ReLunacy is still in early development, but it comes with very interesting featu
   - Comfortable and user-friendly; the editor is made to be easy to use.
   - (WIP) Customize the rendering by adding your own shaders to the editor.
 
-## Usage
+<h2 id="prerequisites">⚠️ Prerequisites</h2>
+
+Here are essential things you need to run **ReLunacy**, without those, the app might be slow or could just not run at all.
+- (Windows) [**.NET 8.0 Desktop Runtime**](https://download.visualstudio.microsoft.com/download/pr/907765b0-2bf8-494e-93aa-5ef9553c5d68/a9308dc010617e6716c0e6abd53b05ce/windowsdesktop-runtime-8.0.8-win-x64.exe)
+- (Linux/Mac) [**.NET 8.0 Runtime**](https://dotnet.microsoft.com/fr-fr/download/dotnet/8.0#runtime-8.0.8)
+- A 64bits (x64) OS... I mean... 32bits (x32) OS doesn't exist anymore right ?
+
+<h2 id="usage">⌨️ Usage</h2>
 
 In first place, you need to extract the game you want to inspect the level of, with a tool like **PS3GameExtractor** or simply by using **RPCS3**.  
+
 Then, you need a tool to extract the `.psarc` files, **PS3GameExtractor** can do it, but otherwise use [**PSArcTool**](https://github.com/periander/PSArcTool) by Periander.  
+
 Reach the level of your choice inside `/packed/levels/<level_name>/` and extract `level_cached.psarc` and `level_uncached.psarc` with one of the previous tools.  
+
 Finally, go to the extracted files `/packed/levels/<level_name>/built/levels/<level_name>/` and copy the full address, and paste it in the `File > Open File` dialog frame.  
   
 Controls:
@@ -117,3 +130,4 @@ Of course, I haven't been working alone on this, I wrote ReLunacy, but it would 
 - [**@chaoticgd**](https://github.com/chaoticgd) greatly helped me with the 3D rendering
 - [**@MilchRatchet**](https://github.com/MilchRatchet): I strongly inspired the global level editor from [Replanetizer](https://github.com/RatchetModding/Replanetizer), of which they are the maintainer, mostly for the Frames systems.
 - [**@PredatorCZ**](https://github.com/PredatorCZ) is one of the pioneer of Ratchet & Clank: Future Series reverse engineer, it makes sense that a lot of the code is based on their [InsomniaToolset](https://github.com/PredatorCZ/InsomniaToolset).
+- **@Nooga** is the artist that made ReLunacy's Logo
