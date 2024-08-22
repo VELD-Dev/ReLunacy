@@ -17,8 +17,8 @@ namespace Lunacy
 
 		internal List<Entity> mobys = new List<Entity>();
 
-		List<Drawable> transparentDrawables = new List<Drawable>();
-		List<Drawable> opaqueDrawables = new List<Drawable>();
+		internal List<Drawable> transparentDrawables = new List<Drawable>();
+		internal List<Drawable> opaqueDrawables = new List<Drawable>();
 		public void LoadGameplay(Gameplay gp)
 		{
 			for(int i = 0; i < gp.regions.Length; i++)
@@ -87,6 +87,7 @@ namespace Lunacy
 			opaqueDrawables.Clear();
 
 			KeyValuePair<ulong, DrawableListList>[] mobys = AssetManager.Singleton.mobys.ToArray();
+			Console.WriteLine($"Reallocating {mobys.Length} mobys");
 			for(int i = 0; i < mobys.Length; i++)
 			{
 				List<DrawableList> drawableLists = mobys[i].Value;
@@ -106,9 +107,10 @@ namespace Lunacy
 				}
 			}
 
-			KeyValuePair<ulong, DrawableList>[] ties = AssetManager.Singleton.ties.ToArray();
+            KeyValuePair<ulong, DrawableList>[] ties = AssetManager.Singleton.ties.ToArray();
+            Console.WriteLine($"Reallocating {ties.Length} ties");
 			for(int i = 0; i < ties.Length; i++)
-			{
+            {
 				List<Drawable> drawables = ties[i].Value;
 				for(int j = 0; j < drawables.Count; j++)
 				{
@@ -122,6 +124,27 @@ namespace Lunacy
 					}
 				}
 			}
+
+			if(loadUfrags)
+			{
+                foreach (var z in TFrags)
+				{
+					Console.WriteLine($"Reallocating {ties.Length} ties");
+					foreach(var uf in z)
+                    {
+                        var ufragdrawable = uf.drawable as Drawable;
+						if(ufragdrawable == null) continue;
+						if(ufragdrawable.material.asset.renderingMode != CShader.RenderingMode.AlphaBlend)
+						{
+							opaqueDrawables.Add(ufragdrawable);
+						}
+						else
+						{
+							transparentDrawables.Add(ufragdrawable);
+						}
+					}
+				}
+            }
 		}
 
 		public void RenderOpaque()
@@ -129,13 +152,6 @@ namespace Lunacy
 			for(int i = 0; i < opaqueDrawables.Count; i++)
 			{
 				opaqueDrawables[i].Draw();
-			}
-			for(int i = 0; i < TFrags.Count; i++)
-			{
-				for(int j = 0; j < TFrags[i].Count; j++)
-				{
-					TFrags[i][j].Draw();
-				}
 			}
 		}
 		public void RenderTransparent()
