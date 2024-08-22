@@ -7,9 +7,6 @@ internal class EditorSettingsFrame : Frame
     public int currentMsaa = 0;
     public int currentVSync = (int)Program.Settings.VSyncMode;
     public int currentLogLevel = (int)Program.Settings.LogLevel;
-    public bool doRenderMobys = true;
-    public bool doRenderTies = true;
-    public bool doRenderUFrags = true;
 
     public EditorSettingsFrame() : base()
     {
@@ -60,21 +57,8 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Checkbox("Show Level Stats", ref Program.Settings.OverlayLevelStats);
                 ImGui.Checkbox("Show Camera Info", ref Program.Settings.OverlayCamInfo);
                 ImGui.SliderFloat("Background Opacity", ref Program.Settings.OverlayOpacity, 0f, 1f);
-                ImGui.InputFloat2("Box Padding", ref Program.Settings.OverlayPadding, "%0.1f");
-                ImGui.EndGroup();
-                ImGui.EndTabItem();
-            }
-            if (ImGui.BeginTabItem("Core settings"))
-            {
-                ImGui.BeginGroup();
-                ImGui.Checkbox("Legacy Rendering Mode", ref Program.Settings.LegacyRenderingMode);
-                ImGui.SameLine();
-                ImGuiPlus.HelpMarker("If unsure, leave it unchecked.");
-                ImGui.BeginDisabled(Program.Settings.LegacyRenderingMode);
-                ImGui.Checkbox("Render Mobys", ref doRenderMobys);
-                ImGui.Checkbox("Render Ties", ref doRenderTies);
-                ImGui.Checkbox("Render UFrags", ref doRenderUFrags);
-                ImGui.EndDisabled();
+                ImGui.InputFloat2("Overlay Padding", ref Program.Settings.OverlayPadding, "%0.1f");
+                ImGui.Combo("Overlay Location", ref Program.Settings.OverlayPos, [ "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right", "Center..?" ], 5);
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
@@ -83,6 +67,9 @@ internal class EditorSettingsFrame : Frame
                 ImGui.BeginGroup();
                 ImGui.Checkbox("Enable Debug", ref Program.Settings.DebugMode);
                 ImGui.Combo("Logging Level", ref currentLogLevel, ["Debug", "Info", "Warning", "Error", "Fatal"], 5);
+                ImGui.Checkbox("Legacy Rendering Mode", ref Program.Settings.LegacyRenderingMode);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker("If unsure, leave it unchecked. This heavily\naffects performances and has no reason to still be.");
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
@@ -98,9 +85,6 @@ internal class EditorSettingsFrame : Frame
             Program.Settings.LogLevel = (LunaLog.LogLevel)currentLogLevel;
             Camera.Main.FOV = Program.Settings.CamFOVRad;
             Camera.Main.RenderDistance = Program.Settings.RenderDistance;
-            EntityManager.Singleton.SwitchAllMobys(doRenderMobys);
-            EntityManager.Singleton.SwitchAllTies(doRenderTies);
-            EntityManager.Singleton.SwitchAllUFrags(doRenderUFrags);
             Program.Settings.SaveSettingsToFile();
         }
         ImGui.SameLine();
@@ -120,6 +104,7 @@ internal class EditorSettingsFrame : Frame
     public override void RenderAsWindow(float deltaTime)
     {
         ImGui.SetNextWindowSize(new(800, 600));
+        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.Once, new(0.5f, 0.5f));
         base.RenderAsWindow(deltaTime);
     }
 }

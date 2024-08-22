@@ -43,8 +43,10 @@ public class Window : GameWindow
 
     protected override void OnLoad()
     {
-        LunaLog.LogInfo("Loading window.");
         base.OnLoad();
+
+        LunaLog.LogInfo("Checking for updates...");
+        UpdateChecker.CheckUpdates();
 
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
         Title = $"{Program.AppDisplayName} {Program.Version} ({oglVersionStr})";
@@ -106,8 +108,8 @@ public class Window : GameWindow
         if (KeyboardState.IsKeyDown(Keys.A)) camTransform.position += camTransform.Right * (float)args.Time * moveSpeed;
         if (KeyboardState.IsKeyDown(Keys.S)) camTransform.position -= camTransform.Forward * (float)args.Time * moveSpeed;
         if (KeyboardState.IsKeyDown(Keys.D)) camTransform.position -= camTransform.Right * (float)args.Time * moveSpeed;
-        if (KeyboardState.IsKeyDown(Keys.E)) camTransform.position += (0, 0, (float)args.Time * moveSpeed);
-        if (KeyboardState.IsKeyDown(Keys.Q)) camTransform.position -= (0, 0, (float)args.Time * moveSpeed);
+        if (KeyboardState.IsKeyDown(Keys.E)) camTransform.position += (0, (float)args.Time * moveSpeed, 0);
+        if (KeyboardState.IsKeyDown(Keys.Q)) camTransform.position -= (0, (float)args.Time * moveSpeed, 0);
 
         if (MouseState.IsButtonDown(MouseButton.Right))
         {
@@ -130,6 +132,7 @@ public class Window : GameWindow
     }
     public async void LoadLevelDataAsync(string path, LoadingModal loadingFrame)
     {
+        TryWipeLevel();
         AddFrame(loadingFrame);
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
 
@@ -145,8 +148,22 @@ public class Window : GameWindow
         loadingFrame.UpdateProgress(0, new(1, 1));
         doLoadEntities = true;
         LunaLog.LogDebug("Level loaded.");
-        loadingFrame.CloseModal();
+        loadingFrame.isOpen = false;
     }
+
+    public void TryWipeLevel()
+    {
+        if (Program.ProvidedPath == string.Empty || Program.ProvidedPath == null)
+            return;
+
+        EntityManager.Singleton.Wipe();
+        AssetManager.Singleton.Wipe();
+        AssetLoader = null;
+        FileManager = null;
+        Gameplay = null;
+        Program.ProvidedPath = string.Empty;
+    }
+
     private void DoLoadEntitiesCheck()
     {
         if (!doLoadEntities) return;
@@ -163,7 +180,7 @@ public class Window : GameWindow
         RenderMenuBar();
         RenderDockSpace();
 
-        foreach (Frame frame in openFrames)
+        foreach (Frame frame in openFrames.ToList())
         {
             //ImGui.SetNextWindowDockID(ImGui.GetID("dockspace"), ImGuiCond.Appearing);
             frame.RenderAsWindow(deltaTime);
@@ -204,12 +221,23 @@ public class Window : GameWindow
         if (ImGui.BeginMenu("File"))
         {
             FileMenuDraw.OpenLevelMenuItem();
+            FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }
 
         if (ImGui.BeginMenu("Edit"))
         {
             EditMenuDraw.EditorSettingsMenuItem();
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("Tools"))
+        {
+            ToolsMenuDraw.TranslationTool();
+            ToolsMenuDraw.RotationTool();
+            ToolsMenuDraw.ScaleTool();
+            ImGui.Separator();
+            ToolsMenuDraw.DeselectObject();
             ImGui.EndMenu();
         }
 
@@ -222,7 +250,25 @@ public class Window : GameWindow
             ImGui.EndMenu();
         }
 
+        if (ImGui.BeginMenu("Render"))
+        {
+            RenderMenuDraw.ShowMobys();
+            RenderMenuDraw.ShowTies();
+            RenderMenuDraw.ShowUFrags();
+            RenderMenuDraw.ShowVolumes();
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("About"))
+        {
+            AboutMenuDraw.GithubLink();
+            AboutMenuDraw.CheckForUpdate();
+            ImGui.EndMenu();
+        }
+
         DebugMenuDraw.Menu();
+
+        ImGui.EndMainMenuBar();
     }
 
     public void AddFrame(Frame frame)
@@ -239,9 +285,15 @@ public class Window : GameWindow
     {
         if (IsAnyFrameOpened<T>())
         {
-            var frameToClose = openFrames.First(f => f.GetType() == typeof(T));
+            var frameToClose = GetFirstFrame<T>();
             frameToClose.isOpen = false;
         }
+    }
+
+    public T GetFirstFrame<T>() where T : Frame
+    {
+        if (!IsAnyFrameOpened<T>()) return null;
+        return openFrames.First(f => f.GetType() == typeof(T)) as T;
     }
 
     static bool FrameMustClose(Frame frame) => !frame.isOpen;

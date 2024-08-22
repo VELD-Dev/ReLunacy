@@ -1,4 +1,5 @@
 ﻿using ReLunacy.Engine.EntityManagement;
+using System.Runtime.InteropServices;
 using Vector2 = System.Numerics.Vector2;
 using Vector4 = System.Numerics.Vector4;
 
@@ -12,7 +13,7 @@ public class Overlay
     public static bool ShowProfiler { get => Program.Settings.OverlayProfiler; }
     public static bool ShowCamInfo { get => Program.Settings.OverlayCamInfo; }
     public static Vector2 Padding { get => Program.Settings.OverlayPadding; }
-    public static int location = 0;
+    public static int Location { get => Program.Settings.OverlayPos; }
     public static float OverlayAlpha { get => Program.Settings.OverlayOpacity; }
 
     private static string levelName
@@ -35,25 +36,28 @@ public class Overlay
             | ImGuiWindowFlags.AlwaysAutoResize
             | ImGuiWindowFlags.NoSavedSettings
             | ImGuiWindowFlags.NoFocusOnAppearing
-            | ImGuiWindowFlags.NoNav;
-        if(location >= 0)
+            | ImGuiWindowFlags.NoDocking
+            | ImGuiWindowFlags.NoInputs;
+        if(Location >= 0)
         {
-            Vector2 workPos = viewport.WorkPos;
-            Vector2 workSize = viewport.WorkSize;
+            bool useView = Window.Singleton.IsAnyFrameOpened<View3DFrame>();
+            View3DFrame? view = Window.Singleton.GetFirstFrame<View3DFrame>();
+            Vector2 workPos = useView ? view.FramePos + view.Region.ToOpenTK().Xy.ToNumerics() : viewport.WorkPos;
+            Vector2 workSize = useView ? view.FrameContentSize : viewport.WorkSize;
             Vector2 windowPos, windowPosPivot;
-            windowPos.X = (location == 1) ? (workPos.X + workSize.X - Padding.X) : (workPos.X + Padding.X);
-            windowPos.Y = (location == 2) ? (workPos.Y + workSize.Y - Padding.Y) : (workPos.Y + Padding.Y);
-            windowPosPivot.X = (location == 1) ? 1.0f : 0.0f;
-            windowPosPivot.Y = (location == 2) ? 1.0f : 0.0f;
+            windowPos.X = (Location == 1 || Location == 3) ? (workPos.X + workSize.X - Padding.X) : (workPos.X + Padding.X);
+            windowPos.Y = (Location >= 2) ? (workPos.Y + workSize.Y - Padding.Y) : (workPos.Y + Padding.Y);
+            windowPosPivot.X = (Location == 1 || Location == 3) ? 1.0f : 0.0f;
+            windowPosPivot.Y = (Location >= 2) ? 1.0f : 0.0f;
             ImGui.SetNextWindowPos(windowPos, ImGuiCond.Always, windowPosPivot);
             flags |= ImGuiWindowFlags.NoMove;
         }
-        else if(location == -2)
+        else if(Location == 4)
         {
             ImGui.SetNextWindowPos(viewport.GetWorkCenter(), ImGuiCond.Always, new(0.5f, 0.5f));
             flags |= ImGuiWindowFlags.NoMove;
         }
-
+        
         ImGui.SetNextWindowBgAlpha(OverlayAlpha);
         if(ImGui.Begin("Stats Overlay", ref p_open, flags)) 
         {
@@ -101,6 +105,7 @@ public class Overlay
                 ImGui.Text($"Regions: {EntityManager.Singleton.Regions.Count:N0}");
                 ImGui.Text($"Zones: {EntityManager.Singleton.ZonesCount:N0}");
                 ImGui.Text($"Mobys: {EntityManager.Singleton.MobysCount:N0}");
+                ImGui.Text($"Volumes: {EntityManager.Singleton.VolumesCount:N0}");
                 ImGui.Text($"Ties: {EntityManager.Singleton.TiesCount:N0}");
                 ImGui.Text($"UFrags: {EntityManager.Singleton.UFragsCount:N0}");
                 ImGui.Text($"Total entities: {EntityCluster.TotalEntities:N0}");
@@ -118,6 +123,16 @@ public class Overlay
                 ImGui.BeginGroup();
                 ImGui.Text($"Position: {Camera.Main.transform.position:N3}");
                 ImGui.Text($"Rotation: ({x:N3}°, {y:N3}°)");
+                if(Window.Singleton.IsAnyFrameOpened<View3DFrame>())
+                {
+                    var view3d = Window.Singleton.GetFirstFrame<View3DFrame>();
+                    float resx, resy;
+                    resx = view3d.FrameContentSize.X;
+                    resy = view3d.FrameContentSize.Y;
+                    ImGui.Text($"Resolution: {view3d.FrameContentSize}");
+                    ImGui.Text($"Region: {view3d.Region}");
+                    ImGui.Text($"Position: {view3d.FramePos}");
+                }
                 ImGui.EndGroup();
             }
         }

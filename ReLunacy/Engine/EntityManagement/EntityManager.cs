@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography.X509Certificates;
+﻿using LibLunacy;
+using System.Security.Cryptography.X509Certificates;
 
 namespace ReLunacy.Engine.EntityManagement;
 
@@ -10,8 +11,6 @@ public class EntityManager
     public Gameplay Gameplay { get; private set; }
     public List<EntityRegion> Regions { get; private set; } = [];
 
-    public Drawable[] Drawables { get; private set; } = [];
-
     #region Counts
     public int MobysCount
     {
@@ -20,7 +19,19 @@ public class EntityManager
             var count = 0;
             foreach (var region in Regions)
             {
-                count += region.MobysCount;
+                count += region.MobyInstances.Size;
+            }
+            return count;
+        }
+    }
+    public int VolumesCount
+    {
+        get
+        {
+            var count = 0;
+            foreach(var region in Regions)
+            {
+                count += region.Volumes.Size;
             }
             return count;
         }
@@ -63,6 +74,11 @@ public class EntityManager
     }
     #endregion
 
+    public bool RenderMobys = true;
+    public bool RenderTies = true;
+    public bool RenderUFrags = true;
+    public bool RenderVolumes = true;
+
     public void LoadGameplay(Gameplay gp)
     {
         Gameplay = gp;
@@ -79,34 +95,47 @@ public class EntityManager
         AssetManager.Singleton.ConsolidateTies();
         LunaLog.LogDebug("Consolidating UFrags");
         AssetManager.Singleton.ConsolidateUFrags();
-
-        /*
-        var drawables = new List<Drawable>();
-        foreach(var region in Regions)
-        {
-            drawables.AddRange(region.GetDrawables());
-        }
-        Drawables = [.. drawables];
-        */
+        LunaLog.LogDebug("Consolidating Volumes");
+        AssetManager.Singleton.ConsolidateVolumes();
     }
 
     public void Render()
     {
         if(!Program.Settings.LegacyRenderingMode)
         {
+            if(RenderMobys)
+            foreach (var moby in AssetManager.Singleton.Mobys.Values.ToList())
+            {
+                moby.Draw();
+            }
+
+            if(RenderTies)
+            foreach(var tie in AssetManager.Singleton.Ties.Values.ToList())
+            {
+                tie.Draw();
+            }
+
+            if(RenderUFrags)
+            foreach(var ufrag in AssetManager.Singleton.UFrags.Values.ToList())
+            {
+                ufrag.Draw();
+            }
+
+            if(RenderVolumes) AssetManager.Singleton.Cube.DrawWireframe();
+        }
+        else
+        {
+            // LEGACY, AVOID USING THAT... PLEASE.
             foreach (var region in Regions)
             {
                 region.Render();
             }
         }
-        else
-        {
-            // LEGACY, AVOID USING THAT... PLEASE.
-            foreach (var drawable in Drawables)
-            {
-                drawable.Draw();
-            }
-        }
+    }
+
+    public void Wipe()
+    {
+        Regions.Clear();
     }
 
     #region Toggles

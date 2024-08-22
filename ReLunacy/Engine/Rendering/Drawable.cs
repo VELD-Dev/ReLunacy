@@ -48,28 +48,6 @@ public class Drawable
         SetMaterial(new Material(mesh.GetShader()));
     }
 
-    public static Drawable CreateCube(Transform transform)
-    {
-        var cube = new Drawable();
-        cube.SetVertexPositions([
-             1,  1,  1,
-            -1,  1,  1,
-            -1, -1,  1,
-            -1, -1, -1,
-             1, -1, -1,
-             1,  1, -1,
-        ]);
-
-        cube.SetIndices([
-            1, 2, 3,
-            1, 3, 4,
-        ]);
-
-        cube.UpdateTransform(transform);
-
-        return cube;
-    }
-
     public void Prepare()
     {
         VAO = GL.GenVertexArray();
@@ -146,6 +124,18 @@ public class Drawable
 
         GL.BindVertexArray(VAO);
         GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+    }
+
+    public void DrawWireframe()
+    {
+        material.SimpleUse();
+        material.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+
+        //GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+        GL.BindVertexArray(VAO);
+        GL.LineWidth(15);
+        GL.DrawElementsInstanced(PrimitiveType.Lines, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        //GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
     }
 
     public void Draw(Transform transform)

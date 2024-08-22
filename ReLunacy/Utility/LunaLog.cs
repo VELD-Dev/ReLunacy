@@ -19,7 +19,7 @@ internal static class LunaLog
 
     public static LogLevel LoggingLevel { get => Program.Settings.LogLevel; }
 
-    public static StreamWriter Out { get; private set; } = File.CreateText(Path.Combine(Window.AppPath, $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
+    public static StreamWriter Out { get; private set; } = File.CreateText(Path.Combine(Window.AppPath, "Logs", $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
 
     public static void Log(LogLevel level, object message)
     {

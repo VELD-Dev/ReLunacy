@@ -87,6 +87,7 @@ namespace Lunacy
 			opaqueDrawables.Clear();
 
 			KeyValuePair<ulong, DrawableListList>[] mobys = AssetManager.Singleton.mobys.ToArray();
+			Console.WriteLine($"Reallocating {mobys.Length} mobys");
 			for(int i = 0; i < mobys.Length; i++)
 			{
 				List<DrawableList> drawableLists = mobys[i].Value;
@@ -106,9 +107,10 @@ namespace Lunacy
 				}
 			}
 
-			KeyValuePair<ulong, DrawableList>[] ties = AssetManager.Singleton.ties.ToArray();
+            KeyValuePair<ulong, DrawableList>[] ties = AssetManager.Singleton.ties.ToArray();
+            Console.WriteLine($"Reallocating {ties.Length} ties");
 			for(int i = 0; i < ties.Length; i++)
-			{
+            {
 				List<Drawable> drawables = ties[i].Value;
 				for(int j = 0; j < drawables.Count; j++)
 				{
@@ -127,8 +129,9 @@ namespace Lunacy
 			{
                 foreach (var z in TFrags)
 				{
+					Console.WriteLine($"Reallocating {ties.Length} ties");
 					foreach(var uf in z)
-					{
+                    {
                         var ufragdrawable = uf.drawable as Drawable;
 						if(ufragdrawable == null) continue;
 						if(ufragdrawable.material.asset.renderingMode != CShader.RenderingMode.AlphaBlend)

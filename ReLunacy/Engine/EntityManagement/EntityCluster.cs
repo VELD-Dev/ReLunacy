@@ -40,6 +40,11 @@ public class EntityCluster
         TotalEntities++;
         Entities.Add(new(mobyInstance));
     }
+    public void Add(Region.CVolumeInstance volumeInstance)
+    {
+        TotalEntities++;
+        Entities.Add(new(volumeInstance));
+    }
     public void Add(CZone.CTieInstance tieInstance)
     {
         TotalEntities++;

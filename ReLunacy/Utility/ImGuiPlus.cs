@@ -57,4 +57,24 @@ public static class ImGuiPlus
         ImGui.InputFloat(name, ref vector.Z, step, step, format);
         ImGui.EndGroup();
     }
+
+    public static bool CenteredButton(string label, Vector2? size = null, float pivot = 0.5f)
+    {
+        ImGuiStylePtr style = ImGui.GetStyle();
+
+        float horizontalSize = size != null ? size.Value.X + style.FramePadding.X * 2 : ImGui.CalcTextSize(label).X + style.FramePadding.X * 2f;
+        float avail = ImGui.GetContentRegionAvail().X;
+
+        float offset = (avail - horizontalSize) * pivot;
+        if(offset > 0)
+        {
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
+        }
+
+        if(size != null)
+        {
+            return ImGui.Button(label, size.Value);
+        }
+        return ImGui.Button(label);
+    }
 }

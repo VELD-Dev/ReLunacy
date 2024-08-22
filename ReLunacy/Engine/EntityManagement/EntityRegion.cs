@@ -4,9 +4,11 @@ public class EntityRegion
 {
     // TODO: Handle volumes ! We're almost there bro
     public readonly EntityCluster MobyInstances = new();
+    public readonly EntityCluster Volumes = new();
     public readonly List<EntityZone> Zones = [];
 
-    public int MobysCount { get => MobyInstances.Size; }
+    #region Counts
+
     public int ZonesCount { get => Zones.Count; }
     public int TiesCount
     {
@@ -33,6 +35,8 @@ public class EntityRegion
         }
     }
 
+    #endregion
+
     public bool AllowRender = true;
 
     public string RegionName;
@@ -51,7 +55,10 @@ public class EntityRegion
         {
             MobyInstances.Add(mInst.Value);
         }
-
+        foreach(var vInst in region.volumeInstances)
+        {
+            Volumes.Add(vInst);
+        }
         foreach (var zone in region.zones)
         {
             Zones.Add(new EntityZone(zone));

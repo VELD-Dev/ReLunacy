@@ -9,4 +9,12 @@ internal static class FileMenuDraw
 
         Window.Singleton?.AddFrame(new FileSelectionDialog());
     }
+
+    internal static void CloseLevelMenuItem()
+    {
+        if (!ImGui.MenuItem("Close Level", "", false, Program.ProvidedPath != string.Empty))
+            return;
+
+        Window.Singleton.TryWipeLevel();
+    }
 }

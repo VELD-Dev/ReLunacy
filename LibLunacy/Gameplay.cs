@@ -47,7 +47,7 @@ namespace LibLunacy
 		public string name = "default";
 
 		public Dictionary<ulong, CMobyInstance> mobyInstances = new Dictionary<ulong, CMobyInstance>();
-		public Dictionary<ulong, CVolumeInstance> volumeInstances = new Dictionary<ulong, CVolumeInstance>();
+		public List<CVolumeInstance> volumeInstances = new List<CVolumeInstance>();
 		public CZone[] zones;
 
 		public class CVolumeInstance
@@ -57,7 +57,7 @@ namespace LibLunacy
 			public Vector3 scale;
 			public string name;
 			public ulong id;
-			public CVolumeInstance(NewVolumeInstance nvolume, NewInstance ni)
+			public CVolumeInstance(NewVolumeInstance nvolume, NewVolumeInstanceMetadata ni)
 			{
 				Matrix4x4.Decompose(nvolume.transform, out scale, out rotation, out position);
 				name = ni.name;
@@ -79,7 +79,7 @@ namespace LibLunacy
 				scale = omi.scale;
 				moby = al.mobys[omi.mobyIndex];
 			}
-			public CMobyInstance(NewMobyInstance nmi, NewInstance ni, AssetLoader al, IGFile region)
+			public CMobyInstance(NewMobyInstance nmi, NewVolumeInstanceMetadata ni, AssetLoader al, IGFile region)
 			{
 				position = nmi.position;
 				rotation = nmi.rotation;
@@ -117,7 +117,7 @@ namespace LibLunacy
 			[FileOffset(0x00)] public Matrix4x4 transform;
 		}
 		[FileStructure(0x10)]
-		public struct NewInstance
+		public struct NewVolumeInstanceMetadata
 		{
 			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x08), Reference] public string name;
@@ -165,7 +165,7 @@ namespace LibLunacy
 
 			IGFile.SectionHeader mobyNamesSection = prius.QuerySection(0x2504C);
 			prius.sh.Seek(mobyNamesSection.offset);
-			NewInstance[] mobyNames = FileUtils.ReadStructureArray<NewInstance>(prius.sh, mobyInstSection.count);
+			NewVolumeInstanceMetadata[] mobyNames = FileUtils.ReadStructureArray<NewVolumeInstanceMetadata>(prius.sh, mobyInstSection.count);
 
 			for(int i = 0; i < mobys.Length; i++)
 			{
@@ -179,11 +179,11 @@ namespace LibLunacy
 
 			IGFile.SectionHeader volumeNamesSection = prius.QuerySection(0x25060);
 			prius.sh.Seek(volumeNamesSection.offset);
-			NewInstance[] volumeNames = FileUtils.ReadStructureArray<NewInstance>(prius.sh, volumeInstSection.count);
+			NewVolumeInstanceMetadata[] volumeNames = FileUtils.ReadStructureArray<NewVolumeInstanceMetadata>(prius.sh, volumeInstSection.count);
 
 			for(int i = 0; i < volumes.Length; i++)
 			{
-				//volumeInstances.Add(volumeNames[i].tuid, new CVolumeInstance(volumes[i], volumeNames[i]));
+				volumeInstances.Add(new CVolumeInstance(volumes[i], volumeNames[i]));
 			}
 
 			IGFile.SectionHeader zoneNames = region.QuerySection(0x1C000);

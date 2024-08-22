@@ -20,6 +20,7 @@ public class EditorSettings
     public int ProfilerFrameSampleSize;
     public float OverlayOpacity;
     public Vector2 OverlayPadding;
+    public int OverlayPos;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders;
     public bool LegacyRenderingMode;
@@ -43,11 +44,12 @@ public class EditorSettings
         OverlayFramerate = true;
         OverlayLevelStats = false;
         OverlayProfiler = false;
-        OverlayCamInfo = false;
+        OverlayCamInfo = true;
         ProfilerRefreshRate = 250;
         ProfilerFrameSampleSize = 10;
         OverlayOpacity = 0.35f;
         OverlayPadding = new(10f, 10f);
+        OverlayPos = 0;
         LegacyRenderingMode = false;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;

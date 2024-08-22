@@ -8,8 +8,6 @@ public class Renderer
     public nint ColourFramebuffer { get; private set; }
     public nint ColourTex { get; private set; }
     nint depthTex;
-    float[] cClearBuf = [0, 0, 0, 1];
-    float[] dClearBuf = [1, 1, 1, 1];
 
     public static readonly Color4 ClearColour = new(0x20, 0x20, 0x30, 0xFF);
     public static readonly Color4 BgClearColour = new(0x1B, 0x1B, 0x1B, 0xFF);
@@ -203,6 +201,6 @@ public class Renderer
 
     public void UpdatePerspective()
     {
-        Camera.Main.SetPerspective(Program.Settings.CamFOVRad, oldSize.X / (float)oldSize.Y, 0.1f, Program.Settings.RenderDistance);
+        Camera.Main.SetPerspective(Program.Settings.CamFOVRad, oldSize.X / (float)oldSize.Y, 0.01f, Program.Settings.RenderDistance);
     }
 }

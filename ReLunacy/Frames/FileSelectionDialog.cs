@@ -5,7 +5,7 @@ namespace ReLunacy.Frames
 {
     internal class FileSelectionDialog : Frame
     {
-        protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize;
+        protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoDocking;
 
         public FileSelectionDialog() : base()
         {
@@ -39,7 +39,7 @@ namespace ReLunacy.Frames
 
         public override void RenderAsWindow(float deltaTime)
         {
-            ImGui.SetNextWindowSize(new System.Numerics.Vector2(300, 100));
+            ImGui.SetNextWindowSize(new System.Numerics.Vector2(450, 100));
             base.RenderAsWindow(deltaTime);
         }
     }

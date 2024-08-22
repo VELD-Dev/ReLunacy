@@ -24,6 +24,10 @@ internal class Program
 
     static void Main(string[] args)
     {
+        if(!Directory.Exists(Path.Combine(AppPath, "Logs")))
+        {
+            Directory.CreateDirectory(Path.Combine(AppPath, "Logs"));
+        }
         LunaLog.LogInfo($"ReLunacy v{Version} by VELD-Dev. Fork of Lunacy, by NefariousTechSupport.");
         cmds = args;
         Console.Title = AppName;

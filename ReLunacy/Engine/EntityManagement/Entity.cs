@@ -31,6 +31,19 @@ public class Entity
         ((DrawableListList)drawable).AddDrawCall(transform);
         boundingSphere = new Vec4(mobyInstance.moby.boundingSpherePosition.ToOpenTK() + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
+    public Entity(Region.CVolumeInstance volumeInstance)
+    {
+        instance = volumeInstance;
+        drawable = AssetManager.Singleton.Cube;
+        transform = new Transform(
+            volumeInstance.position.ToOpenTK(),
+            volumeInstance.rotation.ToOpenTK().ToEulerAngles(),
+            volumeInstance.scale.ToOpenTK()
+        );
+        name = volumeInstance.name;
+        ((Drawable)drawable).AddDrawCall(transform);
+        boundingSphere = new Vec4(volumeInstance.position.ToOpenTK(), volumeInstance.scale.Length());
+    }
     public Entity(CZone.CTieInstance tieInstance)
     {
         instance = tieInstance;
@@ -43,7 +56,7 @@ public class Entity
     public Entity(CZone.UFrag ufrag)
     {
         instance = ufrag;
-        drawable = new Drawable(ufrag);
+        drawable = AssetManager.Singleton.UFrags[ufrag.GetTuid()];
         name = $"UFrag_{ufrag.GetTuid():X08}";
         transform = new Transform(ufrag.GetPosition().ToOpenTK(), Vec3.Zero, Vec3.One / (float)255f);
 

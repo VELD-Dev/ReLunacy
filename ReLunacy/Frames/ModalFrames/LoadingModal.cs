@@ -4,7 +4,7 @@ namespace ReLunacy.Frames.ModalFrames;
 
 public class LoadingModal : Frame
 {
-    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize;
+    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
 
     public ValueTuple<string, Vector2>[] LoadProgresses { get; set; }
 
@@ -36,6 +36,12 @@ public class LoadingModal : Frame
         if (GetCompletedLoadings() >= LoadProgresses.Length) loadingFinished = true;
     }
 
+    public override void RenderAsWindow(float deltaTime)
+    {
+        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.Appearing, new(0.5f, 0.5f));
+        base.RenderAsWindow(deltaTime);
+    }
+
     private int GetCompletedLoadings()
     {
         return LoadProgresses.Where(vt => vt.Item2.X == vt.Item2.Y).Count();
@@ -50,12 +56,5 @@ public class LoadingModal : Frame
         }
         originalProg.Item2 = newProgress;
         LoadProgresses[index] = originalProg;
-    }
-
-    public void CloseModal(bool force = false)
-    {
-        if (!loadingFinished && !force) return;
-
-        isOpen = false;
     }
 }
