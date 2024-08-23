@@ -82,8 +82,9 @@ public class Camera
 
     public void SetRotation(Vector2 angle)
     {
+        angle.Y = Math.Clamp(angle.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
         CamLocal = angle;
-        CamLocal.Y = Math.Clamp(CamLocal.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
+        //CamLocal.Y = Math.Clamp(CamLocal.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
         transform.SetRotation(Quat.FromAxisAngle(Vec3.UnitX, angle.Y) * Quat.FromAxisAngle(Vec3.UnitY, angle.X));
     }
 
