@@ -18,7 +18,6 @@ public class Drawable
     int wfVtcBO;
     int wfVAO;
     int wfEBO;
-    int wfIndexCount;
     public readonly Material WFMaterial = new(MaterialManager.Materials["stdv;volumef"]);
 
     public Drawable()

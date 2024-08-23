@@ -10,6 +10,7 @@ using Keys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
 using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
 using ReLunacy.Frames.ModalFrames;
 using ReLunacy.Engine.EntityManagement;
+using OpenTK.Windowing.Common.Input;
 
 namespace ReLunacy;
 
@@ -26,6 +27,7 @@ public class Window : GameWindow
     public Vec4 screenSafeSpace;
     public Vector2 freecamLocal;
     public Renderer OGLRenderer { get; private set; }
+    public ResourcesManager Resources { get; private set; }
 
     public AssetLoader AssetLoader { get; private set; }
     public FileManager FileManager { get; private set; }
@@ -39,6 +41,7 @@ public class Window : GameWindow
     {
         Singleton = this;
         VSync = Program.Settings.VSyncMode;
+        Resources = ResourcesManager.LoadResourcesFromManifest();
     }
 
     protected override void OnLoad()
@@ -50,6 +53,11 @@ public class Window : GameWindow
 
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
         Title = $"{Program.AppDisplayName} {Program.Version} ({oglVersionStr})";
+        var ico = Resources.GetWindowIcon("logo.ico");
+        if (ico is not null)
+        {
+            Icon = new WindowIcon([ico]);
+        }
 
         OGLRenderer = new Renderer();
 
