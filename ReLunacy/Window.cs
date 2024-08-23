@@ -102,6 +102,7 @@ public class Window : GameWindow
             framerate = (float)Math.Round(1 / (float)args.Time, 1);
         }
 
+        /*
         float moveSpeed = Program.Settings.CamMoveSpeed;
         float sensivity = Program.Settings.CamSensivity; // Change to settings later
 
@@ -115,7 +116,9 @@ public class Window : GameWindow
         if (KeyboardState.IsKeyDown(Keys.D)) camTransform.position -= camTransform.Right * (float)args.Time * moveSpeed;
         if (KeyboardState.IsKeyDown(Keys.E)) camTransform.position += (0, (float)args.Time * moveSpeed, 0);
         if (KeyboardState.IsKeyDown(Keys.Q)) camTransform.position -= (0, (float)args.Time * moveSpeed, 0);
+        */
 
+        /*
         if (MouseState.IsButtonDown(MouseButton.Right))
         {
             CursorState = CursorState.Grabbed;
@@ -130,6 +133,7 @@ public class Window : GameWindow
         {
             CursorState = CursorState.Normal;
         }
+        */
 
         DoLoadEntitiesCheck();
 

@@ -2,6 +2,7 @@
 using Vector2 = System.Numerics.Vector2;
 using Vector3 = System.Numerics.Vector3;
 using Vec2 = OpenTK.Mathematics.Vector2;
+using Vec3 = OpenTK.Mathematics.Vector3;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace ReLunacy.Frames.DockedFrames;
@@ -18,6 +19,7 @@ internal class View3DFrame : DockedFrame
     public Vector2 FramePos { get; private set; }
     public Vector2 MousePos { get; private set; }
     public MouseGrabHandler rmbghandler { get; } = new() { mouseButton = MouseButton.Right };
+    public Entity? SelectedEntity { get; set; } = null;
 
     public View3DFrame() : base()
     {
@@ -63,8 +65,33 @@ internal class View3DFrame : DockedFrame
             return;
 
         CheckMovementInput(deltaTime);
+        if(CheckLMBClick())
+        {
+            LunaLog.LogDebug("Left mouse button handled.");
 
-        Vector3 mouseRay = 
+            Vec3 mouseRay = Camera.Main.CreateRay(MousePos, FrameContentRegion.GetSizeF());
+            (Entity, float)[] intersectedEntities = EntityManager.Singleton.Raycast(mouseRay);
+            if (intersectedEntities.Length > 0)
+            {
+                SelectedEntity?.RemoveWireframeDrawCall();
+                SelectedEntity = intersectedEntities[0].Item1;
+                SelectedEntity.AddWireframeDrawCall();
+            }
+            else
+            {
+                SelectedEntity?.RemoveWireframeDrawCall();
+                SelectedEntity = null;
+            }
+            LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.transform.position.DistanceFrom(-Camera.Main.transform.position):N3}m)", 10)}) ");
+        }
+
+    }
+
+    private bool CheckLMBClick()
+    {
+        if (!Window.Singleton.MouseState.IsButtonPressed(MouseButton.Left))
+            return false;
+        return true;
     }
 
     private bool CheckRotationInput(float deltaTime, bool allowGrab)
@@ -91,28 +118,28 @@ internal class View3DFrame : DockedFrame
     {
         float moveSpeed = Program.Settings.CamMoveSpeed;
         if (Window.Singleton.KeyboardState.IsKeyDown(Keys.LeftShift)) moveSpeed = Program.Settings.CamMaxSpeed;
-        Vector3 moveDirection = GetInputAxes();
-        if(moveDirection.Length() > 0)
+        Vector3 movement = GetInputAxes();
+        if(movement.Length() > 0)
         {
-            moveDirection *= moveSpeed * deltaTime;
-            Camera.Main.transform.position += moveDirection.ToOpenTK();
+            movement *= moveSpeed * deltaTime;
+            Camera.Main.transform.position += movement.ToOpenTK();
         }
     }
 
     private Vector3 GetInputAxes()
     {
-        float x = 0, y = 0, z = 0;
+        Vec3 dir = Vec3.Zero;
         var kbState = Window.Singleton.KeyboardState;
 
-        if (kbState.IsKeyDown(Keys.W)) z++;
-        if (kbState.IsKeyDown(Keys.S)) z--;
-        if (kbState.IsKeyDown(Keys.D)) x++;
-        if (kbState.IsKeyDown(Keys.A)) x--;
-        if (kbState.IsKeyDown(Keys.E)) y++;
-        if (kbState.IsKeyDown(Keys.A)) y--;
+        if (kbState.IsKeyDown(Keys.W)) dir += Camera.Main.transform.Forward;
+        if (kbState.IsKeyDown(Keys.S)) dir -= Camera.Main.transform.Forward;
+        if (kbState.IsKeyDown(Keys.A)) dir += Camera.Main.transform.Right;
+        if (kbState.IsKeyDown(Keys.D)) dir -= Camera.Main.transform.Right;
+        if (kbState.IsKeyDown(Keys.E)) dir += new Vec3(0, 1, 0);
+        if (kbState.IsKeyDown(Keys.Q)) dir -= new Vec3(0, 1, 0);
 
-        var inputAxes = new Vector3(x, y, z).ToOpenTK();
-        inputAxes.NormalizeFast();
-        return inputAxes.ToNumerics();
+        dir.NormalizeFast();
+
+        return dir.ToNumerics();
     }
 }

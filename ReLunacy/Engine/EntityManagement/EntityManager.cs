@@ -1,5 +1,6 @@
-﻿using LibLunacy;
-using System.Security.Cryptography.X509Certificates;
+﻿using Vector3 = System.Numerics.Vector3;
+using Vec3 = OpenTK.Mathematics.Vector3;
+using System.Xml;
 
 namespace ReLunacy.Engine.EntityManagement;
 
@@ -121,7 +122,7 @@ public class EntityManager
                 ufrag.Draw();
             }
 
-            if(RenderVolumes) AssetManager.Singleton.Cube.DrawWireframe();
+            if(RenderVolumes) AssetManager.Singleton.Cube.DrawAsLines();
         }
         else
         {
@@ -136,6 +137,53 @@ public class EntityManager
     public void Wipe()
     {
         Regions.Clear();
+    }
+
+    /// <summary>
+    /// Will cast a ray in a specific direction from the camera.
+    /// </summary>
+    /// <param name="rayDir">Direction of the ray.</param>
+    /// <returns>Returns the list of intersected entities sorted by distance from camera.</returns>
+    public (Entity, float)[] Raycast(Vec3 rayDir)
+    {
+        var camPos = -Camera.Main.transform.position;
+        List<(Entity, float)> intersectedEntities = [];
+        if (RenderMobys || RenderVolumes || RenderTies || RenderUFrags)
+        foreach(var reg in Regions)
+        {
+            if(RenderMobys)
+            foreach(var mobyHandle in reg.MobyInstances.Entities)
+            {
+                if (!mobyHandle.IntersectsRay(rayDir, camPos, out float dist)) continue;
+                intersectedEntities.Add((mobyHandle, dist));
+            }
+
+            if(RenderVolumes)
+            foreach(var volume in reg.Volumes.Entities)
+            {
+                if (!volume.IntersectsRay(rayDir, camPos, out float dist)) continue;
+                intersectedEntities.Add((volume, dist));
+            }
+
+            if(RenderTies || RenderUFrags)
+            foreach(var zone in reg.Zones)
+            {
+                if(RenderTies)
+                foreach(var tieInst in zone.TieInstances.Entities)
+                {
+                    if (!tieInst.IntersectsRay(rayDir, camPos, out float dist)) continue;
+                    intersectedEntities.Add((tieInst, dist));
+                }
+
+                if(RenderUFrags)
+                foreach(var ufrag in zone.UFrags.Entities)
+                {
+                    if (!ufrag.IntersectsRay(rayDir, camPos, out float dist)) continue;
+                    intersectedEntities.Add((ufrag, dist));
+                }
+            }
+        }
+        return [.. intersectedEntities.OrderBy(e => e.Item1.transform.position.DistanceFrom(camPos))];
     }
 
     #region Toggles

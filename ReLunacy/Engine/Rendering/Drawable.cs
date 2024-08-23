@@ -2,7 +2,8 @@
 
 public class Drawable
 {
-    public List<Transform> transforms = new List<Transform>();
+    public List<Transform> transforms = [];
+    public Dictionary<int, Transform> WireframeTransforms = [];
     int VwBO;
     int VpBO;
     int VtcBO;
@@ -10,6 +11,15 @@ public class Drawable
     int EBO;
     int indexCount;
     public Material material { get; private set; }
+
+
+    int wfVwBO;
+    int wfVpBO;
+    int wfVtcBO;
+    int wfVAO;
+    int wfEBO;
+    int wfIndexCount;
+    public readonly Material WFMaterial = new(MaterialManager.Materials["stdv;volumef"]);
 
     public Drawable()
     {
@@ -50,6 +60,8 @@ public class Drawable
 
     public void Prepare()
     {
+        wfVAO = GL.GenVertexArray();
+        wfEBO = GL.GenBuffer();
         VAO = GL.GenVertexArray();
         EBO = GL.GenBuffer();
     }
@@ -59,7 +71,13 @@ public class Drawable
         GL.BindVertexArray(VAO);
         GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
         GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
+
+        // Wireframe set
+        GL.BindVertexArray(wfVAO);
+        GL.BindBuffer(BufferTarget.ElementArrayBuffer, wfEBO);
+        GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticRead);
         indexCount = indices.Length;
+
     }
 
     //It goes:
@@ -74,6 +92,14 @@ public class Drawable
         GL.BindVertexArray(VAO);
         GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
         GL.EnableVertexAttribArray(0);
+
+        wfVpBO = GL.GenBuffer();
+        GL.BindBuffer(BufferTarget.ArrayBuffer, wfVpBO);
+        GL.BufferData(BufferTarget.ArrayBuffer, vpositions.Length * sizeof(float), vpositions, BufferUsageHint.StaticDraw);
+
+        GL.BindVertexArray(wfVAO);
+        GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
+        GL.EnableVertexAttribArray(0);
     }
     public void SetVertexTexCoords(float[] vtexcoords)
     {
@@ -82,6 +108,14 @@ public class Drawable
         GL.BufferData(BufferTarget.ArrayBuffer, vtexcoords.Length * sizeof(float), vtexcoords, BufferUsageHint.StaticDraw);
 
         GL.BindVertexArray(VAO);
+        GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
+        GL.EnableVertexAttribArray(1);
+
+        wfVtcBO = GL.GenBuffer();
+        GL.BindBuffer(BufferTarget.ArrayBuffer, wfVtcBO);
+        GL.BufferData(BufferTarget.ArrayBuffer, vtexcoords.Length * sizeof(float), vtexcoords, BufferUsageHint.StaticDraw);
+
+        GL.BindVertexArray(wfVAO);
         GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
         GL.EnableVertexAttribArray(1);
     }
@@ -93,6 +127,17 @@ public class Drawable
     public void AddDrawCall(Transform transform)
     {
         transforms.Add(transform);
+    }
+
+    public void AddDrawCallWireframe(Transform transform, int instanceId)
+    {
+        WireframeTransforms.TryAdd(instanceId, transform);
+        ConsolidateDrawCallsWireframe();
+    }
+
+    public void RemoveDrawCallWireframe(int instanceId)
+    {
+        WireframeTransforms.Remove(instanceId);
     }
 
     public void ConsolidateDrawCalls()
@@ -117,6 +162,29 @@ public class Drawable
         }
     }
 
+    public void ConsolidateDrawCallsWireframe()
+    {
+        Matrix4[] transformMatrices = new Matrix4[WireframeTransforms.Count];
+        for(int i = 0; i < transformMatrices.Length; ++i)
+        {
+            transformMatrices[i] = Matrix4.Transpose(WireframeTransforms[i].GetLocalToWorldMatrix());
+        }
+
+        wfVwBO = GL.GenBuffer();
+        GL.BindBuffer(BufferTarget.ArrayBuffer, wfVwBO);
+        GL.BufferData(BufferTarget.ArrayBuffer, transformMatrices.Length * sizeof(float) * 16, transformMatrices, BufferUsageHint.DynamicDraw);
+        
+        GL.BindVertexArray(wfVAO);
+
+        for(int i = 0; i < 4; i++)
+        {
+            GL.VertexAttribPointer(4 + i, 4, VertexAttribPointerType.Float, false, sizeof(float) * 16, sizeof(float) * 4 * i);
+            GL.VertexAttribDivisor(4 + i, 1);
+            GL.EnableVertexAttribArray(4 + i);
+        }
+
+    }
+
     public void Draw()
     {
         material.Use();
@@ -124,9 +192,23 @@ public class Drawable
 
         GL.BindVertexArray(VAO);
         GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+
+        DrawWireframe();
     }
 
     public void DrawWireframe()
+    {
+        WFMaterial.SimpleUse();
+        WFMaterial.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+
+        GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+        GL.BindVertexArray(wfVAO);
+        GL.LineWidth(3);
+        GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, WireframeTransforms.Count);
+        GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+    }
+
+    public void DrawAsLines()
     {
         material.SimpleUse();
         material.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
@@ -154,13 +236,19 @@ public class Drawable
         GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero);
     }
 
-    public void UpdateTransform(Transform transform)
+    public void UpdateTransform(Transform transform, int instanceId)
     {
-        int index = transforms.FindIndex(0, transforms.Count, x => x == transform);
-
-        GL.BindBuffer(BufferTarget.ArrayBuffer, VwBO);
-        Matrix4[] matrix = [ Matrix4.Transpose(transform.GetLocalToWorldMatrix()) ];
-
-        GL.BufferSubData(BufferTarget.ArrayBuffer, sizeof(float) * 16 * index, sizeof(float) * 16, matrix);
+        Matrix4[] matrix = [Matrix4.Transpose(transform.GetLocalToWorldMatrix())];
+        if (transforms[instanceId] != null)
+        {
+            GL.BindBuffer(BufferTarget.ArrayBuffer, VwBO);
+            GL.BufferSubData(BufferTarget.ArrayBuffer, sizeof(float) * 16 * instanceId, sizeof(float) * 16, matrix);
+        }
+        if (WireframeTransforms[instanceId] != null)
+        {
+            var ind = WireframeTransforms.Keys.ToList().IndexOf(instanceId);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, wfVwBO);
+            GL.BufferSubData(BufferTarget.ArrayBuffer, sizeof(float) * 16 * ind, sizeof(float) * 16, matrix);
+        }
     }
 }

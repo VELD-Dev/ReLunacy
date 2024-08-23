@@ -65,20 +65,20 @@ public class Entity
     public void SetPosition(Vec3 position)
     {
         transform.position = position;
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform);
+        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
+        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
     }
     public void SetRotation(Vec3 rotation)
     {
         transform.SetRotation(rotation);
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform);
+        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
+        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
     }
     public void SetScale(Vec3 scale)
     {
         transform.scale = scale;
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform);
+        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
+        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
     }
     public void Draw()
     {
@@ -87,16 +87,40 @@ public class Entity
         else if (drawable is DrawableList dl) dl.Draw();
         else if (drawable is Drawable d) d.Draw(transform);
     }
-    public bool IntersectsRay(Vec3 dir, Vec3 position)
+
+    // It's shaky, I must consolidate that but it works !
+    public void AddWireframeDrawCall()
     {
-        Vec3 m = position - boundingSphere.Xyz;
-        float b = Vec3.Dot(m, dir);
-        float c = Vec3.Dot(m, m) - boundingSphere.W * boundingSphere.W;
+        if (!AllowRender) return;
+        LunaLog.LogDebug("Wireframe Drawcall added");
+        if (drawable is DrawableListList dll) dll.AddDrawCallWireframe(transform, id);
+        else if (drawable is DrawableList dl) dl.AddDrawCallWireframe(transform, id);
+        else if (drawable is Drawable d) d.AddDrawCallWireframe(transform, id);
+    }
+    public void RemoveWireframeDrawCall()
+    {
+        if (drawable is DrawableListList dll) dll.RemoveDrawCallWireframe(id);
+        else if (drawable is DrawableList dl) dl.RemoveDrawCallWireframe(id);
+        else if (drawable is Drawable d) d.RemoveDrawCallWireframe(id);
+    }
+    // /////////////////////////////////////////////// //
+ 
+    public bool IntersectsRay(Vec3 dir, Vec3 position, out float distance)
+    {
+        Vec3 localPos = position - boundingSphere.Xyz;
+        float b = Vec3.Dot(localPos, dir);
+        float c = Vec3.Dot(localPos, localPos) - boundingSphere.W * boundingSphere.W;
+        distance = float.NaN;
 
         if (c > 0 && b > 0) return false;
 
         float discriminant = b * b - c;
+        distance = (b * b - c);
 
         return discriminant >= 0;
+    }
+    public bool IntersectsRay(Vec3 dir, Vec3 position)
+    {
+        return IntersectsRay(dir, position, out _);
     }
 }

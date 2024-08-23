@@ -48,4 +48,42 @@ public static class Extensions
     public static Vector2i GetEndI(this Rectangle rect) => new(rect.Right, rect.Bottom);
     public static Vector2 GetCenterF(this Rectangle rect) => new(rect.Width / 2f, rect.Height / 2f);
     public static Vector2i GetCenterI(this Rectangle rect) => new(rect.Width / 2, rect.Height / 2);
+
+    public static double DistanceFrom(this Vector3 origin, Vector3 obj)
+    {
+        Vector3 objRelPos = obj - origin;
+        double distance = Math.Sqrt(Math.Pow(objRelPos.X, 2) + Math.Pow(objRelPos.Y, 2) + Math.Pow(objRelPos.Z, 2));
+        return (float)distance;
+    }
+
+    public static double DistanceFrom(this Vec3 origin, Vec3 obj)
+    {
+        Vec3 objRelPos = obj - origin;
+        double distance = Math.Sqrt(Math.Pow(objRelPos.X, 2) + Math.Pow(objRelPos.Y, 2) + Math.Pow(objRelPos.Z, 2));
+        return (float)distance;
+    }
+
+    /// <summary>
+    /// Stringifies efficiently any <see cref="IEnumerable{T}"/> using a defined key, separated by a char or a string and a defined amount of times.
+    /// </summary>
+    /// <typeparam name="T">Type of the element of the enumerable.</typeparam>
+    /// <param name="enumerable">Enumerable to stringify.</param>
+    /// <param name="separator">String that will be used to separate each <typeparamref name="T"/> of the <see cref="IEnumerable{T}"/> once stringified.</param>
+    /// <param name="key">Key that will be used for the enumerable.</param>
+    /// <param name="count">Amount of elements of the enumerable to stringify. 0 stringifies the entire <see cref="IEnumerable{T}"/>.</param>
+    /// <returns></returns>
+    public static string Stringify<T>(this IEnumerable<T> enumerable, string separator = ",", Func<T, string>? key = null, uint count = 0)
+    {
+        key ??= (itm => itm?.ToString() ?? "undefined");
+        if (count == 0 || count > enumerable.Count()) count = (uint)enumerable.Count();
+        var sb = new StringBuilder();
+        for (int i = 0; i < count; i++)
+        {
+            sb.Append(key.Invoke(enumerable.ElementAt(i)));
+
+            if (i == count - 1) break;
+            sb.Append(separator);
+        }
+        return sb.ToString();
+    }
 }
