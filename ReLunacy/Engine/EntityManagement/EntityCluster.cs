@@ -56,7 +56,7 @@ public class EntityCluster
         Entities.Add(new(ufrag));
     }
 
-    public bool TryGetEntity(int id, out Entity entity)
+    public bool TryGetEntity(ulong id, out Entity entity)
     {
         entity = null;
         var filter = Entities.Where((e) => e.id == id);

@@ -11,7 +11,7 @@ namespace LibLunacy
 			[FileOffset(0x00)] public Matrix4x4 transformation;
 			[FileOffset(0x40)] public Vector3 boundingPosition;
 			[FileOffset(0x4C)] public float boundingRadius;
-			[FileOffset(0x50)] public uint tie;					//Offset but used as k key into the assetloader ties dictionary on old engine, otherwise index into tuid array
+			[FileOffset(0x50)] public uint tie;					//Offset but used as k key into the assetloader tieInstancesStructArr dictionary on old engine, otherwise index into tuid array
 		}
 
 		// That's sorta like an interface
@@ -197,11 +197,11 @@ namespace LibLunacy
 			}
 
 			file.sh.Seek(tieInstSection.offset);
-			TieInstance[] ties = FileUtils.ReadStructureArray<TieInstance>(file.sh, tieInstSection.count);
+			TieInstance[] tieInstancesStructArr = FileUtils.ReadStructureArray<TieInstance>(file.sh, tieInstSection.count);
 
-			for(int i = 0; i < ties.Length; i++)
+			for(int i = 0; i < tieInstancesStructArr.Length; i++)
 			{
-				tieInstances.Add((ulong)i, new CTieInstance(ties[i], al, file));
+				tieInstances.Add((ulong)i, new CTieInstance(tieInstancesStructArr[i], al, file));
 				if(al.fm.isOld)
 				{
 					if(al.fm.debug != null) tieInstances.Last().Value.name = oldnames[i].name;

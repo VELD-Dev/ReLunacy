@@ -2,8 +2,8 @@
 
 public class Drawable
 {
-    public List<Transform> transforms = [];
-    public Dictionary<int, Transform> WireframeTransforms = [];
+    public Dictionary<ulong, Transform> transforms = [];
+    public Dictionary<ulong, Transform> WireframeTransforms = [];
     int VwBO;
     int VpBO;
     int VtcBO;
@@ -123,18 +123,18 @@ public class Drawable
         material = mat;
     }
 
-    public void AddDrawCall(Transform transform)
+    public void AddDrawCall(Transform transform, ulong instanceId)
     {
-        transforms.Add(transform);
+        transforms.Add(instanceId, transform);
     }
 
-    public void AddDrawCallWireframe(Transform transform, int instanceId)
+    public void AddDrawCallWireframe(Transform transform, ulong instanceId)
     {
         WireframeTransforms.TryAdd(instanceId, transform);
         ConsolidateDrawCallsWireframe();
     }
 
-    public void RemoveDrawCallWireframe(int instanceId)
+    public void RemoveDrawCallWireframe(ulong instanceId)
     {
         WireframeTransforms.Remove(instanceId);
     }
@@ -144,7 +144,7 @@ public class Drawable
         Matrix4[] transformMatrices = new Matrix4[transforms.Count];
         for (int i = 0; i < transformMatrices.Length; i++)
         {
-            transformMatrices[i] = Matrix4.Transpose(transforms[i].GetLocalToWorldMatrix());
+            transformMatrices[i] = Matrix4.Transpose(transforms.Values.ToList()[i].GetLocalToWorldMatrix());
         }
 
         VwBO = GL.GenBuffer();
@@ -166,7 +166,7 @@ public class Drawable
         Matrix4[] transformMatrices = new Matrix4[WireframeTransforms.Count];
         for(int i = 0; i < transformMatrices.Length; ++i)
         {
-            transformMatrices[i] = Matrix4.Transpose(WireframeTransforms[i].GetLocalToWorldMatrix());
+            transformMatrices[i] = Matrix4.Transpose(WireframeTransforms.Values.ToList()[i].GetLocalToWorldMatrix());
         }
 
         wfVwBO = GL.GenBuffer();
@@ -235,13 +235,14 @@ public class Drawable
         GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero);
     }
 
-    public void UpdateTransform(Transform transform, int instanceId)
+    public void UpdateTransform(Transform transform, ulong instanceId)
     {
         Matrix4[] matrix = [Matrix4.Transpose(transform.GetLocalToWorldMatrix())];
         if (transforms[instanceId] != null)
         {
+            var ind = transforms.Keys.ToList().IndexOf(instanceId);
             GL.BindBuffer(BufferTarget.ArrayBuffer, VwBO);
-            GL.BufferSubData(BufferTarget.ArrayBuffer, sizeof(float) * 16 * instanceId, sizeof(float) * 16, matrix);
+            GL.BufferSubData(BufferTarget.ArrayBuffer, sizeof(float) * 16 * ind, sizeof(float) * 16, matrix);
         }
         if (WireframeTransforms[instanceId] != null)
         {

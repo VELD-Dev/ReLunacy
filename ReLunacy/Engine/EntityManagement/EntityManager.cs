@@ -100,6 +100,22 @@ public class EntityManager
         AssetManager.Singleton.ConsolidateVolumes();
     }
 
+    public List<Entity> GetAllEntities()
+    {
+        var entities = new List<Entity>();
+        foreach (var region in Regions)
+        {
+            entities.AddRange(region.MobyInstances.Entities);
+            entities.AddRange(region.Volumes.Entities);
+            foreach(var zone in region.Zones)
+            {
+                entities.AddRange(zone.TieInstances.Entities);
+                entities.AddRange(zone.UFrags.Entities);
+            }
+        }
+        return entities;
+    }
+
     public void Render()
     {
         if(!Program.Settings.LegacyRenderingMode)
@@ -146,7 +162,7 @@ public class EntityManager
     /// <returns>Returns the list of intersected entities sorted by distance from camera.</returns>
     public (Entity, float)[] Raycast(Vec3 rayDir)
     {
-        var camPos = -Camera.Main.transform.position;
+        var camPos = -Camera.Main.transform.position.ToOpenTK();
         List<(Entity, float)> intersectedEntities = [];
         if (RenderMobys || RenderVolumes || RenderTies || RenderUFrags)
         foreach(var reg in Regions)
@@ -183,7 +199,7 @@ public class EntityManager
                 }
             }
         }
-        return [.. intersectedEntities.OrderBy(e => e.Item1.transform.position.DistanceFrom(camPos))];
+        return [.. intersectedEntities.OrderBy(e => e.Item1.transform.position.DistanceFrom(camPos.ToNumerics()))];
     }
 
     #region Toggles

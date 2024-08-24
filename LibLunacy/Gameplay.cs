@@ -167,7 +167,7 @@ namespace LibLunacy
 			prius.sh.Seek(mobyNamesSection.offset);
 			NewVolumeInstanceMetadata[] mobyNames = FileUtils.ReadStructureArray<NewVolumeInstanceMetadata>(prius.sh, mobyInstSection.count);
 
-			for(int i = 0; i < mobys.Length; i++)
+			for (int i = 0; i < mobys.Length; i++)
 			{
 				mobyInstances.Add(mobyNames[i].tuid, new CMobyInstance(mobys[i], mobyNames[i], al, region));
 				mobyInstances.Last().Value.name = mobyNames[i].name;

@@ -19,7 +19,25 @@ internal class View3DFrame : DockedFrame
     public Vector2 FramePos { get; private set; }
     public Vector2 MousePos { get; private set; }
     public MouseGrabHandler rmbghandler { get; } = new() { mouseButton = MouseButton.Right };
-    public Entity? SelectedEntity { get; set; } = null;
+    private Entity? _entitySelection = null;
+    public Entity? SelectedEntity
+    { 
+        get => _entitySelection;
+        set
+        {
+            if(value == null)
+            {
+                _entitySelection?.RemoveWireframeDrawCall();
+                _entitySelection = null;
+            }
+            else
+            {
+                _entitySelection?.RemoveWireframeDrawCall();
+                _entitySelection = value;
+                _entitySelection.AddWireframeDrawCall();
+            }
+        }
+    }
 
     public View3DFrame() : base()
     {
@@ -73,13 +91,10 @@ internal class View3DFrame : DockedFrame
             (Entity, float)[] intersectedEntities = EntityManager.Singleton.Raycast(mouseRay);
             if (intersectedEntities.Length > 0)
             {
-                SelectedEntity?.RemoveWireframeDrawCall();
                 SelectedEntity = intersectedEntities[0].Item1;
-                SelectedEntity.AddWireframeDrawCall();
             }
             else
             {
-                SelectedEntity?.RemoveWireframeDrawCall();
                 SelectedEntity = null;
             }
             LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.transform.position.DistanceFrom(-Camera.Main.transform.position):N3}m)", 10)}) ");
@@ -122,7 +137,7 @@ internal class View3DFrame : DockedFrame
         if(movement.Length() > 0)
         {
             movement *= moveSpeed * deltaTime;
-            Camera.Main.transform.position += movement.ToOpenTK();
+            Camera.Main.transform.position += movement;
         }
     }
 

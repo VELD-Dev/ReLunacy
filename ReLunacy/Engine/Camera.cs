@@ -65,7 +65,7 @@ public class Camera
     {
         get
         {
-            return Matrix4.CreateTranslation(transform.position) * Matrix4.CreateFromQuaternion(transform.rotation);
+            return Matrix4.CreateTranslation(transform.position.ToOpenTK()) * Matrix4.CreateFromQuaternion(transform.rotation);
         }
     }
 

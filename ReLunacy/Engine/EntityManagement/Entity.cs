@@ -1,13 +1,16 @@
 ﻿using Vec3 = OpenTK.Mathematics.Vector3;
+using Vector3 = System.Numerics.Vector3;
 using Vec4 = OpenTK.Mathematics.Vector4;
+using Vector4 = System.Numerics.Vector4;
 
 namespace ReLunacy.Engine.EntityManagement;
 
 public class Entity
 {
+    public static ulong InstancesCount { get; private set; } = 0;
     public object instance;                 //Is either a Region.CMobyInstance or a TieInstance depending on if it's a moby or tie repsectively
     public object drawable;                 //Is either a DrawableListList or a DrawableList depending on if it's a moby or tie respectively
-    public int id;
+    public ulong id;
     public string name = string.Empty;
     public bool AllowRender = true;
 
@@ -20,65 +23,82 @@ public class Entity
     {
         instance = mobyInstance;
         drawable = AssetManager.Singleton.Mobys[mobyInstance.moby.id];
+        id = InstancesCount;
+        InstancesCount++;
         transform = new Transform(
-            mobyInstance.position.ToOpenTK(),
-            mobyInstance.rotation.ToOpenTK(),
-            Vec3.One * mobyInstance.scale
+            mobyInstance.position,
+            mobyInstance.rotation,
+            Vector3.One * mobyInstance.scale
         );
         name = mobyInstance.name;
-        ((DrawableListList)drawable).AddDrawCall(transform);
-        boundingSphere = new Vec4(mobyInstance.moby.boundingSpherePosition.ToOpenTK() + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
+        ((DrawableListList)drawable).AddDrawCall(transform, id);
+        boundingSphere = new Vec4(mobyInstance.moby.boundingSpherePosition.ToOpenTK() + transform.position.ToOpenTK(), mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
     public Entity(Region.CVolumeInstance volumeInstance)
     {
         instance = volumeInstance;
         drawable = AssetManager.Singleton.Cube;
+        id = InstancesCount;
+        InstancesCount++;
         transform = new Transform(
-            volumeInstance.position.ToOpenTK(),
-            volumeInstance.rotation.ToOpenTK().ToEulerAngles(),
-            volumeInstance.scale.ToOpenTK()
+            volumeInstance.position,
+            volumeInstance.rotation.ToOpenTK().ToEulerAngles().ToNumerics(),
+            volumeInstance.scale
         );
         name = volumeInstance.name;
-        ((Drawable)drawable).AddDrawCall(transform);
+        ((Drawable)drawable).AddDrawCall(transform, id);
         boundingSphere = new Vec4(volumeInstance.position.ToOpenTK(), volumeInstance.scale.Length());
     }
     public Entity(CZone.CTieInstance tieInstance)
     {
         instance = tieInstance;
         drawable = AssetManager.Singleton.Ties[tieInstance.tie.id];
+        id = InstancesCount;
+        InstancesCount++;
         transform = new Transform(tieInstance.transformation.ToOpenTK());
         name = tieInstance.name;
-        ((DrawableList)drawable).AddDrawCall(transform);
+        ((DrawableList)drawable).AddDrawCall(transform, id);
         boundingSphere = new Vec4(tieInstance.boundingPosition.ToOpenTK(), tieInstance.boundingRadius);
     }
     public Entity(CZone.UFrag ufrag)
     {
         instance = ufrag;
+        id = InstancesCount;
+        InstancesCount++;
         drawable = AssetManager.Singleton.UFrags[ufrag.GetTuid()];
         name = $"UFrag_{ufrag.GetTuid():X08}";
-        transform = new Transform(ufrag.GetPosition().ToOpenTK(), Vec3.Zero, Vec3.One / (float)255f);
+        transform = new Transform(ufrag.GetPosition(), Vector3.Zero, Vector3.One / (float)255f);
 
-        ((Drawable)drawable).AddDrawCall(transform);
+        ((Drawable)drawable).AddDrawCall(transform, id);
         ((Drawable)drawable).ConsolidateDrawCalls();
     }
 
-    public void SetPosition(Vec3 position)
+    public void SetPosition(Vector3 position)
     {
         transform.position = position;
         if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
         else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
+        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
     }
-    public void SetRotation(Vec3 rotation)
+    public void SetRotation(Vector3 rotation)
     {
         transform.SetRotation(rotation);
         if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
         else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
+        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
     }
-    public void SetScale(Vec3 scale)
+    public void SetScale(Vector3 scale)
     {
         transform.scale = scale;
         if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
         else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
+        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
+    }
+    public void UpdateTransform()
+    {
+        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
+        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
+        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
     }
     public void Draw()
     {

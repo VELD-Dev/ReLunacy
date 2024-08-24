@@ -10,21 +10,21 @@ public class DrawableListList : List<DrawableList>
             Add(new DrawableList(moby, moby.bangles[i]));
         }
     }
-    public void AddDrawCall(Transform transform)
+    public void AddDrawCall(Transform transform, ulong instanceId)
     {
         for (int i = 0; i < Count; i++)
         {
-            this[i].AddDrawCall(transform);
+            this[i].AddDrawCall(transform, instanceId);
         }
     }
-    public void AddDrawCallWireframe(Transform transform, int instanceId)
+    public void AddDrawCallWireframe(Transform transform, ulong instanceId)
     {
         for(int i = 0; i < Count; i++)
         {
             this[i].AddDrawCallWireframe(transform, instanceId);
         }
     }
-    public void RemoveDrawCallWireframe(int instanceId)
+    public void RemoveDrawCallWireframe(ulong instanceId)
     {
         for(int i = 0; i < Count; i++)
         {
@@ -52,7 +52,7 @@ public class DrawableListList : List<DrawableList>
             this[i].Draw(transform);
         }
     }
-    public void UpdateTransform(Transform transform, int instanceId)
+    public void UpdateTransform(Transform transform, ulong instanceId)
     {
         for (int i = 0; i < Count; i++)
         {
