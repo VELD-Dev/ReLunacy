@@ -1,6 +1,6 @@
 <h1>
     <p align="center">
-        <img src="media/logo.svg" alt="Logo" width="110" height="110" title="Logo made by Nooga.">
+        <img src="media/logo.svg" alt="Logo" width="200" height="200" title="Logo made by Nooga.">
         <p align="center" style="font-weight: bold">ReLunacy</p>
     </p>
 </h1>
