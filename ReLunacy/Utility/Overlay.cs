@@ -112,7 +112,6 @@ public class Overlay
                 ImGui.Text($"Total entities: {EntityCluster.TotalEntities:N0}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
                 ImGui.Text($"Materials: {((Window.Singleton.FileManager?.isOld ?? false) ? Window.Singleton.AssetLoader?.shaderDB.Count : Window.Singleton.AssetLoader?.shaders.Count):N0}");
-                ImGui.Text($"Selected Entity: {view?.SelectedEntity?.name ?? "None"} ({view?.SelectedEntity?.transform.position.DistanceFrom(-Camera.Main.transform.position) ?? 0:N3}m away)");
                 ImGui.EndGroup();
             }
             if(ShowCamInfo)
