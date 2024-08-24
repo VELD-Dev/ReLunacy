@@ -1,4 +1,5 @@
-﻿using Vector3 = OpenTK.Mathematics.Vector3;
+﻿using Vector3 = System.Numerics.Vector3;
+using Vec3 = OpenTK.Mathematics.Vector3;
 using Quaternion = OpenTK.Mathematics.Quaternion;
 
 namespace ReLunacy.Engine;
@@ -6,8 +7,18 @@ namespace ReLunacy.Engine;
 public class Transform
 {
     public Vector3 position = Vector3.Zero;
-    public Quaternion rotation { get; private set; }
-    public Vector3 eulerRotation { get; private set; }
+    public Quaternion rotation
+    {
+        get
+        {
+            return Quaternion.FromEulerAngles(eulerRotation.ToOpenTK());
+        }
+        set
+        {
+            eulerRotation = value.ToEulerAngles().ToNumerics();
+        }
+    }
+    public Vector3 eulerRotation;
     public Vector3 scale = Vector3.One;
 
     private Matrix4 modelMatrix;
@@ -15,27 +26,27 @@ public class Transform
 
     public bool updated = false;
 
-    public Vector3 Forward
+    public Vec3 Forward
     {
         get
         {
-            return Quaternion.Invert(rotation) * Vector3.UnitZ;
+            return Quaternion.Invert(rotation) * Vec3.UnitZ;
         }
     }
 
-    public Vector3 Up
+    public Vec3 Up
     {
         get
         {
-            return Quaternion.Invert(rotation) * Vector3.UnitY;
+            return Quaternion.Invert(rotation) * Vec3.UnitY;
         }
     }
 
-    public Vector3 Right
+    public Vec3 Right
     {
         get
         {
-            return Quaternion.Invert(rotation) * Vector3.UnitX;
+            return Quaternion.Invert(rotation) * Vec3.UnitX;
         }
     }
 
@@ -56,28 +67,24 @@ public class Transform
     {
         useMatrix = true;
         modelMatrix = mat;
-        position = mat.ExtractTranslation();
-        scale = mat.ExtractScale();
+        position = mat.ExtractTranslation().ToNumerics();
+        scale = mat.ExtractScale().ToNumerics();
         Quaternion quatRotation = mat.ExtractRotation();
-        quatRotation.ToEulerAngles(out Vector3 tempEulers);
-        SetRotation(tempEulers);
+        SetRotation(quatRotation.ToEulerAngles().ToNumerics());
     }
 
     public void SetRotation(Quaternion quaternion)
     {
-        rotation = quaternion;
-        rotation.ToEulerAngles(out Vector3 tempEulers);
-        eulerRotation = tempEulers;
+        eulerRotation = quaternion.ToEulerAngles().ToNumerics();
     }
     public void SetRotation(Vector3 eulers)
     {
         eulerRotation = eulers;
-        rotation = Quaternion.FromAxisAngle(Vector3.UnitZ, eulerRotation.Z) * Quaternion.FromAxisAngle(Vector3.UnitY, eulerRotation.Y) * Quaternion.FromAxisAngle(Vector3.UnitX, eulerRotation.X);
     }
 
     public Matrix4 GetLocalToWorldMatrix()
     {
         if (useMatrix) return modelMatrix;
-        return Matrix4.Identity * Matrix4.CreateScale(scale) * Matrix4.CreateFromQuaternion(rotation) * Matrix4.CreateTranslation(position);
+        return Matrix4.Identity * Matrix4.CreateScale(scale.ToOpenTK()) * Matrix4.CreateFromQuaternion(rotation) * Matrix4.CreateTranslation(position.ToOpenTK());
     }
 }

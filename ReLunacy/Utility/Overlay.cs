@@ -38,12 +38,13 @@ public class Overlay
             | ImGuiWindowFlags.NoFocusOnAppearing
             | ImGuiWindowFlags.NoDocking
             | ImGuiWindowFlags.NoInputs;
-        if(Location >= 0)
+        bool useView = Window.Singleton.IsAnyFrameOpened<View3DFrame>();
+        View3DFrame? view = Window.Singleton.GetFirstFrame<View3DFrame>();
+
+        if (Location >= 0 && Location <= 3)
         {
-            bool useView = Window.Singleton.IsAnyFrameOpened<View3DFrame>();
-            View3DFrame? view = Window.Singleton.GetFirstFrame<View3DFrame>();
-            Vector2 workPos = useView ? view.FramePos + view.Region.ToOpenTK().Xy.ToNumerics() : viewport.WorkPos;
-            Vector2 workSize = useView ? view.FrameContentSize : viewport.WorkSize;
+            Vector2 workPos = useView ? view.FramePos + view.FrameContentRegion.GetOriginF() : viewport.WorkPos;
+            Vector2 workSize = useView ? view.FrameContentRegion.GetSizeF() : viewport.WorkSize;
             Vector2 windowPos, windowPosPivot;
             windowPos.X = (Location == 1 || Location == 3) ? (workPos.X + workSize.X - Padding.X) : (workPos.X + Padding.X);
             windowPos.Y = (Location >= 2) ? (workPos.Y + workSize.Y - Padding.Y) : (workPos.Y + Padding.Y);
@@ -54,7 +55,7 @@ public class Overlay
         }
         else if(Location == 4)
         {
-            ImGui.SetNextWindowPos(viewport.GetWorkCenter(), ImGuiCond.Always, new(0.5f, 0.5f));
+            ImGui.SetNextWindowPos(useView ? view.FrameContentRegion.GetCenterF() : viewport.GetWorkCenter(), ImGuiCond.Always, new(0.5f, 0.5f));
             flags |= ImGuiWindowFlags.NoMove;
         }
         
@@ -121,14 +122,13 @@ public class Overlay
                 ImGui.Spacing();
                 ImGui.SeparatorText("Camera Info");
                 ImGui.BeginGroup();
-                ImGui.Text($"Position: {Camera.Main.transform.position:N3}");
+                ImGui.Text($"Position: {-Camera.Main.transform.position.ToOpenTK():N3}");
                 ImGui.Text($"Rotation: ({x:N3}°, {y:N3}°)");
-                if(Window.Singleton.IsAnyFrameOpened<View3DFrame>())
+                if(useView)
                 {
-                    var view3d = Window.Singleton.GetFirstFrame<View3DFrame>();
                     float resx, resy;
-                    resx = view3d.FrameContentSize.X;
-                    resy = view3d.FrameContentSize.Y;
+                    resx = view.FrameContentRegion.Width;
+                    resy = view.FrameContentRegion.Height;
                     ImGui.Text($"Resolution: ({resx}x{resy})");
                 }
                 ImGui.EndGroup();

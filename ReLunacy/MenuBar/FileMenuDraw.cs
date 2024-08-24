@@ -12,7 +12,7 @@ internal static class FileMenuDraw
 
     internal static void CloseLevelMenuItem()
     {
-        if (!ImGui.MenuItem("Close Level", "", false, Program.ProvidedPath != string.Empty))
+        if (!ImGui.MenuItem("Close Level", "CTRL+P", false, Program.ProvidedPath != string.Empty))
             return;
 
         Window.Singleton.TryWipeLevel();

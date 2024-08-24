@@ -25,7 +25,11 @@ internal static class ToolsMenuDraw
 
     internal static void DeselectObject()
     {
-        if (!ImGui.MenuItem("Deselect object(s)", "Soon™", false, false)) return;
+        if (!ImGui.MenuItem("Deselect object(s)", "ESC.", false, true)) return;
+
+        if (!Window.Singleton.IsAnyFrameOpened<View3DFrame>()) return;
+
+        Window.Singleton.GetFirstFrame<View3DFrame>().SelectedEntity = null;
 
         LunaLog.LogInfo("Deselecting all objects");
     }
