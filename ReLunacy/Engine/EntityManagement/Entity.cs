@@ -73,6 +73,8 @@ public class Entity
         ((Drawable)drawable).ConsolidateDrawCalls();
     }
 
+    public static void Wipe() => InstancesCount = 0;
+
     public void SetPosition(Vector3 position)
     {
         transform.position = position;

@@ -122,7 +122,7 @@ public class Overlay
                 ImGui.Spacing();
                 ImGui.SeparatorText("Camera Info");
                 ImGui.BeginGroup();
-                ImGui.Text($"Position: {Camera.Main.transform.position:N3}");
+                ImGui.Text($"Position: {-Camera.Main.transform.position.ToOpenTK():N3}");
                 ImGui.Text($"Rotation: ({x:N3}°, {y:N3}°)");
                 if(useView)
                 {

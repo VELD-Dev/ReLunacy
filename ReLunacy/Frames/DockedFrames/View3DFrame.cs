@@ -83,6 +83,7 @@ internal class View3DFrame : DockedFrame
             return;
 
         CheckMovementInput(deltaTime);
+        HandleShortcuts();
         if(CheckLMBClick())
         {
             LunaLog.LogDebug("Left mouse button handled.");
@@ -100,6 +101,19 @@ internal class View3DFrame : DockedFrame
             LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.transform.position.DistanceFrom(-Camera.Main.transform.position):N3}m)", 10)}) ");
         }
 
+    }
+
+    public void HandleShortcuts()
+    {
+        var kbState = Window.Singleton.KeyboardState;
+
+        var modifierCtrl = kbState.IsKeyDown(Keys.LeftControl);
+        var modifierShift = kbState.IsKeyDown(Keys.LeftShift);
+
+        if (kbState.IsKeyPressed(Keys.Escape)) SelectedEntity = null;
+        if (modifierCtrl && kbState.IsKeyPressed(Keys.E)) Window.Singleton.AddFrame(new EditorSettingsFrame());
+        if (modifierCtrl && kbState.IsKeyPressed(Keys.O)) Window.Singleton.AddFrame(new FileSelectionDialog());
+        if (modifierCtrl && kbState.IsKeyPressed(Keys.P)) Window.Singleton.TryWipeLevel();
     }
 
     private bool CheckLMBClick()
@@ -150,8 +164,8 @@ internal class View3DFrame : DockedFrame
         if (kbState.IsKeyDown(Keys.S)) dir -= Camera.Main.transform.Forward;
         if (kbState.IsKeyDown(Keys.A)) dir += Camera.Main.transform.Right;
         if (kbState.IsKeyDown(Keys.D)) dir -= Camera.Main.transform.Right;
-        if (kbState.IsKeyDown(Keys.E)) dir += new Vec3(0, 1, 0);
-        if (kbState.IsKeyDown(Keys.Q)) dir -= new Vec3(0, 1, 0);
+        if (kbState.IsKeyDown(Keys.Q)) dir += new Vec3(0, 1, 0);
+        if (kbState.IsKeyDown(Keys.E)) dir -= new Vec3(0, 1, 0);
 
         dir.NormalizeFast();
 

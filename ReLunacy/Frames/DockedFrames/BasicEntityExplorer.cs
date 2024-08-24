@@ -106,6 +106,12 @@ namespace ReLunacy.Frames.DockedFrames
             ImGui.EndGroup();
         }
 
+        public override void RenderAsWindow(float deltaTime)
+        {
+            ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Appearing, new(0.5f));
+            base.RenderAsWindow(deltaTime);
+        }
+
         public void ShowEntities(Entity[] entities)
         {
             ImGui.BeginChild("hierarchy_container");

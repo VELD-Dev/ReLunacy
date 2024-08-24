@@ -151,6 +151,7 @@ public class Window : GameWindow
         FileManager = null;
         Gameplay = null;
         Program.ProvidedPath = string.Empty;
+        Entity.Wipe();
         if(IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>().Wipe();
     }
