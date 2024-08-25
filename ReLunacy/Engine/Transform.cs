@@ -53,14 +53,14 @@ public class Transform
     public Transform()
     {
         position = Vector3.Zero;
-        SetRotationA(Vector3.Zero);
+        SetRotation(Vector3.Zero);
         scale = Vector3.One;
     }
 
     public Transform(Vector3 position, Vector3 rotation, Vector3 scale)
     {
         this.position = position;
-        SetRotationA(rotation);
+        SetRotation(rotation);
         this.scale = scale;
     }
 
@@ -84,7 +84,7 @@ public class Transform
     {
         rotation = quaternion;
     }
-    public void SetRotationA(Vector3 axis)
+    public void SetRotation(Vector3 axis)
     {
         rotation = Quaternion.FromAxisAngle(Vec3.UnitZ, axis.Z) * Quaternion.FromAxisAngle(Vec3.UnitY, axis.Y) * Quaternion.FromAxisAngle(Vec3.UnitX, axis.X);
     }

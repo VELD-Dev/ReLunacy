@@ -3,6 +3,7 @@ using Vector2 = System.Numerics.Vector2;
 
 namespace ReLunacy.Engine.Rendering;
 
+// TODO: Rewrite this shit ASAP!!!
 public class Renderer
 {
     public nint ColourFramebuffer { get; private set; }
@@ -30,6 +31,7 @@ public class Renderer
         MaterialManager.LoadMaterial("stdv;pickingf", "Shaders/stdv.glsl", "Shaders/pickingf.glsl");
         MaterialManager.LoadMaterial("screenv;compositef", "Shaders/screenv.glsl", "Shaders/compositef.glsl");
         MaterialManager.LoadMaterial("screenv;screenf", "Shaders/screenv.glsl", "Shaders/screenf.glsl");
+        MaterialManager.SelectedVolumeMat = new(MaterialManager.Materials["stdv;volumef"]) { isSelected = true };
 
         initialized = true;
 
