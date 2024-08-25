@@ -61,6 +61,12 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.InputFloat3("Scale", ref SelectedEntity.transform.scale, "%.3f");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
 
+            ImGui.SeparatorText("Rendering");
+
+            var bs = new System.Numerics.Vector3(SelectedEntity.boundingSphere.X, SelectedEntity.boundingSphere.Y, SelectedEntity.boundingSphere.Z);
+            ImGui.InputFloat3("Bounding Sphere Pos.", ref bs, "%.3f", ImGuiInputTextFlags.ReadOnly);
+            ImGui.InputFloat("Bounding Sphere Size", ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
+
             ImGui.Spacing();
             
             if(ImGui.Button("Teleport to Entity"))

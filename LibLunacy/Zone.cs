@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.Intrinsics.X86;
 
 namespace LibLunacy
 {
@@ -11,7 +12,7 @@ namespace LibLunacy
 			[FileOffset(0x00)] public Matrix4x4 transformation;
 			[FileOffset(0x40)] public Vector3 boundingPosition;
 			[FileOffset(0x4C)] public float boundingRadius;
-			[FileOffset(0x50)] public uint tie;					//Offset but used as k key into the assetloader tieInstancesStructArr dictionary on old engine, otherwise index into tuid array
+			[FileOffset(0x50)] public uint tie;					//Offset but used as k key into the assetloader tieInstancesStructArr dictionary on old engine, otherwise ind into tuid array
 		}
 
 		// That's sorta like an interface
@@ -19,21 +20,19 @@ namespace LibLunacy
 		{
 			public ulong GetTuid();
 			public Vector3 GetPosition();
+			public void SetPosition(Vector3 value);
 			public uint GetIndexOffset();
 			public uint GetVertexOffset();
 			public ushort GetIndexCount();
 			public ushort GetVertexCount();
 			public ushort GetShaderIndex();
-
+			public Vector4 GetBoundingSphere();
 			public float[] GetVertPositions();
 			public void SetVertPositions(float[] vpos);
-
 			public float[] GetUVs();
 			public void SetUVs(float[] uvs);
-
 			public uint[] GetIndices();
 			public void SetIndices(uint[] ind);
-
 			public CShader GetShader();
 			public void SetShader(CShader shad);
 		}
@@ -43,6 +42,7 @@ namespace LibLunacy
 		{
 			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x30)] public Vector3 position;
+			[FileOffset(0x30)] public Vector4 boundingSphere;
 			[FileOffset(0x40)] public uint indexOffset;
             [FileOffset(0x44)] public uint vertexOffset;
 			[FileOffset(0x48)] public ushort indexCount;
@@ -53,25 +53,24 @@ namespace LibLunacy
 			public uint[] indices;
 			public CShader shader;
 
-			public ushort GetIndexCount() => indexCount;
-            public uint GetIndexOffset() => indexOffset;
-            public uint[] GetIndices() => indices;
-            public Vector3 GetPosition() => position;
-            public CShader GetShader() => shader;
-			public ushort GetShaderIndex() => shaderIndex;
-            public ulong GetTuid() => tuid;
-			public float[] GetUVs() => vTexCoords;
-            public ushort GetVertexCount() => vertexCount;
-			public uint GetVertexOffset() => vertexOffset;
-            public float[] GetVertPositions() => vPositions;
+			public readonly ushort GetIndexCount() => indexCount;
+            public readonly uint GetIndexOffset() => indexOffset;
+            public readonly uint[] GetIndices() => indices;
+            public readonly Vector3 GetPosition() => position;
+			public readonly Vector4 GetBoundingSphere() => boundingSphere;
+            public readonly CShader GetShader() => shader;
+			public readonly ushort GetShaderIndex() => shaderIndex;
+            public readonly ulong GetTuid() => tuid;
+			public readonly float[] GetUVs() => vTexCoords;
+            public readonly ushort GetVertexCount() => vertexCount;
+			public readonly	uint GetVertexOffset() => vertexOffset;
+            public readonly float[] GetVertPositions() => vPositions;
 
             public void SetIndices(uint[] ind) => indices = ind;
-
             public void SetShader(CShader shad) => shader = shad;
-
             public void SetUVs(float[] uvs) => vTexCoords = uvs;
-
             public void SetVertPositions(float[] vpos) => vPositions = vpos;
+			public void SetPosition(Vector3 value) => position = value;
         }
 
 		[FileStructure(0x80)]
@@ -84,30 +83,30 @@ namespace LibLunacy
 			[FileOffset(0x4A)] public ushort vertexCount;
 			[FileOffset(0x50)] public ushort shaderIndex;
 			[FileOffset(0x60)] public Vector3 position;
+			[FileOffset(0x60)] public Vector4 boundingSphere;
 			public float[] vPositions;
 			public float[] vTexCoords;
 			public uint[] indices;
 			public CShader shader;
 
-			public ushort GetIndexCount() => indexCount;
-			public uint GetIndexOffset() => indexOffset;
-			public uint[] GetIndices() => indices;
-			public Vector3 GetPosition() => position;
-            public CShader GetShader() => shader;
-			public ushort GetShaderIndex() => shaderIndex;
-			public ulong GetTuid() => tuid;
-			public float[] GetUVs() => vTexCoords;
-			public ushort GetVertexCount() => vertexCount;
-			public uint GetVertexOffset() => vertexOffset;
-			public float[] GetVertPositions() => vPositions;
+			public readonly ushort GetIndexCount() => indexCount;
+			public readonly uint GetIndexOffset() => indexOffset;
+			public readonly uint[] GetIndices() => indices;
+			public readonly Vector3 GetPosition() => position;
+			public readonly Vector4 GetBoundingSphere() => boundingSphere;
+            public readonly CShader GetShader() => shader;
+			public readonly ushort GetShaderIndex() => shaderIndex;
+			public readonly ulong GetTuid() => tuid;
+			public readonly float[] GetUVs() => vTexCoords;
+			public readonly ushort GetVertexCount() => vertexCount;
+			public readonly uint GetVertexOffset() => vertexOffset;
+			public readonly float[] GetVertPositions() => vPositions;
 
             public void SetIndices(uint[] ind) => indices = ind;
-
             public void SetShader(CShader shad) => shader = shad;
-
             public void SetUVs(float[] uvs) => vTexCoords = uvs;
-
             public void SetVertPositions(float[] vpos) => vPositions = vpos;
+			public void SetPosition(Vector3 value) => position = value;
         }
 
         [FileStructure(0x18)]
@@ -116,9 +115,28 @@ namespace LibLunacy
             [FileOffset(0x00)] public short x;
             [FileOffset(0x02)] public short y;
             [FileOffset(0x04)] public short z;
-            //[FileOffset(0x06)] public ushort unkConst;  // Not an interesting thing afaik
+            [FileOffset(0x06)] public ushort unkConst;  // Not an interesting thing afaik
+            [FileOffset(0x08)] public Half UVx;
+			[FileOffset(0x0A)] public Half UVy;
+			[FileOffset(0x0C)] public Half UV2x;
+			[FileOffset(0x0E)] public Half UV2y;
+			[FileOffset(0x10)] public uint normal;
+			[FileOffset(0x14)] public uint tangent;
+        }
+
+		[FileStructure(0x18)]
+		public struct OldUFragVertex
+		{
+            [FileOffset(0x00)] public short x;
+            [FileOffset(0x02)] public short y;
+            [FileOffset(0x04)] public short z;
+			[FileOffset(0x06)] public short divider;
             [FileOffset(0x08)] public Half UVx;
             [FileOffset(0x0A)] public Half UVy;
+			[FileOffset(0x0C)] public Half UV2x;
+			[FileOffset(0x0E)] public Half UV2y;
+            [FileOffset(0x10)] public uint normal;
+            [FileOffset(0x14)] public uint tangent;
         }
 
 		/// <summary>
@@ -171,10 +189,11 @@ namespace LibLunacy
 			}
 		}
 
-		public CZone(IGFile file, AssetLoader al)
+		public CZone(IGFile file, AssetLoader al, int ind)
 		{
+			index = ind;
 			Console.WriteLine($"ZONE INDEX: {index}");
-			IGFile.SectionHeader tieInstSection;
+            IGFile.SectionHeader tieInstSection;
 			AssetLoader.AssetPointer[] newnames = null;
 			DebugFile.DebugInstanceName[] oldnames = null;
 
@@ -216,8 +235,9 @@ namespace LibLunacy
 			//ufrags = new NewUFrag[0];
 
 			ufrags = Array.Empty<UFrag>();
-			if (al.fm.isOld) return;
-			LoadUFrags(file, al);
+			//if (al.fm.isOld) return;
+			if(!al.fm.isOld || index < 1)
+				LoadUFrags(file, al);
 		}
 
 		private void LoadUFrags(IGFile file, AssetLoader al)
@@ -277,22 +297,53 @@ namespace LibLunacy
 				float[] vpos = new float[ufrags[i].GetVertexCount() * 3];
 				float[] uvs = new float[ufrags[i].GetVertexCount() * 2];
 				uint[] ind = new uint[ufrags[i].GetIndexCount()];
-				ufrags[i].SetShader(al.shaders[shaders[ufrags[i].GetShaderIndex()]]);
+				var shadInd = ufrags[i].GetShaderIndex();
+                if (al.fm.isOld)
+				{
+                    ufrags[i].SetShader(al.shaders[shadInd]);
+				}
+				else
+				{
+					ufrags[i].SetShader(al.shaders[shaders[shadInd]]);
+				}
 
 				geometryFile.sh.Seek(vertexSection.offset + ufrags[i].GetVertexOffset());
-				var uFragVertices = FileUtils.ReadStructureArray<UFragVertex>(geometryFile.sh, ufrags[i].GetVertexCount());
-
-				for(int j = 0; j < ufrags[i].GetVertexCount(); j++)
+				if(al.fm.isOld)
 				{
-					var uFragVertex = uFragVertices[j];
-					geometryFile.sh.Seek(vertexSection.offset + ufrags[i].GetVertexOffset() + 0x18 * j);
-                    vpos[j * 3 + 0] = uFragVertex.x;
-                    vpos[j * 3 + 1] = uFragVertex.y;
-					vpos[j * 3 + 2] = uFragVertex.z;
-					geometryFile.sh.Seek(0x08, SeekOrigin.Current);
-					uvs[j * 2 + 0] = (float)geometryFile.sh.ReadHalf();
-					uvs[j * 2 + 1] = (float)geometryFile.sh.ReadHalf();
-				}
+                    var uFragVertices = FileUtils.ReadStructureArray<OldUFragVertex>(geometryFile.sh, ufrags[i].GetVertexCount());
+                    for (int j = 0; j < ufrags[i].GetVertexCount(); j++)
+                    {
+                        var uFragVertex = uFragVertices[j];
+                        geometryFile.sh.Seek(vertexSection.offset + ufrags[i].GetVertexOffset() + 0x18 * j);
+                        vpos[j * 3 + 2] = uFragVertex.z;
+                        vpos[j * 3 + 0] = uFragVertex.x;
+                        vpos[j * 3 + 1] = uFragVertex.y;
+                        geometryFile.sh.Seek(0x08, SeekOrigin.Current);
+                        uvs[j * 2 + 0] = (float)geometryFile.sh.ReadHalf();
+                        uvs[j * 2 + 1] = (float)geometryFile.sh.ReadHalf();
+                    }
+                }
+				else
+				{
+                    var uFragVertices = FileUtils.ReadStructureArray<UFragVertex>(geometryFile.sh, ufrags[i].GetVertexCount());
+                    for (int j = 0; j < ufrags[i].GetVertexCount(); j++)
+                    {
+                        var uFragVertex = uFragVertices[j];
+                        geometryFile.sh.Seek(vertexSection.offset + ufrags[i].GetVertexOffset() + 0x18 * j);
+                        vpos[j * 3 + 0] = uFragVertex.x;
+                        vpos[j * 3 + 1] = uFragVertex.y;
+                        vpos[j * 3 + 2] = uFragVertex.z;
+                        geometryFile.sh.Seek(0x08, SeekOrigin.Current);
+                        uvs[j * 2 + 0] = (float)geometryFile.sh.ReadHalf();
+                        uvs[j * 2 + 1] = (float)geometryFile.sh.ReadHalf();
+                    }
+					var avgx = uFragVertices.Average(v => v.x / (float)0x100);
+					var avgy = uFragVertices.Average(v => v.y / (float)0x100);
+					var avgz = uFragVertices.Average(v => v.z / (float)0x100);
+					ufrags[i].SetPosition(ufrags[i].GetPosition() - new Vector3(avgx, avgy, avgz));
+					Console.WriteLine($"UFrag at {ufrags[i].GetPosition()}");
+                }
+
 
                 geometryFile.sh.Seek(indexSection.offset + ufrags[i].GetIndexOffset());
                 for (int j = 0; j < ufrags[i].GetIndexCount(); j++)

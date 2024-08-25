@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace LibLunacy
 {
 	//Assets are managed here and whenever an asset needs to reference another, that is done here
@@ -20,29 +22,43 @@ namespace LibLunacy
 			fm = fileManager;
 		}
 
-		public void LoadAssets()
+		public void LoadAssets(ref Vector2 progress, ref float totalProgress, ref string status)
 		{
-			LoadTextures();
-			LoadShaders();
-			LoadMobys();
-			LoadTies();
-			LoadZones();
+			status = "Loading textures...";
+			totalProgress = 0;
+			LoadTextures(ref progress);
+			status = "Loading shaders...";
+			totalProgress = 1;
+			LoadShaders(ref progress);
+			status = "Loading mobys...";
+			totalProgress = 2;
+			LoadMobys(ref progress);
+			status = "Loading ties...";
+			totalProgress = 3;
+			LoadTies(ref progress);
+			status = "Loading Zones...";
+			totalProgress = 4;
+			LoadZones(ref progress);
+			totalProgress = 5;
 		}
-		public void LoadMobys()
+		public void LoadMobys(ref Vector2 progress)
 		{
-			if(fm.isOld) LoadMobysOld();
-			else         LoadMobysNew();
+			if(fm.isOld) LoadMobysOld(ref progress);
+			else         LoadMobysNew(ref progress);
 		}
-		private void LoadMobysOld()
+		private void LoadMobysOld(ref Vector2 progress)
 		{
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader mobySection = main.QuerySection(0xD100);
+			progress.X = 0;
+			progress.Y = mobySection.count;
 			for(int i = 0; i < mobySection.count; i++)
 			{
 				mobys.Add((ulong)i, new CMoby(main, this, (uint)i));
+				progress.X = i + 1;
 			}
 		}
-		private void LoadMobysNew()
+		private void LoadMobysNew(ref Vector2 progress)
 		{
 			if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
 			{
@@ -57,6 +73,8 @@ namespace LibLunacy
 			IGFile.SectionHeader mobySection = assetlookup.QuerySection(0x1D600);
 			assetlookup.sh.Seek(mobySection.offset);
 			AssetPointer[] mobyPtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, mobySection.length / 0x10);
+			progress.X = 0;
+			progress.Y = mobyPtrs.Length;
 			Stream mobyStream = fm.rawfiles["mobys.dat"];
 			for(int i = 0; i < mobyPtrs.Length; i++)
 			{
@@ -69,25 +87,29 @@ namespace LibLunacy
 				CMoby moby = new CMoby(igmoby, this);
 				Console.WriteLine($"Moby {i.ToString("X04")} is {moby.name}");
 				mobys.Add(mobyPtrs[i].tuid, moby);
+				progress.X = i + 1;
 			}
 		}
 
-		public void LoadTies()
+		public void LoadTies(ref Vector2 progress)
 		{
-			if(fm.isOld) LoadTiesOld();
-			else         LoadTiesNew();
+			if(fm.isOld) LoadTiesOld(ref progress);
+			else         LoadTiesNew(ref progress);
 		}
-		private void LoadTiesOld()
+		private void LoadTiesOld(ref Vector2 progress)
 		{
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader tieSection = main.QuerySection(0x3400);
+			progress.X = 0;
+			progress.Y = tieSection.count;
 			for(int i = 0; i < tieSection.count; i++)
 			{
 				CTie tie = new CTie(main, this, (uint)i);
 				ties.Add(tie.id, tie);
+				progress.X = i + 1;
 			}
 		}
-		private void LoadTiesNew()
+		private void LoadTiesNew(ref Vector2 progress)
         {
             if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
             {
@@ -102,6 +124,8 @@ namespace LibLunacy
             IGFile.SectionHeader tieSection = assetlookup.QuerySection(0x1D300);
 			assetlookup.sh.Seek(tieSection.offset);
 			AssetPointer[] tiePtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, tieSection.length / 0x10);
+			progress.X = 0;
+			progress.Y = tiePtrs.Length;
 			Stream tieStream = fm.rawfiles["ties.dat"];
 			for(int i = 0; i < tiePtrs.Length; i++)
 			{
@@ -114,26 +138,30 @@ namespace LibLunacy
 				CTie tie = new CTie(igtie, this);
 				Console.WriteLine($"tie {i.ToString("X04")} is {tie.name}");
 				ties.Add(tiePtrs[i].tuid, tie);
+				progress.X = i + 1;
 			}
 		}
 
-		public void LoadShaders()
+		public void LoadShaders(ref Vector2 progress)
 		{
-			if(fm.isOld) LoadShadersOld();
-			else         LoadShadersNew();
+			if(fm.isOld) LoadShadersOld(ref progress);
+			else         LoadShadersNew(ref progress);
 		}
 
-		private void LoadShadersOld()
+		private void LoadShadersOld(ref Vector2 progress)
 		{
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader shaderSection = main.QuerySection(0x5000);
+			progress.X = 0;
+			progress.Y = shaderSection.count;
 			for(int i = 0; i < shaderSection.count; i++)
 			{
 				shaderDB.Add(new CShader(main, this, (uint)i));
 				shaders.Add((ulong)i, shaderDB[i]);
+				progress.X = i + 1;
 			}
 		}
-		private void LoadShadersNew()
+		private void LoadShadersNew(ref Vector2 progress)
         {
             if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
             {
@@ -148,6 +176,8 @@ namespace LibLunacy
             IGFile.SectionHeader shaderSection = assetlookup.QuerySection(0x1D100);
 			assetlookup.sh.Seek(shaderSection.offset);
 			AssetPointer[] shaderPtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, shaderSection.length / 0x10);
+			progress.X = 0;
+			progress.Y = shaderPtrs.Length;
 			Stream shaderStream = fm.rawfiles["shaders.dat"];
 			for(int i = 0; i < shaderPtrs.Length; i++)
 			{
@@ -158,25 +188,29 @@ namespace LibLunacy
 				IGFile igshader = new IGFile(shaderms);
 				CShader shader = new CShader(igshader, this);
 				shaders.Add(shaderPtrs[i].tuid, shader);
+				progress.X = i + 1;
 			}
 		}
 
-		public void LoadTextures()
+		public void LoadTextures(ref Vector2 progress)
 		{
-			if(fm.isOld) LoadTexturesOld();
-			else         LoadTexturesNew();
+			if(fm.isOld) LoadTexturesOld(ref progress);
+			else         LoadTexturesNew(ref progress);
 		}
 
-		private void LoadTexturesOld()
+		private void LoadTexturesOld(ref Vector2 progress)
 		{
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader textureSection = main.QuerySection(0x5200);
+			progress.X = 0;
+			progress.Y = textureSection.count;
 			for(int i = 0; i < textureSection.count; i++)
 			{
 				textures.Add((uint)(textureSection.offset + i * 0x20), new CTexture(fm, i));
+				progress.X = i + 1;
 			}
 		}
-		private void LoadTexturesNew()
+		private void LoadTexturesNew(ref Vector2 progress)
         {
             if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
             {
@@ -192,31 +226,34 @@ namespace LibLunacy
 			assetlookup.sh.Seek(highmipSection.offset);
 			AssetPointer[] highmips = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, highmipSection.length / 0x10);
 
+			progress.X = 0;
+			progress.Y = highmips.Length;
+
 			for(int i = 0; i < highmips.Length; i++)
 			{
 				textures.Add((uint)highmips[i].tuid, new CTexture(fm, i));
+				progress.X = i + 1;
 			}
 		}
 
-		public void LoadZones()
+		public void LoadZones(ref Vector2 progress)
 		{
-			if(fm.isOld) LoadZonesOld();
-			else         LoadZonesNew();
+			if(fm.isOld) LoadZonesOld(ref progress);
+			else         LoadZonesNew(ref progress);
 		}
 
-		private void LoadZonesOld()
+		private void LoadZonesOld(ref Vector2 progress)
 		{
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader zoneSection = main.QuerySection(0x5000);
+			progress.X = 0;
+			progress.Y = zoneSection.count;
 			Console.WriteLine($"{zoneSection.count} zones detected (0x{zoneSection.length:X} bytes long)");
 			for (int i = 0; i < zoneSection.count; i++)
 			{
-                CZone zone = new(main, this)
-                {
-                    index = i
-                };
+				CZone zone = new(main, this, i);
 
-                Console.WriteLine("[0x{0:X}] Zone {1} ({2}/{3}) has {4} ufrags", "unk", zone.name, i, zoneSection.count, zone.ufrags.Length);
+                Console.WriteLine("[0x{0:X}] Zone {1} ({2}/{3}) has {4} ufrags", "unk", zone.name, i+1, zoneSection.count, zone.ufrags.Length);
 				zones.Add((ulong)i, zone);
 
 				ufrags.Add((ulong)zone.index, new());
@@ -225,12 +262,14 @@ namespace LibLunacy
 				if (zone.ufrags is null) continue;
                 for (int j = 0; j < zone.ufrags.Length; j++)
                 {
-                    locUfrags.Add(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
+                    locUfrags.TryAdd(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
                 }
+				progress.X = i + 1;
             }
 		}
-		private void LoadZonesNew()
-		{			if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
+		private void LoadZonesNew(ref Vector2 progress)
+		{			
+			if (!fm.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup))
 			{
 				Console.WriteLine("Cannot find assetlookup.dat.");
 				return;
@@ -243,7 +282,9 @@ namespace LibLunacy
 			IGFile.SectionHeader zoneSection = assetlookup.QuerySection(0x1DA00);
 			assetlookup.sh.Seek(zoneSection.offset);
 			AssetPointer[] zonePtrs = FileUtils.ReadStructureArray<AssetPointer>(assetlookup.sh, zoneSection.length / 0x10);
-			Stream zoneStream = fm.rawfiles["zones.dat"];
+            progress.X = 0;
+            progress.Y = zonePtrs.Length;
+            Stream zoneStream = fm.rawfiles["zones.dat"];
 			for(int i = 0; i < zonePtrs.Length; i++)
 			{
 				byte[] zonedat = new byte[zonePtrs[i].length];
@@ -251,7 +292,7 @@ namespace LibLunacy
 				zoneStream.Read(zonedat, 0x00, (int)zonePtrs[i].length);
 				MemoryStream zonems = new MemoryStream(zonedat);
 				IGFile igzone = new(zonems);
-				CZone zone = new(igzone, this) { index = i };
+				CZone zone = new(igzone, this, i);
 				Console.WriteLine($"[0x{zonePtrs[i].offset:X}] Zone {zone.index} {zone.name} (0x{zonePtrs[i].tuid:X}) has {zone.ufrags.Length} ufrags and {zone.tieInstances.Count} ties.");
 				zones.Add(zonePtrs[i].tuid, zone);
 				
@@ -261,7 +302,7 @@ namespace LibLunacy
 					localUfrags.TryAdd(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
 				}
 				ufrags.Add((ulong)zone.index, localUfrags);
-
+				progress.X = i + 1;
             }
 		}
 

@@ -17,7 +17,7 @@ public class Entity
     public Transform transform;
 
     //xyz is pos, w is radius
-    public Vec4 boundingSphere;
+    public Vector4 boundingSphere;
 
     public Entity(Region.CMobyInstance mobyInstance)
     {
@@ -32,7 +32,7 @@ public class Entity
         );
         name = mobyInstance.name;
         ((DrawableListList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new Vec4(mobyInstance.moby.boundingSpherePosition.ToOpenTK() + transform.position.ToOpenTK(), mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
+        boundingSphere = new(mobyInstance.moby.boundingSpherePosition + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
     public Entity(Region.CVolumeInstance volumeInstance)
     {
@@ -42,12 +42,13 @@ public class Entity
         InstancesCount++;
         transform = new Transform(
             volumeInstance.position,
-            volumeInstance.rotation.ToOpenTK().ToEulerAngles().ToNumerics(),
+            new(0),
             volumeInstance.scale
         );
+        transform.SetRotation(volumeInstance.rotation.ToOpenTK());
         name = volumeInstance.name;
         ((Drawable)drawable).AddDrawCall(transform, id);
-        boundingSphere = new Vec4(volumeInstance.position.ToOpenTK(), volumeInstance.scale.Length());
+        boundingSphere = new(volumeInstance.position, volumeInstance.scale.Length());
     }
     public Entity(CZone.CTieInstance tieInstance)
     {
@@ -58,7 +59,7 @@ public class Entity
         transform = new Transform(tieInstance.transformation.ToOpenTK());
         name = tieInstance.name;
         ((DrawableList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new Vec4(tieInstance.boundingPosition.ToOpenTK(), tieInstance.boundingRadius);
+        boundingSphere = new(tieInstance.boundingPosition, tieInstance.boundingRadius);
     }
     public Entity(CZone.UFrag ufrag)
     {
@@ -67,8 +68,15 @@ public class Entity
         InstancesCount++;
         drawable = AssetManager.Singleton.UFrags[ufrag.GetTuid()];
         name = $"UFrag_{ufrag.GetTuid():X08}";
-        transform = new Transform(ufrag.GetPosition(), Vector3.Zero, Vector3.One / (float)255f);
-
+        if(ufrag is CZone.OldUFrag)
+        {
+            transform = new Transform(ufrag.GetPosition() / 0x100, Vector3.Zero, Vector3.One / 0x100);
+        }
+        else
+        {
+            transform = new Transform(ufrag.GetPosition(), Vector3.Zero, Vector3.One / 0x100);
+        }
+        boundingSphere = ufrag.GetBoundingSphere();
         ((Drawable)drawable).AddDrawCall(transform, id);
         ((Drawable)drawable).ConsolidateDrawCalls();
     }
@@ -129,7 +137,7 @@ public class Entity
  
     public bool IntersectsRay(Vec3 dir, Vec3 position, out float distance)
     {
-        Vec3 localPos = position - boundingSphere.Xyz;
+        Vec3 localPos = position - boundingSphere.ToOpenTK().Xyz;
         float b = Vec3.Dot(localPos, dir);
         float c = Vec3.Dot(localPos, localPos) - boundingSphere.W * boundingSphere.W;
         distance = float.NaN;

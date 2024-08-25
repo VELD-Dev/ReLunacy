@@ -131,7 +131,7 @@ namespace LibLunacy
 			OldMobyInstance[] mobys = FileUtils.ReadStructureArray<OldMobyInstance>(file.sh, mobyInstSections.count);
 
 			zones = new CZone[1];
-			zones[0] = new CZone(al.fm.igfiles["main.dat"], al);
+			zones[0] = new CZone(al.fm.igfiles["main.dat"], al, 0);
 			zones[0].name = "art";
 
 			DebugFile.DebugInstanceName[] names = null;
