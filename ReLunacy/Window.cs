@@ -10,6 +10,7 @@ using Keys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
 using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
 using ReLunacy.Frames.ModalFrames;
 using ReLunacy.Engine.EntityManagement;
+using OpenTK.Windowing.Common.Input;
 
 namespace ReLunacy;
 
@@ -26,6 +27,7 @@ public class Window : GameWindow
     public Vec4 screenSafeSpace;
     public Vector2 freecamLocal;
     public Renderer OGLRenderer { get; private set; }
+    public ResourcesManager Resources { get; private set; }
 
     public AssetLoader AssetLoader { get; private set; }
     public FileManager FileManager { get; private set; }
@@ -39,6 +41,7 @@ public class Window : GameWindow
     {
         Singleton = this;
         VSync = Program.Settings.VSyncMode;
+        Resources = ResourcesManager.LoadResourcesFromManifest();
     }
 
     protected override void OnLoad()
@@ -50,6 +53,11 @@ public class Window : GameWindow
 
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
         Title = $"{Program.AppDisplayName} {Program.Version} ({oglVersionStr})";
+        var ico = Resources.GetWindowIcon("logo.ico");
+        if (ico is not null)
+        {
+            Icon = new WindowIcon([ico]);
+        }
 
         OGLRenderer = new Renderer();
 
@@ -68,6 +76,8 @@ public class Window : GameWindow
         io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 
         AddFrame(new View3DFrame());
+        AddFrame(new BasicEntityExplorer());
+        AddFrame(new PropertyInspectorFrame());
 
         if(Program.ProvidedPath != string.Empty)
         {
@@ -102,35 +112,6 @@ public class Window : GameWindow
             framerate = (float)Math.Round(1 / (float)args.Time, 1);
         }
 
-        float moveSpeed = Program.Settings.CamMoveSpeed;
-        float sensivity = Program.Settings.CamSensivity; // Change to settings later
-
-        if (KeyboardState.IsKeyDown(Keys.LeftShift)) moveSpeed = Program.Settings.CamMaxSpeed;
-
-        var camTransform = Camera.Main.transform;
-
-        if (KeyboardState.IsKeyDown(Keys.W)) camTransform.position += camTransform.Forward * (float)args.Time * moveSpeed;
-        if (KeyboardState.IsKeyDown(Keys.A)) camTransform.position += camTransform.Right * (float)args.Time * moveSpeed;
-        if (KeyboardState.IsKeyDown(Keys.S)) camTransform.position -= camTransform.Forward * (float)args.Time * moveSpeed;
-        if (KeyboardState.IsKeyDown(Keys.D)) camTransform.position -= camTransform.Right * (float)args.Time * moveSpeed;
-        if (KeyboardState.IsKeyDown(Keys.E)) camTransform.position += (0, (float)args.Time * moveSpeed, 0);
-        if (KeyboardState.IsKeyDown(Keys.Q)) camTransform.position -= (0, (float)args.Time * moveSpeed, 0);
-
-        if (MouseState.IsButtonDown(MouseButton.Right))
-        {
-            CursorState = CursorState.Grabbed;
-
-            freecamLocal += MouseState.Delta * 0.01f * sensivity;
-
-            freecamLocal.Y = MathHelper.Clamp(freecamLocal.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
-
-            camTransform.SetRotation(Quaternion.FromAxisAngle(Vector3.UnitX, freecamLocal.Y) * Quaternion.FromAxisAngle(Vector3.UnitY, freecamLocal.X));
-        }
-        else if (MouseState.IsButtonReleased(MouseButton.Right))
-        {
-            CursorState = CursorState.Normal;
-        }
-
         DoLoadEntitiesCheck();
 
         base.OnUpdateFrame(args);
@@ -154,6 +135,7 @@ public class Window : GameWindow
         loadingFrame.UpdateProgress(0, new(1, 1));
         doLoadEntities = true;
         LunaLog.LogDebug("Level loaded.");
+        Thread.Sleep(100);
         loadingFrame.isOpen = false;
     }
 
@@ -169,6 +151,9 @@ public class Window : GameWindow
         FileManager = null;
         Gameplay = null;
         Program.ProvidedPath = string.Empty;
+        Entity.Wipe();
+        if(IsAnyFrameOpened<BasicEntityExplorer>())
+            GetFirstFrame<BasicEntityExplorer>().Wipe();
     }
 
     private void DoLoadEntitiesCheck()
@@ -180,6 +165,8 @@ public class Window : GameWindow
         Gameplay = new(AssetLoader);
         LunaLog.LogDebug("Loading Gameplay into EntityManager.");
         EntityManager.Singleton.LoadGameplay(Gameplay);
+        if(IsAnyFrameOpened<BasicEntityExplorer>())
+            GetFirstFrame<BasicEntityExplorer>().SetEntities(EntityManager.Singleton.GetAllEntities());
     }
 
     private void RenderUI(float deltaTime)
@@ -189,7 +176,6 @@ public class Window : GameWindow
 
         foreach (Frame frame in openFrames.ToList())
         {
-            //ImGui.SetNextWindowDockID(ImGui.GetID("dockspace"), ImGuiCond.Appearing);
             frame.RenderAsWindow(deltaTime);
         }
     }
@@ -250,10 +236,11 @@ public class Window : GameWindow
 
         if (ImGui.BeginMenu("View"))
         {
-            ImGui.SeparatorText("Overlay");
             ViewMenuDraw.ShowOverlay();
-            ImGui.SeparatorText("Windows");
+            ImGui.Separator();
             ViewMenuDraw.ShowView3D();
+            ViewMenuDraw.ShowEntityExplorer();
+            ViewMenuDraw.ShowInstanceInspector();
             ImGui.EndMenu();
         }
 

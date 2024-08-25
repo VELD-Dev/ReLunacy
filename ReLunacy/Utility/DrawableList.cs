@@ -29,11 +29,25 @@ public class DrawableList : List<Drawable>
             Add(new Drawable(ufrag));
         }
     }
-    public void AddDrawCall(Transform transform)
+    public void AddDrawCall(Transform transform, ulong instanceId)
     {
         for (int i = 0; i < Count; i++)
         {
-            this[i].AddDrawCall(transform);
+            this[i].AddDrawCall(transform, instanceId);
+        }
+    }
+    public void AddDrawCallWireframe(Transform transform, ulong instanceId)
+    {
+        for (int i = 0; i < Count; i++)
+        {
+            this[i].AddDrawCallWireframe(transform, instanceId);
+        }
+    }
+    public void RemoveDrawCallWireframe(ulong instanceId)
+    {
+        for (int i = 0; i < Count; i++)
+        {
+            this[i].RemoveDrawCallWireframe(instanceId);
         }
     }
     public void ConsolidateDrawCalls()
@@ -60,11 +74,11 @@ public class DrawableList : List<Drawable>
         }
     }
 
-    public void UpdateTransform(Transform transform)
+    public void UpdateTransform(Transform transform, ulong instanceId)
     {
         for (int i = 0; i < Count; i++)
         {
-            this[i].UpdateTransform(transform);
+            this[i].UpdateTransform(transform, instanceId);
         }
     }
 

@@ -4,6 +4,7 @@ internal class EditorSettingsFrame : Frame
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize;
 
+    private string[] AAoptions = [ "Disabled", "x2", "x4", "x8", "x16", "x32", "x64", "x128", "x256", "x512"];
     public int currentMsaa = 0;
     public int currentVSync = (int)Program.Settings.VSyncMode;
     public int currentLogLevel = (int)Program.Settings.LogLevel;
@@ -19,11 +20,11 @@ internal class EditorSettingsFrame : Frame
 
         if(ImGui.BeginTabBar("settings_tab"))
         {
-            if(ImGui.BeginTabItem("Visual settings"))
+            if(ImGui.BeginTabItem("Core settings"))
             {
                 ImGui.BeginGroup();
-                ImGui.DragFloat("Render distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
-                ImGui.Combo("MSAA Level", ref currentMsaa, ["Disabled", "x2", "x4", "x8", "x16", "x32"], 5);
+                ImGui.DragFloat("Far clip distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
+                ImGui.Combo("MSAA level", ref currentMsaa, AAoptions, AAoptions.Length);
                 ImGui.Combo("V-Sync", ref currentVSync, ["Off", "On", "Adaptative"], 3);
                 if (ImGui.CollapsingHeader("Advanced"))
                 {
