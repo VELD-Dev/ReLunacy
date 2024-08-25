@@ -6,8 +6,16 @@ in vec2 UVs;
 
 uniform sampler2D albedo;
 uniform bool useTexture;
+uniform bool isSelected;
 
 void main()
 {
-	color = vec4(1, 1, 1, 1);
+	if(isSelected)
+	{
+		color = vec4(1, 1, 1, 1);
+	}
+	else
+	{
+		color = vec4(0.7f, 0.7f, 0.7f, 1);
+	}
 }

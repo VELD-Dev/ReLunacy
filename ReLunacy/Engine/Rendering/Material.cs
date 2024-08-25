@@ -14,6 +14,7 @@ public class Material
                                                 13f / 17f,  5f / 17f, 15f / 17f,  7f / 17f,
                                                  4f / 17f, 12f / 17f,  2f / 17f, 10f / 17f,
                                                 16f / 17f,  8f / 17f, 14f / 17f,  6f / 17f);
+    public bool isSelected = false;
 
     Dictionary<string, int> uniforms = new Dictionary<string, int>();
 
@@ -62,6 +63,7 @@ public class Material
                 SetFloat("alphaClip", 0f);
             }
             SetMatrix4x4("dissolvePattern", ref dissolvePattern);
+            SetBool("isSelected", isSelected);
         }
         else
         {

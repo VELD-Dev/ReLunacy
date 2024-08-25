@@ -3,6 +3,7 @@
 public class MaterialManager
 {
     public static Dictionary<string, int> Materials = [];
+    public static Material SelectedVolumeMat;
 
     public static int LoadMaterial(string name, string vertexShaderPath, string fragmentShaderPath)
     {

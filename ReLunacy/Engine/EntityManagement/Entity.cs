@@ -91,7 +91,7 @@ public class Entity
     }
     public void SetRotation(Vector3 rotation)
     {
-        transform.SetRotationA(rotation);
+        transform.SetRotation(rotation);
         if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
         else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
         else if (drawable is Drawable d) d.UpdateTransform(transform, id);
