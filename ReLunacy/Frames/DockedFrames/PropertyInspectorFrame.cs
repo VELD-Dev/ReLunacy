@@ -41,6 +41,7 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.BeginGroup();
             ImGui.Text("Name:");
             ImGui.Text("Instance ID:");
+            ImGui.Text("Type:");
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
@@ -50,13 +51,14 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(SelectedEntity.id.ToString());
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("An internal generated ID for rendering. Irrelevant.");
+            ImGui.Text(SelectedEntity.instance.GetType().Name); 
             ImGui.EndGroup();
 
             ImGui.SeparatorText("Transform");
 
-            ImGui.InputFloat3("Position", ref SelectedEntity.transform.position, "%.3f");
+            ImGui.InputFloat3("Position", ref SelectedEntity.transform.position, "%.3fm");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.transform.eulerRotation, "%.4f");
+            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.transform.eulerRotation, "%.4frad");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
             ImGui.InputFloat3("Scale", ref SelectedEntity.transform.scale, "%.3f");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
