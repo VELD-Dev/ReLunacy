@@ -75,11 +75,11 @@ public class Transform
 
     public void SetRotation(Quaternion quaternion)
     {
-        eulerRotation = quaternion.ToEulerAngles().ToNumerics();
+        rotation = quaternion;
     }
-    public void SetRotation(Vector3 eulers)
+    public void SetRotation(Vector3 axis)
     {
-        eulerRotation = eulers;
+        rotation = Quaternion.FromAxisAngle(Vec3.UnitZ, axis.Z) * Quaternion.FromAxisAngle(Vec3.UnitY, axis.Y) * Quaternion.FromAxisAngle(Vec3.UnitX, axis.X);
     }
 
     public Matrix4 GetLocalToWorldMatrix()

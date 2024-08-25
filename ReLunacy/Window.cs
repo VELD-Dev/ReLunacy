@@ -81,7 +81,7 @@ public class Window : GameWindow
 
         if(Program.ProvidedPath != string.Empty)
         {
-            LoadLevelDataAsync(Program.ProvidedPath, new("Loading level...", new(0, 1)));
+            LoadLevelDataAsync(Program.ProvidedPath, new([ ("Loading level...", new(0, 5)), ("", new()) ]));
         }
     }
 
@@ -129,7 +129,7 @@ public class Window : GameWindow
 
         LunaLog.LogDebug("Starting AssetLoader threaded task.");
         AssetLoader = new(FileManager);
-        var alTask = Task.Run(() => AssetLoader.LoadAssets());
+        var alTask = Task.Run(() => AssetLoader.LoadAssets(ref loadingFrame.LoadProgresses[1].Item2, ref loadingFrame.LoadProgresses[0].Item2.X, ref loadingFrame.LoadProgresses[1].Item1));
         LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
         await alTask;
         loadingFrame.UpdateProgress(0, new(1, 1));

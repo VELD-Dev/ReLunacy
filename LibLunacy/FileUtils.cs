@@ -91,6 +91,7 @@ namespace LibLunacy
 				else if(fields[i].FieldType == typeof(float))                field = sh.ReadSingle();
 				else if(fields[i].FieldType == typeof(string))               field = sh.ReadString();
 				else if(fields[i].FieldType == typeof(Vector3))              field = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+				else if (fields[i].FieldType == typeof(Vector4))			 field = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());	
 				else if(fields[i].FieldType == typeof(Matrix4x4))            field = new Matrix4x4(
 					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
 					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),

@@ -63,6 +63,8 @@ public static class Extensions
         return (float)distance;
     }
 
+    public static Vector3 GetXYZ(this Vector4 vec4) => new(vec4.X, vec4.Y, vec4.Z);
+
     /// <summary>
     /// Stringifies efficiently any <see cref="IEnumerable{T}"/> using a defined key, separated by a char or a string and a defined amount of times.
     /// </summary>

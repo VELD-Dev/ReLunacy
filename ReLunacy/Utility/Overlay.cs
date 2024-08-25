@@ -88,9 +88,9 @@ public class Overlay
                     ImGui.Text($"Framerate Min.: {PerformanceProfiler.Singleton.FramerateMin:N0}FPS");
                     ImGui.Text($"Framerate Max.: {PerformanceProfiler.Singleton.FramerateMax:N0}FPS");
                     ImGui.Text($"Render delay: {PerformanceProfiler.Singleton.RenderTime:N3}ms");
-                    ImGui.Text($"RAM Usage: {PerformanceProfiler.Singleton.RAMUsage / Math.Pow(10, 6):N2}MB");
-                    ImGui.Text($"GC Size: {PerformanceProfiler.Singleton.GCRAMUsage / Math.Pow(10, 6):N2}MB");
-                    ImGui.Text($"VRAM Usage: {PerformanceProfiler.Singleton.VRAMUsage / Math.Pow(10, 6):N2}MB");
+                    ImGui.Text($"RAM Usage: {PerformanceProfiler.Singleton.RAMUsage / 1_000_000f:N2}MB");
+                    ImGui.Text($"GC Size: {PerformanceProfiler.Singleton.GCRAMUsage / 1_000_000f:N2}MB");
+                    ImGui.Text($"VRAM Usage: {PerformanceProfiler.Singleton.VRAMUsage / 1_000_000f:N2}MB");
                     ImGui.Text($"Shaders: {MaterialManager.Materials.Count:N0}");
                     ImGui.Text($"Threads: {PerformanceProfiler.Singleton.Threads:N0}"); 
                 }
