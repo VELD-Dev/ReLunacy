@@ -77,4 +77,20 @@ public static class ImGuiPlus
         }
         return ImGui.Button(label);
     }
+
+    public static void CenteredImage(nint texture_id, Vector2 size, float pivot = 0.5f)
+    {
+        ImGuiStylePtr style = ImGui.GetStyle();
+
+        float horizontalSize = size.X + style.FramePadding.X * 2;
+        float avail = ImGui.GetContentRegionAvail().X;
+
+        float offset = (avail - horizontalSize) * pivot;
+        
+        if(offset > 0)
+        {
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
+        }
+        ImGui.Image(texture_id, size);
+    }
 }
