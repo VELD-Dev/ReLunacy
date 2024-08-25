@@ -186,8 +186,9 @@ public class Drawable
 
     public void Draw()
     {
+        var worldToClip = Camera.Main.WorldToView * Camera.Main.ViewToClip;
         material.Use();
-        material.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        material.SetMatrix4x4("worldToClip", ref worldToClip);
 
         GL.BindVertexArray(VAO);
         GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
@@ -197,8 +198,9 @@ public class Drawable
 
     public void DrawWireframe()
     {
+        var worldToClip = Camera.Main.WorldToView * Camera.Main.ViewToClip;
         WFMaterial.SimpleUse();
-        WFMaterial.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        WFMaterial.SetMatrix4x4("worldToClip", ref worldToClip);
 
         GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
         GL.BindVertexArray(wfVAO);
@@ -209,8 +211,9 @@ public class Drawable
 
     public void DrawAsLines()
     {
+        var worldToClip = Camera.Main.WorldToView * Camera.Main.ViewToClip;
         material.SimpleUse();
-        material.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        material.SetMatrix4x4("worldToClip", ref worldToClip);
 
         //GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
         GL.BindVertexArray(VAO);
@@ -221,8 +224,9 @@ public class Drawable
 
     public void Draw(Transform transform)
     {
+        var world = transform.GetLocalToWorldMatrix() * Camera.Main.WorldToView * Camera.Main.ViewToClip;
         material.Use();
-        material.SetMatrix4x4("world", transform.GetLocalToWorldMatrix() * Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        material.SetMatrix4x4("world", ref world);
 
         GL.BindVertexArray(VAO);
         GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero);

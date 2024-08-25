@@ -26,13 +26,13 @@ public class Entity
         id = InstancesCount;
         InstancesCount++;
         transform = new Transform(
-            mobyInstance.position,
+            mobyInstance.position * YardToMeter,
             mobyInstance.rotation,
-            Vector3.One * mobyInstance.scale
+            Vector3.One * mobyInstance.scale * YardToMeter
         );
         name = mobyInstance.name;
         ((DrawableListList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(mobyInstance.moby.boundingSpherePosition + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
+        boundingSphere = new(mobyInstance.moby.boundingSpherePosition * YardToMeter + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
     public Entity(Region.CVolumeInstance volumeInstance)
     {
@@ -41,14 +41,13 @@ public class Entity
         id = InstancesCount;
         InstancesCount++;
         transform = new Transform(
-            volumeInstance.position,
-            new(0),
-            volumeInstance.scale
+            volumeInstance.position * YardToMeter,
+            volumeInstance.rotation.ToOpenTK(),
+            volumeInstance.scale * YardToMeter
         );
-        transform.SetRotation(volumeInstance.rotation.ToOpenTK());
         name = volumeInstance.name;
         ((Drawable)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(volumeInstance.position, volumeInstance.scale.Length());
+        boundingSphere = new(volumeInstance.position * YardToMeter, volumeInstance.scale.Length() * YardToMeter);
     }
     public Entity(CZone.CTieInstance tieInstance)
     {
@@ -59,7 +58,7 @@ public class Entity
         transform = new Transform(tieInstance.transformation.ToOpenTK());
         name = tieInstance.name;
         ((DrawableList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(tieInstance.boundingPosition, tieInstance.boundingRadius);
+        boundingSphere = new(tieInstance.boundingPosition * YardToMeter, tieInstance.boundingRadius * YardToMeter);
     }
     public Entity(CZone.UFrag ufrag)
     {
@@ -70,13 +69,13 @@ public class Entity
         name = $"UFrag_{ufrag.GetTuid():X08}";
         if(ufrag is CZone.OldUFrag)
         {
-            transform = new Transform(ufrag.GetPosition() / 0x100, Vector3.Zero, Vector3.One / 0x100);
+            transform = new Transform(ufrag.GetPosition() / 0x100 * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
         }
         else
         {
-            transform = new Transform(ufrag.GetPosition(), Vector3.Zero, Vector3.One / 0x100);
+            transform = new Transform(ufrag.GetPosition() * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
         }
-        boundingSphere = ufrag.GetBoundingSphere();
+        boundingSphere = ufrag.GetBoundingSphere() * YardToMeter;
         ((Drawable)drawable).AddDrawCall(transform, id);
         ((Drawable)drawable).ConsolidateDrawCalls();
     }
@@ -92,7 +91,7 @@ public class Entity
     }
     public void SetRotation(Vector3 rotation)
     {
-        transform.SetRotation(rotation);
+        transform.SetRotationA(rotation);
         if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
         else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
         else if (drawable is Drawable d) d.UpdateTransform(transform, id);

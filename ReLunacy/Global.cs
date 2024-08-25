@@ -41,6 +41,7 @@ global using ReLunacy.Engine;
 global using ReLunacy.Engine.EntityManagement;
 global using ReLunacy.Engine.Rendering;
 global using ReLunacy.Utility;
+global using static ReLunacy.Utility.Extensions;
 
 global using LibLunacy;
 global using AssetExtractor;

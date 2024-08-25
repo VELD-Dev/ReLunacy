@@ -11,6 +11,9 @@ namespace ReLunacy.Utility;
 
 public static class Extensions
 {
+    public const float YardToMeter = 0.914402f;
+    public const float MeterToYard = 1.093611f;
+
     public static Vector2 ToNumerics(this Vec2 vec) => new(vec.X, vec.Y);
     public static Vector2 ToNumerics(this Vector2i vec) => new(vec.X, vec.Y);
     public static Vec2 ToOpenTK(this Vector2 vec) => new(vec.X, vec.Y);
