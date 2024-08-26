@@ -86,7 +86,7 @@ public class Transform
     }
     public void SetRotation(Vector3 axis)
     {
-        rotation = Quaternion.FromAxisAngle(Vec3.UnitZ, axis.Z) * Quaternion.FromAxisAngle(Vec3.UnitY, axis.Y) * Quaternion.FromAxisAngle(Vec3.UnitX, axis.X);
+        rotation = Quaternion.FromAxisAngle(Vec3.UnitX, axis.X) * Quaternion.FromAxisAngle(Vec3.UnitY, axis.Y) * Quaternion.FromAxisAngle(Vec3.UnitZ, axis.Z);
     }
     public void SetRotationE(Vector3 euler)
     {

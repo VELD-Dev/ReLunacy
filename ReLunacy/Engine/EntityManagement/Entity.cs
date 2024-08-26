@@ -2,6 +2,7 @@
 using Vector3 = System.Numerics.Vector3;
 using Vec4 = OpenTK.Mathematics.Vector4;
 using Vector4 = System.Numerics.Vector4;
+using Quaternion = OpenTK.Mathematics.Quaternion;
 
 namespace ReLunacy.Engine.EntityManagement;
 
@@ -67,15 +68,17 @@ public class Entity
         InstancesCount++;
         drawable = AssetManager.Singleton.UFrags[ufrag.GetTuid()];
         name = $"UFrag_{ufrag.GetTuid():X08}";
-        if(ufrag is CZone.OldUFrag)
+        boundingSphere = ufrag.GetBoundingSphere() / 0x100 * YardToMeter;
+        if (ufrag is CZone.OldUFrag oldUfrag)
         {
+            var rot = oldUfrag.rotation;
             transform = new Transform(ufrag.GetPosition() / 0x100 * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
+            boundingSphere.W = 2.5f;
         }
         else
         {
             transform = new Transform(ufrag.GetPosition() * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
         }
-        boundingSphere = ufrag.GetBoundingSphere() * YardToMeter;
         ((Drawable)drawable).AddDrawCall(transform, id);
         ((Drawable)drawable).ConsolidateDrawCalls();
     }

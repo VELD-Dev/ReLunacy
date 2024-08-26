@@ -7,6 +7,8 @@ public class LoadingModal : Frame
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
 
     public ValueTuple<string, Vector2>[] LoadProgresses { get; set; }
+    public readonly DateTime LoadStart = DateTime.Now;
+    public DateTime LoadEnd;
 
     public bool loadingFinished = false;
 
@@ -28,12 +30,20 @@ public class LoadingModal : Frame
         {
             ImGui.BeginGroup();
             ImGui.Text(load.Item1);
-            ImGui.ProgressBar(load.Item2.X / load.Item2.Y, new(200, 15), $"{load.Item2.X:N0}/{load.Item2.Y:N0}");
+            ImGui.ProgressBar(load.Item2.X / load.Item2.Y, new(400, 20), $"{load.Item2.X:N0}/{load.Item2.Y:N0}");
             ImGui.EndGroup();
             ImGui.Spacing();
         }
-
-        if (GetCompletedLoadings() >= LoadProgresses.Length) loadingFinished = true;
+        if(!loadingFinished)
+        {
+            var elapsed = DateTime.Now - LoadStart;
+            ImGuiPlus.CenteredText($"{elapsed.TotalSeconds:N0}s elapsed");
+        }
+        else
+        {
+            var elapsed = LoadEnd - LoadStart;
+            ImGuiPlus.CenteredText($"Completed in {elapsed.TotalSeconds:N0}s.");
+        }
     }
 
     public override void RenderAsWindow(float deltaTime)

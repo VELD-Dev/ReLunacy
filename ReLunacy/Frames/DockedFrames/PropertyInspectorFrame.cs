@@ -42,6 +42,7 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text("Name:");
             ImGui.Text("Instance ID:");
             ImGui.Text("Type:");
+            ImGui.Text("Vertices:");
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
@@ -51,7 +52,8 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(SelectedEntity.id.ToString());
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("An internal generated ID for rendering. Irrelevant.");
-            ImGui.Text(SelectedEntity.instance.GetType().Name); 
+            ImGui.Text(SelectedEntity.instance.GetType().Name);
+            ImGui.Text("---");
             ImGui.EndGroup();
 
             ImGui.SeparatorText("Transform");
@@ -73,7 +75,7 @@ public class PropertyInspectorFrame : DockedFrame
             
             if(ImGui.Button("Teleport to Entity"))
             {
-                Camera.Main.transform.position = -SelectedEntity.transform.position;
+                Camera.Main.transform.position = -(SelectedEntity.transform.position + (Camera.Main.transform.Forward * 10f).ToNumerics());
             }
             ImGui.SameLine();
             ImGui.Text($"({SelectedEntity.transform.position.DistanceFrom(-Camera.Main.transform.position):N3}m away)");

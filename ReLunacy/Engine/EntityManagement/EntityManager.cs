@@ -138,7 +138,7 @@ public class EntityManager
                 ufrag.Draw();
             }
 
-            if(RenderVolumes) AssetManager.Singleton.Cube.DrawAsLines();
+            if(RenderVolumes) AssetManager.Singleton.Cube.Draw();
         }
         else
         {
