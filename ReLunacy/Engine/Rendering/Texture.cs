@@ -21,6 +21,21 @@ public class Texture
 
     private unsafe void Define()
     {
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureBaseLevel, 0);
+        Console.WriteLine($"Texture has {Ctex.mipmapCount}.");
+        if(Ctex.mipmapCount == 0)
+        {
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMaxLevel, 1);
+        }
+        else
+        {
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMaxLevel, Ctex.mipmapCount - 1);
+        }
+
         fixed (byte* b = Ctex.data)
         {
             uint offset = 0;
@@ -57,13 +72,7 @@ public class Texture
             }
         }
 
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
-
-        GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
-
+        //GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
         GL.BindTexture(TextureTarget.Texture2D, 0);
     }
 
