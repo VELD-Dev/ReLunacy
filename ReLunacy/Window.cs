@@ -67,11 +67,7 @@ public class Window : GameWindow
 
         LunaLog.LogInfo("Loading the OpenGL renderer.");
 
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 5f);
-        ImGui.PushStyleVar(ImGuiStyleVar.TabRounding, 5f);
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 2.5f);
-        ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 2.5f);
+        SetDefaultStyleVar();
         ImGuiIOPtr io = ImGui.GetIO();
         io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 
@@ -83,6 +79,16 @@ public class Window : GameWindow
         {
             LoadLevelDataAsync(Program.ProvidedPath, new([ ("Loading level...", new(0, 5)), ("", new()) ]));
         }
+    }
+
+    public static void SetDefaultStyleVar()
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.TabRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 2.5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 2.5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 2.5f);
     }
 
     protected override void OnRenderFrame(FrameEventArgs eventArgs)
@@ -135,8 +141,8 @@ public class Window : GameWindow
         loadingFrame.UpdateProgress(0, new(1, 1));
         doLoadEntities = true;
         LunaLog.LogDebug("Level loaded.");
-        Thread.Sleep(100);
-        loadingFrame.isOpen = false;
+        //Thread.Sleep(100);
+        //loadingFrame.isOpen = false;
     }
 
     public void TryWipeLevel()
@@ -147,6 +153,7 @@ public class Window : GameWindow
         EntityManager.Singleton.Wipe();
         EntityCluster.Wipe();
         AssetManager.Singleton.Wipe();
+        AssetLoader?.Dispose();
         AssetLoader = null;
         FileManager = null;
         Gameplay = null;
@@ -167,6 +174,9 @@ public class Window : GameWindow
         EntityManager.Singleton.LoadGameplay(Gameplay);
         if(IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>().SetEntities(EntityManager.Singleton.GetAllEntities());
+        var loadModal = GetFirstFrame<LoadingModal>();
+        loadModal.loadingFinished = true;
+        loadModal.LoadEnd = DateTime.Now;
     }
 
     private void RenderUI(float deltaTime)
@@ -201,6 +211,7 @@ public class Window : GameWindow
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0);
         ImGui.Begin("dockspace", windowFlags);
         ImGui.PopStyleVar(4);
+        SetDefaultStyleVar();
 
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);

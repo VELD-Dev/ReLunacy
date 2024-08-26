@@ -88,7 +88,7 @@ namespace LibLunacy
 
 				width = otr.width;
 				height = otr.height;
-				mipmapCount = otr.mipmapCount;
+				mipmapCount = 0;
 				format = (TexFormat)((otr.formatBitField >> 8) & 0xF);
 
 				if(texstream != null && ots.Any(x => x.index == index))

@@ -84,6 +84,7 @@ namespace LibLunacy
 			[FileOffset(0x50)] public ushort shaderIndex;
 			[FileOffset(0x60)] public Vector3 position;
 			[FileOffset(0x60)] public Vector4 boundingSphere;
+			[FileOffset(0x10)] public Vector4 rotation;			// Further inspection needed.
 			public float[] vPositions;
 			public float[] vTexCoords;
 			public uint[] indices;
@@ -280,7 +281,11 @@ namespace LibLunacy
 				oldUfrags = FileUtils.ReadStructureArray<OldUFrag>(file.sh, ufragSection.count);
 				for(int i = 0; i < oldUfrags.Length; i++)
 				{
-					ufrags[i] = oldUfrags[i];
+					// Transforming the indexOffset because it's actually a count rather than an offset. Bit weird yeah.
+					var oldUFrag = oldUfrags[i];
+					oldUFrag.indexOffset *= sizeof(ushort);
+					ufrags[i] = oldUFrag;
+					Console.WriteLine($"UFrag {i} rot: {oldUFrag.rotation}");
 				}
 			}
 			else
@@ -337,18 +342,13 @@ namespace LibLunacy
                         uvs[j * 2 + 0] = (float)geometryFile.sh.ReadHalf();
                         uvs[j * 2 + 1] = (float)geometryFile.sh.ReadHalf();
                     }
-					var avgx = uFragVertices.Average(v => v.x / (float)0x100);
-					var avgy = uFragVertices.Average(v => v.y / (float)0x100);
-					var avgz = uFragVertices.Average(v => v.z / (float)0x100);
-					ufrags[i].SetPosition(ufrags[i].GetPosition() - new Vector3(avgx, avgy, avgz));
-					Console.WriteLine($"UFrag at {ufrags[i].GetPosition()}");
                 }
 
 
                 geometryFile.sh.Seek(indexSection.offset + ufrags[i].GetIndexOffset());
                 for (int j = 0; j < ufrags[i].GetIndexCount(); j++)
 				{
-					ind[j] = file.sh.ReadUInt16();
+					ind[j] = geometryFile.sh.ReadUInt16();
 				}
 
 				ufrags[i].SetVertPositions(vpos);

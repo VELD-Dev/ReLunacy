@@ -93,4 +93,16 @@ public static class ImGuiPlus
         }
         ImGui.Image(texture_id, size);
     }
+
+    public static void CenteredText(string label, float pivot = 0.5f)
+    {
+        float horizotalSize = ImGui.CalcTextSize(label).X;
+        float avail = ImGui.GetContentRegionAvail().X;
+        float offset = (avail - horizotalSize) * pivot;
+        if(offset > 0)
+        {
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
+        }
+        ImGui.Text(label);
+    }
 }
