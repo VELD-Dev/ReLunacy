@@ -61,13 +61,13 @@ public class Entity
         ((DrawableList)drawable).AddDrawCall(transform, id);
         boundingSphere = new(tieInstance.boundingPosition * YardToMeter, tieInstance.boundingRadius * YardToMeter);
     }
-    public Entity(CZone.UFrag ufrag)
+    public Entity(CZone.UFrag ufrag, ulong zoneId, int ufragIndex)
     {
         instance = ufrag;
         id = InstancesCount;
         InstancesCount++;
-        drawable = AssetManager.Singleton.UFrags[ufrag.GetTuid()];
-        name = $"UFrag_{ufrag.GetTuid():X08}";
+        drawable = AssetManager.Singleton.UFrags[zoneId][ufragIndex];
+        name = $"UFrag_{zoneId}_{ufragIndex}";
         boundingSphere = ufrag.GetBoundingSphere() / 0x100 * YardToMeter;
         if (ufrag is CZone.OldUFrag oldUfrag)
         {

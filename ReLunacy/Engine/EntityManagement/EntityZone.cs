@@ -25,9 +25,10 @@ public class EntityZone
         {
             TieInstances.Add(tie.Value);
         }
-        foreach (var uf in zone.ufrags)
+        for (int i = 0; i < zone.ufrags.Length; i++)
         {
-            UFrags.Add(uf);
+            var uf = zone.ufrags[i];
+            UFrags.Add(uf, (ulong)zone.index, i);
         }
     }
 

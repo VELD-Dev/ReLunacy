@@ -133,9 +133,10 @@ public class EntityManager
             }
 
             if(RenderUFrags)
-            foreach(var ufrag in AssetManager.Singleton.UFrags.Values.ToList())
+            foreach(var zoneUfrags in AssetManager.Singleton.UFrags.Values.ToList())
             {
-                ufrag.Draw();
+                foreach(var ufrag in zoneUfrags)
+                    ufrag.Draw();
             }
 
             if(RenderVolumes) AssetManager.Singleton.Cube.Draw();
