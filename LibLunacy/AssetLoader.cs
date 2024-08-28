@@ -12,7 +12,7 @@ namespace LibLunacy
 		public Dictionary<ulong, CShader> shaders = new Dictionary<ulong, CShader>();
 		public Dictionary<uint, CTexture> textures = new Dictionary<uint, CTexture>();
 		public Dictionary<ulong, CZone> zones = new Dictionary<ulong, CZone>();
-		public Dictionary<ulong, Dictionary<ulong, CZone.UFrag>> ufrags = new();
+		public Dictionary<ulong, List<CZone.UFrag>> ufrags = new();
 
 		public List<CShader> shaderDB = new List<CShader>();
 		//Copy of shaders except it's only used on old engine, should probably find a better way to do this
@@ -257,13 +257,13 @@ namespace LibLunacy
 				zones.Add((ulong)i, zone);
 
 				ufrags.Add((ulong)zone.index, new());
-				var locUfrags = ufrags[(ulong)zone.index];
+				var zoneUfrags = ufrags[(ulong)zone.index];
 
 				if (zone.ufrags is null) continue;
-                for (int j = 0; j < zone.ufrags.Length; j++)
-                {
-                    locUfrags.TryAdd(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
-                }
+				for (int j = 0; j < zone.ufrags.Length; j++)
+				{
+					zoneUfrags.AddRange(zone.ufrags);
+				}
 				progress.X = i + 1;
             }
 		}
@@ -296,12 +296,12 @@ namespace LibLunacy
 				Console.WriteLine($"[0x{zonePtrs[i].offset:X}] Zone {zone.index} {zone.name} (0x{zonePtrs[i].tuid:X}) has {zone.ufrags.Length} ufrags and {zone.tieInstances.Count} ties.");
 				zones.Add(zonePtrs[i].tuid, zone);
 				
-				var localUfrags = new Dictionary<ulong, CZone.UFrag>();
+				var zoneUfrags = new List<CZone.UFrag>();
 				for(int j = 0; j < zone.ufrags.Length; j++)
 				{
-					localUfrags.TryAdd(zone.ufrags[j].GetTuid(), zone.ufrags[j]);
+					zoneUfrags.AddRange(zone.ufrags);
 				}
-				ufrags.Add((ulong)zone.index, localUfrags);
+				ufrags.Add((ulong)zone.index, zoneUfrags);
 				progress.X = i + 1;
             }
 		}

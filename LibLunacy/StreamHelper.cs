@@ -15,6 +15,8 @@ namespace LibLunacy
 		public Endianness _endianness = Endianness.Little;
 		public byte bitPosition = 0;
 
+		public long Offset => BaseStream.Position;
+
 		public StreamHelper(Stream input) : base(input)
 		{
 		}

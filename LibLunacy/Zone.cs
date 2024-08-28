@@ -18,7 +18,6 @@ namespace LibLunacy
 		// That's sorta like an interface
 		public interface UFrag
 		{
-			public ulong GetTuid();
 			public Vector3 GetPosition();
 			public void SetPosition(Vector3 value);
 			public uint GetIndexOffset();
@@ -40,7 +39,6 @@ namespace LibLunacy
 		[FileStructure(0x80)]
 		public struct NewUFrag : UFrag
 		{
-			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x30)] public Vector3 position;
 			[FileOffset(0x30)] public Vector4 boundingSphere;
 			[FileOffset(0x40)] public uint indexOffset;
@@ -60,7 +58,6 @@ namespace LibLunacy
 			public readonly Vector4 GetBoundingSphere() => boundingSphere;
             public readonly CShader GetShader() => shader;
 			public readonly ushort GetShaderIndex() => shaderIndex;
-            public readonly ulong GetTuid() => tuid;
 			public readonly float[] GetUVs() => vTexCoords;
             public readonly ushort GetVertexCount() => vertexCount;
 			public readonly	uint GetVertexOffset() => vertexOffset;
@@ -76,7 +73,6 @@ namespace LibLunacy
 		[FileStructure(0x80)]
 		public struct OldUFrag : UFrag
 		{
-			[FileOffset(0x00)] public ulong tuid;
 			[FileOffset(0x40)] public uint indexOffset;
 			[FileOffset(0x44)] public uint vertexOffset;
 			[FileOffset(0x48)] public ushort indexCount;
@@ -97,7 +93,6 @@ namespace LibLunacy
 			public readonly Vector4 GetBoundingSphere() => boundingSphere;
             public readonly CShader GetShader() => shader;
 			public readonly ushort GetShaderIndex() => shaderIndex;
-			public readonly ulong GetTuid() => tuid;
 			public readonly float[] GetUVs() => vTexCoords;
 			public readonly ushort GetVertexCount() => vertexCount;
 			public readonly uint GetVertexOffset() => vertexOffset;
@@ -285,7 +280,6 @@ namespace LibLunacy
 					var oldUFrag = oldUfrags[i];
 					oldUFrag.indexOffset *= sizeof(ushort);
 					ufrags[i] = oldUFrag;
-					Console.WriteLine($"UFrag {i} rot: {oldUFrag.rotation}");
 				}
 			}
 			else

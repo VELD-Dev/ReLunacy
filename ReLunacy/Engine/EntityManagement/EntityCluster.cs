@@ -50,10 +50,10 @@ public class EntityCluster
         TotalEntities++;
         Entities.Add(new(tieInstance));
     }
-    public void Add(CZone.UFrag ufrag)
+    public void Add(CZone.UFrag ufrag, ulong zoneId, int ufragIndex)
     {
         TotalEntities++;
-        Entities.Add(new(ufrag));
+        Entities.Add(new(ufrag, zoneId, ufragIndex));
     }
 
     public bool TryGetEntity(ulong id, out Entity entity)

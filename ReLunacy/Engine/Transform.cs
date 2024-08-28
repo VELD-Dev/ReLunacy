@@ -77,20 +77,17 @@ public class Transform
         modelMatrix = mat;
         position = mat.ExtractTranslation().ToNumerics() * YardToMeter;
         scale = mat.ExtractScale().ToNumerics() * YardToMeter;
-        SetRotationE(mat.ExtractRotation().ToEulerAngles().ToNumerics());
+        SetRotation(mat.ExtractRotation().ToEulerAngles().ToNumerics());
     }
 
     public void SetRotation(Quaternion quaternion)
     {
         rotation = quaternion;
     }
-    public void SetRotation(Vector3 axis)
+
+    public void SetRotation(Vector3 euler)
     {
-        rotation = Quaternion.FromAxisAngle(Vec3.UnitX, axis.X) * Quaternion.FromAxisAngle(Vec3.UnitY, axis.Y) * Quaternion.FromAxisAngle(Vec3.UnitZ, axis.Z);
-    }
-    public void SetRotationE(Vector3 euler)
-    {
-        rotation = Quaternion.FromEulerAngles(euler.ToOpenTK());
+        rotation = new Quaternion(euler.ToOpenTK());
     }
 
     public Matrix4 GetLocalToWorldMatrix()

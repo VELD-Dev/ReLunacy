@@ -1,4 +1,8 @@
 using System.ComponentModel;
+using System.Numerics;
+using Vector2 = OpenTK.Mathematics.Vector2;
+using Vector3 = OpenTK.Mathematics.Vector3;
+using Quaternion = OpenTK.Mathematics.Quaternion;
 
 namespace Lunacy
 {
@@ -37,7 +41,10 @@ namespace Lunacy
 			fm = new FileManager();
 			fm.LoadFolder(folderPath);
 			al = new AssetLoader(fm);
-			al.LoadAssets();
+			var prog = new System.Numerics.Vector2();
+			var tot = 0f;
+			var stat = "";
+			al.LoadAssets(ref prog, ref tot, ref stat);
 		}
 
 		protected override void OnLoad()

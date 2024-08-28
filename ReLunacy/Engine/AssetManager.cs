@@ -14,7 +14,7 @@ public class AssetManager
 
     public Dictionary<ulong, DrawableListList> Mobys { get; private set; } = [];
     public Dictionary<ulong, DrawableList> Ties { get; private set; } = [];
-    public Dictionary<ulong, Drawable> UFrags { get; private set; } = [];
+    public Dictionary<ulong, List<Drawable>> UFrags { get; private set; } = [];
     public Dictionary<uint, Texture> Textures { get; private set; } = [];
     public Drawable Cube { get; private set; }
 
@@ -90,10 +90,12 @@ public class AssetManager
         }
         foreach(var zone in loader.zones)
         {
+            var uf = new List<Drawable>();
             foreach(var ufrag in zone.Value.ufrags)
             {
-                UFrags.TryAdd(ufrag.GetTuid(), new(ufrag));
+                uf.Add(new(ufrag));
             }
+            UFrags.Add(zone.Key, uf);
         }
     }
 
@@ -124,9 +126,10 @@ public class AssetManager
 
     public void ConsolidateUFrags()
     {
-        foreach(var ufrag in UFrags)
+        foreach(var zoneUfrags in UFrags.Values)
         {
-            ufrag.Value.ConsolidateDrawCalls();
+            foreach(var ufrag in zoneUfrags)
+                ufrag.ConsolidateDrawCalls();
         }
     }
 
