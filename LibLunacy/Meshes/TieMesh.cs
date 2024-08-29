@@ -13,7 +13,7 @@ namespace LibLunacy.Meshes;
 
 public record struct TieMesh : ILunaObject, ILunaSerializable
 {
-    // This one got no section ID as it's Tie offset + Tie.meshesOffset all the time, so yeah no precise section somehow
+    // This one got no section ID as it's Tie offset + Tie.banlesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
 
     // TUID can also be used as an offset to access it in the original file.. Normally.
