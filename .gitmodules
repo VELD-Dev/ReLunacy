@@ -1,5 +1,5 @@
 [submodule "LibreFios"]
 	path = LibreFios
 	url = https://github.com/yretenai/LibreFios
-	branch = master
+	branch = develop
 
