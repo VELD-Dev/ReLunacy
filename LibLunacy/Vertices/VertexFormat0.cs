@@ -6,9 +6,9 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Vertices;
 
-public record struct TieVertex
+public record struct VertexFormat0
 {
-    public const uint ID = 0x3000;
+    public const uint ID = 0x3000, OldID = 0x9000;
     public const uint Size = 0x14;
 
     public (short, short, short) position;
@@ -17,7 +17,7 @@ public record struct TieVertex
     public uint normal;
     public uint tangent;
 
-    public TieVertex(LunaStream stream)
+    public VertexFormat0(LunaStream stream)
     {
         position.Item1 =    stream.ReadInt16(0x00);
         position.Item2 =    stream.ReadInt16(0x02);

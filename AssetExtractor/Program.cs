@@ -67,7 +67,7 @@ namespace AssetExtractor
 			string authorName = "NefariousTechSupport";
 			string toolName = "Lunacy v1.00";
 			string mobyName = Path.GetFileNameWithoutExtension(moby.name);
-			//moby.GetBuffers(moby.bangles[0].meshes[0], out uint[] inds, out float[] vPositions, out float[] vTexCoords);
+			//MobyObj.GetBuffers(MobyObj.bangles[0].meshes[0], out uint[] inds, out float[] vPositions, out float[] vTexCoords);
 
 			      sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
 			      sb.Append("  <COLLADA xmlns=\"http://www.collada.org/2005/11/COLLADASchema\" version=\"1.4.1\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n");

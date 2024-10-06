@@ -6,19 +6,19 @@ public class LoadingModal : Frame
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
 
-    public ValueTuple<string, Vector2>[] LoadProgresses { get; set; }
+    public List<LoadingProgress> LoadProgresses { get; set; }
     public readonly DateTime LoadStart = DateTime.Now;
     public DateTime LoadEnd;
 
     public bool loadingFinished = false;
 
-    public LoadingModal(string loadingString, Vector2 loadProgress) : base()
+    public LoadingModal(string loadingString, uint max) : base()
     {
         FrameName = "Loading...";
-        LoadProgresses = [new(loadingString, loadProgress)];
+        LoadProgresses = [new(loadingString, max)];
     }
 
-    public LoadingModal(List<ValueTuple<string, Vector2>> loadingTasks) : base()
+    public LoadingModal(List<LoadingProgress> loadingTasks) : base()
     {
         FrameName = "Loading...";
         LoadProgresses = [.. loadingTasks];
@@ -29,8 +29,8 @@ public class LoadingModal : Frame
         foreach (var load in LoadProgresses)
         {
             ImGui.BeginGroup();
-            ImGui.Text(load.Item1);
-            ImGui.ProgressBar(load.Item2.X / load.Item2.Y, new(400, 20), $"{load.Item2.X:N0}/{load.Item2.Y:N0}");
+            ImGui.Text(load.status);
+            ImGui.ProgressBar(load.Progress, new(400, 20), $"{load.current:N0}/{load.max:N0}");
             ImGui.EndGroup();
             ImGui.Spacing();
         }
@@ -52,19 +52,15 @@ public class LoadingModal : Frame
         base.RenderAsWindow(deltaTime);
     }
 
-    private int GetCompletedLoadings()
-    {
-        return LoadProgresses.Where(vt => vt.Item2.X == vt.Item2.Y).Count();
-    }
-
     public void UpdateProgress(int index, Vector2 newProgress, string? newText = null)
     {
         var originalProg = LoadProgresses[index];
         if(newText is not null)
         {
-            originalProg.Item1 = newText;
+            originalProg.status = newText;
         }
-        originalProg.Item2 = newProgress;
+        originalProg.current = (uint)newProgress.X;
+        originalProg.max = (uint)newProgress.Y;
         LoadProgresses[index] = originalProg;
     }
 }

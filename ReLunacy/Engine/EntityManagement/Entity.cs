@@ -9,8 +9,8 @@ namespace ReLunacy.Engine.EntityManagement;
 public class Entity
 {
     public static ulong InstancesCount { get; private set; } = 0;
-    public object instance;                 //Is either a Region.CMobyInstance or a TieInstance depending on if it's a moby or tie repsectively
-    public object drawable;                 //Is either a DrawableListList or a DrawableList depending on if it's a moby or tie respectively
+    public object instance;                 //Is either a Region.CMobyInstance or a TieInstance depending on if it's a MobyObj or tie repsectively
+    public object drawable;                 //Is either a DrawableListList or a DrawableList depending on if it's a MobyObj or tie respectively
     public ulong id;
     public string name = string.Empty;
     public bool AllowRender = true;

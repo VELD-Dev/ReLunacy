@@ -43,7 +43,7 @@ namespace LibLunacy
 			Count = count;
 		}
 		//Alright so because the length of an array can change, one should specify the name of the property used to calculate the count. When the array is being read, this function will be called to get the array.
-		//If you're asking why a property is needed instead of the name of the variable that'd hold the array length, that is because sometimes calculations are done to get the actual length *cough* *cough* moby bangle count
+		//If you're asking why a property is needed instead of the name of the variable that'd hold the array length, that is because sometimes calculations are done to get the actual length *cough* *cough* MobyObj bangle count
 		public uint GetArrayCount(object instance = null)
 		{
 			if(CountCalculator == string.Empty) return Count;

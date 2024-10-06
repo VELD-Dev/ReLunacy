@@ -2,7 +2,7 @@ namespace Lunacy
 {
 	//Buffers are split up due to how not all vertex attributes are currently known.
 	//Creating one single buffer structure where the data is interweaved could lead to issues with excess memory usage for meshes where those extra vertex attributes aren't in use.
-	//One example of such is blending, only some moby meshes have this and it would be a waste of memory to store this for ties, zone meshes, and shrubs.
+	//One example of such is blending, only some MobyObj meshes have this and it would be a waste of memory to store this for ties, zone meshes, and shrubs.
 	public class Drawable
 	{
 		public List<Transform> transforms = new List<Transform>();

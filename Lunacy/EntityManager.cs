@@ -165,8 +165,8 @@ namespace Lunacy
 
 	public class Entity
 	{
-		public object instance;					//Is either a Region.CMobyInstance or a TieInstance depending on if it's a moby or tie repsectively
-		public object drawable;					//Is either a DrawableListList or a DrawableList depending on if it's a moby or tie respectively
+		public object instance;					//Is either a Region.CMobyInstance or a TieInstance depending on if it's a MobyObj or tie repsectively
+		public object drawable;					//Is either a DrawableListList or a DrawableList depending on if it's a MobyObj or tie respectively
 		public int id;
 		public string name = string.Empty;
 
