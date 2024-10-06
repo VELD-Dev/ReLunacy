@@ -66,7 +66,7 @@ namespace LibLunacy
 		public float boundingSphereRadius;
 		StreamHelper vertexStream;
 		StreamHelper indexStream;
-		public List<CShader> shaderDB { get; private set; }		//On the old engine, there's a global shaderDB. On the new engine, it's per moby/tie/shrubmaybe/zonemaybe
+		public List<CShader> shaderDB { get; private set; }		//On the old engine, there's a global shaderDB. On the new engine, it's per MobyObj/tie/shrubmaybe/zonemaybe
 
 		public uint MetadataCount
 		{

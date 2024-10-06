@@ -68,11 +68,11 @@ public record struct Tie : ILunaObject, ILunaSerializable
         for(uint i = 0; i < meshesCount; i++)
         {
             meshes[i] = new(stream, isOld, i, TUID);
-            stream.JumpRead(0x40);
+            stream.JumpRead((int)TieMesh.Size);
         }
     }
 
-    public byte[] ToBytes(bool isOld, params object[] additionalParams)
+    public byte[] ToBytes(bool isOld, params object[]? additionalParams)
     {
         var rented = ArrayPool<byte>.Shared.Rent((int)Size);
         var span = rented.AsSpan(0, (int)Size);
@@ -80,7 +80,7 @@ public record struct Tie : ILunaObject, ILunaSerializable
         var offset = 0;
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], meshesOffset);        offset += sizeof(uint);
         Unk1.CopyTo(span[offset..]);                                                offset += Unk1.Length;
-        MemoryMarshal.Write(span[offset..], ref meshesCount);                       offset += sizeof(byte); // i know it's 1, it's just for consistency
+        MemoryMarshal.Write(span[offset..], ref meshesCount);                       offset += sizeof(byte);  // i know it's 1, it's just for consistency
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk2);                offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], verticesBufferStart); offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], verticesBufferSize);  offset += sizeof(uint);

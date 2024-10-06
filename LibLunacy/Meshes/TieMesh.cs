@@ -13,7 +13,7 @@ namespace LibLunacy.Meshes;
 
 public record struct TieMesh : ILunaObject, ILunaSerializable
 {
-    // This one got no section ID as it's Tie offset + Tie.banlesOffset all the time, so yeah no precise section somehow
+    // This one got no section PointerID as it's Tie offset + Tie.banlesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
 
     // TUID can also be used as an offset to access it in the original file.. Normally.
@@ -30,7 +30,7 @@ public record struct TieMesh : ILunaObject, ILunaSerializable
     public byte newShaderIndex;
     public byte[] Unk4;
 
-    public TieVertex[] vertices;
+    public VertexFormat0[] vertices;
     public uint[] indices;
 
     // public ref Shader shader;
@@ -62,15 +62,17 @@ public record struct TieMesh : ILunaObject, ILunaSerializable
             Unk4 = stream.Peek(0x2B, (int)Size - 0x2B);
         }
 
+        vertices = new VertexFormat0[verticesCount];
+        indices = new uint[indicesCount];
     }
 
     public void ReadVertices(LunaStream verticesBuffer)
     {
-        vertices = new TieVertex[verticesCount];
+        vertices = new VertexFormat0[verticesCount];
         verticesBuffer.Seek(verticesIndex * 0x14, SeekOrigin.Current);
         for(int i = 0; i < verticesCount; i++)
         {
-            vertices[i] = new TieVertex(verticesBuffer);
+            vertices[i] = new VertexFormat0(verticesBuffer);
             verticesBuffer.JumpRead(0x14);
         }
     }
@@ -86,7 +88,7 @@ public record struct TieMesh : ILunaObject, ILunaSerializable
         }
     }
 
-    public byte[] ToBytes(bool isOld, params object[] additionalParams)
+    public byte[] ToBytes(bool isOld, params object[]? additionalParams)
     {
         var rented = ArrayPool<byte>.Shared.Rent((int)Size);
         var span = rented.AsSpan(0, (int)Size);

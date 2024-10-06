@@ -8,8 +8,7 @@ namespace LibLunacy.Vertices;
 
 public record struct UFragVertex
 {
-    public const uint ID = 0x6000;
-    public const uint OldID = 0x9000;
+    public const uint ID = 0x6000, OldID = 0x9000;
     public const uint Size = 0x18;
 
     public (short, short, short) position;

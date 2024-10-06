@@ -70,9 +70,9 @@ namespace Lunacy
 		{
             RenderDockspace();
 
-            //ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
+            //ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().PointerID);
 			//RenderRegionsExplorer();
-            //ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().ID);
+            //ImGui.SetNextWindowViewport(ImGui.GetWindowViewport().PointerID);
             //RenderZonesExplorer();
 
 			if(true)

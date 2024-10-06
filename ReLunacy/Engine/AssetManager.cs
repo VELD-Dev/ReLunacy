@@ -95,7 +95,7 @@ public class AssetManager
             {
                 uf.Add(new(ufrag));
             }
-            UFrags.Add(zone.Key, uf);
+            UFrags.Add((ulong)zone.Value.index, uf);
         }
     }
 

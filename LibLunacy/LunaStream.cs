@@ -22,69 +22,69 @@ public class LunaStream : Stream
 
     public override bool CanWrite => true;
 
-    public override long Length => readStream.Length;
-    public long WriteLength => writeStream.Length;
+    public override long Length => ReadStream.Length;
+    public long WriteLength => WriteStream.Length;
 
-    public override long Position { get => readStream.Position; set => readStream.Position = value; } 
-    public long WritePosition { get => writeStream.Position; set => writeStream.Position = value; }
+    public override long Position { get => ReadStream.Position; set => ReadStream.Position = value; } 
+    public long WritePosition { get => WriteStream.Position; set => WriteStream.Position = value; }
 
     public Endianness endianness = Endianness.Little;
 
-    private readonly Stream readStream;
-    private readonly Stream writeStream;
+    public readonly Stream ReadStream;
+    public readonly Stream WriteStream;
 
     public LunaStream(string filePath)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException("Impossible to open a stream of the file.", filePath);
 
-        readStream = File.OpenRead(filePath);
-        writeStream = File.OpenWrite(filePath);
+        ReadStream = File.OpenRead(filePath);
+        WriteStream = File.OpenWrite(filePath);
     }
 
     public LunaStream(Stream read, Stream write)
     {
-        readStream = read;
-        writeStream = write;
+        ReadStream = read;
+        WriteStream = write;
     }
 
     public override void Flush()
     {
-        writeStream.Flush();
+        WriteStream.Flush();
     }
 
     public override int Read(byte[] buffer, int offset, int count)
     {
-        return readStream.Read(buffer, offset, count);
+        return ReadStream.Read(buffer, offset, count);
     }
 
-    public override long Seek(long offset, SeekOrigin origin)
+    public override long Seek(long offset, SeekOrigin origin = SeekOrigin.Begin)
     {
-        return readStream.Seek(offset, origin);
+        return ReadStream.Seek(offset, origin);
     }
 
     public override void Write(byte[] buffer, int offset, int count)
     {
-        writeStream.Write(buffer, offset, count);
+        WriteStream.Write(buffer, offset, count);
     }
 
     public override void Close()
     {
-        readStream.Close();
-        writeStream.Flush();
-        writeStream.Close();
+        ReadStream.Close();
+        WriteStream.Flush();
+        WriteStream.Close();
         base.Close();
     }
 
     public byte[] Peek(int offset, int count, bool relative = true)
     {
         var baseOffset = Position;
-        if (relative) readStream.Seek(offset, SeekOrigin.Current);
-        else readStream.Seek(offset, SeekOrigin.Begin);
+        if (relative) ReadStream.Seek(offset, SeekOrigin.Current);
+        else ReadStream.Seek(offset, SeekOrigin.Begin);
 
         var buffer = new byte[count];
-        readStream.Read(buffer, 0, count);
-        readStream.Seek(offset, SeekOrigin.Begin);
+        ReadStream.Read(buffer, 0, count);
+        ReadStream.Seek(offset, SeekOrigin.Begin);
         if (endianness == Endianness.Big)
             buffer = buffer.Reverse().ToArray();
         return buffer;
@@ -184,7 +184,12 @@ public class LunaStream : Stream
 
     public void JumpRead(int offset)
     {
-        readStream.Seek(offset, SeekOrigin.Current);
+        ReadStream.Seek(offset, SeekOrigin.Current);
 
+    }
+
+    public override void SetLength(long value)
+    {
+        WriteStream.SetLength(value);
     }
 }
