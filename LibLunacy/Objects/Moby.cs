@@ -51,11 +51,6 @@ public class Moby : IDisposable
         }
     }
 
-    public void ReadBangles(bool isOld)
-    {
-        mobyStream.Seek()
-    }
-
     public byte[] ToBytes() => MobyObj.ToBytes(false);
 
     public void Dispose()

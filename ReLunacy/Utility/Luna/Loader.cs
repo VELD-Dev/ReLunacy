@@ -22,7 +22,7 @@ public class Loader : IDisposable
     public Dictionary<ulong, Tie> Ties = [];
     public UFragMetadata[][] UFrags = [];
 
-    public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrugs = true, bool loadPlants = true, bool LoadFoliages = true)
+    public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
     {
         loadingTracker = loadModal;
         this.fileManager = fileManager;
@@ -34,27 +34,27 @@ public class Loader : IDisposable
 
         if (loadTies)
         {
-
+            LoadTies();
         }
 
         if(loadUFrags)
         {
-
+            LoadUFrags();
         }
 
-        if(loadShrugs)
+        if(loadShrubs)
         {
-
+            LoadShrubs();
         }
 
         if(loadPlants)
         {
-
+            LoadPlants();
         }
 
-        if(LoadFoliages)
+        if(loadFoliages)
         {
-
+            LoadFoliages();
         }
     }
 
@@ -98,7 +98,7 @@ public class Loader : IDisposable
 
     public void LoadFoliages()
     {
-        if( fileManager.isOld) LoadFoliagesOld();
+        if(fileManager.isOld) LoadFoliagesOld();
         else LoadFoliagesNew();
     }
 
