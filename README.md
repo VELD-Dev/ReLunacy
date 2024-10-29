@@ -89,6 +89,7 @@ Controls:
   - The interface language can be changed inside `Edit > Editor Settings > Visual settings`.
 
 ## Building
+* Clone the repo with `git clone https://github.com/VELD-Dev/ReLunacy.git --recursive` (add `-b dev` if you want to use branch dev)
 * cd into the directory with the `Lunacy.sln` file
 * Run `dotnet build`
 
