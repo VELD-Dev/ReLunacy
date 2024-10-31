@@ -1,5 +1,6 @@
 ﻿using LibLunacy.Interfaces;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -36,7 +37,7 @@ public record struct OldMoby : IMoby
 
     public ulong TUID { get => mobyId; init {} }
 
-    public MobyBangle[] bangles;
+    public MobyBangle[] Bangles { get; set; }
 
     public OldMoby(LunaStream stream)
     {
@@ -59,15 +60,8 @@ public record struct OldMoby : IMoby
         verticesOffset = stream.ReadInt32(0x38);
         scale = stream.ReadSingle(0x3C);
         Unk5 = stream.Peek(0x40, 32 * 0x4);
-        bangles = new MobyBangle[bangleCount];
-    }
 
-    public void ReadBangles(LunaStream stream)
-    {
-        for(int i = 0; i < bangles.Length; i++)
-        {
-            bangles[i] = new MobyBangle(stream);
-        }
+        Bangles = ArrayPool<MobyBangle>.Shared.Rent(bangleCount);
     }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)

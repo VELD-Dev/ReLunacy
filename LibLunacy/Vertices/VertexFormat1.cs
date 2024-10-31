@@ -18,4 +18,25 @@ public record struct VertexFormat1
     public (Half, Half) UVs;
     public uint normal;
     public uint tangent;
+
+    public VertexFormat1(LunaStream stream)
+    {
+        position.Item1 = stream.ReadInt16(0x00);
+        position.Item2 = stream.ReadInt16(0x02);
+        position.Item3 = stream.ReadInt16(0x04);
+        Unk1 = stream.ReadInt16(0x06);
+        var buff = stream.Peek(0x08, 8);
+        bones.Item1 = buff[0];
+        bones.Item2 = buff[1];
+        bones.Item3 = buff[2];
+        bones.Item4 = buff[3];
+        weights.Item1 = buff[4];
+        weights.Item2 = buff[5];
+        weights.Item3 = buff[6];
+        weights.Item4 = buff[7];
+        UVs.Item1 = stream.ReadHalf(0x10);
+        UVs.Item2 = stream.ReadHalf(0x12);
+        normal = stream.ReadUInt32(0x14);
+        tangent = stream.ReadUInt32(0x18);
+    }
 }

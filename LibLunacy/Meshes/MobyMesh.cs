@@ -30,6 +30,8 @@ public record struct MobyMesh : ILunaSerializable
 
     public VertexFormat0[] vertices0;
     public VertexFormat1[] vertices1;
+
+    public uint[] indices;
     
     // public ref Shader shader;
 
@@ -48,8 +50,48 @@ public record struct MobyMesh : ILunaSerializable
         boneMapOffset =         stream.ReadUInt32(0x20);
         Unk3 =                  stream.Peek(0x24, 0x1C);
 
-        vertices0 = Array.Empty<VertexFormat0>();
-        vertices1 = Array.Empty<VertexFormat1>();
+        if (verticesType == 0)
+        {
+            vertices0 = ArrayPool<VertexFormat0>.Shared.Rent(verticesCount);
+            vertices1 = Array.Empty<VertexFormat1>();
+        }
+        else if (verticesType == 1)
+        {
+            vertices0 = Array.Empty<VertexFormat0>();
+            vertices1 = ArrayPool<VertexFormat1>.Shared.Rent(verticesCount);
+        }
+        else
+        {
+            vertices0 = Array.Empty<VertexFormat0>();
+            vertices1 = Array.Empty<VertexFormat1>();
+        }
+
+        indices = ArrayPool<uint>.Shared.Rent(indicesCount);
+    }
+
+    public readonly void ReadVerticesBuffer(LunaStream stream)
+    {
+        for(int i = 0; i < verticesCount; i++)
+        {
+            if (verticesType == 0)
+            {
+                var vert = new VertexFormat0(stream);
+                vertices0[i] = vert;
+            } else if (verticesType == 1)
+            {
+                var vert = new VertexFormat1(stream);
+                vertices1[i] = vert;
+            }
+        }
+    }
+
+    public readonly void ReadIndicesBuffer(LunaStream stream)
+    {
+        for(int i = 0; i < indicesCount; i++)
+        {
+            indices[i] = stream.ReadUInt32(0x00);
+            stream.JumpRead(sizeof(uint));
+        }
     }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)

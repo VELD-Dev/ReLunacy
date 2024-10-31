@@ -1,5 +1,6 @@
 ﻿using LibLunacy.Interfaces;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -19,11 +20,13 @@ public class Moby : IDisposable
     public Vector4 BoundingSphere => MobyObj is OldMoby om ? om.boundingSphere : ((NewMoby)MobyObj).boundingSphere;
     public float Scale => MobyObj is OldMoby om ? om.scale : ((NewMoby)MobyObj).scale;
     public uint BanglesPointer => MobyObj is OldMoby om ? om.banglesPointer : ((NewMoby)MobyObj).banglesPointer;
+    public uint BanglesCount => MobyObj is OldMoby om ? om.bangleCount : ((NewMoby)MobyObj).bangleCount1;
     public uint SkeletonPointer => MobyObj is OldMoby om ? om.skeletonPointer : ((NewMoby)MobyObj).skeletonPointer;
     public uint TransformPointer => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).skeletonPointer;
     public int VerticesOffset => MobyObj is OldMoby om ? om.verticesOffset : int.MinValue;
     public uint IndicesOffset => MobyObj is OldMoby om ? om.indicesOffset : uint.MinValue;
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
+    public MobyBangle[] Bangles => MobyObj.Bangles;
 
     public Moby(LunaStream stream)
     {
@@ -34,7 +37,7 @@ public class Moby : IDisposable
         if(section.length != 0x100)
 
         mobyStream.Seek(section.offset);
-        ReadMoby(isOld: false);
+        ReadMoby(isOld: section.length != 0x100);
 
 
     }
@@ -55,6 +58,7 @@ public class Moby : IDisposable
 
     public void Dispose()
     {
+        ArrayPool<MobyBangle>.Shared.Return(MobyObj.Bangles);
         mobyStream.Dispose();
         GC.SuppressFinalize(this);
     }

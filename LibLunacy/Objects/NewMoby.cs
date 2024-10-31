@@ -47,7 +47,7 @@ public record struct NewMoby : IMoby
     public uint namePointer;
     public byte[] Unk12;
 
-    public MobyBangle[] bangles;
+    public MobyBangle[] Bangles { get; set; }
 
     public NewMoby(LunaStream stream)
     {
@@ -83,16 +83,7 @@ public record struct NewMoby : IMoby
         namePointer = stream.ReadUInt32(0xB8);
         Unk12 = stream.Peek(0xBC, 0x44);
 
-        bangles = new MobyBangle[bangleCount1];
-    }
-
-    public readonly void ReadBangles(LunaStream stream)
-    {
-        for(int i = 0; i < bangles.Length; i++)
-        {
-            bangles[i] = new MobyBangle(stream);
-            stream.JumpRead((int)MobyBangle.Size);
-        }
+        Bangles = ArrayPool<MobyBangle>.Shared.Rent(bangleCount1);
     }
 
     public readonly byte[] ToBytes(bool isOld, params object[]? additionalParams)
