@@ -31,7 +31,7 @@ public record struct MobyMesh : ILunaSerializable
     public VertexFormat0[] vertices0;
     public VertexFormat1[] vertices1;
 
-    public uint[] indices;
+    public ushort[] indices;
     
     // public ref Shader shader;
 
@@ -66,7 +66,7 @@ public record struct MobyMesh : ILunaSerializable
             vertices1 = Array.Empty<VertexFormat1>();
         }
 
-        indices = ArrayPool<uint>.Shared.Rent(indicesCount);
+        indices = ArrayPool<ushort>.Shared.Rent(indicesCount);
     }
 
     public readonly void ReadVerticesBuffer(LunaStream stream)
@@ -77,10 +77,12 @@ public record struct MobyMesh : ILunaSerializable
             {
                 var vert = new VertexFormat0(stream);
                 vertices0[i] = vert;
+                stream.JumpRead((int)VertexFormat0.Size);
             } else if (verticesType == 1)
             {
                 var vert = new VertexFormat1(stream);
                 vertices1[i] = vert;
+                stream.JumpRead((int)VertexFormat1.Size);
             }
         }
     }
@@ -89,8 +91,8 @@ public record struct MobyMesh : ILunaSerializable
     {
         for(int i = 0; i < indicesCount; i++)
         {
-            indices[i] = stream.ReadUInt32(0x00);
-            stream.JumpRead(sizeof(uint));
+            indices[i] = stream.ReadUInt16(0);
+            stream.JumpRead(sizeof(ushort));
         }
     }
 

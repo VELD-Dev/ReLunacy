@@ -159,21 +159,20 @@ public class Loader : IDisposable
             var indxSection = igMoby.QuerySection(0xE100);
             var vertSection = igMoby.QuerySection(0xE200);
 
-            mobyStream.Seek(moby.BanglesPointer);
             var bangleCount = ((NewMoby)moby.MobyObj).bangleCount1;
             var bangleLoading = new LoadingProgress("Loading bangles...", bangleCount);
             loadingTracker.LoadProgresses.Add(bangleLoading);
             for (uint j = 0; j < bangleCount; j++)
             {
+                mobyStream.Seek(moby.BanglesPointer + MobyBangle.Size * j);
                 moby.Bangles[j] = new MobyBangle(mobyStream);
                 ref var bangle = ref moby.Bangles[j];
-
-                mobyStream.Seek(bangle.meshesPointer);
 
                 var meshesLoading = new LoadingProgress("Loading meshes...", bangle.meshesCount);
                 loadingTracker.LoadProgresses.Add(meshesLoading);
                 for(uint k = 0; k < bangle.meshesCount; k++)
                 {
+                    mobyStream.Seek(bangle.meshesPointer + MobyMesh.Size * k);
                     bangle.meshes[k] = new MobyMesh(mobyStream);
                     ref var mesh = ref bangle.meshes[k];
 
@@ -190,7 +189,6 @@ public class Loader : IDisposable
                 loadingTracker.LoadProgresses.Remove(meshesLoading);
 
                 bangleLoading.SetProgress(j + 1);
-                mobyStream.JumpRead((int)MobyBangle.Size);
             }
             loadingTracker.LoadProgresses.Remove(bangleLoading);
 
@@ -203,25 +201,22 @@ public class Loader : IDisposable
 
     public void LoadMobysOld()
     {
-        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
+        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainBuffer) || mainBuffer is null)
         {
             var e = new FileNotFoundException($"Main file have not been found in {fileManager.folderPath}", "main.dat");
             LunaLog.LogError(e.Message);
             throw e;
         }
-        if(!fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainBuffer) || mainBuffer is null)
-        {
-            var e = new FileNotFoundException($"Main raw file stream have not been found. Main file may be absent in {fileManager.folderPath}.", "main.dat");
-            LunaLog.LogError(e.Message);
-            throw e;
-        }
-        if (!fileManager.rawfiles.TryGetValue("vertices.dat", out Stream? verticesRaw) || verticesRaw is null)
+        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertIGFile) || vertIGFile is null
+        || !fileManager.rawfiles.TryGetValue("vertices.dat", out Stream? verticesRaw) || verticesRaw is null)
         {
             var e = new FileNotFoundException($"Vertices buffer file have not been found in {fileManager.folderPath}", "vertices.dat");
             LunaLog.LogError(e.Message);
             throw e;
         }
-        if (!fileManager.rawfiles.TryGetValue("textures.dat", out Stream? texturesRaw) || texturesRaw is null)
+        if(!fileManager.rawfiles.TryGetValue("textures.dat", out Stream? texturesRaw) || texturesRaw is null
+        || !fileManager.igfiles.TryGetValue("textures.dat", out IGFile? textIGFile) || textIGFile is null)
         {
             var e = new FileNotFoundException($"Vertices buffer file have not been found in {fileManager.folderPath}", "textures.dat");
             LunaLog.LogError(e.Message);
@@ -235,23 +230,96 @@ public class Loader : IDisposable
 
         var loadState = new LoadingProgress("Loading mobys...", mobySection.count);
         loadingTracker.LoadProgresses.Add(loadState);
-        for(int i = 0; i < mobySection.count; i++)
+        for(uint i = 0; i < mobySection.count; i++)
         {
             mainStream.Seek(mobySection.offset + 0x0C * i);
             var moby = new Moby(mainStream);
 
-            mainStream.Seek(moby.BanglesPointer);
-            for(int j = 0; j < moby.BanglesCount; j++)
+            var bangleLoading = new LoadingProgress("Loading bangles...", moby.BanglesCount);
+            loadingTracker.LoadProgresses.Add(bangleLoading);
+
+            LunaStream vertFile;
+            LunaStream indFile;
+            if((moby.VerticesOffset & 0x80000000) != 0)
             {
+                vertFile = new LunaStream(verticesRaw, verticesRaw);
+                vertFile.Seek(vertIGFile.QuerySection(VertexFormat0.OldID).offset);
+            }
+            else
+            {
+                vertFile = new LunaStream(texturesRaw, texturesRaw);
+                vertFile.Seek(0);
+            }
+            vertFile.Seek(moby.VerticesOffset & ~0x80000000, SeekOrigin.Current);
+
+            if((moby.IndicesOffset & 0x80000000) != 0)
+            {
+                indFile = new LunaStream(verticesRaw, verticesRaw);
+                indFile.Seek(vertIGFile.QuerySection(0x9100).offset);
+            }
+            else
+            {
+                indFile = new LunaStream(texturesRaw, texturesRaw);
+                indFile.Seek(0);
+            }
+            indFile.Seek(moby.IndicesOffset & ~0x80000000, SeekOrigin.Current);
+
+            for(uint j = 0; j < moby.BanglesCount; j++)
+            {
+                mainStream.Seek(moby.BanglesPointer + MobyBangle.Size * j);
                 moby.Bangles[j] = new MobyBangle(mainStream);
                 ref var bangle = ref moby.Bangles[j];
 
-                for (int k = 0; k < bangle.meshesCount; k++)
+                var meshLoading = new LoadingProgress("Loading meshes...", bangle.meshesCount);
+                loadingTracker.LoadProgresses.Add(meshLoading);
+
+                for (uint k = 0; k < bangle.meshesCount; k++)
                 {
+                    mainStream.Seek(bangle.meshesPointer + MobyMesh.Size * k);
                     bangle.meshes[k] = new MobyMesh(mainStream);
+
+                    meshLoading.SetProgress(k + 1);
+                }
+                loadingTracker.LoadProgresses.Remove(meshLoading);
+
+                bangleLoading.SetProgress(j + 1);
+            }
+
+            var lastMesh = moby.Bangles.Last(b => b.meshesCount > 0).meshes[^1];
+            var vertBufferSize = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
+            var vertBuffer = new byte[vertBufferSize];
+            vertFile.Read(vertBuffer);
+            var vertMemStream = new MemoryStream(vertBuffer);
+            var vertexStream = new LunaStream(vertMemStream, vertMemStream);
+            var indBufferSize = (lastMesh.indicesOffset + lastMesh.indicesCount) * sizeof(ushort);
+            var indBuffer = new byte[indBufferSize];
+            indFile.Read(indBuffer);
+            var indMemStream = new MemoryStream(indBuffer);
+            var indexStream = new LunaStream(indMemStream, indMemStream);
+
+            for(int j = 0; j < moby.BanglesCount; j++)
+            {
+                ref var bangle = ref moby.Bangles[j];
+                for(int k = 0; k < bangle.meshesCount; k++)
+                {
+                    ref var mesh = ref bangle.meshes[k];
+
+                    vertexStream.Seek(mesh.verticesOffset);
+                    mesh.ReadVerticesBuffer(vertexStream);
+                    indexStream.Seek(mesh.indicesOffset);
+                    mesh.ReadIndicesBuffer(indexStream);
                 }
             }
+
+            loadingTracker.LoadProgresses.Remove(bangleLoading);
+
+            Mobys.Add(moby.TUID, moby);
+
+            loadState.SetProgress(i + 1);
+            LunaLog.LogDebug($"(o:{mainStream.Position:X}) Read moby {moby.TUID:X}");
         }
+
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
     #endregion
 
@@ -265,7 +333,8 @@ public class Loader : IDisposable
     {
 
     }
-    #endregion
+    #endregion;
+
 
     #region Zones
     public void LoadZonesNew()
