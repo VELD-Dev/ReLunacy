@@ -54,7 +54,7 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
             TUID =              stream.ReadUInt64(0x68);
             Unk5 =              stream.Peek(0x70, 0x10);
         }
-        meshes = new TieMesh[meshesCount];
+        meshes = ArrayPool<TieMesh>.Shared.Rent(meshesCount);
     }
 
     /// <summary>
@@ -68,7 +68,7 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
         stream.Seek((long)offset, SeekOrigin.Begin);
         for(uint i = 0; i < meshesCount; i++)
         {
-            meshes[i] = new(stream, isOld, i, TUID);
+            meshes[i] = new(stream, isOld);
             stream.JumpRead((int)TieMesh.Size);
         }
     }

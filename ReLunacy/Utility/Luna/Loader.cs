@@ -20,7 +20,7 @@ public class Loader : IDisposable
     public AssetPointer[] TiePointers;
 
     public Dictionary<ulong, Moby> Mobys = [];
-    public Dictionary<ulong, TieMetadata> Ties = [];
+    public Dictionary<ulong, Tie> Ties = [];
     public UFragMetadata[][] UFrags = [];
 
     public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
@@ -371,6 +371,8 @@ public class Loader : IDisposable
             var tie = new Tie(tieStream);
             var igTie = new IGFile(tieStream);
 
+            Ties.Add(tie.TUID, tie);
+
             var vertSection = igTie.QuerySection(0x3000);
             var indxSection = igTie.QuerySection(TieVertIndex.ID);
 
@@ -383,10 +385,10 @@ public class Loader : IDisposable
                 ref var mesh = ref tie.Meshes[j];
 
                 tieStream.Seek(vertSection.offset + VertexFormat0.Size * j);
-                mesh.ReadVertices(tieStream);
+                mesh.ReadVerticesBuffer(tieStream);
 
                 tieStream.Seek(indxSection.offset + sizeof(ushort) * j);
-                mesh.ReadIndices(tieStream);
+                mesh.ReadIndicesBuffer(tieStream);
             }
             loadingTracker.LoadProgresses.Remove(meshLoading);
 
@@ -397,7 +399,54 @@ public class Loader : IDisposable
 
     public void LoadTiesOld()
     {
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) ||           main is null
+        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainRawStream) || mainRawStream is null)
+        {
+            var e = new FileNotFoundException($"Main file is missing in {fileManager.folderPath}.", "main.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertIGFile) ||   vertIGFile is null
+        || !fileManager.rawfiles.TryGetValue("vertices.dat", out Stream? verticesRaw) || verticesRaw is null)
+        {
+            var e = new FileNotFoundException($"Vertices file is missing {fileManager.folderPath}.", "vertices.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var tieSection = main.QuerySection(TieMetadata.ID);
+        var mainStream = new LunaStream(mainRawStream, mainRawStream);
+
+        var vertStream = new LunaStream(verticesRaw, verticesRaw);
+        var vertSection = vertIGFile.QuerySection(0x9000);
+        var indxSection = vertIGFile.QuerySection(TieVertIndex.OldID);
+
+        var loadState = new LoadingProgress("Loading ties...", tieSection.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < tieSection.count; i++)
+        {
+            mainStream.Seek(tieSection.offset + TieMetadata.Size);
+            var tie = new Tie(mainStream, true, i);
+            Ties.Add(tie.TUID, tie);
+
+            var meshesLoading = new LoadingProgress("Loading tie meshes...", tie.MeshesCount);
+            loadingTracker.LoadProgresses.Add(meshesLoading);
+            for(uint j = 0; j < tie.MeshesCount; j++)
+            {
+                mainStream.Seek(tie.MeshesOffset + TieMesh.Size * j);
+                tie.Meshes[j] = new TieMesh(mainStream, true);
+                ref var mesh = ref tie.Meshes[j];
+
+                vertStream.Seek(vertSection.offset + mesh.verticesIndex * VertexFormat0.Size);
+                mesh.ReadVerticesBuffer(vertStream);
+
+                meshesLoading.SetProgress(j + 1);
+            }
+            loadingTracker.LoadProgresses.Remove(meshesLoading);
+
+            loadState.SetProgress(i + 1);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
     #endregion;
 
@@ -462,7 +511,7 @@ public class Loader : IDisposable
     }
     #endregion
     #endregion
-    ;
+
     public void Dispose()
     {
         foreach(var ufragArray in UFrags)

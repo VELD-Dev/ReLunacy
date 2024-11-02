@@ -16,9 +16,6 @@ public record struct TieMesh : ILunaSerializable
     // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banlesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
 
-    // TUID can also be used as an offset to access it in the original file.. Normally.
-    public ulong TUID { get; init; }
-
     public uint indicesIndex;
     public ushort verticesIndex;
     public ushort Unk1;
@@ -31,7 +28,7 @@ public record struct TieMesh : ILunaSerializable
     public byte[] Unk4;
 
     public VertexFormat0[] vertices;
-    public uint[] indices;
+    public ushort[] indices;
 
     // public ref Shader shader;
 
@@ -60,28 +57,24 @@ public record struct TieMesh : ILunaSerializable
             Unk4 = stream.Peek(0x2B, (int)Size - 0x2B);
         }
 
-        vertices = new VertexFormat0[verticesCount];
-        indices = new uint[indicesCount];
+        vertices = ArrayPool<VertexFormat0>.Shared.Rent(verticesCount);
+        indices = ArrayPool<ushort>.Shared.Rent(indicesCount);
     }
 
-    public void ReadVertices(LunaStream verticesBuffer)
+    public readonly void ReadVerticesBuffer(LunaStream verticesBuffer)
     {
-        vertices = new VertexFormat0[verticesCount];
-        verticesBuffer.Seek(verticesIndex * 0x14, SeekOrigin.Current);
         for(int i = 0; i < verticesCount; i++)
         {
             vertices[i] = new VertexFormat0(verticesBuffer);
-            verticesBuffer.JumpRead(0x14);
+            verticesBuffer.JumpRead((int)VertexFormat0.Size);
         }
     }
 
-    public void ReadIndices(LunaStream indicesBuffer)
+    public readonly void ReadIndicesBuffer(LunaStream indicesBuffer)
     {
-        indices = new uint[indicesCount];
-        indicesBuffer.Seek(indicesIndex * 0x02, SeekOrigin.Current);
         for(int i = 0; i < indicesCount; i++)
         {
-            indices[i] = indicesBuffer.ReadUInt16(0x00);
+            indices[i] = indicesBuffer.ReadUInt16(0);
             indicesBuffer.JumpRead(0x02);
         }
     }

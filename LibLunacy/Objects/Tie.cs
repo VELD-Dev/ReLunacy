@@ -28,8 +28,11 @@ namespace LibLunacy.Objects
 
             var igFile = new IGFile(tieStream);
             var section = igFile.QuerySection(TieMetadata.ID);
+            tieStream.Seek(section.offset + TieMetadata.Size * index);
             metadata = new TieMetadata(tieStream, old, index);
         }
+
+        public byte[] ToBytes(params object[]? args) => metadata.ToBytes(isOld, args);
 
         public void Dispose()
         {
@@ -37,6 +40,7 @@ namespace LibLunacy.Objects
             {
                 ref var mesh = ref Meshes[i];
                 ArrayPool<VertexFormat0>.Shared.Return(mesh.vertices);
+                ArrayPool<ushort>.Shared.Return(mesh.indices);
             }
             ArrayPool<TieMesh>.Shared.Return(metadata.meshes);
 
