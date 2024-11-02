@@ -38,8 +38,6 @@ public class Moby : IDisposable
 
         mobyStream.Seek(section.offset);
         ReadMoby(isOld: section.length != 0x100);
-
-
     }
 
     public void ReadMoby(bool isOld)

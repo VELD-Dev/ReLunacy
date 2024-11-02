@@ -11,9 +11,9 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Meshes;
 
-public record struct TieMesh : ILunaObject, ILunaSerializable
+public record struct TieMesh : ILunaSerializable
 {
-    // This one got no section PointerID as it's Tie offset + Tie.banlesOffset all the time, so yeah no precise section somehow
+    // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banlesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
 
     // TUID can also be used as an offset to access it in the original file.. Normally.
@@ -36,10 +36,8 @@ public record struct TieMesh : ILunaObject, ILunaSerializable
     // public ref Shader shader;
 
 
-    public TieMesh(LunaStream stream, bool isOld, uint meshIndex, ulong parentMeshTUID)
+    public TieMesh(LunaStream stream, bool isOld)
     {
-        TUID = parentMeshTUID + meshIndex;
-
         indicesIndex =      stream.ReadUInt32(0x00);
         verticesIndex =     stream.ReadUInt16(0x04);
         Unk1 =              stream.ReadUInt16(0x06);

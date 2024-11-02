@@ -53,7 +53,7 @@ namespace LibLunacy
 			meshes = tie.meshes;
 			scale = tie.scale;
 
-			//Console.WriteLine($"Tie {(section.offset + index * 0x80).ToString("X08")} first mesh shader index: {meshes[0].newShaderIndex}");
+			//Console.WriteLine($"TieMetadata {(section.offset + index * 0x80).ToString("X08")} first mesh shader index: {meshes[0].newShaderIndex}");
 
 			if(al.fm.isOld)
 			{

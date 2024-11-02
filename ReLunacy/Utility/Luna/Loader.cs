@@ -17,9 +17,10 @@ public class Loader : IDisposable
     public readonly FileManager fileManager;
 
     public AssetPointer[] MobyPointers;
+    public AssetPointer[] TiePointers;
 
     public Dictionary<ulong, Moby> Mobys = [];
-    public Dictionary<ulong, Tie> Ties = [];
+    public Dictionary<ulong, TieMetadata> Ties = [];
     public UFragMetadata[][] UFrags = [];
 
     public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
@@ -133,7 +134,6 @@ public class Loader : IDisposable
         {
             MobyPointers[i] = new AssetPointer(assetlookupStream);
             loadState.SetProgress(i + 1);
-            LunaLog.LogDebug($"({assetlookupStream.Position:X}) Read Moby Pointer {MobyPointers[i].TUID:X}");
             assetlookupStream.JumpRead((int)AssetPointer.Size);
         }
 
@@ -326,7 +326,73 @@ public class Loader : IDisposable
     #region Ties
     public void LoadTiesNew()
     {
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
+        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) ||  assetlookupStream is null)
+        {
+            var e = new FileNotFoundException($"Assetlookup file is missing in {fileManager.folderPath}.", "assetlookup.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+        if(!fileManager.rawfiles.TryGetValue("ties.dat", out Stream? tieFileStream) || tieFileStream is null)
+        {
+            var e = new FileNotFoundException($"Ties file is missing in {fileManager.folderPath}.", "ties.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        // Read pointers
+
+        var tiePtrSection = assetlookup.QuerySection(TieMetadata.PointerID);
+        var alStream = new LunaStream(assetlookupStream, assetlookupStream);
+        TiePointers = ArrayPool<AssetPointer>.Shared.Rent((int)tiePtrSection.count);
+        var loadState = new LoadingProgress("Loading ties pointers...", tiePtrSection.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        alStream.Seek(tiePtrSection.offset);
+        for(uint i = 0; i < tiePtrSection.count; i++)
+        {
+            TiePointers[i] = new AssetPointer(alStream);
+            alStream.JumpRead((int)AssetPointer.Size);
+            loadState.SetProgress(i + 1);
+        }
+
+        // Read ties
+
+        loadState.SetProgress(0);
+        loadState.SetStatus("Loading ties...");
+        loadState.SetTotal((uint)TiePointers.Length);
+        for(uint i = 0; i < TiePointers.Length; i++)
+        {
+            ref var tiePtr = ref TiePointers[i];
+            var buffer = ArrayPool<byte>.Shared.Rent((int)tiePtr.length);
+            tieFileStream.Read(buffer, (int)tiePtr.offset, buffer.Length);
+            var memstream = new MemoryStream(buffer);
+            var tieStream = new LunaStream(memstream, memstream);
+
+            var tie = new Tie(tieStream);
+            var igTie = new IGFile(tieStream);
+
+            var vertSection = igTie.QuerySection(0x3000);
+            var indxSection = igTie.QuerySection(TieVertIndex.ID);
+
+            var meshLoading = new LoadingProgress("Loading ties meshes", tie.MeshesCount);
+            loadingTracker.LoadProgresses.Add(meshLoading);
+            for(uint j = 0; j < tie.MeshesCount; j++)
+            {
+                tieStream.Seek(tie.MeshesOffset + TieMesh.Size * j);
+                tie.Meshes[j] = new TieMesh(tieStream, false);
+                ref var mesh = ref tie.Meshes[j];
+
+                tieStream.Seek(vertSection.offset + VertexFormat0.Size * j);
+                mesh.ReadVertices(tieStream);
+
+                tieStream.Seek(indxSection.offset + sizeof(ushort) * j);
+                mesh.ReadIndices(tieStream);
+            }
+            loadingTracker.LoadProgresses.Remove(meshLoading);
+
+            loadState.SetProgress(i + 1);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
 
     public void LoadTiesOld()
@@ -396,7 +462,7 @@ public class Loader : IDisposable
     }
     #endregion
     #endregion
-
+    ;
     public void Dispose()
     {
         foreach(var ufragArray in UFrags)
@@ -406,6 +472,7 @@ public class Loader : IDisposable
         ArrayPool<UFragMetadata[]>.Shared.Return(UFrags);
 
         if(MobyPointers != null) ArrayPool<AssetPointer>.Shared.Return(MobyPointers);
+        if (TiePointers != null) ArrayPool<AssetPointer>.Shared.Return(TiePointers);
 
         GC.SuppressFinalize(this);
     }
