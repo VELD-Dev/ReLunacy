@@ -25,6 +25,8 @@ public class Loader : IDisposable
     public Dictionary<ulong, Zone> Zones = [];
     public UFragMetadata[][] UFrags = [];
 
+    public bool Loaded { get; private set; } = false;
+
     public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
     {
         loadingTracker = loadModal;
@@ -61,6 +63,8 @@ public class Loader : IDisposable
         {
             LoadFoliages();
         }
+
+        Loaded = true;
     }
 
     #region Basic Loading
@@ -501,7 +505,21 @@ public class Loader : IDisposable
 
             var zone = new Zone(zoneStream);
             Zones.Add(zone.TUID, zone);
+
+            var tieInstLoading = new LoadingProgress("Loading tie instances...", zone.tieInstanceSection.count);
+            loadingTracker.LoadProgresses.Add(tieInstLoading);
+            for(uint j = 0; j < zone.tieInstanceSection.count; j++)
+            {
+                zone.zoneStream.Seek(zone.tieInstanceSection.offset + TieInstance.Size * j);
+                zone.tieInstances[j] = new TieInstance(zone.zoneStream);
+
+                tieInstLoading.SetProgress(j + 1);
+            }
+            loadingTracker.LoadProgresses.Remove(tieInstLoading);
+
+            loadState.SetProgress(i + 1);
         }
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
 
     public void LoadZonesOld()
@@ -516,9 +534,17 @@ public class Loader : IDisposable
 
         var mstream = new LunaStream(mainDatStream, mainDatStream);
         var zoneSection = main.QuerySection(Zone.OldID);
-        var loadState = new LoadingProgress("Loading Zones...", zoneSection.count);
         var zone = new Zone(mstream);
         Zones.Add(0, zone);
+        var loadState = new LoadingProgress("Loading tie instances...", zone.tieInstanceSection.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for (uint i = 0; i < zone.tieInstanceSection.count; i++)
+        {
+            zone.zoneStream.Seek(zone.tieInstanceSection.offset + TieInstance.Size * i);
+            zone.tieInstances[i] = new TieInstance(zone.zoneStream);
+            loadState.SetProgress(i + 1);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
     #endregion
 
