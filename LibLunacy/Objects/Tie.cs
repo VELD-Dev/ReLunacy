@@ -43,7 +43,7 @@ namespace LibLunacy.Objects
                 ArrayPool<ushort>.Shared.Return(mesh.indices);
             }
             ArrayPool<TieMesh>.Shared.Return(metadata.meshes);
-
+            tieStream.Close();
             GC.SuppressFinalize(this);
         }
     }

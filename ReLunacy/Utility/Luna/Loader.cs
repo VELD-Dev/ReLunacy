@@ -18,15 +18,19 @@ public class Loader : IDisposable
 
     public AssetPointer[] MobyPointers;
     public AssetPointer[] TiePointers;
+    public AssetPointer[] ZonePointers;
 
     public Dictionary<ulong, Moby> Mobys = [];
     public Dictionary<ulong, Tie> Ties = [];
+    public Dictionary<ulong, Zone> Zones = [];
     public UFragMetadata[][] UFrags = [];
 
     public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
     {
         loadingTracker = loadModal;
         this.fileManager = fileManager;
+
+        LoadZones();
 
         if(loadMobys)
         {
@@ -450,16 +454,71 @@ public class Loader : IDisposable
     }
     #endregion;
 
-
     #region Zones
     public void LoadZonesNew()
     {
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
+        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) || assetlookupStream is null)
+        {
+            var e = new FileNotFoundException($"Assetlookup is missing in {fileManager.folderPath}", "assetlookup.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+        if(!fileManager.rawfiles.TryGetValue("zones.dat", out Stream? zonesFileStream) || zonesFileStream is null)
+        {
+            var e = new FileNotFoundException($"Zones file is missing in {fileManager.folderPath}", "zones.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        // Read Zones pointers
+
+        var alStream = new LunaStream(assetlookupStream, assetlookupStream);
+        var zoneSection = assetlookup.QuerySection(Zone.PointerID);
+        ZonePointers = ArrayPool<AssetPointer>.Shared.Rent((int)zoneSection.length / 0x10);
+        var loadState = new LoadingProgress("Loading Zone pointers...", (uint)ZonePointers.Length);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < ZonePointers.Length; i++)
+        {
+            alStream.Seek(zoneSection.offset + AssetPointer.Size * i);
+            ZonePointers[i] = new AssetPointer(alStream);
+
+            loadState.SetProgress(i + 1);
+        }
+
+        // Read Zones
+
+        loadState.SetStatus("Loading zones...");
+        loadState.SetProgress(0);
+        loadState.SetTotal((uint)ZonePointers.Length);
+        for(uint i = 0; i < ZonePointers.Length; i++)
+        {
+            ref var pointer = ref ZonePointers[i];
+            var buffer = new byte[pointer.length];
+            zonesFileStream.Read(buffer, (int)pointer.offset, (int)pointer.length);
+            var memStream = new MemoryStream(buffer);
+            var zoneStream = new LunaStream(memStream, memStream);
+
+            var zone = new Zone(zoneStream);
+            Zones.Add(zone.TUID, zone);
+        }
     }
 
     public void LoadZonesOld()
     {
+        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
+        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainDatStream) || mainDatStream is null)
+        {
+            var e = new FileNotFoundException($"Assetlookup is missing in {fileManager.folderPath}", "assetlookup.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var mstream = new LunaStream(mainDatStream, mainDatStream);
+        var zoneSection = main.QuerySection(Zone.OldID);
+        var loadState = new LoadingProgress("Loading Zones...", zoneSection.count);
+        var zone = new Zone(mstream);
+        Zones.Add(0, zone);
     }
     #endregion
 
@@ -522,6 +581,9 @@ public class Loader : IDisposable
 
         if(MobyPointers != null) ArrayPool<AssetPointer>.Shared.Return(MobyPointers);
         if (TiePointers != null) ArrayPool<AssetPointer>.Shared.Return(TiePointers);
+
+        foreach(var tie in Ties) tie.Value.Dispose();
+        foreach(var moby in Mobys) moby.Value.Dispose();
 
         GC.SuppressFinalize(this);
     }

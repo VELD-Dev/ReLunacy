@@ -1,4 +1,6 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Meshes;
+using LibLunacy.Vertices;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -56,8 +58,19 @@ public class Moby : IDisposable
 
     public void Dispose()
     {
+        for(int i = 0; i < MobyObj.Bangles.Length; i++)
+        {
+            for(int j = 0; j < MobyObj.Bangles[i].meshes.Length; j++)
+            {
+                ref var mesh = ref MobyObj.Bangles[i].meshes[j];
+                if (mesh.verticesType == 0) ArrayPool<VertexFormat0>.Shared.Return(mesh.vertices0);
+                if (mesh.verticesType == 1) ArrayPool<VertexFormat1>.Shared.Return(mesh.vertices1);
+            }
+            ArrayPool<MobyMesh>.Shared.Return(MobyObj.Bangles[i].meshes);
+        }
         ArrayPool<MobyBangle>.Shared.Return(MobyObj.Bangles);
-        mobyStream.Dispose();
+
+        mobyStream.Close();
         GC.SuppressFinalize(this);
     }
 }
