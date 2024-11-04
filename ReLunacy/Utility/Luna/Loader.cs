@@ -233,14 +233,22 @@ public class Loader : IDisposable
         var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
         var textureMetaSec = assetlookup.QuerySection(TextureMetadataNew.ID);
 
-        for (int i = 0; i < textureMetaSec.count; i++)
+        var loadState = new LoadingProgress("Loading textures...", textureMetaSec.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+
+        for (uint i = 0; i < textureMetaSec.count; i++)
         {
             alstream.Seek(textureMetaSec.offset + TextureMetadataNew.Size * i);
             var tex = new Texture(alstream);
 
             alstream.Seek(highmipsPtrSec.offset + AssetPointer.Size * i);
             tex.ReadHighmipsPtr(alstream);
+            Textures.Add(tex.id, tex);
+
+            tex.ReadTexture(hmstream);
+            loadState.SetProgress(i + 1);
         }
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
 
     public void LoadTexturesOld()
