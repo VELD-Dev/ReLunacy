@@ -1,13 +1,11 @@
 ﻿using LibLunacy.Meshes;
 using LibLunacy.Objects;
+using LibLunacy.Textures;
 using LibLunacy.Vertices;
 using ReLunacy.Frames.ModalFrames;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Security.Cryptography.X509Certificates;
+using Texture = LibLunacy.Textures.Texture;
 
 namespace ReLunacy.Utility.Luna;
 
@@ -20,6 +18,8 @@ public class Loader : IDisposable
     public AssetPointer[] TiePointers;
     public AssetPointer[] ZonePointers;
 
+    public Dictionary<ulong, Texture> Textures = [];
+    // public Dictionary<ulong, Shader> Shaders = [];
     public Dictionary<ulong, Moby> Mobys = [];
     public Dictionary<ulong, Tie> Ties = [];
     public Dictionary<ulong, Zone> Zones = [];
@@ -27,47 +27,141 @@ public class Loader : IDisposable
 
     public bool Loaded { get; private set; } = false;
 
+    /*
+    // Common
+    readonly KeyValuePair<IGFile, Stream> gameplay;
+    readonly KeyValuePair<IGFile, Stream> textures;
+    readonly KeyValuePair<IGFile, Stream> effect;
+    // New Engine
+    readonly KeyValuePair<IGFile, Stream> assetlookup;
+    readonly KeyValuePair<IGFile, Stream> highmips;
+    readonly KeyValuePair<IGFile, Stream> animsets;
+    readonly KeyValuePair<IGFile, Stream> cubemaps;
+    readonly KeyValuePair<IGFile, Stream> lightning;
+    readonly KeyValuePair<IGFile, Stream> mobys;
+    readonly KeyValuePair<IGFile, Stream> ties;
+    readonly KeyValuePair<IGFile, Stream> shrubs;
+    readonly KeyValuePair<IGFile, Stream> shaders;
+    readonly KeyValuePair<IGFile, Stream> zones;
+    // Old Engine
+    readonly KeyValuePair<IGFile, Stream> main;
+    readonly KeyValuePair<IGFile, Stream> texstream;
+    readonly KeyValuePair<IGFile, Stream> vertices;
+    readonly KeyValuePair<IGFile, Stream> collision;
+    */
+
     public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
     {
         loadingTracker = loadModal;
         this.fileManager = fileManager;
 
+        /* This will have to be rewritten smh
+        bool flags = CheckIGStream("gameplay.dat", out var iggp, out var gpstream)
+                  && CheckIGStream("textures.dat", out var igtex, out var texturestm)
+                  && CheckIGStream("effect.dat", out var igeff, out var effstream);
+        if (fileManager.isOld)
+        {
+            flags = flags
+                && CheckIGStream("main.dat", out var igmain, out var mainstream)
+                && CheckIGStream("texstream.dat", out var igtexstream, out var texstreamstream)
+                && CheckIGStream("vertices.dat", out var igvertices, out var verticesstream)
+                && CheckIGStream("collision.dat", out var igcollision, out var collisionstream);
+        }
+        else
+        {
+            flags = flags
+                && CheckIGStream("assetlookup.dat", out var igal, out var alstream)
+                && CheckIGStream("highmips.dat", out var ighm, out var hmstream)
+                && CheckIGStream("animsets.dat", out var igas, out var asstream) // haha very funny
+                && CheckIGStream("cubemaps.dat", out var igcm, out var cmstream)
+                && CheckIGStream("lightning.dat", out var iglight, out var lightstream)
+                && CheckIGStream("mobys.dat", out var igmobys, out var mobysstream)
+                && CheckIGStream("ties.dat", out var igties, out var tiesstream)
+                && CheckIGStream("shrubs.dat", out var igshrubs, out var shrubsstream)
+                && CheckIGStream("shaders.dat", out var igshaders, out var shadersstream)
+                && CheckIGStream("zones.dat", out var igzones, out var zonesstream);
+        }
+        if(!flags)
+        {
+            var e = new FileNotFoundException("A file is missing ! Which one ? Who knows lol");
+            LunaLog.LogFatal(e);
+            throw e;
+        }
+        gameplay = new(iggp, gpstream);
+        textures = new(igtex, texturestm);
+        */
+
+        static byte B(bool b) => (byte)(b ? 1 : 0);
+
+        var globalLoadingMax = 3 + B(loadMobys) + B(loadTies) + B(loadUFrags) + B(loadShrubs) + B(loadPlants) + B(loadFoliages);
+        var loadingState = new LoadingProgress("Loading level...", (uint)globalLoadingMax);
+        loadingTracker.LoadProgresses.Add(loadingState);
+
         LoadZones();
+        loadingState.current++;
+        LoadTextures();
+        loadingState.current++;
+        LoadShaders();
+        loadingState.current++;
 
         if(loadMobys)
         {
             LoadMobys();
+            loadingState.current++;
         }
 
         if (loadTies)
         {
             LoadTies();
+            loadingState.current++;
         }
 
         if(loadUFrags)
         {
             LoadUFrags();
+            loadingState.current++;
         }
 
         if(loadShrubs)
         {
             LoadShrubs();
+            loadingState.current++;
         }
 
         if(loadPlants)
         {
             LoadPlants();
+            loadingState.current++;
         }
 
         if(loadFoliages)
         {
             LoadFoliages();
+            loadingState.current++;
         }
-
         Loaded = true;
     }
 
+    bool CheckIGStream(string fileName, out IGFile? igfile, out Stream? stream)
+    {
+        var flag1 = fileManager.igfiles.TryGetValue(fileName, out igfile);
+        var flag2 = fileManager.rawfiles.TryGetValue(fileName, out stream);
+        return flag1 && flag2; // for some reason, inline everything doesn't work
+    }
+
     #region Basic Loading
+
+    public void LoadTextures()
+    {
+        if (fileManager.isOld) LoadTexturesOld();
+        else LoadTexturesNew();
+    }
+
+    public void LoadShaders()
+    {
+        if(fileManager.isOld) LoadShadersOld();
+        else LoadShadersNew();
+    }
 
     public void LoadMobys()
     {
@@ -114,6 +208,92 @@ public class Loader : IDisposable
     #endregion
 
     #region Specialized Loading
+
+    #region Textures
+    public void LoadTexturesNew()
+    {
+
+    }
+
+    public void LoadTexturesOld()
+    {
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
+        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainDatStream) || mainDatStream is null)
+        {
+            throw new FileNotFoundException("main.dat is absent");
+        }
+        if(!fileManager.rawfiles.TryGetValue("textures.dat", out Stream? textureStream) || textureStream is null)
+        {
+            throw new FileNotFoundException("textures.dat is absent");
+        }
+        LunaStream? texstream = null;
+        if(!fileManager.rawfiles.TryGetValue("texstream.dat", out Stream? texstreamStream) || texstreamStream is null)
+        {
+            LunaLog.LogWarn("texstream.dat is missing. Low quality textures only.");
+        }
+        else
+        {
+            textureStream = new LunaStream(texstreamStream, textureStream);
+        }
+
+        var mainStream = new LunaStream(mainDatStream, mainDatStream);
+        var textures = new LunaStream(textureStream, textureStream);
+
+        var textureMetadataSection = main.QuerySection(TextureMetadataOld.ID);
+        var texstreamRefSection = main.QuerySection(TexstreamReference.ID);
+
+        var loadState = new LoadingProgress("Loading textures metadata...", textureMetadataSection.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < textureMetadataSection.count; i++)
+        {
+            mainStream.Seek(textureMetadataSection.offset + TextureMetadataOld.Size * i);
+            var texture = new Texture(mainStream, true, i);
+            Textures.Add(texture.id, texture);
+
+            if (texstream is not null) texture.highmipsMetadatasOld = [];
+
+            loadState.SetProgress(i + 1);
+        }
+
+        if(texstream is not null)
+        {
+            loadState.SetStatus("Loading textures highmips...");
+            loadState.SetTotal(texstreamRefSection.count);
+            loadState.SetProgress(0);
+            for(uint i = 0; i < texstreamRefSection.count; i++)
+            {
+                mainStream.Seek(texstreamRefSection.offset + TexstreamReference.Size * i);
+                var texref = new TexstreamReference(mainStream);
+                Textures[texref.index].highmipsMetadatasOld?.Add(texref);
+                loadState.SetProgress(i + 1);
+            }
+        }
+
+        loadState.SetStatus("Reading textures...");
+        loadState.SetTotal((uint)Textures.Count);
+        loadState.SetProgress(0);
+        var streamToRead = texstream is null ? textures : texstream;
+        for(uint i = 0; i < Textures.Count; i++)
+        {
+            Textures[i].ReadTexture(streamToRead);
+            loadState.SetProgress(i + 1);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
+    }
+    #endregion
+
+    #region Shaders
+    public void LoadShadersNew()
+    {
+
+    }
+
+    public void LoadShadersOld()
+    {
+
+    }
+    #endregion
+
     #region Mobys
     public void LoadMobysNew()
     {
