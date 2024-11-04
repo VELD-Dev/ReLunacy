@@ -1,8 +1,9 @@
 using System.Linq;
+using LibLunacy.Legacy;
 
 namespace Lunacy
 {
-	public class EntityManager
+    public class EntityManager
 	{
 		static Lazy<EntityManager> lazy = new Lazy<EntityManager>(() => new EntityManager());
 

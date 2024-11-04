@@ -1,6 +1,7 @@
 ﻿using Vector3 = System.Numerics.Vector3;
 using Vec3 = OpenTK.Mathematics.Vector3;
 using System.Xml;
+using LibLunacy.Legacy;
 
 namespace ReLunacy.Engine.EntityManagement;
 

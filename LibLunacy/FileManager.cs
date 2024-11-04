@@ -1,9 +1,11 @@
 //#define READ_TO_MS
 
+using LibLunacy.Legacy;
+
 namespace LibLunacy
 {
-	//Files are loaded here
-	public class FileManager
+    //Files are loaded here
+    public class FileManager
 	{
 		public string folderPath = string.Empty;
 

@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Objects.Instances;
 using LibLunacy.Vertices;
 using System;
 using System.Buffers;

@@ -1,6 +1,8 @@
+using LibLunacy.Legacy;
+
 namespace Lunacy
 {
-	public class Texture
+    public class Texture
 	{
 		public int textureId;
 		public CTexture.TexFormat format;

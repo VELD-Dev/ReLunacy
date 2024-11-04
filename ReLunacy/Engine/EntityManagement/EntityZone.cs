@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Engine.EntityManagement;
+﻿using LibLunacy.Legacy;
+
+namespace ReLunacy.Engine.EntityManagement;
 
 public class EntityZone
 {

@@ -11,6 +11,7 @@ using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
 using ReLunacy.Frames.ModalFrames;
 using ReLunacy.Engine.EntityManagement;
 using OpenTK.Windowing.Common.Input;
+using LibLunacy.Legacy;
 
 namespace ReLunacy;
 

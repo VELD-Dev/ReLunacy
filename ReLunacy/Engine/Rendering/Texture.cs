@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Engine.Rendering;
+﻿using LibLunacy.Legacy;
+
+namespace ReLunacy.Engine.Rendering;
 
 public class Texture
 {

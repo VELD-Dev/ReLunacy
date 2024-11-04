@@ -2,7 +2,7 @@ using System.Numerics;
 using System.Reflection;
 using System.Runtime.Intrinsics.X86;
 
-namespace LibLunacy
+namespace LibLunacy.Legacy
 {
     public class CZone
     {
@@ -60,7 +60,7 @@ namespace LibLunacy
             public readonly ushort GetShaderIndex() => shaderIndex;
             public readonly float[] GetUVs() => vTexCoords;
             public readonly ushort GetVertexCount() => vertexCount;
-            public readonly	uint GetVertexOffset() => vertexOffset;
+            public readonly uint GetVertexOffset() => vertexOffset;
             public readonly float[] GetVertPositions() => vPositions;
 
             public void SetIndices(uint[] ind) => indices = ind;
@@ -159,7 +159,7 @@ namespace LibLunacy
         public Dictionary<ulong, CTieInstance> tieInstances = new Dictionary<ulong, CTieInstance>();
         public UFrag[] ufrags;
         public string name;
-        
+
         public class CTieInstance
         {
             public string name = string.Empty;
@@ -170,7 +170,7 @@ namespace LibLunacy
             public CTieInstance(TieInstance instance, AssetLoader al, IGFile file)
             {
                 transformation = instance.transformation;
-                if(al.fm.isOld)
+                if (al.fm.isOld)
                 {
                     tie = al.ties[instance.tie];
                 }
@@ -193,10 +193,10 @@ namespace LibLunacy
             AssetLoader.AssetPointer[] newnames = null;
             DebugFile.DebugInstanceName[] oldnames = null;
 
-            if(al.fm.isOld)
+            if (al.fm.isOld)
             {
                 tieInstSection = file.QuerySection(0x9240);
-                if(al.fm.debug != null)
+                if (al.fm.debug != null)
                 {
                     oldnames = al.fm.debug.GetTieInstanceNames();
                 }
@@ -207,20 +207,20 @@ namespace LibLunacy
                 file.sh.Seek(tieNameSection.offset);
                 Console.WriteLine($"names @ {tieNameSection.offset}");
                 newnames = FileUtils.ReadStructureArray<AssetLoader.AssetPointer>(file.sh, tieNameSection.count);
-                
+
                 tieInstSection = file.QuerySection(0x7240);
             }
 
             file.sh.Seek(tieInstSection.offset);
             TieInstance[] tieInstancesStructArr = FileUtils.ReadStructureArray<TieInstance>(file.sh, tieInstSection.count);
 
-            for(int i = 0; i < tieInstancesStructArr.Length; i++)
+            for (int i = 0; i < tieInstancesStructArr.Length; i++)
             {
                 tieInstances.Add((ulong)i, new CTieInstance(tieInstancesStructArr[i], al, file));
-                if(al.fm.isOld)
+                if (al.fm.isOld)
                 {
-                    if(al.fm.debug != null) tieInstances.Last().Value.name = oldnames[i].name;
-                    else                    tieInstances.Last().Value.name = $"Tie_{i:X}";
+                    if (al.fm.debug != null) tieInstances.Last().Value.name = oldnames[i].name;
+                    else tieInstances.Last().Value.name = $"Tie_{i:X}";
                 }
                 else
                 {
@@ -232,7 +232,7 @@ namespace LibLunacy
 
             ufrags = Array.Empty<UFrag>();
             //if (al.fm.isOld) return;
-            if(!al.fm.isOld || index < 1)
+            if (!al.fm.isOld || index < 1)
                 LoadUFrags(file, al);
         }
 
@@ -249,7 +249,7 @@ namespace LibLunacy
             NewUFrag[] newUfrags;
             OldUFrag[] oldUfrags;
 
-            if(al.fm.isOld)
+            if (al.fm.isOld)
             {
                 ufragSection = file.QuerySection(0x6200);
                 geometryFile = al.fm.igfiles["vertices.dat"];
@@ -271,10 +271,10 @@ namespace LibLunacy
 
             ufrags = new UFrag[ufragSection.count];
             file.sh.Seek(ufragSection.offset);
-            if(al.fm.isOld)
+            if (al.fm.isOld)
             {
                 oldUfrags = FileUtils.ReadStructureArray<OldUFrag>(file.sh, ufragSection.count);
-                for(int i = 0; i < oldUfrags.Length; i++)
+                for (int i = 0; i < oldUfrags.Length; i++)
                 {
                     // Transforming the indexOffset because it's actually a count rather than an offset. Bit weird yeah.
                     var oldUFrag = oldUfrags[i];
@@ -285,7 +285,7 @@ namespace LibLunacy
             else
             {
                 newUfrags = FileUtils.ReadStructureArray<NewUFrag>(file.sh, ufragSection.count);
-                for(int i = 0; i < newUfrags.Length; i++)
+                for (int i = 0; i < newUfrags.Length; i++)
                 {
                     ufrags[i] = newUfrags[i];
                 }
@@ -307,7 +307,7 @@ namespace LibLunacy
                 }
 
                 geometryFile.sh.Seek(vertexSection.offset + ufrags[i].GetVertexOffset());
-                if(al.fm.isOld)
+                if (al.fm.isOld)
                 {
                     var uFragVertices = FileUtils.ReadStructureArray<OldUFragVertex>(geometryFile.sh, ufrags[i].GetVertexCount());
                     for (int j = 0; j < ufrags[i].GetVertexCount(); j++)

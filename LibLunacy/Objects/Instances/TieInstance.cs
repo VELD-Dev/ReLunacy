@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -8,7 +9,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LibLunacy.Objects
+namespace LibLunacy.Objects.Instances
 {
     public record struct TieInstance : ILunaSerializable
     {
@@ -26,10 +27,10 @@ namespace LibLunacy.Objects
 
         public TieInstance(LunaStream stream)
         {
-            transform =         stream.ReadMatrix4x4(0x00);
-            boundingSphere =    stream.ReadVector4(0x40);
-            tieIndex =          stream.ReadUInt32(0x50);
-            Unk =               stream.Peek(0x54, 0x2C);
+            transform = stream.ReadMatrix4x4(0x00);
+            boundingSphere = stream.ReadVector4(0x40);
+            tieIndex = stream.ReadUInt32(0x50);
+            Unk = stream.Peek(0x54, 0x2C);
         }
 
         public byte[] ToBytes(bool isOld, params object[]? additionalParams)

@@ -1,13 +1,14 @@
 using System.Reflection;
 using System.Numerics;
+using LibLunacy.Legacy;
 
 namespace LibLunacy
 {
-	//Now, you may be asking why i've done this instead of using marshalling.
-	//The reason is quite simple, marshalling will cause issues with references, or at the very least it'll be a tad annoying.
-	//This system effectively emulates struct marshalling whilst also allowing for pointers to function, allowing for easier interacting with the data structures
+    //Now, you may be asking why i've done this instead of using marshalling.
+    //The reason is quite simple, marshalling will cause issues with references, or at the very least it'll be a tad annoying.
+    //This system effectively emulates struct marshalling whilst also allowing for pointers to function, allowing for easier interacting with the data structures
 
-	[AttributeUsage(AttributeTargets.Struct, Inherited = true, AllowMultiple = false)]
+    [AttributeUsage(AttributeTargets.Struct, Inherited = true, AllowMultiple = false)]
 	public class FileStructure : Attribute
 	{
 		public uint Size;

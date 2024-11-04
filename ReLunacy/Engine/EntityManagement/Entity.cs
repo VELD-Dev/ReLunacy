@@ -3,6 +3,7 @@ using Vector3 = System.Numerics.Vector3;
 using Vec4 = OpenTK.Mathematics.Vector4;
 using Vector4 = System.Numerics.Vector4;
 using Quaternion = OpenTK.Mathematics.Quaternion;
+using LibLunacy.Legacy;
 
 namespace ReLunacy.Engine.EntityManagement;
 

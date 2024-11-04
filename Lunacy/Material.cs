@@ -1,6 +1,8 @@
+using LibLunacy.Legacy;
+
 namespace Lunacy
 {
-	public class Material
+    public class Material
 	{
 		public int programId;
 		Texture? albedo;

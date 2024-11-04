@@ -1,5 +1,6 @@
 ﻿using LibLunacy.Meshes;
 using LibLunacy.Objects;
+using LibLunacy.Objects.Instances;
 using LibLunacy.Textures;
 using LibLunacy.Vertices;
 using ReLunacy.Frames.ModalFrames;
@@ -24,77 +25,18 @@ public class Loader : IDisposable
     public Dictionary<ulong, Moby> Mobys = [];
     public Dictionary<ulong, Tie> Ties = [];
     public Dictionary<ulong, Zone> Zones = [];
-    public UFragMetadata[][] UFrags = [];
+    public Region[] Regions;
 
     public bool Loaded { get; private set; } = false;
-
-    /*
-    // Common
-    readonly KeyValuePair<IGFile, Stream> gameplay;
-    readonly KeyValuePair<IGFile, Stream> textures;
-    readonly KeyValuePair<IGFile, Stream> effect;
-    // New Engine
-    readonly KeyValuePair<IGFile, Stream> main;
-    readonly KeyValuePair<IGFile, Stream> highmips;
-    readonly KeyValuePair<IGFile, Stream> animsets;
-    readonly KeyValuePair<IGFile, Stream> cubemaps;
-    readonly KeyValuePair<IGFile, Stream> lightning;
-    readonly KeyValuePair<IGFile, Stream> mobys;
-    readonly KeyValuePair<IGFile, Stream> ties;
-    readonly KeyValuePair<IGFile, Stream> shrubs;
-    readonly KeyValuePair<IGFile, Stream> shaders;
-    readonly KeyValuePair<IGFile, Stream> zones;
-    // Old Engine
-    readonly KeyValuePair<IGFile, Stream> main;
-    readonly KeyValuePair<IGFile, Stream> texstream;
-    readonly KeyValuePair<IGFile, Stream> vertices;
-    readonly KeyValuePair<IGFile, Stream> collision;
-    */
 
     public Loader(LoadingModal loadModal, FileManager fileManager, bool loadMobys = true, bool loadTies = true, bool loadUFrags = true, bool loadShrubs = true, bool loadPlants = true, bool loadFoliages = true)
     {
         loadingTracker = loadModal;
         this.fileManager = fileManager;
 
-        /* This will have to be rewritten smh
-        bool flags = CheckIGStream("gameplay.dat", out var iggp, out var gpstream)
-                  && CheckIGStream("textures.dat", out var igtex, out var texturestm)
-                  && CheckIGStream("effect.dat", out var igeff, out var effstream);
-        if (fileManager.isOld)
-        {
-            flags = flags
-                && CheckIGStream("main.dat", out var igmain, out var mainstream)
-                && CheckIGStream("texstream.dat", out var igtexstream, out var texstreamstream)
-                && CheckIGStream("vertices.dat", out var igvertices, out var verticesstream)
-                && CheckIGStream("collision.dat", out var igcollision, out var collisionstream);
-        }
-        else
-        {
-            flags = flags
-                && CheckIGStream("main.dat", out var igal, out var alstream)
-                && CheckIGStream("highmips.dat", out var ighm, out var hmstream)
-                && CheckIGStream("animsets.dat", out var igas, out var asstream) // haha very funny
-                && CheckIGStream("cubemaps.dat", out var igcm, out var cmstream)
-                && CheckIGStream("lightning.dat", out var iglight, out var lightstream)
-                && CheckIGStream("mobys.dat", out var igmobys, out var mobysstream)
-                && CheckIGStream("ties.dat", out var igties, out var tiesstream)
-                && CheckIGStream("shrubs.dat", out var igshrubs, out var shrubsstream)
-                && CheckIGStream("shaders.dat", out var igshaders, out var shadersstream)
-                && CheckIGStream("zones.dat", out var igzones, out var zonesstream);
-        }
-        if(!flags)
-        {
-            var e = new FileNotFoundException("A file is missing ! Which one ? Who knows lol");
-            LunaLog.LogFatal(e);
-            throw e;
-        }
-        gameplay = new(iggp, gpstream);
-        textures = new(igtex, texturestm);
-        */
-
         static byte B(bool b) => (byte)(b ? 1 : 0);
 
-        var globalLoadingMax = 3 + B(loadMobys) + B(loadTies) + B(loadUFrags) + B(loadShrubs) + B(loadPlants) + B(loadFoliages);
+        var globalLoadingMax = 4 + B(loadMobys) + B(loadTies) + B(loadUFrags) + B(loadShrubs) + B(loadPlants) + B(loadFoliages);
         var loadingState = new LoadingProgress("Loading level...", (uint)globalLoadingMax);
         loadingTracker.LoadProgresses.Add(loadingState);
 
@@ -140,6 +82,10 @@ public class Loader : IDisposable
             LoadFoliages();
             loadingState.current++;
         }
+
+        LoadRegions();
+        loadingState.current++;
+
         Loaded = true;
     }
 
@@ -204,6 +150,12 @@ public class Loader : IDisposable
     {
         if(fileManager.isOld) LoadFoliagesOld();
         else LoadFoliagesNew();
+    }
+
+    public void LoadRegions()
+    {
+        if (fileManager.isOld) LoadRegionsOld();
+        else LoadRegionsNew();
     }
 
     #endregion
@@ -935,21 +887,121 @@ public class Loader : IDisposable
     }
     #endregion
 
+    #region Regions
+
+    public void LoadRegionsNew()
+    {
+        if(!fileManager.igfiles.TryGetValue("gameplay.dat", out IGFile? iggp) || iggp is null
+        || !fileManager.rawfiles.TryGetValue("gameplay.dat", out Stream? gameplayStream) || gameplayStream is null)
+        {
+            var e = new FileNotFoundException("Gameplay file is missing !", "gameplay.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+
+        var gameplay = new LunaStream(gameplayStream, gameplayStream);
+
+        //gameplay.dat is a weird file in this version of the engine, the count field of section headers is the length and length field of section headers is 0
+
+        var stringTableSec = iggp.QuerySection(Region.GameplayStringTableNewID);
+        gameplay.Seek(stringTableSec.offset + stringTableSec.count - 0x10);
+        var regionCount = gameplay.ReadUInt32(0x00);
+        var regionNameTableOffset = gameplay.ReadUInt32(0x04);
+        Regions = ArrayPool<Region>.Shared.Rent((int)regionCount);
+        var regionNames = new List<string>();
+
+        var loadState = new LoadingProgress("Reading region lookup table...", regionCount);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < regionCount; i++)
+        {
+            gameplay.Seek(regionNameTableOffset + sizeof(uint) * i);
+            var regionNameOffset = gameplay.ReadUInt32(0x00);
+            var regionName = gameplay.ReadString((int)regionNameOffset, false);
+            regionNames.Add(regionName);
+            LunaLog.LogDebug($"Discovered region {regionName}");
+            loadState.SetProgress(i + 1);
+        }
+
+        loadState.SetStatus("Reading regions...");
+        loadState.SetTotal((uint)regionNames.Count);
+        loadState.SetProgress(0);
+        foreach(var regionName in regionNames)
+        {
+            var regIndex = regionName.IndexOf(regionName);
+            IGFile? igprius = (IGFile?)fileManager.LoadFile($"{regionName}/gp_prius.dat", false);
+            IGFile? igregion = (IGFile?)fileManager.LoadFile($"{regionName}/region.dat", false);
+
+            if(igprius is null ||  igregion is null )
+            {
+                var e = new FileNotFoundException($"One (or both) of the following files are missing: {fileManager.folderPath}/{regionName}/gp_prius.dat; {fileManager.folderPath}/{regionName}/region.dat", regionName);
+                LunaLog.LogWarn(e);
+                continue;
+            }
+
+            var prius = new LunaStream(igprius.sh.BaseStream, igprius.sh.BaseStream);
+            var regStream = new LunaStream(igregion.sh.BaseStream, igregion.sh.BaseStream);
+
+            var region = new Region(prius, regStream, regionName);
+
+            var mobyInstSection = igprius.QuerySection(MobyInstanceNew.ID);
+            var mobyMetaSection = igprius.QuerySection(InstanceMetadata.MobyInstMetadataID);
+            var mobyTuidListSec = igregion.QuerySection(Region.MobyTuidsListID);
+            for(uint i = 0; i < mobyInstSection.count; i++)
+            {
+                prius.Seek(mobyInstSection.offset + MobyInstanceNew.Size * i);
+                var mobyInst = new MobyInstanceNew(prius);
+                prius.Seek(mobyMetaSection.offset + InstanceMetadata.Size * i);
+                var mobyInstMeta = new InstanceMetadata(prius);
+                var mobyName = prius.ReadString((int)mobyInstMeta.namePointer, false);
+                regStream.Seek(mobyTuidListSec.offset + sizeof(ulong) * mobyInst.mobyIndex);
+                var mobyRefTuid = regStream.ReadUInt64(0x00);
+
+                if(Mobys.Count < 1)
+                {
+                    var e = new InvalidOperationException("Race error: Mobys must be initialized BEFORE reading their instances !");
+                    LunaLog.LogError(e);
+                    throw e;
+                }
+
+                if (!Mobys.TryGetValue(mobyRefTuid, out Moby? referredMoby))
+                    continue;
+
+                var mobyInstance = new MobyInstance(mobyInst, mobyInstMeta, referredMoby, mobyName);
+                region.MobyInstances.Add(mobyInstance.TUID, mobyInstance);
+            }
+
+            // TODO: volume loading
+
+            loadState.SetProgress((uint)regIndex + 1);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
+    }
+
+    public void LoadRegionsOld()
+    {
+
+    }
+
+    #endregion
+
     #endregion
 
     public void Dispose()
     {
-        foreach(var ufragArray in UFrags)
-        {
-            ArrayPool<UFragMetadata>.Shared.Return(ufragArray);
-        }
-        ArrayPool<UFragMetadata[]>.Shared.Return(UFrags);
-
         if(MobyPointers != null) ArrayPool<AssetPointer>.Shared.Return(MobyPointers);
         if (TiePointers != null) ArrayPool<AssetPointer>.Shared.Return(TiePointers);
+        if (ShaderPointers != null) ArrayPool<AssetPointer>.Shared.Return(ShaderPointers);
+        if (ZonePointers != null) ArrayPool<AssetPointer>.Shared.Return(ZonePointers);
 
         foreach(var tie in Ties) tie.Value.Dispose();
         foreach(var moby in Mobys) moby.Value.Dispose();
+        foreach(var zone in Zones) zone.Value.Dispose();
+        foreach(var region in Regions)
+        {
+            // Dispose mobyinstances and volumeinstances
+        }
+
+        ArrayPool<Region>.Shared.Return(Regions);
 
         GC.SuppressFinalize(this);
     }

@@ -3,10 +3,11 @@ using System.Numerics;
 using Vector2 = OpenTK.Mathematics.Vector2;
 using Vector3 = OpenTK.Mathematics.Vector3;
 using Quaternion = OpenTK.Mathematics.Quaternion;
+using LibLunacy.Legacy;
 
 namespace Lunacy
 {
-	public class Window : GameWindow
+    public class Window : GameWindow
 	{
 		FileManager fm;
 		internal static AssetLoader? al;		// handles loading assets from files

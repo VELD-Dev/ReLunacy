@@ -4,6 +4,7 @@ using Vector3 = System.Numerics.Vector3;
 using Vec2 = OpenTK.Mathematics.Vector2;
 using Vec3 = OpenTK.Mathematics.Vector3;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using LibLunacy.Legacy;
 
 namespace ReLunacy.Frames.DockedFrames;
 

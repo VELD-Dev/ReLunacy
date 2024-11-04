@@ -1,6 +1,8 @@
+using LibLunacy.Legacy;
+
 namespace LibLunacy
 {
-	public class IGFile
+    public class IGFile
 	{
 		public uint sectionCount;
 		public uint headerLength;

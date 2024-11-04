@@ -1,10 +1,11 @@
 ﻿using System.Numerics;
 using System.Text;
 using LibLunacy;
+using LibLunacy.Legacy;
 
 namespace AssetExtractor
 {
-	public static class Program
+    public static class Program
 	{
 		public static void Main(string[] args)
 		{
