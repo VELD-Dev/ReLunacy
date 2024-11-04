@@ -14,12 +14,13 @@ public class Loader : IDisposable
     private readonly LoadingModal loadingTracker;
     public readonly FileManager fileManager;
 
+    public AssetPointer[] ShaderPointers;
     public AssetPointer[] MobyPointers;
     public AssetPointer[] TiePointers;
     public AssetPointer[] ZonePointers;
 
     public Dictionary<ulong, Texture> Textures = [];
-    // public Dictionary<ulong, Shader> Shaders = [];
+    public Dictionary<ulong, Shader> Shaders = [];
     public Dictionary<ulong, Moby> Mobys = [];
     public Dictionary<ulong, Tie> Ties = [];
     public Dictionary<ulong, Zone> Zones = [];
@@ -33,7 +34,7 @@ public class Loader : IDisposable
     readonly KeyValuePair<IGFile, Stream> textures;
     readonly KeyValuePair<IGFile, Stream> effect;
     // New Engine
-    readonly KeyValuePair<IGFile, Stream> assetlookup;
+    readonly KeyValuePair<IGFile, Stream> main;
     readonly KeyValuePair<IGFile, Stream> highmips;
     readonly KeyValuePair<IGFile, Stream> animsets;
     readonly KeyValuePair<IGFile, Stream> cubemaps;
@@ -70,7 +71,7 @@ public class Loader : IDisposable
         else
         {
             flags = flags
-                && CheckIGStream("assetlookup.dat", out var igal, out var alstream)
+                && CheckIGStream("main.dat", out var igal, out var alstream)
                 && CheckIGStream("highmips.dat", out var ighm, out var hmstream)
                 && CheckIGStream("animsets.dat", out var igas, out var asstream) // haha very funny
                 && CheckIGStream("cubemaps.dat", out var igcm, out var cmstream)
@@ -321,12 +322,134 @@ public class Loader : IDisposable
     #region Shaders
     public void LoadShadersNew()
     {
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
+        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) || assetlookupStream is null)
+        {
+            var e = new FileNotFoundException("Assetlookup is missing.", "assetlookup.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+        if(!fileManager.rawfiles.TryGetValue("shaders.dat", out Stream? shadersStream) || shadersStream is null)
+        {
+            var e = new FileNotFoundException("Shaders file not found.", "shaders.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var alstream = new LunaStream(assetlookupStream, assetlookupStream);
+        var shaderStream = new LunaStream(shadersStream, shadersStream);
+
+        var shaderPtrSec = assetlookup.QuerySection(Shader.PointerID);
+
+        ShaderPointers = new AssetPointer[shaderPtrSec.count];
+
+        var loadState = new LoadingProgress("Loading shader pointers...", shaderPtrSec.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < shaderPtrSec.count; i++)
+        {
+            alstream.Seek(shaderPtrSec.offset);
+            ShaderPointers[i] = new AssetPointer(alstream);
+
+            loadState.SetProgress(i + 1);
+        }
+
+
+        loadState.SetStatus("Loading shaders...");
+        loadState.SetTotal((uint)ShaderPointers.Length);
+        loadState.SetProgress(0);
+        for(uint i = 0; i < shaderPtrSec.count; i++)
+        {
+            ref var ptr = ref ShaderPointers[i];
+            var shaderBuffer = new byte[ptr.length];
+            shaderStream.Read(shaderBuffer, (int)ptr.offset, (int)ptr.length);
+            var memstream = new MemoryStream(shaderBuffer);
+            var igshader = new IGFile(memstream);
+            var shadstream = new LunaStream(memstream, memstream);
+
+            var metadataSection = igshader.QuerySection(ShaderMetadata.ID);
+            shadstream.Seek(metadataSection.offset);
+            var shader = new Shader(shadstream);
+
+            if (Textures.Count < 1)
+            {
+                var e = new InvalidOperationException("Race error: Textures must be loaded BEFORE shaders ! (for now)");
+                LunaLog.LogError(e);
+                throw e;
+            }
+
+            var sref = shader.reference.Value; 
+
+            if(sref.albedoID != 0 && Textures.ContainsKey(sref.albedoID))
+            {
+                shader.Albedo = Textures[sref.albedoID];
+                shader.Albedo.name = shadstream.ReadString((int)sref.albedoNamePointer, false);
+            }
+            if (sref.normalID != 0 && Textures.ContainsKey(sref.normalID))
+            {
+                shader.Normal = Textures[sref.normalID];
+                shader.Normal.name = shadstream.ReadString((int)sref.normalNamePointer, false);
+            }
+            if (sref.expensiveID != 0 && Textures.ContainsKey(sref.expensiveID))
+            {
+                shader.Expensive = Textures[sref.expensiveID];
+                shader.Expensive.name = shadstream.ReadString((int)sref.expensiveNamePointer, false);
+            }
+
+            shader.name = shadstream.ReadString((int)sref.namePointer, false);
+
+            Shaders.Add(shader.TUID, shader);
+
+            loadState.SetProgress(i + 1);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
 
     public void LoadShadersOld()
     {
+        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
+        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainStream) || mainStream is null)
+        {
+            var e = new FileNotFoundException("Assetlookup is missing.", "assetlookup.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var mstream = new LunaStream(mainStream, mainStream);
+
+        var shaderMetadataSec = main.QuerySection(ShaderMetadata.ID);
+
+        var loadState = new LoadingProgress("Loading shaders...", shaderMetadataSec.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < shaderMetadataSec.count; i++)
+        {
+            mstream.Seek(shaderMetadataSec.offset + ShaderMetadata.Size * i);
+            var shader = new Shader(mstream, true, i);
+
+            if (Textures.Count < 1)
+            {
+                var e = new InvalidOperationException("Race error: Textures must be loaded BEFORE shaders ! (for now)");
+                LunaLog.LogError(e);
+                throw e;
+            }
+
+            if(shader.metadata.albedo != 0)
+            {
+                shader.Albedo = Textures[shader.metadata.albedo];
+            }
+            if(shader.metadata.normal != 0)
+            {
+                shader.Normal = Textures[shader.metadata.normal];
+            }
+            if(shader.metadata.expensive != 0)
+            {
+                shader.Expensive = Textures[shader.metadata.expensive];
+            }
+
+            Shaders.Add(shader.TUID, shader);
+            loadState.SetProgress(i + 1);
+        }
+
+        loadingTracker.LoadProgresses.Remove(loadState);
     }
     #endregion
 
@@ -811,6 +934,7 @@ public class Loader : IDisposable
 
     }
     #endregion
+
     #endregion
 
     public void Dispose()
