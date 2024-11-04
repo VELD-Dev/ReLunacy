@@ -212,7 +212,35 @@ public class Loader : IDisposable
     #region Textures
     public void LoadTexturesNew()
     {
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
+        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) || assetlookupStream is null)
+        {
+            var e = new FileNotFoundException("Assetlookup is absent", "assetlookup.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+        if(!fileManager.rawfiles.TryGetValue("textures.dat", out Stream? texturestream) || texturestream is null
+        || !fileManager.rawfiles.TryGetValue("highmips.dat", out Stream? highmipstream) || highmipstream is null)
+        {
+            var e = new FileNotFoundException("Textures files are missing.", "textures.dat (or) highmips.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var alstream = new LunaStream(assetlookupStream, assetlookupStream);
+        var hmstream = new LunaStream(highmipstream, highmipstream);
+
+        var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
+        var textureMetaSec = assetlookup.QuerySection(TextureMetadataNew.ID);
+
+        for (int i = 0; i < textureMetaSec.count; i++)
+        {
+            alstream.Seek(textureMetaSec.offset + TextureMetadataNew.Size * i);
+            var tex = new Texture(alstream);
+
+            alstream.Seek(highmipsPtrSec.offset + AssetPointer.Size * i);
+            tex.ReadHighmipsPtr(alstream);
+        }
     }
 
     public void LoadTexturesOld()
