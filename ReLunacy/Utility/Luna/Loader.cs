@@ -979,7 +979,40 @@ public class Loader : IDisposable
 
     public void LoadRegionsOld()
     {
+        if(!fileManager.igfiles.TryGetValue("gameplay.dat", out IGFile? iggp) || iggp is null)
+        {
+            var e = new FileNotFoundException("Gameplay file was not found.", "gameplay.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var gpstream = new LunaStream(iggp.sh.BaseStream, iggp.sh.BaseStream);
+        var region = new Region(gpstream);
+
+        var mobyInstSec = iggp.QuerySection(MobyInstanceOld.ID);
+
+        var loadState = new LoadingProgress("Loading moby instances...", mobyInstSec.count);
+        loadingTracker.LoadProgresses.Add(loadState);
+        for(uint i = 0; i < mobyInstSec.count; i++)
+        {
+            gpstream.Seek(mobyInstSec.offset + MobyInstanceOld.Size * i);
+            var mobyInst = new MobyInstanceOld(gpstream);
+
+            if(Mobys.Count < 1)
+            {
+                var e = new InvalidOperationException("Race error: Mobys must be read BEFORE reading their instances!");
+                LunaLog.LogError(e);
+                throw e;
+            }
+
+            var referredMoby = Mobys[mobyInst.mobyIndex];
+
+            var mobyInstance = new MobyInstance(mobyInst, referredMoby, i);
+            region.MobyInstances.Add(i, mobyInstance);
+        }
+        loadingTracker.LoadProgresses.Remove(loadState);
+
+        Regions = [region];
     }
 
     #endregion

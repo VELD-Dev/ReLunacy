@@ -23,7 +23,7 @@ namespace LibLunacy.Objects.Instances
             instanceData = instance;
             Moby = referredMoby;
             isOld = true;
-            name = $"{Moby.TUID}_{index}";
+            name = $"Moby_{Moby.TUID}_{index}";
         }
 
         public MobyInstance(IMobyInstance instance, InstanceMetadata data, Moby referredMoby, string instanceName)
