@@ -972,6 +972,18 @@ public class Loader : IDisposable
 
             // TODO: volume loading
 
+            var volInstMetaSec = igprius.QuerySection(InstanceMetadata.VolumeMetadataID);
+            var volTransformSec = igprius.QuerySection(Volume.TransformSectionID);
+
+            for(uint i = 0; i < volInstMetaSec.count; i++)
+            {
+                prius.Seek(volTransformSec.offset + 0x40 * i); // 0x40 is the size of a matrix 4x4.
+                var transform = prius.ReadMatrix4x4(0x00);
+                prius.Seek(volInstMetaSec.offset + InstanceMetadata.Size * i);
+                var volume = new Volume(prius, transform);
+                region.Volumes.Add(volume.TUID, volume);
+            }
+
             loadState.SetProgress((uint)regIndex + 1);
         }
         loadingTracker.LoadProgresses.Remove(loadState);

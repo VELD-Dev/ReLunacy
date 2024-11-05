@@ -15,7 +15,7 @@ namespace LibLunacy.Objects
 
         public string name;
         public Dictionary<ulong, MobyInstance> MobyInstances = new();
-        // public Volume[] Volumes;
+        public Dictionary<ulong, Volume> Volumes = new();
         public bool isOld;
 
         public LunaStream regionStream;
