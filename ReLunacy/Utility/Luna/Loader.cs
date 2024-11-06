@@ -1,6 +1,6 @@
 ﻿using LibLunacy.Meshes;
-using LibLunacy.Objects;
 using LibLunacy.Objects.Instances;
+using LibLunacy.Shaders;
 using LibLunacy.Textures;
 using LibLunacy.Vertices;
 using ReLunacy.Frames.ModalFrames;
@@ -24,8 +24,8 @@ public class Loader : IDisposable
     public Dictionary<ulong, Shader> Shaders = [];
     public Dictionary<ulong, Moby> Mobys = [];
     public Dictionary<ulong, Tie> Ties = [];
-    public Dictionary<ulong, Zone> Zones = [];
     public Region[] Regions;
+    private Dictionary<ulong, Zone> TempZones = [];
 
     public bool Loaded { get; private set; } = false;
 
@@ -165,8 +165,7 @@ public class Loader : IDisposable
     #region Textures
     public void LoadTexturesNew()
     {
-        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
-        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) || assetlookupStream is null)
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
         {
             var e = new FileNotFoundException("Assetlookup is absent", "assetlookup.dat");
             LunaLog.LogError(e);
@@ -180,7 +179,7 @@ public class Loader : IDisposable
             throw e;
         }
 
-        var alstream = new LunaStream(assetlookupStream, assetlookupStream);
+        var alstream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
         var hmstream = new LunaStream(highmipstream, highmipstream);
 
         var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
@@ -206,8 +205,7 @@ public class Loader : IDisposable
 
     public void LoadTexturesOld()
     {
-        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
-        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainDatStream) || mainDatStream is null)
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
         {
             throw new FileNotFoundException("main.dat is absent");
         }
@@ -225,7 +223,7 @@ public class Loader : IDisposable
             textureStream = new LunaStream(texstreamStream, textureStream);
         }
 
-        var mainStream = new LunaStream(mainDatStream, mainDatStream);
+        var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
         var textures = new LunaStream(textureStream, textureStream);
 
         var textureMetadataSection = main.QuerySection(TextureMetadataOld.ID);
@@ -274,8 +272,7 @@ public class Loader : IDisposable
     #region Shaders
     public void LoadShadersNew()
     {
-        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
-        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) || assetlookupStream is null)
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
         {
             var e = new FileNotFoundException("Assetlookup is missing.", "assetlookup.dat");
             LunaLog.LogError(e);
@@ -288,7 +285,7 @@ public class Loader : IDisposable
             throw e;
         }
 
-        var alstream = new LunaStream(assetlookupStream, assetlookupStream);
+        var alstream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
         var shaderStream = new LunaStream(shadersStream, shadersStream);
 
         var shaderPtrSec = assetlookup.QuerySection(Shader.PointerID);
@@ -358,15 +355,14 @@ public class Loader : IDisposable
 
     public void LoadShadersOld()
     {
-        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
-        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainStream) || mainStream is null)
+        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
         {
             var e = new FileNotFoundException("Assetlookup is missing.", "assetlookup.dat");
             LunaLog.LogError(e);
             throw e;
         }
 
-        var mstream = new LunaStream(mainStream, mainStream);
+        var mstream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
 
         var shaderMetadataSec = main.QuerySection(ShaderMetadata.ID);
 
@@ -500,22 +496,19 @@ public class Loader : IDisposable
 
     public void LoadMobysOld()
     {
-        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
-        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainBuffer) || mainBuffer is null)
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
         {
             var e = new FileNotFoundException($"Main file have not been found in {fileManager.folderPath}", "main.dat");
             LunaLog.LogError(e.Message);
             throw e;
         }
-        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertIGFile) || vertIGFile is null
-        || !fileManager.rawfiles.TryGetValue("vertices.dat", out Stream? verticesRaw) || verticesRaw is null)
+        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertIGFile) || vertIGFile is null)
         {
             var e = new FileNotFoundException($"Vertices buffer file have not been found in {fileManager.folderPath}", "vertices.dat");
             LunaLog.LogError(e.Message);
             throw e;
         }
-        if(!fileManager.rawfiles.TryGetValue("textures.dat", out Stream? texturesRaw) || texturesRaw is null
-        || !fileManager.igfiles.TryGetValue("textures.dat", out IGFile? textIGFile) || textIGFile is null)
+        if(!fileManager.rawfiles.TryGetValue("textures.dat", out Stream? texturesRaw) || texturesRaw is null)
         {
             var e = new FileNotFoundException($"Vertices buffer file have not been found in {fileManager.folderPath}", "textures.dat");
             LunaLog.LogError(e.Message);
@@ -524,7 +517,7 @@ public class Loader : IDisposable
 
         var mobySection = main.QuerySection(OldMoby.ID);
 
-        var mainStream = new LunaStream(mainBuffer, mainBuffer);
+        var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
         
 
         var loadState = new LoadingProgress("Loading mobys...", mobySection.count);
@@ -541,7 +534,7 @@ public class Loader : IDisposable
             LunaStream indFile;
             if((moby.VerticesOffset & 0x80000000) != 0)
             {
-                vertFile = new LunaStream(verticesRaw, verticesRaw);
+                vertFile = new LunaStream(vertIGFile.sh.BaseStream, vertIGFile.sh.BaseStream);
                 vertFile.Seek(vertIGFile.QuerySection(VertexFormat0.OldID).offset);
             }
             else
@@ -553,7 +546,7 @@ public class Loader : IDisposable
 
             if((moby.IndicesOffset & 0x80000000) != 0)
             {
-                indFile = new LunaStream(verticesRaw, verticesRaw);
+                indFile = new LunaStream(vertIGFile.sh.BaseStream, vertIGFile.sh.BaseStream);
                 indFile.Seek(vertIGFile.QuerySection(0x9100).offset);
             }
             else
@@ -625,8 +618,7 @@ public class Loader : IDisposable
     #region Ties
     public void LoadTiesNew()
     {
-        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
-        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) ||  assetlookupStream is null)
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
         {
             var e = new FileNotFoundException($"Assetlookup file is missing in {fileManager.folderPath}.", "assetlookup.dat");
             LunaLog.LogError(e);
@@ -642,7 +634,7 @@ public class Loader : IDisposable
         // Read pointers
 
         var tiePtrSection = assetlookup.QuerySection(TieMetadata.PointerID);
-        var alStream = new LunaStream(assetlookupStream, assetlookupStream);
+        var alStream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
         TiePointers = ArrayPool<AssetPointer>.Shared.Rent((int)tiePtrSection.count);
         var loadState = new LoadingProgress("Loading ties pointers...", tiePtrSection.count);
         loadingTracker.LoadProgresses.Add(loadState);
@@ -698,15 +690,13 @@ public class Loader : IDisposable
 
     public void LoadTiesOld()
     {
-        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) ||           main is null
-        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainRawStream) || mainRawStream is null)
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
         {
             var e = new FileNotFoundException($"Main file is missing in {fileManager.folderPath}.", "main.dat");
             LunaLog.LogError(e);
             throw e;
         }
-        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertIGFile) ||   vertIGFile is null
-        || !fileManager.rawfiles.TryGetValue("vertices.dat", out Stream? verticesRaw) || verticesRaw is null)
+        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertIGFile) ||   vertIGFile is null)
         {
             var e = new FileNotFoundException($"Vertices file is missing {fileManager.folderPath}.", "vertices.dat");
             LunaLog.LogError(e);
@@ -714,9 +704,9 @@ public class Loader : IDisposable
         }
 
         var tieSection = main.QuerySection(TieMetadata.ID);
-        var mainStream = new LunaStream(mainRawStream, mainRawStream);
+        var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
 
-        var vertStream = new LunaStream(verticesRaw, verticesRaw);
+        var vertStream = new LunaStream(vertIGFile.sh.BaseStream, vertIGFile.sh.BaseStream);
         var vertSection = vertIGFile.QuerySection(0x9000);
         var indxSection = vertIGFile.QuerySection(TieVertIndex.OldID);
 
@@ -752,8 +742,7 @@ public class Loader : IDisposable
     #region Zones
     public void LoadZonesNew()
     {
-        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null
-        || !fileManager.rawfiles.TryGetValue("assetlookup.dat", out Stream? assetlookupStream) || assetlookupStream is null)
+        if(!fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
         {
             var e = new FileNotFoundException($"Assetlookup is missing in {fileManager.folderPath}", "assetlookup.dat");
             LunaLog.LogError(e);
@@ -766,9 +755,9 @@ public class Loader : IDisposable
             throw e;
         }
 
-        // Read Zones pointers
+        // Read TempZones pointers
 
-        var alStream = new LunaStream(assetlookupStream, assetlookupStream);
+        var alStream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
         var zoneSection = assetlookup.QuerySection(Zone.PointerID);
         ZonePointers = ArrayPool<AssetPointer>.Shared.Rent((int)zoneSection.length / 0x10);
         var loadState = new LoadingProgress("Loading Zone pointers...", (uint)ZonePointers.Length);
@@ -781,7 +770,7 @@ public class Loader : IDisposable
             loadState.SetProgress(i + 1);
         }
 
-        // Read Zones
+        // Read TempZones
 
         loadState.SetStatus("Loading zones...");
         loadState.SetProgress(0);
@@ -795,7 +784,7 @@ public class Loader : IDisposable
             var zoneStream = new LunaStream(memStream, memStream);
 
             var zone = new Zone(zoneStream);
-            Zones.Add(zone.TUID, zone);
+            TempZones.Add(zone.TUID, zone);
 
             var tieInstLoading = new LoadingProgress("Loading tie instances...", zone.tieInstanceSection.count);
             loadingTracker.LoadProgresses.Add(tieInstLoading);
@@ -815,18 +804,17 @@ public class Loader : IDisposable
 
     public void LoadZonesOld()
     {
-        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null
-        || !fileManager.rawfiles.TryGetValue("main.dat", out Stream? mainDatStream) || mainDatStream is null)
+        if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
         {
             var e = new FileNotFoundException($"Assetlookup is missing in {fileManager.folderPath}", "assetlookup.dat");
             LunaLog.LogError(e);
             throw e;
         }
 
-        var mstream = new LunaStream(mainDatStream, mainDatStream);
+        var mstream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
         var zoneSection = main.QuerySection(Zone.OldID);
         var zone = new Zone(mstream);
-        Zones.Add(0, zone);
+        TempZones.Add(0, zone);
         var loadState = new LoadingProgress("Loading tie instances...", zone.tieInstanceSection.count);
         loadingTracker.LoadProgresses.Add(loadState);
         for (uint i = 0; i < zone.tieInstanceSection.count; i++)
@@ -891,15 +879,14 @@ public class Loader : IDisposable
 
     public void LoadRegionsNew()
     {
-        if(!fileManager.igfiles.TryGetValue("gameplay.dat", out IGFile? iggp) || iggp is null
-        || !fileManager.rawfiles.TryGetValue("gameplay.dat", out Stream? gameplayStream) || gameplayStream is null)
+        if(!fileManager.igfiles.TryGetValue("gameplay.dat", out IGFile? iggp) || iggp is null)
         {
             var e = new FileNotFoundException("Gameplay file is missing !", "gameplay.dat");
             LunaLog.LogError(e);
             throw e;
         }
 
-        var gameplay = new LunaStream(gameplayStream, gameplayStream);
+        var gameplay = new LunaStream(iggp.sh.BaseStream, iggp.sh.BaseStream);
 
         //gameplay.dat is a weird file in this version of the engine, the count field of section headers is the length and length field of section headers is 0
 
@@ -946,6 +933,9 @@ public class Loader : IDisposable
             var mobyInstSection = igprius.QuerySection(MobyInstanceNew.ID);
             var mobyMetaSection = igprius.QuerySection(InstanceMetadata.MobyInstMetadataID);
             var mobyTuidListSec = igregion.QuerySection(Region.MobyTuidsListID);
+
+            var mobyInstLoading = new LoadingProgress("Loading moby instances...", mobyInstSection.count);
+            loadingTracker.LoadProgresses.Add(mobyInstLoading);
             for(uint i = 0; i < mobyInstSection.count; i++)
             {
                 prius.Seek(mobyInstSection.offset + MobyInstanceNew.Size * i);
@@ -968,20 +958,43 @@ public class Loader : IDisposable
 
                 var mobyInstance = new MobyInstance(mobyInst, mobyInstMeta, referredMoby, mobyName);
                 region.MobyInstances.Add(mobyInstance.TUID, mobyInstance);
+                mobyInstLoading.SetProgress(i + 1);
             }
+            loadingTracker.LoadProgresses.Remove(mobyInstLoading);
 
-            // TODO: volume loading
-
-            var volInstMetaSec = igprius.QuerySection(InstanceMetadata.VolumeMetadataID);
+            var volMetaSec = igprius.QuerySection(InstanceMetadata.VolumeMetadataID);
             var volTransformSec = igprius.QuerySection(Volume.TransformSectionID);
 
-            for(uint i = 0; i < volInstMetaSec.count; i++)
+            var volumesLoading = new LoadingProgress("Loading volumes...", volMetaSec.count);
+            loadingTracker.LoadProgresses.Add(volumesLoading);
+            for(uint i = 0; i < volMetaSec.count; i++)
             {
                 prius.Seek(volTransformSec.offset + 0x40 * i); // 0x40 is the size of a matrix 4x4.
                 var transform = prius.ReadMatrix4x4(0x00);
-                prius.Seek(volInstMetaSec.offset + InstanceMetadata.Size * i);
+                prius.Seek(volMetaSec.offset + InstanceMetadata.Size * i);
                 var volume = new Volume(prius, transform);
                 region.Volumes.Add(volume.TUID, volume);
+
+                volumesLoading.SetProgress(i + 1);
+            }
+            loadingTracker.LoadProgresses.Remove(volumesLoading);
+
+            var zoneNamesSec = igregion.QuerySection(Region.ZoneNamePointerID);
+            var zoneTUIDsSec = igregion.QuerySection(Region.ZoneTUIDsID);
+
+            var zonesRefreshLoading = new LoadingProgress("Refreshing zones...", zoneNamesSec.count);
+            for(uint i = 0; i < zoneNamesSec.count; i++)
+            {
+                //regStream.Seek(zoneNamesSec.offset + sizeof(uint) * i);
+                //var name = regStream.ReadString((int)regStream.ReadUInt32(0), false);
+                regStream.Seek(zoneTUIDsSec.offset + sizeof(ulong) * i);
+                var zoneTuid = regStream.ReadUInt64(0);
+                var zone = TempZones[zoneTuid];
+
+                region.Zones.Add(zone.TUID, zone);
+                TempZones.Remove(zone.TUID);
+
+                zonesRefreshLoading.SetProgress(i + 1);
             }
 
             loadState.SetProgress((uint)regIndex + 1);
@@ -1024,6 +1037,8 @@ public class Loader : IDisposable
         }
         loadingTracker.LoadProgresses.Remove(loadState);
 
+        region.Zones = TempZones;
+
         Regions = [region];
     }
 
@@ -1040,7 +1055,7 @@ public class Loader : IDisposable
 
         foreach(var tie in Ties) tie.Value.Dispose();
         foreach(var moby in Mobys) moby.Value.Dispose();
-        foreach(var zone in Zones) zone.Value.Dispose();
+        foreach(var zone in TempZones) zone.Value.Dispose();
         foreach(var region in Regions)
         {
             // Dispose mobyinstances and volumeinstances

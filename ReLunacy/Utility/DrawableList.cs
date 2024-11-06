@@ -1,61 +1,30 @@
-﻿using LibLunacy.Legacy;
-using ReLunacy.Engine.Rendering;
-
-namespace ReLunacy.Utility;
+﻿namespace ReLunacy.Utility;
 
 public class DrawableList : List<Drawable>
 {
-    public DrawableList(CMoby moby, CMoby.Bangle bangle)
+    public DrawableList(Moby moby, ref MobyBangle bangle)
     {
-        Capacity = (int)bangle.count;
-        for (int i = 0; i < bangle.count; i++)
+        Capacity = (int)bangle.meshesCount;
+        for (int i = 0; i < bangle.meshesCount; i++)
         {
-            Add(new Drawable(moby, bangle.meshes[i]));
+            Add(new Drawable(moby, ref bangle.meshes[i]));
         }
     }
-    public DrawableList(CTie tie)
+    public DrawableList(Tie tie)
     {
-        Capacity = tie.meshes.Length;
-        for (int i = 0; i < tie.meshes.Length; i++)
+        Capacity = tie.MeshesCount;
+        for (int i = 0; i < tie.MeshesCount; i++)
         {
-            Add(new Drawable(tie, tie.meshes[i]));
+            Add(new Drawable(tie, tie.Meshes[i]));
         }
     }
 
-    public DrawableList(CZone zone)
+    public DrawableList(Zone zone)
     {
         Capacity = zone.ufrags.Length;
-        foreach(var ufrag in  zone.ufrags)
+        foreach(var ufrag in zone.ufrags)
         {
             Add(new Drawable(ufrag));
-        }
-    }
-    public void AddDrawCall(Transform transform, ulong instanceId)
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].AddDrawCall(transform, instanceId);
-        }
-    }
-    public void AddDrawCallWireframe(Transform transform, ulong instanceId)
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].AddDrawCallWireframe(transform, instanceId);
-        }
-    }
-    public void RemoveDrawCallWireframe(ulong instanceId)
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].RemoveDrawCallWireframe(instanceId);
-        }
-    }
-    public void ConsolidateDrawCalls()
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].ConsolidateDrawCalls();
         }
     }
 
@@ -64,6 +33,14 @@ public class DrawableList : List<Drawable>
         for (int i = 0; i < Count; i++)
         {
             this[i].Draw();
+        }
+    }
+
+    public void DrawWireframe(Transform transform)
+    {
+        for(int i = 0; i < Count; ++i)
+        {
+            this[i].DrawWireframe(transform);
         }
     }
 

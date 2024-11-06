@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Meshes;
+using LibLunacy.Shaders;
 using LibLunacy.Vertices;
 using System;
 using System.Buffers;
@@ -22,14 +23,25 @@ namespace LibLunacy.Objects
         public byte MeshesCount => metadata.meshesCount;
         public TieMesh[] Meshes => metadata.meshes;
 
+        public ulong[]? ShaderTUIDs;
+
         public Tie(LunaStream stream, bool old = false, uint index = 0)
         {
             tieStream = stream;
-
+            isOld = old;
             var igFile = new IGFile(tieStream);
             var section = igFile.QuerySection(TieMetadata.ID);
             tieStream.Seek(section.offset + TieMetadata.Size * index);
             metadata = new TieMetadata(tieStream, old, index);
+
+            if(!isOld)
+            {
+                var shaderTuidSections = igFile.QuerySection(Shader.NewInternalTUIDSecID);
+
+                ShaderTUIDs = ArrayPool<ulong>.Shared.Rent((int)shaderTuidSections.count);
+
+                for (int i = 0; i < shaderTuidSections.count; i++) ShaderTUIDs[i] = stream.ReadUInt64((int)shaderTuidSections.offset + sizeof(ulong) * i, false);
+            }
         }
 
         public byte[] ToBytes(params object[]? args) => metadata.ToBytes(isOld, args);

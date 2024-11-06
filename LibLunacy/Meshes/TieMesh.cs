@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
@@ -76,6 +77,24 @@ public record struct TieMesh : ILunaSerializable
         {
             indices[i] = indicesBuffer.ReadUInt16(0);
             indicesBuffer.JumpRead(0x02);
+        }
+    }
+
+    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords)
+    {
+        ind = new uint[indicesCount];
+        for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
+
+        vpos = new float[verticesCount * 3];
+        uvcoords = new float[verticesCount * 2];
+
+        for (int k = 0; k < verticesCount; k++)
+        {
+            vpos[k * 3 + 0] = vertices[k].position.Item1 * scale.X;
+            vpos[k * 3 + 1] = vertices[k].position.Item2 * scale.Y;
+            vpos[k * 3 + 2] = vertices[k].position.Item3 * scale.Z;
+            uvcoords[k * 2 + 0] = (float)vertices[k].UVs.Item1;
+            uvcoords[k * 2 + 1] = (float)vertices[k].UVs.Item2;
         }
     }
 

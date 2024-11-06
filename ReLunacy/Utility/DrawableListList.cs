@@ -1,64 +1,29 @@
-﻿using LibLunacy.Legacy;
-
-namespace ReLunacy.Utility;
+﻿namespace ReLunacy.Utility;
 
 public class DrawableListList : List<DrawableList>
 {
-    public DrawableListList(CMoby moby)
+    public DrawableListList(Moby moby)
     {
-        Capacity = moby.bangles.Length;
-        for (int i = 0; i < moby.bangles.Length; i++)
+        Capacity = (int)moby.BanglesCount;
+        for (int i = 0; i < moby.BanglesCount; i++)
         {
-            Add(new DrawableList(moby, moby.bangles[i]));
+            Add(new DrawableList(moby, ref moby.Bangles[i]));
         }
     }
-    public void AddDrawCall(Transform transform, ulong instanceId)
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].AddDrawCall(transform, instanceId);
-        }
-    }
-    public void AddDrawCallWireframe(Transform transform, ulong instanceId)
+
+    public void DrawWireframe(Transform transform)
     {
         for(int i = 0; i < Count; i++)
         {
-            this[i].AddDrawCallWireframe(transform, instanceId);
+            this[i].DrawWireframe(transform);
         }
     }
-    public void RemoveDrawCallWireframe(ulong instanceId)
-    {
-        for(int i = 0; i < Count; i++)
-        {
-            this[i].RemoveDrawCallWireframe(instanceId);
-        }
-    }
-    public void ConsolidateDrawCalls()
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].ConsolidateDrawCalls();
-        }
-    }
-    public void Draw()
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].Draw();
-        }
-    }
+
     public void Draw(Transform transform)
     {
         for (int i = 0; i < Count; i++)
         {
             this[i].Draw(transform);
-        }
-    }
-    public void UpdateTransform(Transform transform, ulong instanceId)
-    {
-        for (int i = 0; i < Count; i++)
-        {
-            this[i].UpdateTransform(transform, instanceId);
         }
     }
 }

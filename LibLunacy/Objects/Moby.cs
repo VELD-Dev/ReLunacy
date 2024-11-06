@@ -1,5 +1,6 @@
 ﻿using LibLunacy.Interfaces;
 using LibLunacy.Meshes;
+using LibLunacy.Shaders;
 using LibLunacy.Vertices;
 using System;
 using System.Buffers;
@@ -29,6 +30,7 @@ public class Moby : IDisposable
     public uint IndicesOffset => MobyObj is OldMoby om ? om.indicesOffset : uint.MinValue;
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
     public MobyBangle[] Bangles => MobyObj.Bangles;
+    public ulong[]? ShaderTUIDs;
 
     public Moby(LunaStream stream)
     {
@@ -40,6 +42,15 @@ public class Moby : IDisposable
 
         mobyStream.Seek(section.offset);
         ReadMoby(isOld: section.length != 0x100);
+
+        if(!IsOld)
+        {
+            var shaderReferencesSec = igFile.QuerySection(Shader.NewInternalTUIDSecID);
+
+            ShaderTUIDs = ArrayPool<ulong>.Shared.Rent((int)shaderReferencesSec.count);
+
+            for (int i = 0; i < shaderReferencesSec.count; i++) ShaderTUIDs[i] = stream.ReadUInt64((int)shaderReferencesSec.offset + sizeof(ulong) * i, false);
+        }
     }
 
     public void ReadMoby(bool isOld)

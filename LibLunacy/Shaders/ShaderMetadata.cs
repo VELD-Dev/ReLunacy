@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LibLunacy.Objects
+namespace LibLunacy.Shaders
 {
     /// <summary>
     /// On new engine, albedo, normal and expensive are indices stored as int but always positive.<br/>
@@ -31,7 +31,7 @@ namespace LibLunacy.Objects
         {
             isOld = old;
 
-            if(isOld)
+            if (isOld)
             {
                 albedo = stream.ReadUInt32(0x00);
                 normal = stream.ReadUInt32(0x04);

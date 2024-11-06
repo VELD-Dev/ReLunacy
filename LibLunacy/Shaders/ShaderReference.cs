@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LibLunacy.Objects
+namespace LibLunacy.Shaders
 {
     /// <summary>
     /// New engine only

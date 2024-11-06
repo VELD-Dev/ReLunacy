@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using LibLunacy.Legacy;
-using ReLunacy.Engine.Rendering;
+﻿using Texture = ReLunacy.Engine.Rendering.Texture;
 
 namespace ReLunacy.Engine;
 
@@ -75,28 +69,31 @@ public class AssetManager
         Cube.drawType = Drawable.DrawType.Lines;
     }
 
-    public void Initialize(AssetLoader loader)
+    public void Initialize(Loader loader)
     {
-        foreach(var ctex in loader.textures)
+        foreach(var tex in loader.Textures)
         {
-            Textures.Add(ctex.Key, new(ctex.Value));
+            Textures.Add((uint)tex.Key, new(tex.Value));
         }
-        foreach(var moby in loader.mobys)
+        foreach(var moby in loader.Mobys)
         {
             Mobys.Add(moby.Key, new(moby.Value));
         }
-        foreach(var tie in loader.ties)
+        foreach(var tie in loader.Ties)
         {
             Ties.Add(tie.Key, new(tie.Value));
         }
-        foreach(var zone in loader.zones)
+        foreach(var region in loader.Regions)
         {
-            var uf = new List<Drawable>();
-            foreach(var ufrag in zone.Value.ufrags)
+            foreach(var zone in region.Zones)
             {
-                uf.Add(new(ufrag));
+                var uf = new List<Drawable>();
+                foreach(var ufrag in zone.Value.ufrags)
+                {
+                    uf.Add(new(ufrag));
+                }
+                UFrags.Add(zone.Value.metadata.TUID, uf);
             }
-            UFrags.Add((ulong)zone.Value.index, uf);
         }
     }
 

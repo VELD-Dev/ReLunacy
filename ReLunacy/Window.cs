@@ -12,6 +12,7 @@ using ReLunacy.Frames.ModalFrames;
 using ReLunacy.Engine.EntityManagement;
 using OpenTK.Windowing.Common.Input;
 using LibLunacy.Legacy;
+using ReLunacy.Utility.Luna;
 
 namespace ReLunacy;
 
@@ -30,9 +31,8 @@ public class Window : GameWindow
     public Renderer OGLRenderer { get; private set; }
     public ResourcesManager Resources { get; private set; }
 
-    public AssetLoader AssetLoader { get; private set; }
+    public Loader AssetLoader { get; private set; }
     public FileManager FileManager { get; private set; }
-    public Gameplay Gameplay { get; private set; }
 
     private bool doLoadEntities = false;
 
@@ -78,7 +78,7 @@ public class Window : GameWindow
 
         if(Program.ProvidedPath != string.Empty)
         {
-            LoadLevelDataAsync(Program.ProvidedPath, new([ ("Loading level...", new(0, 5)), ("", new()) ]));
+            LoadLevelDataAsync(Program.ProvidedPath, new("Loading level...", 5));
         }
     }
 
@@ -135,8 +135,7 @@ public class Window : GameWindow
         FileManager.LoadFolder(path);
 
         LunaLog.LogDebug("Starting AssetLoader threaded task.");
-        AssetLoader = new(FileManager);
-        var alTask = Task.Run(() => AssetLoader.LoadAssets(ref loadingFrame.LoadProgresses[1].Item2, ref loadingFrame.LoadProgresses[0].Item2.X, ref loadingFrame.LoadProgresses[1].Item1));
+        var alTask = Task.Run(() => AssetLoader = new Loader(loadingFrame, FileManager));
         LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
         await alTask;
         loadingFrame.UpdateProgress(0, new(1, 1));
@@ -157,7 +156,6 @@ public class Window : GameWindow
         AssetLoader?.Dispose();
         AssetLoader = null;
         FileManager = null;
-        Gameplay = null;
         Program.ProvidedPath = string.Empty;
         Entity.Wipe();
         if(IsAnyFrameOpened<BasicEntityExplorer>())

@@ -41,7 +41,14 @@ global using ReLunacy.Engine;
 global using ReLunacy.Engine.EntityManagement;
 global using ReLunacy.Engine.Rendering;
 global using ReLunacy.Utility;
+global using ReLunacy.Utility.Luna;
 global using static ReLunacy.Utility.Extensions;
 
 global using LibLunacy;
+global using LibLunacy.Interfaces;
+global using LibLunacy.Meshes;
+global using LibLunacy.Objects;
+global using LibLunacy.Textures;
+global using LibLunacy.Vertices;
+
 global using AssetExtractor;

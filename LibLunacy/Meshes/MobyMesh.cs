@@ -96,6 +96,35 @@ public record struct MobyMesh : ILunaSerializable
         }
     }
 
+    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords)
+    {
+        ind = new uint[indicesCount];
+        for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
+
+        vpos = new float[verticesCount * 3];
+        uvcoords = new float[verticesCount * 2];
+
+        for(int k = 0; k < verticesCount; k++)
+        {
+            if(verticesType == 0)
+            {
+                vpos[k * 3 + 0] = vertices0[k].position.Item1 * scalar;
+                vpos[k * 3 + 1] = vertices0[k].position.Item2 * scalar;
+                vpos[k * 3 + 2] = vertices0[k].position.Item3 * scalar;
+                uvcoords[k * 2 + 0] = (float)vertices0[k].UVs.Item1;
+                uvcoords[k * 2 + 1] = (float)vertices0[k].UVs.Item2;
+            }
+            else
+            {
+                vpos[k * 3 + 0] = vertices1[k].position.Item1 * scalar;
+                vpos[k * 3 + 1] = vertices1[k].position.Item2 * scalar;
+                vpos[k * 3 + 2] = vertices1[k].position.Item3 * scalar;
+                uvcoords[k * 2 + 0] = (float)vertices1[k].UVs.Item1;
+                uvcoords[k * 2 + 1] = (float)vertices1[k].UVs.Item2;
+            }
+        }
+    }
+
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)
     {
         var rented = ArrayPool<byte>.Shared.Rent((int)Size);

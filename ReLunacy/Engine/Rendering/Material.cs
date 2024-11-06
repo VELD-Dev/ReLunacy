@@ -1,4 +1,5 @@
-﻿using LibLunacy.Legacy;
+﻿using LibLunacy.Shaders;
+using RenderingMode = LibLunacy.Shaders.RenderingMode;
 
 namespace ReLunacy.Engine.Rendering;
 
@@ -10,8 +11,8 @@ public class Material
     Texture? expensive;
     public PrimitiveType drawType;
     public uint numUsing = 0;
-    public CShader.RenderingMode renderingMode = CShader.RenderingMode.Opaque;
-    public CShader asset;
+    public RenderingMode renderingMode = RenderingMode.Opaque;
+    public Shader asset;
     public static Matrix4 dissolvePattern = new( 1f / 17f,  9f / 17f,  3f / 17f, 11f / 17f,
                                                 13f / 17f,  5f / 17f, 15f / 17f,  7f / 17f,
                                                  4f / 17f, 12f / 17f,  2f / 17f, 10f / 17f,
@@ -25,23 +26,23 @@ public class Material
         get
         {
             if (albedo == null) return false;
-            return albedo.format == CTexture.TexFormat.DXT3 || albedo.format == CTexture.TexFormat.DXT5 || albedo.format == CTexture.TexFormat.A8R8G8B8;
+            return albedo.format == TextureFormat.DXT3 || albedo.format == TextureFormat.DXT5 || albedo.format == TextureFormat.A8R8G8B8;
         }
     }
 
-    public Material(int handle, Texture? color = null, CShader.RenderingMode renderMode = CShader.RenderingMode.Opaque, PrimitiveType primitiveType = PrimitiveType.Triangles)
+    public Material(int handle, Texture? color = null, RenderingMode renderMode = RenderingMode.Opaque, PrimitiveType primitiveType = PrimitiveType.Triangles)
     {
         albedo = color;
         programId = handle;
         drawType = primitiveType;
         renderingMode = renderMode;
     }
-    public Material(CShader cshad)
+    public Material(Shader cshad)
     {
         asset = cshad;
-        Texture? tex = cshad.albedo == null ? null : AssetManager.Singleton.Textures[cshad.albedo.id];
-        Texture? exp = cshad.expensive == null || Window.Singleton.FileManager.isOld ? null : AssetManager.Singleton.Textures[cshad.expensive.id];
-        if (tex == null && cshad.albedo != null) Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.albedo.id.ToString("X08")} AKA {cshad.albedo.name}");
+        Texture? tex = cshad.Albedo == null ? null : AssetManager.Singleton.Textures[(uint)cshad.Albedo.id];
+        Texture? exp = cshad.Expensive == null || Window.Singleton.FileManager.isOld ? null : AssetManager.Singleton.Textures[(uint)cshad.Expensive.id];
+        if (tex == null && cshad.Albedo != null) Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.Albedo.id.ToString("X08")} AKA {cshad.Albedo.name}");
         programId = MaterialManager.Materials["stdv;solidf"];
         albedo = tex;
         expensive = exp;
