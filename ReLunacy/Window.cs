@@ -28,7 +28,7 @@ public class Window : GameWindow
     public float framerate;
     public Vec4 screenSafeSpace;
     public Vector2 freecamLocal;
-    public Renderer OGLRenderer { get; private set; }
+    public OldRenderer OGLRenderer { get; private set; }
     public ResourcesManager Resources { get; private set; }
 
     public Loader AssetLoader { get; private set; }
@@ -60,7 +60,7 @@ public class Window : GameWindow
             Icon = new WindowIcon([ico]);
         }
 
-        OGLRenderer = new Renderer();
+        OGLRenderer = new OldRenderer();
 
         controller = new ImGuiController(ClientSize.X, ClientSize.Y);
 

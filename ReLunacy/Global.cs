@@ -40,6 +40,8 @@ global using ReLunacy.MenuBar;
 global using ReLunacy.Engine;
 global using ReLunacy.Engine.EntityManagement;
 global using ReLunacy.Engine.Rendering;
+global using ReLunacy.Engine.Tools;
+global using ReLunacy.Engine.Utils;
 global using ReLunacy.Utility;
 global using ReLunacy.Utility.Luna;
 global using static ReLunacy.Utility.Extensions;

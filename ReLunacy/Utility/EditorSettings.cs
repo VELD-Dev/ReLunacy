@@ -21,6 +21,7 @@ public class EditorSettings
     public float OverlayOpacity;
     public Vector2 OverlayPadding;
     public int OverlayPos;
+    public float ToolsGizmoSize;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders;
     public bool LegacyRenderingMode;
@@ -50,6 +51,7 @@ public class EditorSettings
         OverlayOpacity = 0.35f;
         OverlayPadding = new(10f, 10f);
         OverlayPos = 0;
+        ToolsGizmoSize = 0.06f;
         LegacyRenderingMode = false;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;

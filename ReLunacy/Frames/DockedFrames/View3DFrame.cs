@@ -14,7 +14,7 @@ internal class View3DFrame : DockedFrame
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
-    public Renderer OGLRenderer { get => Window.Singleton.OGLRenderer; }
+    public OldRenderer OGLRenderer { get => Window.Singleton.OGLRenderer; }
 
     public Rectangle FrameContentRegion { get; private set; }
     public Vector2 FramePos { get; private set; }

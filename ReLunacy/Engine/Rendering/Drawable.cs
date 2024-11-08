@@ -4,6 +4,7 @@ namespace ReLunacy.Engine.Rendering;
 
 public class Drawable
 {
+    public Transform Transform { get; set; }
     public Dictionary<ulong, Transform> transforms = [];
     public Dictionary<ulong, Transform> WireframeTransforms = [];
     int VwBO;
@@ -36,36 +37,52 @@ public class Drawable
         Prepare();
     }
 
-    public Drawable(CMoby moby, CMoby.MobyMesh mesh)
+    public Drawable(Moby moby, ref MobyMesh mesh)
     {
         Prepare();
-        moby.GetBuffers(mesh, out uint[] indices, out float[] vPositions, out float[] vTexCoords);
+        mesh.GetBuffers(moby.Scale, out float[] vPosition, out uint[] indices, out float[] vTexCoords);
+        SetVertexPositions(vPosition);
+        SetVertexTexCoords(vTexCoords);
+        SetIndices(indices);
+        if(moby.IsOld)
+        {
+            SetMaterial(new Material(Window.Singleton.AssetLoader.Shaders[mesh.shaderIndex]));
+        }
+        else
+        {
+            SetMaterial(new Material(Window.Singleton.AssetLoader.Shaders[moby.ShaderTUIDs[mesh.shaderIndex]]));
+        }
+    }
+
+    public Drawable(Tie tie, ref TieMesh mesh)
+    {
+        Prepare();
+
+        mesh.GetBuffers(tie.Scale, out var vPositions, out var indices, out var vTexCoords);
+
         SetVertexPositions(vPositions);
         SetVertexTexCoords(vTexCoords);
         SetIndices(indices);
-        SetMaterial(new Material(moby.shaderDB[mesh.shaderIndex]));
+        if(tie.isOld)
+        {
+            SetMaterial(new Material(Window.Singleton.AssetLoader.Shaders[mesh.oldShaderIndex]));
+        }
+        else
+        {
+            SetMaterial(new Material(Window.Singleton.AssetLoader.Shaders[tie.ShaderTUIDs[mesh.newShaderIndex]]));
+        }
     }
 
-    public Drawable(CTie tie, CTie.TieMesh mesh)
+    public Drawable(UFrag mesh)
     {
-        Prepare();
-
-        tie.GetBuffers(mesh, out uint[] indices, out float[] vPositions, out float[] vTexCoords);
-
-        SetVertexPositions(vPositions);
-        SetVertexTexCoords(vTexCoords);
-        SetIndices(indices);
-        SetMaterial(new Material(mesh.shader));
-    }
-
-    public Drawable(CZone.UFrag mesh)
-    {
+        /*
         Prepare();
         SetVertexPositions(mesh.GetVertPositions());
         SetVertexTexCoords(mesh.GetUVs());
         SetIndices(mesh.GetIndices());
         //Texture? tex = (mesh.shader.albedo == null ? null : new Texture(mesh.shader.albedo));
         SetMaterial(new Material(mesh.GetShader()));
+        */
     }
 
     public void Prepare()
@@ -134,22 +151,6 @@ public class Drawable
         material = mat;
     }
 
-    public void AddDrawCall(Transform transform, ulong instanceId)
-    {
-        transforms.Add(instanceId, transform);
-    }
-
-    public void AddDrawCallWireframe(Transform transform, ulong instanceId)
-    {
-        WireframeTransforms.TryAdd(instanceId, transform);
-        ConsolidateDrawCallsWireframe();
-    }
-
-    public void RemoveDrawCallWireframe(ulong instanceId)
-    {
-        WireframeTransforms.Remove(instanceId);
-    }
-
     public void ConsolidateDrawCalls()
     {
         Matrix4[] transformMatrices = new Matrix4[transforms.Count];
@@ -182,7 +183,7 @@ public class Drawable
 
         wfVwBO = GL.GenBuffer();
         GL.BindBuffer(BufferTarget.ArrayBuffer, wfVwBO);
-        GL.BufferData(BufferTarget.ArrayBuffer, transformMatrices.Length * sizeof(float) * 16, transformMatrices, BufferUsageHint.DynamicDraw);
+        GL.BufferData(BufferTarget.ArrayBuffer, sizeof(float) * 16, transformMatrices, BufferUsageHint.DynamicDraw);
         
         GL.BindVertexArray(wfVAO);
 
@@ -254,6 +255,20 @@ public class Drawable
         {
             GL.DrawElementsInstanced(PrimitiveType.Lines, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
         }
+    }
+
+    public void DrawWireframe(Transform transform)
+    {
+        var world = transform.GetLocalToWorldMatrix() * Camera.Main.WorldToView * Camera.Main.ViewToClip;
+        WFMaterial.SimpleUse();
+        WFMaterial.SetMatrix4x4("worldToClip", ref world);
+
+        GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+        GL.BindVertexArray(VAO);
+        GL.LineWidth(3);
+        GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero);
+        GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+
     }
 
     public void SimpleDraw()
