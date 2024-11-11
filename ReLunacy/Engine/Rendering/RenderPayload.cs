@@ -26,16 +26,17 @@ namespace ReLunacy.Engine.Rendering
         public Camera camera => Camera.Main;
         public int width;
         public int height;
-        // public Selection selection
-        // public Toolbox? Toolbox
+        public Selection selection;
+        public Toolbox? Toolbox; 
         public VisibilitySettings visibility = new();
 
         public float deltaTime = 1;
         public int forcedAnimationID = 0;
 
-        public RenderPayload(/*Selection? selec = null, Toolbox? tb = null*/)
+        public RenderPayload(Selection? selec = null, Toolbox? tb = null)
         {
-
+           selection = selec ?? new Selection();
+           Toolbox = tb;
         }
 
         public void SetWindowSize(int w, int h)

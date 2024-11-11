@@ -15,8 +15,10 @@ public class Toolbox
     private ToolType _type = ToolType.None;
     // TODO: Define tools
 
+    private readonly TranslationTool TRANSLATION_TOOL;
     public Toolbox()
     {
+        TRANSLATION_TOOL = new(this);
         // Define tools
     }
 

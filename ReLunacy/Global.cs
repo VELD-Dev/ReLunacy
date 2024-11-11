@@ -26,6 +26,7 @@ global using OpenTK.Windowing.Common;
 global using OpenTK.Windowing.Desktop;
 
 global using ImGuiNET;
+global using Hexa.NET.ImGuizmo;
 
 global using Newtonsoft;
 global using Newtonsoft.Json;

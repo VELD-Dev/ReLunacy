@@ -12,14 +12,11 @@ public class TranslationTool : BasicTransformTool
 {
     public override ToolType ToolType => ToolType.Translation;
 
-    public TranslationTool(Toolbox tb) : base(tb)
-    {
-        // TODO: Define the gizmo with ImGizmo
-    }
+    public TranslationTool(Toolbox tb) : base(tb) { }
 
     public override void Render(Matrix4 mat, Material material)
     {
-        BindVAO();
+        Update();
         material.SimpleUse();
 
         material.SetMatrix4x4("modelToWorld", ref mat);
@@ -30,6 +27,22 @@ public class TranslationTool : BasicTransformTool
 
     public override void Transform(Entity entity, OpenTK.Mathematics.Vector3 pivot, TransformToolData data)
     {
-        throw new NotImplementedException();
+        var transform = entity.transform;
+        var matrix = Matrix4.CreateTranslation(transform.position.ToOpenTK()) * Matrix4.CreateFromQuaternion(transform.rotation) * Matrix4.CreateScale(transform.scale.ToOpenTK()); ;
+
+        if (Toolbox.TransformSpace == TransformSpace.Global)
+        {
+            var startDist = getLineIntersectedDist(data.cameraPos, data.mousePrevDir, pivot, data.axisDir);
+            var startPos = data.cameraPos + startDist * data.mousePrevDir;
+
+            var finalDist = getLineIntersectedDist(startPos, data.axisDir, data.cameraPos, data.mouseCurrDir);
+
+            var trans = finalDist * data.axisDir;
+            transform.position *= trans.ToNumerics();
+        }
+        else if (Toolbox.TransformSpace == TransformSpace.Local)
+        {
+            // Transform system has to be remade
+        }
     }
 }

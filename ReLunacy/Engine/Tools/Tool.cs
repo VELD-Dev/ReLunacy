@@ -10,45 +10,12 @@ public abstract class Tool(Toolbox tb) : IDisposable
 
     protected Toolbox Toolbox { get; set; } = tb;
     public abstract ToolType ToolType { get; }
-
-
-    protected int vbo;
-    protected int vao;
-    protected float[] vb = [
-        0, 0, 0,
-        0, 0, 0,
-        0, 0, 0,
-        0, 0, 0,
-        0, 0, 0,
-        0, 0, 0
-    ];
     private static float SCREEN_SPACE_SCALE => Program.Settings.ToolsGizmoSize;
 
-    protected void BindVAO()
+    protected void Update()
     {
-        if(vao == 0)
-        {
-            GL.GenVertexArrays(1, out vao);
-            GL.BindVertexArray(vao);
-
-            if(vbo == 0)
-            {
-                GL.GenBuffers(1, out vbo);
-                GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
-                GL.BufferData(BufferTarget.ArrayBuffer, vb.Length * sizeof(float), vb, BufferUsageHint.StaticDraw);
-            }
-            else
-            {
-                GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
-            }
-
-            GLUtil.ActivateNumberOfVertexAttribArrays(1);
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, sizeof(float) * 3, 0);
-        }
-        else
-        {
-            GL.BindVertexArray(vao);
-        }
+        ImGuizmo.SetDrawlist();
+        //ImGuizmo.SetRect()
     }
 
     public abstract void Render(Matrix4 mat, Material material);
@@ -120,7 +87,6 @@ public abstract class Tool(Toolbox tb) : IDisposable
 
     public void Dispose()
     {
-        GL.DeleteBuffer(vbo);
-        GL.DeleteVertexArray(vao);
+        ImGuizmo.Destroy(ImGuizmo.GetStyle());
     }
 }
