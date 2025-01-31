@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Shaders;
 using LibLunacy.Vertices;
 using System;
 using System.Buffers;
@@ -10,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Meshes;
 
-public record struct MobyMesh : ILunaSerializable
+public record struct MobyMesh : ILunaSerializable, IMesh
 {
     public const uint ID = 0xDD00;
     public const uint Size = 0x40;
@@ -32,7 +33,38 @@ public record struct MobyMesh : ILunaSerializable
     public VertexFormat1[] vertices1;
 
     public ushort[] indices;
-    
+
+    public readonly float[] vpos
+    {
+        get
+        {
+            var vp = new float[verticesCount * 3];
+            if (verticesType == 0)
+            {
+                for(int i = 0; i < vertices0.Length; i++)
+                {
+                    vp[i + 0] = vertices0[i].position.Item1;
+                    vp[i + 1] = vertices0[i].position.Item2;
+                    vp[i + 2] = vertices0[i].position.Item3;
+                }
+            }
+            else
+            {
+                for(int i = 0; i < vertices1.Length; i++)
+                {
+                    vp[i + 0] = vertices1[i].position.Item1;
+                    vp[i + 1] = vertices1[i].position.Item2;
+                    vp[i + 2] = vertices1[i].position.Item3;
+                }
+            }
+            return vp
+        }
+    }
+
+    readonly uint[] IMesh.indices => indices.Cast<uint>().ToArray();
+    public readonly uint[] boneWeight => Array.Empty<uint>();
+    public readonly uint[] vertToBonemap => Array.Empty<uint>();
+
     // public ref Shader shader;
 
     public MobyMesh(LunaStream stream)

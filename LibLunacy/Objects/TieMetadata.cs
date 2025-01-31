@@ -1,13 +1,8 @@
-﻿using System;
-using System.Buffers;
+﻿using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 using LibLunacy.Interfaces;
 using LibLunacy.Meshes;
+using LibLunacy.Numerics;
 
 namespace LibLunacy.Objects;
 
@@ -24,7 +19,7 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
     public uint verticesBufferStart;
     public uint verticesBufferSize;
     public uint Unk3;
-    public Vector3 scale;
+    public Vec3 scale;
     public byte[] Unk4;
     public uint nameOffset;  // Not on old engine
     public byte[] Unk5;
@@ -62,7 +57,7 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
     /// </summary>
     /// <param name="stream">Stream of the tie.dat file</param>
     /// <param name="isOld">Wether it's on the old or the new engine.</param>
-    public void ReadMeshes(LunaStream stream, bool isOld)
+    public readonly void ReadMeshes(LunaStream stream, bool isOld)
     {
         var offset = TUID + meshesOffset;
         stream.Seek((long)offset, SeekOrigin.Begin);

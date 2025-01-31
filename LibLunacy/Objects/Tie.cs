@@ -1,13 +1,8 @@
 ﻿using LibLunacy.Meshes;
+using LibLunacy.Numerics;
 using LibLunacy.Shaders;
 using LibLunacy.Vertices;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace LibLunacy.Objects
 {
@@ -18,7 +13,7 @@ namespace LibLunacy.Objects
         public bool isOld;
 
         public ulong TUID => metadata.TUID;
-        public Vector3 Scale => metadata.scale;
+        public Vec3 Scale => metadata.scale;
         public uint MeshesOffset => metadata.meshesOffset;
         public byte MeshesCount => metadata.meshesCount;
         public TieMesh[] Meshes => metadata.meshes;

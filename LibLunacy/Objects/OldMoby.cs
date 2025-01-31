@@ -1,12 +1,6 @@
 ﻿using LibLunacy.Interfaces;
-using System;
+using LibLunacy.Numerics;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Reflection.Metadata.Ecma335;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace LibLunacy.Objects;
 
@@ -15,7 +9,7 @@ public record struct OldMoby : IMoby
     public const uint ID = 0xD100;
     public const uint Size = 0xC0;
 
-    public Vector4 boundingSphere;
+    public Vec4 boundingSphere;
     public ushort Unk1;
     public ushort Unk2;
     public ushort bonesCount;

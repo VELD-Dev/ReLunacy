@@ -1,10 +1,5 @@
 ﻿using LibLunacy.Interfaces;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
+using LibLunacy.Numerics;
 
 namespace LibLunacy.Objects.Instances
 {
@@ -14,16 +9,16 @@ namespace LibLunacy.Objects.Instances
         public const uint Size = 0x48;
 
         public byte[] Unk1;
-        public Vector3 position;
-        public Vector3 rotation;
+        public Vec3 position;
+        public Vec3 rotation;
         public float scale;
         public ulong Unk2;
         public ushort mobyIndex;
         public ushort Unk3;
         public ulong Unk4;
 
-        public Vector3 Position { get => position; set => position = value; }
-        public Vector3 Rotation { get => rotation; set => rotation = value; }
+        public Vec3 Position { get => position; set => position = value; }
+        public Vec3 Rotation { get => rotation; set => rotation = value; }
         public float Scale { get => scale; set => scale = value; }
         public ushort MobyIndex { get => mobyIndex; set => mobyIndex = value; }
 

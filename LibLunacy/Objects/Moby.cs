@@ -1,14 +1,9 @@
 ﻿using LibLunacy.Interfaces;
 using LibLunacy.Meshes;
+using LibLunacy.Numerics;
 using LibLunacy.Shaders;
 using LibLunacy.Vertices;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace LibLunacy.Objects;
 
@@ -20,7 +15,7 @@ public class Moby : IDisposable
     public LunaStream verticesStream;
     public ulong TUID => MobyObj.TUID;
     public bool IsOld => MobyObj is OldMoby;
-    public Vector4 BoundingSphere => MobyObj is OldMoby om ? om.boundingSphere : ((NewMoby)MobyObj).boundingSphere;
+    public Vec4 BoundingSphere => MobyObj is OldMoby om ? om.boundingSphere : ((NewMoby)MobyObj).boundingSphere;
     public float Scale => MobyObj is OldMoby om ? om.scale : ((NewMoby)MobyObj).scale;
     public uint BanglesPointer => MobyObj is OldMoby om ? om.banglesPointer : ((NewMoby)MobyObj).banglesPointer;
     public uint BanglesCount => MobyObj is OldMoby om ? om.bangleCount : ((NewMoby)MobyObj).bangleCount1;

@@ -1,14 +1,7 @@
 ﻿using LibLunacy.Interfaces;
-using LibLunacy.Meshes;
-using System;
+using LibLunacy.Numerics;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Security.Cryptography.X509Certificates;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace LibLunacy.Objects;
 
@@ -18,7 +11,7 @@ public record struct NewMoby : IMoby
     public const uint ID = 0xD100;
     public const uint Size = 0x100;
 
-    public Vector4 boundingSphere;  // Relative
+    public Vec4 boundingSphere;  // Relative
     public uint Unk1;
     public uint Unk2;
     public ushort bangleCount1;

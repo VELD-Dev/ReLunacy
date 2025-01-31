@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Meshes;
 
-public record struct TieMesh : ILunaSerializable
+public record struct TieMesh : ILunaSerializable, IMesh
 {
     // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banlesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
@@ -30,6 +30,27 @@ public record struct TieMesh : ILunaSerializable
 
     public VertexFormat0[] vertices;
     public ushort[] indices;
+
+    public readonly float[] vpos
+    {
+        get
+        {
+            var vp = new float[verticesCount * 3];
+            for(int i = 0; i < verticesCount; i++)
+            {
+                vp[i + 0] = vertices[i].position.Item1;
+                vp[i + 1] = vertices[i].position.Item2;
+                vp[i + 2] = vertices[i].position.Item3;
+            }
+            return vp;
+        }
+    }
+
+    readonly uint[] IMesh.indices => indices.Cast<uint>().ToArray();
+
+    public readonly uint[] boneWeight => Array.Empty<uint>();
+
+    public readonly uint[] vertToBonemap => Array.Empty<uint>();
 
     // public ref Shader shader;
 

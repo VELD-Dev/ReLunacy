@@ -53,5 +53,6 @@ global using LibLunacy.Meshes;
 global using LibLunacy.Objects;
 global using LibLunacy.Textures;
 global using LibLunacy.Vertices;
+global using LibLunacy.Numerics;
 
 global using AssetExtractor;

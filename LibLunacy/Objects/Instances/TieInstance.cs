@@ -1,14 +1,7 @@
 ﻿using LibLunacy.Interfaces;
-using LibLunacy.Legacy;
-using System;
+using LibLunacy.Numerics;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace LibLunacy.Objects.Instances
 {
     public record struct TieInstance : ILunaSerializable
@@ -17,8 +10,8 @@ namespace LibLunacy.Objects.Instances
         public const uint OldID = 0x9240;
         public const uint Size = 0x80;
 
-        public Matrix4x4 transform;
-        public Vector4 boundingSphere;
+        public Mat4 transform;
+        public Vec4 boundingSphere;
         /// <summary>
         /// OldEngine: Index of the tie.<br/>NewEngine: Index of Tie TUID in section 0x7200
         /// </summary>
@@ -39,7 +32,7 @@ namespace LibLunacy.Objects.Instances
             var span = rented.AsSpan(0, (int)Size);
 
             var offset = 0;
-            transform.ToBytesBE().CopyTo(span[offset..]); offset += 0x40;
+            transform.ToBytes(span[offset..]); offset += 0x40;
             boundingSphere.ToBytesBE().CopyTo(span[offset..]); offset += 0x10;
             BinaryPrimitives.WriteUInt32BigEndian(span[offset..], tieIndex); offset += sizeof(uint);
             Unk.CopyTo(span[offset..]); offset += Unk.Length;

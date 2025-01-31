@@ -16,10 +16,13 @@ public class Toolbox
     // TODO: Define tools
 
     private readonly TranslationTool TRANSLATION_TOOL;
+    private readonly RotationTool ROTATION_TOOL;
+    private readonly ScalingTool SCALING_TOOL;
     public Toolbox()
     {
         TRANSLATION_TOOL = new(this);
-        // Define tools
+        ROTATION_TOOL = new(this);
+        SCALING_TOOL = new(this);
     }
 
     public void ChangeTool(ToolType tt)

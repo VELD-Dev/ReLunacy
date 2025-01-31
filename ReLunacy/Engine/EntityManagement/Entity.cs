@@ -1,9 +1,5 @@
-﻿using Vec3 = OpenTK.Mathematics.Vector3;
-using Vector3 = System.Numerics.Vector3;
-using Vec4 = OpenTK.Mathematics.Vector4;
-using Vector4 = System.Numerics.Vector4;
-using Quaternion = OpenTK.Mathematics.Quaternion;
-using LibLunacy.Legacy;
+﻿using LibLunacy.Objects.Instances;
+using ReLunacy.Engine.Numerics;
 
 namespace ReLunacy.Engine.EntityManagement;
 
@@ -19,22 +15,22 @@ public class Entity
     public Transform transform;
 
     //xyz is pos, w is radius
-    public Vector4 boundingSphere;
+    public Vec4 boundingSphere;
 
-    public Entity(Region.CMobyInstance mobyInstance)
+    public Entity(MobyInstance mobyInstance)
     {
         instance = mobyInstance;
         drawable = AssetManager.Singleton.Mobys[mobyInstance.moby.id];
         id = InstancesCount;
         InstancesCount++;
         transform = new Transform(
-            mobyInstance.position * YardToMeter,
-            mobyInstance.rotation,
-            Vector3.One * mobyInstance.scale * YardToMeter
+            mobyInstance.instanceData.Position * YardToMeter,
+            mobyInstance.instanceData.Rotation,
+            Vec3.One * mobyInstance.instanceData.Scale * YardToMeter
         );
         name = mobyInstance.name;
         ((DrawableListList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(mobyInstance.moby.boundingSpherePosition * YardToMeter + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
+        boundingSphere = new(mobyInstance.Moby.BoundingSphere * YardToMeter + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
     public Entity(Region.CVolumeInstance volumeInstance)
     {

@@ -1,13 +1,7 @@
-﻿using System;
-using System.Buffers;
+﻿using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 using LibLunacy.Interfaces;
-using LibLunacy.Vertices;
+using LibLunacy.Numerics;
 
 namespace LibLunacy.Objects;
 
@@ -17,8 +11,8 @@ public struct UFragMetadata : ILunaSerializable
     public const uint Size = 0x80;
 
     public byte[] Unk1;
-    public Vector3 position;
-    public Vector4 boundingSphere;
+    public Vec3 position;
+    public Vec4 boundingSphere;
     public uint indexOffset;
     public uint vertexOffset;
     public ushort indexCount;
