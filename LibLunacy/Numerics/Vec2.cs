@@ -57,32 +57,28 @@ public record struct Vec2
     public static Vec2 Normalize(Vec2 vec)
     {
         var scale = 1.0f / vec.Length;
-        vec.X *= scale;
-        vec.Y *= scale;
+        vec *= scale;
         return vec;
     }
 
     public static void Normalize(in Vec2 vec, out Vec2 res)
     {
         var scale = 1.0f / vec.Length;
-        res.X = vec.X * scale;
-        res.Y = vec.Y * scale;
+        res = vec * scale;
     }
 
     [Pure]
     public static Vec2 NormalizeFast(Vec2 vec)
     {
         var scale = MathHelper.InverseSqrtFast(vec.X * vec.X + vec.Y * vec.Y);
-        vec.X *= scale;
-        vec.Y *= scale;
+        vec *= scale;
         return vec;
     }
 
     public static void NormalizeFast(in Vec2 vec, out Vec2 res)
     {
         var scale = MathHelper.InverseSqrtFast(vec.X * vec.X + vec.Y * vec.Y);
-        res.X = vec.X * scale;
-        res.Y = vec.Y * scale;
+        res = vec * scale;
     }
 
     [Pure]

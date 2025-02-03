@@ -54,6 +54,9 @@ public record struct Quat
 
     public readonly float Length => MathF.Sqrt(X*X + Y*Y + Z*Z + W*W);
 
+    public readonly Vec3 XYZ => new(X, Y, Z);
+    public readonly Vec2 XY => new(X, Y);
+
     public readonly void Deconstruct(out float x, out float y, out float z, out float w) { x = X; y = Y;  z = Z; w = W; }
     public readonly void Deconstruct(out float rotX, out float rotY, out float rotZ)
     {

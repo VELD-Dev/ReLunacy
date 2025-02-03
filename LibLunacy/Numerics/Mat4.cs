@@ -1,4 +1,6 @@
 ﻿using System.Buffers.Binary;
+using System.Diagnostics.Contracts;
+using System.Net.NetworkInformation;
 using System.Numerics;
 
 namespace LibLunacy.Numerics;
@@ -30,6 +32,27 @@ public record struct Mat4
                 8  => X3 = value, 9  => Y3 = value, 10 => Z3 = value, 11 => W3 = value,
                 12 => X4 = value, 13 => Y4 = value, 14 => Z3 = value, 15 => W4 = value,
                 _ => throw new IndexOutOfRangeException("The matrix 4x4 has 16 elements (0 to 15) !")
+            };
+        }
+    }
+    public float this[int x, int y]
+    {
+        readonly get => x switch
+        {
+            0 => y switch { 0 => X1, 1 => Y1, 2 => Z1, 3 => W1, _ => throw new IndexOutOfRangeException("You tried to access an element out of the matrix.") },
+            1 => y switch { 0 => X2, 1 => Y2, 2 => Z2, 3 => W2, _ => throw new IndexOutOfRangeException("You tried to access an element out of the matrix.") },
+            2 => y switch { 0 => X3, 1 => Y3, 2 => Z3, 3 => W3, _ => throw new IndexOutOfRangeException("You tried to access an element out of the matrix.") },
+            3 => y switch { 0 => X4, 1 => Y4, 2 => Z4, 3 => W4, _ => throw new IndexOutOfRangeException("You tried to access an element out of the matrix.") },
+            _ => throw new IndexOutOfRangeException("You tried to access a row out of the matrix.")
+        };
+        set {
+            var _ = x switch
+            {
+                0 => y switch { 0 => X1 = value, 1 => Y1 = value, 2 => Z1 = value, 3 => W1 = value, _ => throw new IndexOutOfRangeException("You tried to set an element out of the matrix.") },
+                1 => y switch { 0 => X2 = value, 1 => Y2 = value, 2 => Z2 = value, 3 => W2 = value, _ => throw new IndexOutOfRangeException("You tried to set an element out of the matrix.") },
+                2 => y switch { 0 => X3 = value, 1 => Y3 = value, 2 => Z3 = value, 3 => W3 = value, _ => throw new IndexOutOfRangeException("You tried to set an element out of the matrix.") },
+                3 => y switch { 0 => X4 = value, 1 => Y4 = value, 2 => Z4 = value, 3 => W4 = value, _ => throw new IndexOutOfRangeException("You tried to set an element out of the matrix.") },
+                _ => throw new IndexOutOfRangeException("You tried to set a row that is out of the matrix.")
             };
         }
     }
@@ -167,6 +190,64 @@ public record struct Mat4
     public static Mat4 operator /(Mat4 a, Vec4 b) => new(a.Row0 / b, a.Row1 / b, a.Row2 / b, a.Row3 / b);
     public static Mat4 operator /(Mat4 a, Mat4 b) => new(a.Row0 / b.Row0, a.Row1 / b.Row1, a.Row2 / b.Row2, a.Row3 / b.Row3);
 
+    public readonly float Determinant
+    {
+        get => (X1 * Y2 * Z3 * W4) - (X1 * Y2 * W3 * Z4) + (X1 * Z2 * W3 * Y4) - (X1 * Z2 * Y3 * W4)
+             + (X1 * W2 * Y3 * Z4) - (X1 * W2 * Z3 * Y4) - (Y1 * Z2 * W3 * X4) + (Y1 * Z2 * X3 * W4)
+             - (Y1 * W2 * X3 * Z4) + (Y1 * W2 * Z3 * X4) - (Y1 * X2 * Z3 * W4) + (Y1 * X2 * W3 * Z4)
+             + (Z1 * W2 * X3 * Y4) - (Z1 * W2 * Y3 * X4) + (Z1 * X2 * Y3 * W4) - (Z1 * X2 * W3 * Y4)
+             + (Z1 * Y2 * W3 * X4) - (Z1 * Y2 * X3 * W4) + (W1 * X2 * Y3 * Z4) + (W1 * X2 * Z3 * Y4)
+             - (W1 * Y2 * Z3 * X4) + (W1 * Y2 * X3 * Z4) - (W1 * Z2 * X3 * Y4) + (W1 * Z2 * Y3 * X4);
+    }
+
+    public Vec4 Diagonal
+    {
+        readonly get => new(Row0.X, Row1.Y, Row2.Z, Row3.W);
+        set
+        {
+            X1 = value.X;
+            Y2 = value.Y;
+            Z3 = value.Z;
+            W4 = value.W;
+        }
+    }
+
+    public readonly float Trace => Row0.X + Row1.Y + Row2.Z + Row3.W;
+
+    [Pure]
+    public static Mat4 Normalize(Mat4 m)
+    {
+        Normalize(in m, out var res);
+        return res;
+    }
+
+    public static void Normalize(in Mat4 mat, out Mat4 res)
+    {
+        var det = mat.Determinant;
+        res = new(mat.Row0 / det, mat.Row1 / det, mat.Row2 / det, mat.Row3 / det);
+    }
+
+    public static void Decompose(Mat4 a, out Vec3 translation, out Quat rotation, out Vec3 scale)
+    {
+
+    }
+
+    // Instance functions
+
+    public void Normalize()
+    {
+        var det = Determinant;
+        Row0 /= det;
+        Row1 /= det;
+        Row2 /= det;
+        Row3 /= det;
+    }
+
+    public readonly Mat4 Normalized()
+    {
+        return Mat4.Normalize(this);
+    }
+
     public readonly Quat ExtractRotation(bool rowNormalize = true)
     {
         var row0 = Row0.XYZ;
@@ -176,11 +257,6 @@ public record struct Mat4
         if(rowNormalize)
         {
         }
-    }
-
-    public static void Decompose(Mat4 a, out Vec3 translation, out Quat rotation, out Vec3 scale)
-    {
-
     }
 
     public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
