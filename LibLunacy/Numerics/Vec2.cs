@@ -10,8 +10,13 @@ public record struct Vec2
 {
     public float X, Y;
 
-    public static Vec2 Zero { get => new(0, 0); }
-    public static Vec2 One { get => new(1, 1); }
+    public static readonly Vec2 Zero = new(0, 0);
+    public static readonly Vec2 One = new(1, 1);
+
+    public static readonly Vec2 UnitX = new(1, 0);
+    public static readonly Vec2 UnitY = new(0, 1);
+
+    public static readonly int Size = Marshal.SizeOf<Vec2>();
 
     public Vec2(float x, float y) { X = x; Y = y; }
 

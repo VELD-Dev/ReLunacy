@@ -6,8 +6,15 @@ public record struct Vec4
 {
     public float X, Y, Z, W;
 
-    public static Vec4 Zero { get => new(0, 0, 0, 0); }
-    public static Vec4 One { get => new(1, 1, 1, 1); }
+    public static readonly Vec4 Zero = new(0, 0, 0, 0);
+    public static readonly Vec4 One = new(1, 1, 1, 1);
+
+    public static readonly Vec4 UnitX = new(1, 0, 0, 0);
+    public static readonly Vec4 UnitY = new(0, 1, 0, 0);
+    public static readonly Vec4 UnitZ = new(0, 0, 1, 0);
+    public static readonly Vec4 UnitW = new(0, 0, 0, 1);
+
+    public static readonly int Size = Marshal.SizeOf<Vec4>();
 
     public Vec4(float x, float y, float z, float w) { X = x; Y = y; Z = z; W = w; }
 

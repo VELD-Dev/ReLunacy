@@ -8,6 +8,8 @@ public record struct Quat
 {
     public float X, Y, Z, W;
 
+    public static readonly int Size = Marshal.SizeOf<Quat>();
+
     public Quat(Vec3 v, float w) { X = v.X; Y = v.Y; Z = v.Z; W = w; }
     public Quat(Vec4 v) { X = v.X; Y = v.Y; Z = v.Z; W = v.W; }
     public Quat(float x, float y, float z, float w) {  X = x; Y = y; Z = z; W = w; }

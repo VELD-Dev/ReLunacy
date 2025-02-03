@@ -1,4 +1,5 @@
 ﻿using System.Buffers.Binary;
+using System.Data.SqlTypes;
 using System.Diagnostics.Contracts;
 using System.Net.NetworkInformation;
 using System.Numerics;
@@ -225,6 +226,90 @@ public record struct Mat4
     {
         var det = mat.Determinant;
         res = new(mat.Row0 / det, mat.Row1 / det, mat.Row2 / det, mat.Row3 / det);
+    }
+
+    [Pure]
+    public static Vec3 ExtractTranslation(Mat4 mat)
+    {
+        return mat.Row3.XYZ;
+    }
+
+    public static void ExtractTranslation(in Mat4 mat, out Vec3 translation)
+    {
+        translation = mat.Row3.XYZ;
+    }
+
+    [Pure]
+    public static Vec3 ExtractScale(Mat4 mat)
+    {
+        return new(mat.Row0.XYZ.Length, mat.Row1.XYZ.Length, mat.Row2.XYZ.Length);
+    }
+
+    public static void ExtractScale(in Mat4 mat, out Vec3 scale)
+    {
+        scale = new(mat.Row0.XYZ.Length, mat.Row1.XYZ.Length, mat.Row2.XYZ.Length);
+    }
+
+    [Pure]
+    public static Quat ExtractRotation(Mat4 mat, bool rowNormalize = true)
+    {
+        var r0 = mat.Row0.XYZ;
+        var r1 = mat.Row1.XYZ;
+        var r2 = mat.Row2.XYZ;
+
+        if(rowNormalize)
+        {
+            r0.Normalize();
+            r1.Normalize();
+            r2.Normalize();
+        }
+
+        var q = default(Quat);
+        var trace = 0.25 * (r0.X + r1.Y + r2.Z + 1.0);
+
+        if(trace > 0)
+        {
+            var sq = Math.Sqrt(trace);
+
+            q.W = (float)sq;
+            sq = 1.0 / (4.0 * sq);
+            q.X = (float)((r1.Z - r2.Y) * sq);
+            q.Y = (float)((r2.X - r0.Z) * sq);
+            q.Z = (float)((r0.Y - r1.X) * sq);
+        }
+        else if(r0.X > r1.Y && r0.X > r2.Z)
+        {
+            var sq = 2.0 * Math.Sqrt(1.0 + r1.Y - r0.X - r2.Z);
+
+            q.X = (float)(0.25 * sq);
+            sq = 1.0 / sq;
+            q.W = (float)((r2.Y - r1.Z) * sq);
+            q.Y = (float)((r1.X - r0.Y) * sq);
+            q.Z = (float)((r2.X - r0.Z) * sq);
+        }
+        else if(r1.Y > r2.Z)
+        {
+            var sq = 2.0 * Math.Sqrt(1.0 + r1.Y - r0.X - r2.Z);
+
+            q.Y = (float)(0.25 * sq);
+            sq = 1.0 / sq;
+            q.W = (float)((r2.X - r0.Z) * sq);
+            q.X = (float)((r1.X + r0.Y) * sq);
+            q.Z = (float)((r2.Y + r1.Z) * sq);
+        }
+        else
+        {
+            var sq = 2.0 * Math.Sqrt(1.0 + r2.Z - r0.X - r1.Y);
+
+            q.Z = (float)(0.25 * sq);
+            sq = 1.0 / sq;
+            q.W = (float)((r1.X - r0.Y) * sq);
+            q.X = (float)((r2.X + r0.Z) * sq);
+            q.Y = (float)((r2.Y + r1.Z) * sq);
+        }
+
+        q.Normalize();
+        return q;
     }
 
     public static void Decompose(Mat4 a, out Vec3 translation, out Quat rotation, out Vec3 scale)

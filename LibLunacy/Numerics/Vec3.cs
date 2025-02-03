@@ -4,12 +4,20 @@ using System.Diagnostics.Contracts;
 
 namespace LibLunacy.Numerics;
 
+[Serializable]
+[StructLayout(LayoutKind.Sequential)]
 public record struct Vec3
 {
     public float X, Y, Z;
 
-    public static Vec3 Zero { get => new(0, 0, 0); }
-    public static Vec3 One { get => new(1, 1, 1); }
+    public static readonly Vec3 Zero = new(0, 0, 0);
+    public static readonly Vec3 One = new(1, 1, 1);
+
+    public static readonly Vec3 UnitX = new(1, 0, 0);
+    public static readonly Vec3 UnitY = new(0, 1, 0);
+    public static readonly Vec3 UnitZ = new(0, 0, 1);
+
+    public static readonly int Size = Marshal.SizeOf<Vec3>();
 
     public Vec3(float x, float y, float z) { X = x; Y = y; Z = z; }
 
@@ -203,6 +211,34 @@ public record struct Vec3
 
         res /= tempW;
         return res;
+    }
+
+    // INSTANCE FUNCTIONS
+
+    public readonly Vec3 Normalized(bool fast = false)
+    {
+        var v = this;
+        if (fast)
+            v.NormalizeFast();
+        else
+            v.Normalize();
+        return v;
+    }
+
+    public void Normalize()
+    {
+        float scale = 1.0f / Length;
+        X *= scale;
+        Y *= scale;
+        Z *= scale;
+    }
+
+    public void NormalizeFast()
+    {
+        float scale = MathHelper.InverseSqrtFast((X * X) + (Y * Y) + (Z * Z));
+        X *= scale;
+        Y *= scale;
+        Z *= scale;
     }
 
     public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
