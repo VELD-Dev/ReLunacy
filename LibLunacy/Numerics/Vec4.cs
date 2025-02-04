@@ -17,6 +17,7 @@ public record struct Vec4
     public static readonly int Size = Marshal.SizeOf<Vec4>();
 
     public Vec4(float x, float y, float z, float w) { X = x; Y = y; Z = z; W = w; }
+    public Vec4(Vec3 xyz, float w) { XYZ = xyz; W = w; }
 
     public static implicit operator System.Numerics.Vector4(Vec4 v) => new(v.X, v.Y, v.Z, v.W);
     public static implicit operator OpenTK.Mathematics.Vector4(Vec4 v) => new(v.X, v.Y, v.Z, v.W);
@@ -41,8 +42,25 @@ public record struct Vec4
     public static float operator ~(Vec4 a) => a.Length;
 
     public readonly float Length => MathF.Sqrt(X*X + Y*Y + Z*Z + W*W);
-    public readonly Vec3 XYZ => new(X, Y, Z);
-    public readonly Vec2 XY => new(X, Y);
+    public Vec3 XYZ
+    {
+        readonly get => new(X, Y, Z);
+        set
+        {
+            X = value.X;
+            Y = value.Y;
+            Z = value.Z;
+        }
+    }
+    public Vec2 XY
+    {
+        readonly get => new(X, Y);
+        set
+        {
+            X = value.X;
+            Y = value.Y;
+        }
+    }
 
     public readonly void Deconstruct(out float x, out float y, out float z, out float w) { x = X; y = Y; z = Z; w = W; }
     public readonly void Deconstruct(out float x, out float y, out float z) { x = X; y = Y; z = Z; }

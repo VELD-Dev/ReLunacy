@@ -13,6 +13,14 @@ public record struct Mat4
     public float X3, Y3, Z3, W3;
     public float X4, Y4, Z4, W4;
 
+    public static readonly Mat4 Identity = new(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    );
+    public static readonly int Size = Marshal.SizeOf<Mat4>();
+
     #region Accessors
     public float this[int n]
     {
@@ -310,6 +318,42 @@ public record struct Mat4
 
         q.Normalize();
         return q;
+    }
+
+    public static void CreateFromAxisAngle(Vec3 axis, float angle, out Mat4 res)
+    {
+        axis.Normalize();
+        float axisX = axis.X, axisY = axis.Y, axisZ = axis.Z;
+
+        var cos = MathF.Cos(-angle);
+        var sin = MathF.Sin(-angle);
+        var t = 1.0f - cos;
+
+        float tXX = t * axisX * axisX;
+        float tXY = t * axisX * axisY;
+        float tXZ = t * axisX * axisZ;
+        float tYY = t * axisY * axisY;
+        float tYZ = t * axisY * axisZ;
+        float tZZ = t * axisZ * axisZ;
+
+        float sinX = sin * axisX;
+        float sinY = sin * axisY;
+        float sinZ = sin * axisZ;
+
+        res = Mat4.Identity;
+        res.X1 = tXX + cos;
+        res.Y1 = tXY - sinZ;
+        res.Z1 = tXZ + sinY;
+        res.W1 = 0;
+        res.X2 = tXY + sinZ;
+        res.Y2 = tYY + cos;
+        res.Z2 = tYZ - sinX;
+        res.W2 = 0;
+        res.X3 = tXZ - sinY;
+        res.Y3 = tYZ + sinX;
+        res.Z3 = tZZ + cos;
+        res.W3 = 0;
+        res.Row3 = Vec4.UnitW;
     }
 
     public static void Decompose(Mat4 a, out Vec3 translation, out Quat rotation, out Vec3 scale)
