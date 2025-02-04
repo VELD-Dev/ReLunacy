@@ -379,13 +379,7 @@ public record struct Mat4
 
     public readonly Quat ExtractRotation(bool rowNormalize = true)
     {
-        var row0 = Row0.XYZ;
-        var row1 = Row1.XYZ;
-        var row2 = Row2.XYZ;
-
-        if(rowNormalize)
-        {
-        }
+        return Mat4.ExtractRotation(this, rowNormalize);
     }
 
     public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
