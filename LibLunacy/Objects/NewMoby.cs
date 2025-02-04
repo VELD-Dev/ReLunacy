@@ -85,10 +85,7 @@ public record struct NewMoby : IMoby
         var span = rented.AsSpan(0, (int)Size);
 
         var offset = 0;
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], boundingSphere.X);    offset += sizeof(float);
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], boundingSphere.Y);    offset += sizeof(float);
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], boundingSphere.Z);    offset += sizeof(float);
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], boundingSphere.W);    offset += sizeof(float);
+        boundingSphere.ToBytes(span[offset..]);                                     offset += Vec4.Size;
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk1);                offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk2);                offset += sizeof(uint);
         BinaryPrimitives.WriteUInt16BigEndian(span[offset..], bangleCount1);        offset += sizeof(ushort);

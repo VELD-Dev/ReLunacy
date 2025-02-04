@@ -20,8 +20,8 @@ namespace LibLunacy.Objects.Instances
 
         public TieInstance(LunaStream stream)
         {
-            transform = stream.ReadMatrix4x4(0x00);
-            boundingSphere = stream.ReadVector4(0x40);
+            transform = stream.ReadMat4(0x00);
+            boundingSphere = stream.ReadVec4(0x40);
             tieIndex = stream.ReadUInt32(0x50);
             Unk = stream.Peek(0x54, 0x2C);
         }
@@ -33,7 +33,7 @@ namespace LibLunacy.Objects.Instances
 
             var offset = 0;
             transform.ToBytes(span[offset..]); offset += 0x40;
-            boundingSphere.ToBytesBE().CopyTo(span[offset..]); offset += 0x10;
+            boundingSphere.ToBytes(span[offset..]); offset += 0x10;
             BinaryPrimitives.WriteUInt32BigEndian(span[offset..], tieIndex); offset += sizeof(uint);
             Unk.CopyTo(span[offset..]); offset += Unk.Length;
 

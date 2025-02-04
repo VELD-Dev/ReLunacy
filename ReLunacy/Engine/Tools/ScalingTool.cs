@@ -1,6 +1,4 @@
-﻿using Vector3 = OpenTK.Mathematics.Vector3;
-using Vec3 = System.Numerics.Vector3;
-namespace ReLunacy.Engine.Tools;
+﻿namespace ReLunacy.Engine.Tools;
 
 // Credits to github.com/RatchetModding/Replanetizer
 
@@ -10,15 +8,15 @@ public class ScalingTool : BasicTransformTool
 
     public ScalingTool(Toolbox tb) : base(tb) { }
 
-    public override void Render(Matrix4 mat, Material material)
+    public override void Render(Mat4 mat, Material material)
     {
         throw new NotImplementedException();
     }
 
     public override void Transform(Entity entity, OpenTK.Mathematics.Vector3 pivot, TransformToolData data)
     {
-        float prevDist = getLineIntersectedDist(pivot, data.axisDir, data.cameraPos, data.mousePrevDir);
-        float currDist = getLineIntersectedDist(pivot, data.axisDir, data.cameraPos, data.mouseCurrDir);
+        float prevDist = GetLineIntersectedDist(pivot, data.axisDir, data.cameraPos, data.mousePrevDir);
+        float currDist = GetLineIntersectedDist(pivot, data.axisDir, data.cameraPos, data.mouseCurrDir);
 
         float prevScale = MathF.Abs(prevDist);
         float currScale = Math.Abs(currDist);

@@ -58,7 +58,7 @@ public class PropertyInspectorFrame : DockedFrame
 
             ImGui.SeparatorText("Transform");
 
-            ImGui.InputFloat3("Position", ref SelectedEntity.transform.position, "%.3fm");
+            ImGui.InputFloat3("Position", ref SelectedEntity.transform.Position, "%.3fm");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
             ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.transform.eulerRotation, "%.4frad");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
@@ -75,10 +75,10 @@ public class PropertyInspectorFrame : DockedFrame
             
             if(ImGui.Button("Teleport to Entity"))
             {
-                Camera.Main.transform.position = -(SelectedEntity.transform.position + (Camera.Main.transform.Forward * 10f).ToNumerics());
+                Camera.Main.transform.Position = -(SelectedEntity.transform.Position + (Camera.Main.transform.Forward * 10f).ToNumerics());
             }
             ImGui.SameLine();
-            ImGui.Text($"({SelectedEntity.transform.position.DistanceFrom(-Camera.Main.transform.position):N3}m away)");
+            ImGui.Text($"({SelectedEntity.transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m away)");
 
             ImGui.EndGroup();
         }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LibLunacy.Numerics;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -144,28 +145,23 @@ public class LunaStream : Stream
         return BitConverter.ToDouble(bytes);
     }
 
-    public Vector3 ReadVector3(int offset, bool relative = true)
+    public Vec3 ReadVec3(int offset, bool relative = true)
     {
-        return new Vector3(ReadSingle(offset, relative), ReadSingle(offset + 0x04, relative), ReadSingle(offset + 0x08, relative));
+        return new Vec3(ReadSingle(offset, relative), ReadSingle(offset + 0x04, relative), ReadSingle(offset + 0x08, relative));
     }
 
-    public Vector4 ReadVector4(int offset, bool relative = true)
+    public Vec4 ReadVec4(int offset, bool relative = true)
     {
-        return new Vector4(ReadSingle(offset, relative), ReadSingle(offset + 0x04, relative), ReadSingle(offset + 0x08, relative), ReadSingle(offset + 0x0C, relative));
+        return new Vec4(ReadSingle(offset, relative), ReadSingle(offset + 0x04, relative), ReadSingle(offset + 0x08, relative), ReadSingle(offset + 0x0C, relative));
     }
 
-    public Matrix4x4 ReadMatrix4x4(int offset, bool relative = true)
+    public Mat4 ReadMat4(int offset, bool relative = true)
     {
-        var r1 = ReadVector4(0x00, relative);
-        var r2 = ReadVector4(0x10, relative);
-        var r3 = ReadVector4(0x20, relative);
-        var r4 = ReadVector4(0x30, relative);
-        return new Matrix4x4(
-            r1.X, r1.Y, r1.Z, r1.W,
-            r2.X, r2.Y, r2.Z, r2.W,
-            r3.X, r3.Y, r3.Z, r3.W,
-            r4.X, r4.Y, r4.Z, r4.W
-        );
+        var r1 = ReadVec4(0x00, relative);
+        var r2 = ReadVec4(0x10, relative);
+        var r3 = ReadVec4(0x20, relative);
+        var r4 = ReadVec4(0x30, relative);
+        return new Mat4(r1, r2, r3, r4);
     }
 
     public string ReadString(int offset, bool relative = true, uint length = 0)

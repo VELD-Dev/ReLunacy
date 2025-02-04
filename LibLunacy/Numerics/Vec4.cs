@@ -1,4 +1,5 @@
 ﻿using System.Buffers.Binary;
+using System.Diagnostics.Contracts;
 
 namespace LibLunacy.Numerics;
 
@@ -34,6 +35,8 @@ public record struct Vec4
 
     public static Vec4 operator *(Vec4 a, float b) => new(a.X * b, a.Y * b, a.Z * b, a.W * b);
     public static Vec4 operator *(Vec4 a, Vec4 b) => new(a.X * b.X, a.Y * b.Y, a.Z * b.Z, a.W * b.W);
+    public static Vec4 operator *(Mat4 a, Vec4 b) => TransformColumn(a, b);
+    public static Vec4 operator *(Vec4 a, Mat4 b) => TransformRow(b, a);
     public static Vec4 operator /(Vec4 a, float b) => new(a.X / b, a.Y / b, a.Z / b, a.W / b);
     public static Vec4 operator /(Vec4 a, Vec4 b) => new(a.X / b.X, a.Y / b.Y, a.Z / b.Z, a.W / b.W);
     public static Vec4 operator +(Vec4 a, Vec4 b) => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z, a.W + b.W);
@@ -66,12 +69,37 @@ public record struct Vec4
     public readonly void Deconstruct(out float x, out float y, out float z) { x = X; y = Y; z = Z; }
     public readonly void Deconstruct(out float x, out float y) { x = X; y = Y; }
 
-    /*
-    public readonly bool Contains(Vec2 vec)
+    [Pure]
+    public static Vec4 TransformColumn(Mat4 mat, Vec4 vec)
     {
-        return Vec2.Zero < vec * (Z, W) && vec * (Z, W) < (Vec2)(Z, W) * (Z, W) && ;
+        TransformColumn(in mat, in vec, out var res);
+        return res;
     }
-    */
+
+    public static void TransformColumn(in Mat4 mat, in Vec4 vec, out Vec4 res)
+    {
+        res = new(
+            (mat.Row0.X * vec.X) + (mat.Row0.Y * vec.Y) + (mat.Row0.Z * vec.Z) + (mat.Row0.W * vec.W),
+            (mat.Row1.X * vec.X) + (mat.Row1.Y * vec.Y) + (mat.Row1.Z * vec.Z) + (mat.Row1.W * vec.W),
+            (mat.Row2.X * vec.X) + (mat.Row2.Y * vec.Y) + (mat.Row2.Z * vec.Z) + (mat.Row2.W * vec.W),
+            (mat.Row3.X * vec.X) + (mat.Row3.Y * vec.Y) + (mat.Row3.Z * vec.Z) + (mat.Row3.W * vec.W));
+    }
+
+    [Pure]
+    public static Vec4 TransformRow(Mat4 mat, Vec4 vec)
+    {
+        TransformRow(in mat, in vec, out var res);
+        return res;
+    }
+
+    public static void TransformRow(in Mat4 mat, in Vec4 vec, out Vec4 res)
+    {
+        res = new(
+            (vec.X * mat.Row0.X) + (vec.Y * mat.Row1.X) + (vec.Z * mat.Row2.X) + (vec.W * mat.Row3.X),
+            (vec.X * mat.Row0.Y) + (vec.Y * mat.Row1.Y) + (vec.Z * mat.Row2.Y) + (vec.W * mat.Row3.Y),
+            (vec.X * mat.Row0.Z) + (vec.Y * mat.Row1.Z) + (vec.Z * mat.Row2.Z) + (vec.W * mat.Row3.Z),
+            (vec.X * mat.Row0.W) + (vec.Y * mat.Row1.W) + (vec.Z * mat.Row2.W) + (vec.W * mat.Row3.W));
+    }
 
     public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
     {

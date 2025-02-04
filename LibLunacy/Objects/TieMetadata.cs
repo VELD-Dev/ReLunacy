@@ -36,7 +36,7 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
         verticesBufferStart =   stream.ReadUInt32(0x14);
         verticesBufferSize =    stream.ReadUInt32(0x18);
         Unk3 =                  stream.ReadUInt32(0x1C);
-        scale =                 stream.ReadVector3(0x20);
+        scale =                 stream.ReadVec3(0x20);
         Unk4 =                  stream.Peek(0x2C, 0x38);
         nameOffset =            stream.ReadUInt32(0x64);
         if (isOld)
@@ -81,9 +81,7 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], verticesBufferStart); offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], verticesBufferSize);  offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk3);                offset += sizeof(uint);
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], scale.X);             offset += sizeof(float);
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], scale.Y);             offset += sizeof(float);
-        BinaryPrimitives.WriteSingleBigEndian(span[offset..], scale.Z);             offset += sizeof(float);
+        scale.ToBytes(span[offset..]);                                              offset += Vec3.Size;
         Unk4.CopyTo(span[offset..]);                                                offset += Unk4.Length;
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], nameOffset);          offset += sizeof(uint); 
         if(!isOld)

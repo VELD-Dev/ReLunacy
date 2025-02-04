@@ -26,8 +26,8 @@ namespace LibLunacy.Objects.Instances
         public MobyInstanceOld(LunaStream stream)
         {
             Unk1 = stream.Peek(0x00, 0x18);
-            position = stream.ReadVector3(0x18);
-            rotation = stream.ReadVector3(0x24);
+            position = stream.ReadVec3(0x18);
+            rotation = stream.ReadVec3(0x24);
             scale = stream.ReadSingle(0x30);
             Unk2 = stream.ReadUInt64(0x34);
             mobyIndex = stream.ReadUInt16(0x3C);

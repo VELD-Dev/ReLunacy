@@ -70,6 +70,18 @@ public record struct Vec3
     public static Vec3 FromAngles(float length, float alpha, float beta) => new(MathF.Cos(alpha) * length, MathF.Sin(alpha) * length, MathF.Sin(beta) * length);
 
     [Pure]
+    public static float DistanceFrom(Vec3 a, Vec3 b)
+    {
+        DistanceFrom(in a, in b, out var res);
+        return res;
+    }
+
+    public static void DistanceFrom(in Vec3 a, in Vec3 b, out float res)
+    {
+        res = MathF.Sqrt(((b.X - a.X) * (b.X - a.X)) + ((b.Y - a.Y) * (b.Y - a.Y)) + ((b.Z - a.Z) * (b.Z - a.Z)));
+    }
+
+    [Pure]
     public static Vec3 Normalize(Vec3 vec)
     {
         float scale = 1 / vec.Length;
@@ -214,6 +226,16 @@ public record struct Vec3
     }
 
     // INSTANCE FUNCTIONS
+
+    public readonly float DistanceFrom(Vec3 b)
+    {
+        return Vec3.DistanceFrom(this, b);
+    }
+
+    public readonly void DistanceFrom(in Vec3 b, out float res)
+    {
+        Vec3.DistanceFrom(in this, in b, out res);
+    }
 
     public readonly Vec3 Normalized(bool fast = false)
     {

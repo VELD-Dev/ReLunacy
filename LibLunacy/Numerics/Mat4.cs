@@ -3,6 +3,9 @@ using System.Data.SqlTypes;
 using System.Diagnostics.Contracts;
 using System.Net.NetworkInformation;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace LibLunacy.Numerics;
 
@@ -193,10 +196,8 @@ public record struct Mat4
     public static implicit operator Mat4((Vec4, Vec4, Vec4, Vec4) mat) => new(mat.Item1, mat.Item2, mat.Item3, mat.Item4);
 
     public static Mat4 operator *(Mat4 a, float b) => new(a.Row0 * b, a.Row1 * b, a.Row2 * b, a.Row3 * b);
-    public static Mat4 operator *(Mat4 a, Vec4 b) => new(a.Row0 * b, a.Row1 * b, a.Row2 * b, a.Row3 * b);
-    public static Mat4 operator *(Mat4 a, Mat4 b) => new(a.Row0 * b.Row0, a.Row1 * b.Row1, a.Row2 * b.Row2, a.Row3 * b.Row3);
+    public static Mat4 operator *(Mat4 a, Mat4 b) => Multiply(a, b);
     public static Mat4 operator /(Mat4 a, float b) => new(a.Row0 / b, a.Row1 / b, a.Row2 / b, a.Row3 / b);
-    public static Mat4 operator /(Mat4 a, Vec4 b) => new(a.Row0 / b, a.Row1 / b, a.Row2 / b, a.Row3 / b);
     public static Mat4 operator /(Mat4 a, Mat4 b) => new(a.Row0 / b.Row0, a.Row1 / b.Row1, a.Row2 / b.Row2, a.Row3 / b.Row3);
 
     public readonly float Determinant
@@ -222,6 +223,42 @@ public record struct Mat4
     }
 
     public readonly float Trace => Row0.X + Row1.Y + Row2.Z + Row3.W;
+
+    public static Mat4 Multiply(Mat4 a, Mat4 b)
+    {
+        float aM11 = a.Row0.X, aM12 = a.Row0.Y, aM13 = a.Row0.Z, aM14 = a.Row0.W;
+        float aM21 = a.Row1.X, aM22 = a.Row1.Y, aM23 = a.Row1.Z, aM24 = a.Row1.W;
+        float aM31 = a.Row2.X, aM32 = a.Row2.Y, aM33 = a.Row2.Z, aM34 = a.Row2.W;
+        float aM41 = a.Row3.X, aM42 = a.Row3.Y, aM43 = a.Row3.Z, aM44 = a.Row3.W;
+
+        float bM11 = b.Row0.X, bM12 = b.Row0.Y, bM13 = b.Row0.Z, bM14 = b.Row0.W;
+        float bM21 = b.Row1.X, bM22 = b.Row1.Y, bM23 = b.Row1.Z, bM24 = b.Row1.W;
+        float bM31 = b.Row2.X, bM32 = b.Row2.Y, bM33 = b.Row2.Z, bM34 = b.Row2.W;
+        float bM41 = b.Row3.X, bM42 = b.Row3.Y, bM43 = b.Row3.Z, bM44 = b.Row3.W;
+
+        Mat4 res;
+        res.X1 = (aM11 * bM11) + (aM12 * bM21) + (aM13 * bM31) + (aM14 * bM41);
+        res.Y1 = (aM11 * bM12) + (aM12 * bM22) + (aM13 * bM32) + (aM14 * bM42);
+        res.Z1 = (aM11 * bM13) + (aM12 * bM23) + (aM13 * bM33) + (aM14 * bM43);
+        res.W1 = (aM11 * bM14) + (aM12 * bM24) + (aM13 * bM34) + (aM14 * bM44);
+
+        res.X2 = (aM21 * bM11) + (aM22 * bM21) + (aM23 * bM31) + (aM24 * bM41);
+        res.Y2 = (aM21 * bM12) + (aM22 * bM22) + (aM23 * bM32) + (aM24 * bM42);
+        res.Z2 = (aM21 * bM13) + (aM22 * bM23) + (aM23 * bM33) + (aM24 * bM43);
+        res.W2 = (aM21 * bM14) + (aM22 * bM24) + (aM23 * bM34) + (aM24 * bM44);
+
+        res.X3 = (aM31 * bM11) + (aM32 * bM21) + (aM33 * bM31) + (aM34 * bM41);
+        res.Y3 = (aM31 * bM12) + (aM32 * bM22) + (aM33 * bM32) + (aM34 * bM42);
+        res.Z3 = (aM31 * bM13) + (aM32 * bM23) + (aM33 * bM33) + (aM34 * bM43);
+        res.W3 = (aM31 * bM14) + (aM32 * bM24) + (aM33 * bM34) + (aM34 * bM44);
+
+        res.X4 = (aM41 * bM11) + (aM42 * bM21) + (aM43 * bM31) + (aM44 * bM41);
+        res.Y4 = (aM41 * bM12) + (aM42 * bM22) + (aM43 * bM32) + (aM44 * bM42);
+        res.Z4 = (aM41 * bM13) + (aM42 * bM23) + (aM43 * bM33) + (aM44 * bM43);
+        res.W4 = (aM41 * bM14) + (aM42 * bM24) + (aM43 * bM34) + (aM44 * bM44);
+
+        return res;
+    }
 
     [Pure]
     public static Mat4 Normalize(Mat4 m)
@@ -320,7 +357,14 @@ public record struct Mat4
         return q;
     }
 
-    public static void CreateFromAxisAngle(Vec3 axis, float angle, out Mat4 res)
+    [Pure]
+    public static Mat4 CreateFromAxisAngle(Vec3 axis, float angle)
+    {
+        CreateFromAxisAngle(in axis, in angle, out var mat);
+        return mat;
+    }
+
+    public static void CreateFromAxisAngle(in Vec3 axis, in float angle, out Mat4 res)
     {
         axis.Normalize();
         float axisX = axis.X, axisY = axis.Y, axisZ = axis.Z;
@@ -356,9 +400,280 @@ public record struct Mat4
         res.Row3 = Vec4.UnitW;
     }
 
+    [Pure]
+    public static Mat4 CreateFromQuaternion(Quaternion q)
+    {
+        CreateFromQuaternion(in q, out var res);
+        return res;
+    }
+
+    public static void CreateFromQuaternion(in Quat q, out Mat4 res)
+    {
+        float sqx = q.X * q.X;
+        float sqy = q.Y * q.Y;
+        float sqz = q.Z * q.Z;
+        float sqw = q.W * q.W;
+
+        float xy = q.X * q.Y;
+        float xz = q.Y * q.Z;
+        float xw = q.X * q.W;
+
+        float yz = q.Y * q.Z;
+        float yw = q.Y * q.W;
+
+        float zw = q.Z * q.W;
+
+        float s2 = 2f / (sqx + sqy + sqz + sqw);
+
+        res = Mat4.Identity;
+        res.X1 = 1 - (s2 * (sqy + sqz));
+        res.Y2 = 1 - (s2 * (sqx + sqz));
+        res.Z3 = 1 - (s2 * (sqx + sqy));
+
+        res.Y1 = s2 * (xy + zw);
+        res.X2 = s2 * (xy - zw);
+
+        res.X3 = s2 * (xz + yw);
+        res.Z1 = s2 * (xz - yw);
+
+        res.Y3 = s2 * (yz - xw);
+        res.Z2 = s2 * (yz + xw);
+
+        res.W1 = 0;
+        res.W2 = 0;
+        res.W3 = 0;
+        res.Row3 = (0, 0, 0, 1);
+    }
+
+    [Pure]
+    public static Mat4 CreateTranslation(float x, float y, float z)
+    {
+        CreateTranslation(in x, in y, in z, out var mat);
+        return mat;
+    }
+
+    public static void CreateTranslation(in float x, in float y, in float z, out Mat4 res)
+    {
+        res = Mat4.Identity;
+        res.X4 = x;
+        res.Y4 = y;
+        res.Z4 = z;
+    }
+
+    [Pure]
+    public static Mat4 CreateTranslation(Vec3 vec)
+    {
+        CreateTranslation(in vec, out var res);
+        return res;
+    }
+
+    public static void CreateTranslation(in Vec3 vec, out Mat4 res)
+    {
+        res = Identity;
+        res.Row3 = new(vec, 1);
+    }
+
+    [Pure]
+    public static Mat4 CreateScale(float scale)
+    {
+        CreateScale(in scale, out var res);
+        return res;
+    }
+
+    public static void CreateScale(in float scale, out Mat4 res)
+    {
+        res = Mat4.Identity;
+        res.X1 = scale;
+        res.Y2 = scale;
+        res.Z3 = scale;
+    }
+
+    [Pure]
+    public static Mat4 CreateScale(float x, float y, float z)
+    {
+        CreateScale(in x, in y, in z, out var res);
+        return res;
+    }
+
+    public static void CreateScale(in float x, in float y, in float z, out Mat4 res)
+    {
+        res = Mat4.Identity;
+        res.X1 = x;
+        res.Y2 = y;
+        res.Z3 = z;
+    }
+
+    [Pure]
+    public static Mat4 CreateScale(Vec3 scale)
+    {
+        CreateScale(in scale, out var res);
+        return res;
+    }
+
+    public static void CreateScale(in Vec3 scale, out Mat4 res)
+    {
+        res = Mat4.Identity;
+        res.Diagonal = new(scale, 1);
+    }
+
+    [Pure]
+    public static Mat4 Invert(Mat4 mat)
+    {
+        Invert(in mat, out var res);
+        return res;
+    }
+    
+    public static void Invert(in Mat4 mat, out Mat4 res)
+    {
+        if (!Sse3.IsSupported)
+            throw new NotImplementedException("The unoptimized Matrices 4x4 inversion is not implemented yet.");
+
+        InvertSse3(in mat, out res);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe void InvertSse3(in Mat4 mat, out Mat4 res)
+    {
+        // See source: https://github.com/opentk/opentk/blob/24c209900b2f1e5a4ae01175c3e78ed6b82c17db/src/OpenTK.Mathematics/Matrix/Matrix4.cs#L1718-L1927
+        // Removed documentation to make it more readable but omg... This is huge.
+
+        Vector128<float> row0;
+        Vector128<float> row1;
+        Vector128<float> row2;
+        Vector128<float> row3;
+
+        fixed(float* m = &mat.X1)
+        {
+            row0 = Sse.LoadVector128(m);
+            row1 = Sse.LoadVector128(m + 4);
+            row2 = Sse.LoadVector128(m + 8);
+            row3 = Sse.LoadVector128(m + 12);
+        }
+
+        var A = Sse.MoveLowToHigh(row0, row1);
+        var B = Sse.MoveHighToLow(row1, row0);
+        var C = Sse.MoveLowToHigh(row2, row3);
+        var D = Sse.MoveHighToLow(row3, row2);
+
+        const byte Shuffle_0202 = 0b1000_1000,
+                   Shuffle_1313 = 0b1101_1101;
+
+        var detSub = Sse.Subtract(
+            Sse.Multiply(
+                Sse.Shuffle(row0, row2, Shuffle_0202),
+                Sse.Shuffle(row1, row3, Shuffle_1313)),
+            Sse.Multiply(
+                Sse.Shuffle(row0, row2, Shuffle_1313),
+                Sse.Shuffle(row1, row3, Shuffle_0202)));
+
+        const byte Shuffle_0000 = 0b0000_0000,
+                   Shuffle_1111 = 0b0101_0101,
+                   Shuffle_2222 = 0b1010_1010,
+                   Shuffle_3333 = 0b1111_1111;
+
+        var detA = Sse2.Shuffle(detSub.AsInt32(), Shuffle_0000).AsSingle();
+        var detB = Sse2.Shuffle(detSub.AsInt32(), Shuffle_1111).AsSingle();
+        var detC = Sse2.Shuffle(detSub.AsInt32(), Shuffle_2222).AsSingle();
+        var detD = Sse2.Shuffle(detSub.AsInt32(), Shuffle_3333).AsSingle();
+
+        const byte Shuffle_3300 = 0b0000_1111,
+                   Shuffle_1122 = 0b1010_0101,
+                   Shuffle_2301 = 0b0100_1110;
+
+        var DC = Sse.Subtract(
+            Sse.Multiply(Sse2.Shuffle(D.AsInt32(), Shuffle_3300).AsSingle(), C),
+            Sse.Multiply(
+                Sse2.Shuffle(D.AsInt32(), Shuffle_1122).AsSingle(),
+                Sse2.Shuffle(C.AsInt32(), Shuffle_2301).AsSingle()));
+
+        var AB = Sse.Subtract(
+            Sse.Multiply(Sse2.Shuffle(A.AsInt32(), Shuffle_3300).AsSingle(), B),
+            Sse.Multiply(
+                Sse2.Shuffle(A.AsInt32(), Shuffle_1122).AsSingle(),
+                Sse2.Shuffle(B.AsInt32(), Shuffle_2301).AsSingle()));
+
+        const byte Shuffle_0303 = 0b1100_1100,
+                   Shuffle_1032 = 0b1011_0001,
+                   Shuffle_2121 = 0b0110_0110;
+
+        var X_ = Sse.Subtract(
+            Sse.Multiply(detD, A),
+            Sse.Add(
+                Sse.Multiply(B, Sse2.Shuffle(DC.AsInt32(), Shuffle_0303).AsSingle()),
+                Sse.Multiply(
+                    Sse2.Shuffle(B.AsInt32(), Shuffle_1032).AsSingle(),
+                    Sse2.Shuffle(DC.AsInt32(), Shuffle_2121).AsSingle())));
+
+        var W_ = Sse.Subtract(
+            Sse.Multiply(detA, D),
+            Sse.Add(
+                Sse.Multiply(C, Sse2.Shuffle(AB.AsInt32(), Shuffle_0303).AsSingle()),
+                Sse.Multiply(
+                    Sse2.Shuffle(C.AsInt32(), Shuffle_1032).AsSingle(),
+                    Sse2.Shuffle(AB.AsInt32(), Shuffle_2121).AsSingle())));
+
+        var detM = Sse.Multiply(detA, detD);
+
+        const byte Shuffle_3030 = 0b0011_0011;
+
+        var Y_ = Sse.Subtract(
+            Sse.Multiply(detB, C),
+            Sse.Subtract(
+                Sse.Multiply(D, Sse2.Shuffle(AB.AsInt32(), Shuffle_3030).AsSingle()),
+                Sse.Multiply(
+                    Sse2.Shuffle(D.AsInt32(), Shuffle_1032).AsSingle(),
+                    Sse2.Shuffle(AB.AsInt32(), Shuffle_2121).AsSingle())));
+
+        var Z_ = Sse.Subtract(
+            Sse.Multiply(detC, B),
+            Sse.Subtract(
+                Sse.Multiply(A, Sse2.Shuffle(D.AsInt32(), Shuffle_3030).AsSingle()),
+                Sse.Multiply(
+                    Sse2.Shuffle(A.AsInt32(), Shuffle_1032).AsSingle(),
+                    Sse2.Shuffle(DC.AsInt32(), Shuffle_2121).AsSingle())));
+
+        detM = Sse.Add(detM, Sse.Multiply(detB, detC));
+
+        const byte Shuffle_0213 = 0b1101_1000;
+
+        var tr = Sse.Multiply(AB, Sse2.Shuffle(DC.AsInt32(), Shuffle_0213).AsSingle());
+        tr = Sse3.HorizontalAdd(tr, tr);
+        tr = Sse3.HorizontalAdd(tr, tr);
+
+        detM = Sse.Subtract(detM, tr);
+
+        if (MathF.Abs(detM.GetElement(0)) < float.Epsilon)
+        {
+            throw new InvalidOperationException("Matrix is singular and cannot be inverted");
+        }
+
+        var adjSignMask = Vector128.Create(1f, -1f, 1f, -1f);
+        var rDetM = Sse.Divide(adjSignMask, detM);
+
+        X_ = Sse.Multiply(X_, rDetM);
+        Y_ = Sse.Multiply(Y_, rDetM);
+        Z_ = Sse.Multiply(Z_, rDetM);
+        W_ = Sse.Multiply(W_, rDetM);
+
+        const byte Shuffle_3131 = 0b0111_0111,
+                   Shuffle_2020 = 0b0010_0010;
+
+        Unsafe.SkipInit(out res);
+
+        fixed(float* r = &res.X1)
+        {
+            Sse.Store(r + 0, Sse.Shuffle(X_, Y_, Shuffle_3131));
+            Sse.Store(r + 4, Sse.Shuffle(X_, Y_, Shuffle_2020));
+            Sse.Store(r + 8, Sse.Shuffle(Z_, W_, Shuffle_3131));
+            Sse.Store(r + 12, Sse.Shuffle(Z_, W_, Shuffle_2020));
+        }
+    }
+
     public static void Decompose(Mat4 a, out Vec3 translation, out Quat rotation, out Vec3 scale)
     {
-
+        translation = a.ExtractTranslation();
+        rotation = a.ExtractRotation();
+        scale = a.ExtractScale();
     }
 
     // Instance functions
@@ -380,6 +695,37 @@ public record struct Mat4
     public readonly Quat ExtractRotation(bool rowNormalize = true)
     {
         return Mat4.ExtractRotation(this, rowNormalize);
+    }
+
+    public readonly Vec3 ExtractTranslation()
+    {
+        return Mat4.ExtractTranslation(this);
+    }
+
+    public readonly Vec3 ExtractScale()
+    {
+        return Mat4.ExtractScale(this);
+    }
+
+    public void Invert()
+    {
+        Mat4.Invert(in this, out this);
+    }
+
+    public readonly Mat4 Inverted()
+    {
+        var m = this;
+        if(m.Determinant != 0)
+        {
+            m.Invert();
+        }
+
+        return m;
+    }
+
+    public readonly void Decompose(out Vec3 translation, out Quat rotation, out Vec3 scale)
+    {
+        Mat4.Decompose(this, out translation, out rotation, out scale);
     }
 
     public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)

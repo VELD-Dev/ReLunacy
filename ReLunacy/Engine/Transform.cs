@@ -2,12 +2,15 @@
 
 public class Transform
 {
-    public Vec3 position = Vec3.Zero;
-    public Quat rotation
+    public Vec3 Position { get; set {
+            field = value;
+            UpdateTransformMatrix();
+        } }
+    public Quat Rotation
     {
         get
         {
-            return Quat.FromEulerAngles(eulerRotation.ToOpenTK());
+            return Quat.FromEulerAngles(eulerRotation);
         }
         set
         {
@@ -17,7 +20,19 @@ public class Transform
     public Vec3 eulerRotation;
     public Vec3 scale = Vec3.One;
 
-    private Matrix4 modelMatrix;
+    public Mat4 Reflection { get; set; } = Mat4.Identity;
+    private Mat4 modelMatrix;
+    public Mat4 Matrix
+    {
+        get => modelMatrix;
+        set
+        {
+            modelMatrix = value;
+            Rotation = value.ExtractRotation();
+            Position = value.ExtractTranslation() * YardToMeter;
+            scale = value.ExtractScale() * YardToMeter;
+        }
+    }
     public bool useMatrix = false;
 
     public bool updated = false;
@@ -26,7 +41,7 @@ public class Transform
     {
         get
         {
-            return Quat.Invert(rotation) * Vec3.UnitZ;
+            return Rotation.Inverted() * Vec3.UnitZ;
         }
     }
 
@@ -34,7 +49,7 @@ public class Transform
     {
         get
         {
-            return Quat.Invert(rotation) * Vec3.UnitY;
+            return Rotation.Inverted() * Vec3.UnitY;
         }
     }
 
@@ -42,27 +57,27 @@ public class Transform
     {
         get
         {
-            return Quat.Invert(rotation) * Vec3.UnitX;
+            return Rotation.Inverted() * Vec3.UnitX;
         }
     }
 
     public Transform()
     {
-        position = Vec3.Zero;
+        Position = Vec3.Zero;
         SetRotation(Vec3.Zero);
         scale = Vec3.One;
     }
 
     public Transform(Vec3 position, Vec3 rotation, Vec3 scale)
     {
-        this.position = position;
+        this.Position = position;
         SetRotation(rotation);
         this.scale = scale;
     }
 
     public Transform(Vec3 position, Quat rotation, Vec3 scale)
     {
-        this.position = position;
+        this.Position = position;
         SetRotation(rotation);
         this.scale = scale;
     }
@@ -71,24 +86,35 @@ public class Transform
     {
         //useMatrix = true;
         modelMatrix = mat;
-        position = mat.ExtractTranslation().ToNumerics() * YardToMeter;
-        scale = mat.ExtractScale().ToNumerics() * YardToMeter;
+        Position = mat.ExtractTranslation();
+        scale = mat.ExtractScale();
         SetRotation(mat.ExtractRotation().ToEulerAngles());
+    }
+
+    public void UpdateTransformMatrix()
+    {
+        modelMatrix = Reflection * Mat4.CreateScale(scale) * Mat4.CreateFromQuaternion(Rotation) * Mat4.CreateTranslation(Position);
+    }
+
+    public void SetPosition(Vec3 pos)
+    {
+        Position = pos;
+        
     }
 
     public void SetRotation(Quat quaternion)
     {
-        rotation = quaternion;
+        Rotation = quaternion;
     }
 
     public void SetRotation(Vec3 euler)
     {
-        rotation = new Quat(euler);
+        Rotation = new Quat(euler);
     }
 
     public Matrix4 GetLocalToWorldMatrix()
     {
         //if (useMatrix) return modelMatrix;
-        return Mat4.Identity * Mat4.CreateScale(scale) * Mat4.CreateFromQuaternion(rotation) * Mat4.CreateTranslation(position);
+        return Mat4.Identity * Mat4.CreateScale(scale) * Mat4.CreateFromQuaternion(Rotation) * Mat4.CreateTranslation(Position);
     }
 }

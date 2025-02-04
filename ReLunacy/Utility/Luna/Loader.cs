@@ -970,7 +970,7 @@ public class Loader : IDisposable
             for(uint i = 0; i < volMetaSec.count; i++)
             {
                 prius.Seek(volTransformSec.offset + 0x40 * i); // 0x40 is the size of a matrix 4x4.
-                var transform = prius.ReadMatrix4x4(0x00);
+                var transform = prius.ReadMat4(0x00);
                 prius.Seek(volMetaSec.offset + InstanceMetadata.Size * i);
                 var volume = new Volume(prius, transform);
                 region.Volumes.Add(volume.TUID, volume);

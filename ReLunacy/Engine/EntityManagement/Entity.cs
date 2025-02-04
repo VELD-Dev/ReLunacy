@@ -30,7 +30,7 @@ public class Entity
         );
         name = mobyInstance.name;
         ((DrawableListList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(mobyInstance.Moby.BoundingSphere * YardToMeter + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
+        boundingSphere = new(mobyInstance.Moby.BoundingSphere * YardToMeter + transform.Position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
     public Entity(Region.CVolumeInstance volumeInstance)
     {
@@ -84,7 +84,7 @@ public class Entity
 
     public void SetPosition(Vector3 position)
     {
-        transform.position = position;
+        transform.Position = position;
         if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
         else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
         else if (drawable is Drawable d) d.UpdateTransform(transform, id);

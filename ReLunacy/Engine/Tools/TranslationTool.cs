@@ -25,24 +25,35 @@ public class TranslationTool : BasicTransformTool
         // material.SetFloat()  // REWORK OF MATERIAL SYSTEM NEEDED
     }
 
-    public override void Transform(Entity entity, OpenTK.Mathematics.Vector3 pivot, TransformToolData data)
+    public override void Transform(Entity entity, Vec3 pivot, TransformToolData data)
     {
         var transform = entity.transform;
-        var matrix = Matrix4.CreateTranslation(transform.position.ToOpenTK()) * Matrix4.CreateFromQuaternion(transform.rotation) * Matrix4.CreateScale(transform.scale.ToOpenTK()); ;
-
+        var mat = Mat4.CreateScale(transform.scale) * Mat4.CreateTranslation(transform.Position) * Mat4.CreateFromQuaternion(transform.Rotation);
+        
         if (Toolbox.TransformSpace == TransformSpace.Global)
         {
-            var startDist = getLineIntersectedDist(data.cameraPos, data.mousePrevDir, pivot, data.axisDir);
+            var startDist = GetLineIntersectedDist(data.cameraPos, data.mousePrevDir, pivot, data.axisDir);
             var startPos = data.cameraPos + startDist * data.mousePrevDir;
 
-            var finalDist = getLineIntersectedDist(startPos, data.axisDir, data.cameraPos, data.mouseCurrDir);
+            var finalDist = GetLineIntersectedDist(startPos, data.axisDir, data.cameraPos, data.mouseCurrDir);
 
-            var trans = finalDist * data.axisDir;
-            transform.position *= trans.ToNumerics();
+            var trans = Mat4.CreateTranslation(finalDist * data.axisDir);
+            mat *= trans;
         }
         else if (Toolbox.TransformSpace == TransformSpace.Local)
         {
             // Transform system has to be remade
+            Vec3 aDir = (mat.Inverted() * new Vec4(data.axisDir, 0)).XYZ;
+
+            float startDist = GetLineIntersectedDist(data.cameraPos, data.mousePrevDir, pivot, aDir);
+            Vec3 startPos = data.cameraPos + startDist * data.mousePrevDir;
+
+            float finalDist = GetLineIntersectedDist(startPos, aDir, data.cameraPos, data.mouseCurrDir);
+
+            Mat4 trans = Mat4.CreateTranslation(finalDist * aDir);
+            mat *= trans;
         }
+
+
     }
 }

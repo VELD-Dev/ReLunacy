@@ -17,7 +17,7 @@ public class RotationTool : BasicTransformTool
     public override void Transform(Entity entity, OpenTK.Mathematics.Vector3 pivot, TransformToolData data)
     {
         var transform = entity.transform;
-        var rotPivot = transform.rotation;
+        var rotPivot = transform.Rotation;
         if(Toolbox.TransformSpace == TransformSpace.Global)
         {
             var transPivot = Matrix4.CreateTranslation(pivot);

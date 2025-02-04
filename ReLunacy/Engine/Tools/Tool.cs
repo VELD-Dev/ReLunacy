@@ -1,6 +1,4 @@
-﻿using Vector3 = OpenTK.Mathematics.Vector3;
-using Quaternion = OpenTK.Mathematics.Quaternion;
-namespace ReLunacy.Engine.Tools;
+﻿namespace ReLunacy.Engine.Tools;
 
 // Credits to github.com/RatchetModding/Replanetizer
 
@@ -20,15 +18,15 @@ public abstract class Tool(Toolbox tb) : IDisposable
 
     public abstract void Render(Matrix4 mat, Material material);
 
-    public void Render(Vector3 pos, Camera camera, Material material)
+    public void Render(Vec3 pos, Camera camera, Material material)
     {
         var mat = GetModelMatrixByCamDist(pos, camera);
         Render(mat, material);
     }
 
-    public void Render(Vector3 pos, Quaternion rot, Camera camera, Material material)
+    public void Render(Vec3 pos, Vec3 rot, Camera camera, Material material)
     {
-        var mat = GetModelMatrixByCamDist(pos, rot, camera);
+        var mat = GetModelMatrixByCamDist(pos, Quat.FromEulerAngles(rot), camera);  // Maybe..?
         Render(mat, material);
     }
 
@@ -41,22 +39,22 @@ public abstract class Tool(Toolbox tb) : IDisposable
         else if(Toolbox.TransformSpace == TransformSpace.Local)
         {
             if (selection.NewestObject != null)
-                Render(selection.Mean, selection.NewestObject.transform.rotation, camera, material);
+                Render(selection.Mean, selection.NewestObject.transform.eulerRotation, camera, material);
             else
                 Render(selection.Mean, camera, material);
         }
     }
 
-    protected virtual Vector3 ProcessVec(Vector3 direction, Vector3 magnitude)
+    protected virtual Vec3 ProcessVec(Vec3 direction, Vec3 magnitude)
     {
         return direction * magnitude * transformMultiplier;
     }
 
-    protected float getLineIntersectedDist(Vector3 x, Vector3 dx, Vector3 y, Vector3 dy)
+    protected float GetLineIntersectedDist(Vec3 x, Vec3 dx, Vec3 y, Vec3 dy)
     {
-        Vector3 g = y - x;
-        Vector3 h = Vector3.Cross(dy, g);
-        Vector3 k = Vector3.Cross(dy, dx);
+        Vec3 g = y - x;
+        Vec3 h = Vec3.Cross(dy, g);
+        Vec3 k = Vec3.Cross(dy, dx);
 
         float ha = h.Length;
         float ka = k.Length;
@@ -66,23 +64,23 @@ public abstract class Tool(Toolbox tb) : IDisposable
             return 0.0f;
         }
 
-        float sign = (Vector3.Dot(h, k) >= 0.0f) ? 1.0f : -1.0f;
+        float sign = (Vec3.Dot(h, k) >= 0.0f) ? 1.0f : -1.0f;
 
         return (ha / ka) * sign;
     }
 
     public virtual void Reset() { }
 
-    protected static Matrix4 GetModelMatrixByCamDist(Vector3 pos, Camera camera)
+    protected static Matrix4 GetModelMatrixByCamDist(Vec3 pos, Camera camera)
     {
-        float camDist = (float)camera.transform.position.DistanceFrom(pos.ToNumerics());
-        return Matrix4.CreateScale(camDist * SCREEN_SPACE_SCALE) * Matrix4.CreateTranslation(pos);
+        float camDist = (float)camera.transform.Position.DistanceFrom(pos);
+        return Mat4.CreateScale(camDist * SCREEN_SPACE_SCALE) * Mat4.CreateTranslation(pos);
     }
 
-    protected static Matrix4 GetModelMatrixByCamDist(Vector3 pos, Quaternion rot, Camera camera)
+    protected static Matrix4 GetModelMatrixByCamDist(Vec3 pos, Quat rot, Camera camera)
     {
-        float camDist = (float)camera.transform.position.DistanceFrom(pos.ToNumerics());
-        return Matrix4.CreateScale(camDist * SCREEN_SPACE_SCALE) * Matrix4.CreateFromQuaternion(rot) * Matrix4.CreateTranslation(pos);  
+        float camDist = (float)camera.transform.Position.DistanceFrom(pos);
+        return Mat4.CreateScale(camDist * SCREEN_SPACE_SCALE) * Mat4.CreateFromQuaternion(rot) * Mat4.CreateTranslation(pos);  
     }
 
     public void Dispose()

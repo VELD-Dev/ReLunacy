@@ -14,7 +14,7 @@ public abstract class BasicTransformTool(Toolbox tb) : Tool(tb)
         foreach(var obj in selection)
         {
             if (Toolbox.PivotPositioning == PivotPositioning.IndividualOrigins)
-                pivot = obj.transform.position.ToOpenTK();
+                pivot = obj.transform.Position.ToOpenTK();
             Transform(obj, pivot, data);
         }
     }

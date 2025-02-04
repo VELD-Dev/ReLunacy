@@ -1,6 +1,5 @@
 ﻿using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
-using Vector3 = OpenTK.Mathematics.Vector3;
 
 namespace ReLunacy.Engine.Utils;
 
@@ -10,7 +9,7 @@ public class Selection : INotifyCollectionChanged, ICollection<Entity>
 {
     private readonly HashSet<Entity> OBJECTS = [];
 
-    public Vector3 Mean
+    public Vec3 Mean
     {
         get
         {
@@ -25,7 +24,7 @@ public class Selection : INotifyCollectionChanged, ICollection<Entity>
     }
 
     private bool meanDirty;
-    private Vector3 mean;
+    private Vec3 mean;
 
     public Entity? NewestObject { get; private set; }
     public int Count => OBJECTS.Count;
@@ -33,13 +32,13 @@ public class Selection : INotifyCollectionChanged, ICollection<Entity>
 
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
 
-    private Vector3 CalculateMean()
+    private Vec3 CalculateMean()
     {
-        var mean = new Vector3();
+        var mean = new Vec3();
         int count = 0;
         foreach(var e in OBJECTS)
         {
-            mean += e.transform.position;
+            mean += e.transform.Position;
             count++;
         }
 

@@ -27,8 +27,8 @@ namespace LibLunacy.Objects.Instances
             mobyIndex = stream.ReadUInt16(0x00);
             groupIndex = stream.ReadUInt16(0x02);
             Unk1 = stream.Peek(0x04, 0x10);
-            position = stream.ReadVector3(0x14);
-            rotation = stream.ReadVector3(0x20);
+            position = stream.ReadVec3(0x14);
+            rotation = stream.ReadVec3(0x20);
             scale = stream.ReadSingle(0x2C);
             Unk2 = stream.Peek(0x30, 0x20);
         }

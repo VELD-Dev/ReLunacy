@@ -29,15 +29,15 @@ public struct UFragMetadata : ILunaSerializable
             Unk1 = stream.Peek(0x00, 0x40);
             indexOffset = stream.ReadUInt32(0x40) * sizeof(ushort);
             Unk3 = stream.Peek(0x52, 0x0E);
-            position = stream.ReadVector3(0x60);
-            boundingSphere = stream.ReadVector4(0x60);
+            position = stream.ReadVec3(0x60);
+            boundingSphere = stream.ReadVec4(0x60);
             Unk4 = stream.Peek(0x6C, 0x14);
         }
         else
         {
             Unk1 = stream.Peek(0x00, 0x30);
-            position = stream.ReadVector3(0x30);
-            boundingSphere = stream.ReadVector4(0x30);
+            position = stream.ReadVec3(0x30);
+            boundingSphere = stream.ReadVec4(0x30);
             indexOffset = stream.ReadUInt32(0x40);
             Unk3 = stream.Peek(0x52, 0x2E);
             Unk4 = Array.Empty<byte>();
@@ -61,22 +61,18 @@ public struct UFragMetadata : ILunaSerializable
             Unk1.CopyTo(span[offset..]); offset += Unk1.Length;
             BinaryPrimitives.WriteUInt32BigEndian(span[offset..], indexOffset / sizeof(ushort)); offset += sizeof(uint);
             BinaryPrimitives.WriteUInt32BigEndian(span[offset..], vertexOffset); offset += sizeof(uint);
-            BinaryPrimitives.WriteUInt16BigEndian(span[offset..], indexCount); offset += sizeof(ushort);
+            BinaryPrimitives.WriteUInt16BigEndian(span[offset..], indexCount);  offset += sizeof(ushort);
             BinaryPrimitives.WriteUInt16BigEndian(span[offset..], vertexCount); offset += sizeof(ushort);
             Unk2.CopyTo(span[offset..]); offset += Unk2.Length;
             BinaryPrimitives.WriteUInt16BigEndian(span[offset..], shaderIndex); offset += sizeof(ushort);
             Unk3.CopyTo(span[offset..]); offset += Unk3.Length;
-            BinaryPrimitives.WriteSingleBigEndian(span[offset..], position.X); offset += sizeof(float);
-            BinaryPrimitives.WriteSingleBigEndian(span[offset..], position.Y); offset += sizeof(float);
-            BinaryPrimitives.WriteSingleBigEndian(span[offset..], position.Z); offset += sizeof(float);
+            position.ToBytes(span[offset..]);                                   offset += Vec3.Size;
             Unk4.CopyTo(span[offset..]); offset += Unk4.Length;
         }
         else
         {
             Unk1.CopyTo(span[offset..]); offset += Unk1.Length;
-            BinaryPrimitives.WriteSingleBigEndian(span[offset..], position.X); offset += sizeof(float);
-            BinaryPrimitives.WriteSingleBigEndian(span[offset..], position.Y); offset += sizeof(float);
-            BinaryPrimitives.WriteSingleBigEndian(span[offset..], position.Z); offset += sizeof(float);
+            position.ToBytes(span[offset..]); offset += Vec3.Size;
             BinaryPrimitives.WriteUInt32BigEndian(span[offset..], indexOffset); offset += sizeof(uint);
             BinaryPrimitives.WriteUInt32BigEndian(span[offset..], vertexOffset); offset += sizeof(uint);
             BinaryPrimitives.WriteUInt16BigEndian(span[offset..], indexCount); offset += sizeof(ushort);

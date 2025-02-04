@@ -164,7 +164,7 @@ public class EntityManager
     /// <returns>Returns the list of intersected entities sorted by distance from camera.</returns>
     public (Entity, float)[] Raycast(Vec3 rayDir)
     {
-        var camPos = -Camera.Main.transform.position.ToOpenTK();
+        var camPos = -Camera.Main.transform.Position.ToOpenTK();
         List<(Entity, float)> intersectedEntities = [];
         if (RenderMobys || RenderVolumes || RenderTies || RenderUFrags)
         foreach(var reg in Regions)
@@ -201,7 +201,7 @@ public class EntityManager
                 }
             }
         }
-        return [.. intersectedEntities.OrderBy(e => e.Item1.transform.position.DistanceFrom(camPos.ToNumerics()))];
+        return [.. intersectedEntities.OrderBy(e => e.Item1.transform.Position.DistanceFrom(camPos.ToNumerics()))];
     }
 
     #region Toggles

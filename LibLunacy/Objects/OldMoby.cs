@@ -35,7 +35,7 @@ public record struct OldMoby : IMoby
 
     public OldMoby(LunaStream stream)
     {
-        boundingSphere = stream.ReadVector4(0x00);
+        boundingSphere = stream.ReadVec4(0x00);
         Unk1 = stream.ReadUInt16(0x10);
         Unk2 = stream.ReadUInt16(0x12);
         bonesCount = stream.ReadUInt16(0x14);
