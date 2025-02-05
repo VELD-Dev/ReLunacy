@@ -49,9 +49,9 @@ ReLunacy is still in early development, but it comes with very interesting featu
 <h2 id="prerequisites">⚠️ Prerequisites</h2>
 
 Here are essential things you need to run **ReLunacy**, without those, the app might be slow or could just not run at all.
-- (Windows) [**.NET 8.0 Desktop Runtime**](https://download.visualstudio.microsoft.com/download/pr/907765b0-2bf8-494e-93aa-5ef9553c5d68/a9308dc010617e6716c0e6abd53b05ce/windowsdesktop-runtime-8.0.8-win-x64.exe)
-- (Linux/Mac) [**.NET 8.0 Runtime**](https://dotnet.microsoft.com/fr-fr/download/dotnet/8.0#runtime-8.0.8)
-- A 64bits (x64) OS... I mean... 32bits (x32) OS doesn't exist anymore right ?
+- (Windows) [**.NET 9.0 Desktop Runtime**](https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.1/windowsdesktop-runtime-9.0.1-win-x64.exe)
+- (Linux/Mac) [**.NET 9.0 Runtime**](https://dotnet.microsoft.com/fr-fr/download/dotnet/9.0#runtime-9.0.1)
+- A 64bits (x64) OS... I mean... who uses a x32 device in 2025 ?
 
 <h2 id="usage">⌨️ Usage</h2>
 
