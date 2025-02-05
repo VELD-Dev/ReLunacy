@@ -34,7 +34,7 @@ public record struct Quat
         Z = (c1 * c2 * s3) + (s1 * s2 * c3);
         W = (c1 * c2 * c3) - (s1 * s2 * s3);
     }
-    public Quat(Vec3 v) : this(v.X, v.Y, v.Z) { }
+    public Quat(Vec3 eulerAngles) : this(eulerAngles.X, eulerAngles.Y, eulerAngles.Z) { }
 
     public static implicit operator System.Numerics.Quaternion(Quat q) => new(q.X, q.Y, q.Z, q.W);
     public static implicit operator OpenTK.Mathematics.Quaternion(Quat q) => new(q.X, q.Y, q.Z, q.W);

@@ -60,7 +60,7 @@ namespace LibLunacy
 		public object? LoadFile(string name, bool isRaw)
 		{
 			//If anyone's wondering, the following basically doubles ram usage but doesn't latch onto files, useful for debugging
-			/*FileStream fs = File.Open($"{folderPath}/{name}", FileMode.Open, FileAccess.Read);
+			/*FileStream fs = File.Open($"{folderPath}/{Name}", FileMode.Open, FileAccess.Read);
 			MemoryStream ms = new MemoryStream((int)fs.Length);
 			fs.CopyTo(ms);
 			fs.Close();*/

@@ -69,7 +69,7 @@ namespace LibLunacy.Textures
         /// <summary>
         /// In new engine, stream must be highmips stream.
         /// </summary>
-        /// <param name="stream"></param>
+        /// <param Name="stream"></param>
         /// <exception cref="InvalidOperationException"></exception>
         public void ReadTexture(LunaStream stream)
         {

@@ -6,7 +6,7 @@ namespace ReLunacy.Engine.Tools;
 
 public abstract class BasicTransformTool(Toolbox tb) : Tool(tb)
 {
-    public abstract void Transform(Entity entity, Vector3 pivot, TransformToolData data);
+    public abstract void Transform(Entity entity, Vec3 pivot, TransformToolData data);
 
     public void Transform(Selection selection, TransformToolData data)
     {
@@ -14,7 +14,7 @@ public abstract class BasicTransformTool(Toolbox tb) : Tool(tb)
         foreach(var obj in selection)
         {
             if (Toolbox.PivotPositioning == PivotPositioning.IndividualOrigins)
-                pivot = obj.transform.Position.ToOpenTK();
+                pivot = obj.Transform.Position;
             Transform(obj, pivot, data);
         }
     }

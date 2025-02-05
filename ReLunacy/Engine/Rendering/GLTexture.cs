@@ -2,13 +2,13 @@
 
 namespace ReLunacy.Engine.Rendering;
 
-public class Texture
+public class GLTexture
 {
     public int textureId;
     public TextureFormat format;
     public LunaTexture Tex;
 
-    public Texture(LunaTexture tex)
+    public GLTexture(LunaTexture tex)
     {
         textureId = GL.GenTexture();
 

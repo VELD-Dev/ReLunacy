@@ -7,13 +7,13 @@ namespace ReLunacy.Engine.Tools;
 public class TransformToolData(Camera camera, Vec3 mprevdir, Vec3 mcurrdir, Vec3 axdir)
 {
     public Vec3 cameraPos = camera.transform.Position;
-    private bool _vecComputed = false;
-    private Vec3 _vec;
     public Vec3 axisDir = axdir;
     public Vec3 mousePrevDir = mprevdir;
     public Vec3 mouseCurrDir = mcurrdir;
     private bool _mouseDiffDirComputer = false;
+    private bool _vecComputed = false;
     private Vec3 _mouseDiffDir;
+    private Vec3 _vec;
     public Vec3 Vec
     {
         get

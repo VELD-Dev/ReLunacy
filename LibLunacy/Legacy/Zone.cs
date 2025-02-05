@@ -138,7 +138,7 @@ namespace LibLunacy.Legacy
         /// <summary>
         /// For debug purposes.
         /// </summary>
-        /// <param name="obj">Any object</param>
+        /// <param Name="obj">Any object</param>
         /// <returns>An accurate string representation of the object</returns>
         public static string ToString(object obj)
         {

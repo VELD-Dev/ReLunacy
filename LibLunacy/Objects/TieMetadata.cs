@@ -55,8 +55,8 @@ public record struct TieMetadata : ILunaObject, ILunaSerializable
     /// <summary>
     /// Reads the Ties meshes metadata. Note: You must read their vertices individually and manually later.
     /// </summary>
-    /// <param name="stream">Stream of the tie.dat file</param>
-    /// <param name="isOld">Wether it's on the old or the new engine.</param>
+    /// <param Name="stream">Stream of the tie.dat file</param>
+    /// <param Name="isOld">Wether it's on the old or the new engine.</param>
     public readonly void ReadMeshes(LunaStream stream, bool isOld)
     {
         var offset = TUID + meshesOffset;

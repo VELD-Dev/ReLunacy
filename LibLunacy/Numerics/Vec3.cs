@@ -26,17 +26,20 @@ public record struct Vec3
     public static implicit operator OpenTK.Mathematics.Vector3d(Vec3 v) => new(v.X, v.Y, v.Z);
     public static implicit operator OpenTK.Mathematics.Vector3h(Vec3 v) => new(v.X, v.Y, v.Z);
     public static implicit operator OpenTK.Mathematics.Vector3i(Vec3 v) => new((int)v.X, (int)v.Y, (int)v.Z);
+    public static implicit operator (float, float, float)(Vec3 v) => new(v.X, v.Y,v.Z);
     public static implicit operator Vec3(System.Numerics.Vector3 v) => new(v.X, v.Y, v.Z);
     public static implicit operator Vec3(OpenTK.Mathematics.Vector3 v) => new(v.X, v.Y, v.Z);
     public static implicit operator Vec3(OpenTK.Mathematics.Vector3d v) => new((float)v.X, (float)v.Y, (float)v.Z);
     public static implicit operator Vec3(OpenTK.Mathematics.Vector3h v) => new(v.X, v.Y, v.Z);
     public static implicit operator Vec3(OpenTK.Mathematics.Vector3i v) => new(v.X, v.Y, v.Z);
+    public static implicit operator Vec3((float, float, float) v) => new(v.Item1, v.Item2, v.Item3);
 
     public static Vec3 operator *(Vec3 a, float b) => new(a.X * b, a.Y * b, a.Z * b);
     public static Vec3 operator *(float a, Vec3 b) => b * a;
     public static Vec3 operator *(Vec3 a, Vec3 b) => new(a.X * b.X, a.Y * b.Y, a.Z * b.Z);
     public static Vec3 operator *(Vec3 a, (float, float, float) b) => new(a.X * b.Item1, a.Y * b.Item2, a.Z * b.Item3);
     public static Vec3 operator *((float, float, float) a, Vec3 b) => b * a;
+    public static Vec3 operator *(Quat a, Vec3 b) => Transform(b, a);
     public static Vec3 operator /(Vec3 a, float b) => new(a.X / b, a.Y / b, a.Z / b);
     public static Vec3 operator /(Vec3 a, Vec3 b) => new(a.X / b.X, a.Y / b.Y, a.Z / b.Z);
     public static Vec3 operator /(Vec3 a, (float, float, float) b) => new(a.X / b.Item1, a.Y / b.Item2, a.Z / b.Item3);
@@ -63,9 +66,9 @@ public record struct Vec3
     /// <summary>
     /// Returns a vector based on the length, the alpha angle and beta angle.
     /// </summary>
-    /// <param name="length">Length or norm of the vector</param>
-    /// <param name="alpha">Angle on the XY plan</param>
-    /// <param name="beta">Angle on the XZ plan</param>
+    /// <param Name="length">Length or norm of the vector</param>
+    /// <param Name="alpha">Angle on the XY plan</param>
+    /// <param Name="beta">Angle on the XZ plan</param>
     /// <returns></returns>
     public static Vec3 FromAngles(float length, float alpha, float beta) => new(MathF.Cos(alpha) * length, MathF.Sin(alpha) * length, MathF.Sin(beta) * length);
 

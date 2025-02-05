@@ -117,8 +117,8 @@ public class Overlay
             if(ShowCamInfo)
             {
                 float x, y;
-                x = Camera.Main.transform.eulerRotation.X * (180f / MathHelper.Pi);
-                y = Camera.Main.transform.eulerRotation.Y * (180f / MathHelper.Pi);
+                x = Camera.Main.transform.EulerRotation.X * (180f / MathHelper.Pi);
+                y = Camera.Main.transform.EulerRotation.Y * (180f / MathHelper.Pi);
                 ImGui.Spacing();
                 ImGui.SeparatorText("Camera Info");
                 ImGui.BeginGroup();

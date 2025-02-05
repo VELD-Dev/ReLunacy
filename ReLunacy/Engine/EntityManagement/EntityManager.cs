@@ -160,7 +160,7 @@ public class EntityManager
     /// <summary>
     /// Will cast a ray in a specific direction from the camera.
     /// </summary>
-    /// <param name="rayDir">Direction of the ray.</param>
+    /// <param Name="rayDir">Direction of the ray.</param>
     /// <returns>Returns the list of intersected entities sorted by distance from camera.</returns>
     public (Entity, float)[] Raycast(Vec3 rayDir)
     {
@@ -201,7 +201,7 @@ public class EntityManager
                 }
             }
         }
-        return [.. intersectedEntities.OrderBy(e => e.Item1.transform.Position.DistanceFrom(camPos.ToNumerics()))];
+        return [.. intersectedEntities.OrderBy(e => e.Item1.Transform.Position.DistanceFrom(camPos.ToNumerics()))];
     }
 
     #region Toggles

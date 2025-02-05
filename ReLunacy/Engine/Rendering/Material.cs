@@ -7,8 +7,8 @@ public class Material
 {
 
     public int programId;
-    Texture? albedo;
-    Texture? expensive;
+    GLTexture? albedo;
+    GLTexture? expensive;
     public PrimitiveType drawType;
     public uint numUsing = 0;
     public RenderingMode renderingMode = RenderingMode.Opaque;
@@ -30,7 +30,7 @@ public class Material
         }
     }
 
-    public Material(int handle, Texture? color = null, RenderingMode renderMode = RenderingMode.Opaque, PrimitiveType primitiveType = PrimitiveType.Triangles)
+    public Material(int handle, GLTexture? color = null, RenderingMode renderMode = RenderingMode.Opaque, PrimitiveType primitiveType = PrimitiveType.Triangles)
     {
         albedo = color;
         programId = handle;
@@ -40,8 +40,8 @@ public class Material
     public Material(Shader cshad)
     {
         asset = cshad;
-        Texture? tex = cshad.Albedo == null ? null : AssetManager.Singleton.Textures[(uint)cshad.Albedo.id];
-        Texture? exp = cshad.Expensive == null || Window.Singleton.FileManager.isOld ? null : AssetManager.Singleton.Textures[(uint)cshad.Expensive.id];
+        GLTexture? tex = cshad.Albedo == null ? null : AssetManager.Singleton.Textures[(uint)cshad.Albedo.id];
+        GLTexture? exp = cshad.Expensive == null || Window.Singleton.FileManager.isOld ? null : AssetManager.Singleton.Textures[(uint)cshad.Expensive.id];
         if (tex == null && cshad.Albedo != null) Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.Albedo.id.ToString("X08")} AKA {cshad.Albedo.name}");
         programId = MaterialManager.Materials["stdv;solidf"];
         albedo = tex;

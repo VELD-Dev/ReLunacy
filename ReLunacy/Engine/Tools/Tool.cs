@@ -39,7 +39,7 @@ public abstract class Tool(Toolbox tb) : IDisposable
         else if(Toolbox.TransformSpace == TransformSpace.Local)
         {
             if (selection.NewestObject != null)
-                Render(selection.Mean, selection.NewestObject.transform.eulerRotation, camera, material);
+                Render(selection.Mean, selection.NewestObject.Transform.EulerRotation, camera, material);
             else
                 Render(selection.Mean, camera, material);
         }

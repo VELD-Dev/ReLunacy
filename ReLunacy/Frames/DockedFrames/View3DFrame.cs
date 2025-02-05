@@ -103,7 +103,7 @@ internal class View3DFrame : DockedFrame
             {
                 SelectedEntity = null;
             }
-            LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m)", 10)}) ");
+            LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m)", 10)}) ");
         }
 
     }

@@ -17,6 +17,7 @@ namespace LibLunacy.Objects
         public uint MeshesOffset => metadata.meshesOffset;
         public byte MeshesCount => metadata.meshesCount;
         public TieMesh[] Meshes => metadata.meshes;
+        public string Name { get; private set; } = string.Empty;
 
         public ulong[]? ShaderTUIDs;
 
@@ -36,6 +37,8 @@ namespace LibLunacy.Objects
                 ShaderTUIDs = ArrayPool<ulong>.Shared.Rent((int)shaderTuidSections.count);
 
                 for (int i = 0; i < shaderTuidSections.count; i++) ShaderTUIDs[i] = stream.ReadUInt64((int)shaderTuidSections.offset + sizeof(ulong) * i, false);
+
+                Name = tieStream.ReadString((int)metadata.nameOffset, false);
             }
         }
 

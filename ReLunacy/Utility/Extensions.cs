@@ -71,11 +71,11 @@ public static class Extensions
     /// <summary>
     /// Stringifies efficiently any <see cref="IEnumerable{T}"/> using a defined key, separated by a char or a string and a defined amount of times.
     /// </summary>
-    /// <typeparam name="T">Type of the element of the enumerable.</typeparam>
-    /// <param name="enumerable">Enumerable to stringify.</param>
-    /// <param name="separator">String that will be used to separate each <typeparamref name="T"/> of the <see cref="IEnumerable{T}"/> once stringified.</param>
-    /// <param name="key">Key that will be used for the enumerable.</param>
-    /// <param name="count">Amount of elements of the enumerable to stringify. 0 stringifies the entire <see cref="IEnumerable{T}"/>.</param>
+    /// <typeparam Name="T">Type of the element of the enumerable.</typeparam>
+    /// <param Name="enumerable">Enumerable to stringify.</param>
+    /// <param Name="separator">String that will be used to separate each <typeparamref Name="T"/> of the <see cref="IEnumerable{T}"/> once stringified.</param>
+    /// <param Name="key">Key that will be used for the enumerable.</param>
+    /// <param Name="count">Amount of elements of the enumerable to stringify. 0 stringifies the entire <see cref="IEnumerable{T}"/>.</param>
     /// <returns></returns>
     public static string Stringify<T>(this IEnumerable<T> enumerable, string separator = ",", Func<T, string>? key = null, uint count = 0)
     {

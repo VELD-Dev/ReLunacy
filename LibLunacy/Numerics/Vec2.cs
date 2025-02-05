@@ -53,8 +53,8 @@ public record struct Vec2
     /// <summary>
     /// Creates a vector from a modulo (length) and an argument (angle).
     /// </summary>
-    /// <param name="length">Length or norm of the vector</param>
-    /// <param name="alpha">Angle on the XY plan</param>
+    /// <param Name="length">Length or norm of the vector</param>
+    /// <param Name="alpha">Angle on the XY plan</param>
     /// <returns></returns>
     public static Vec2 FromAngle(float length, float alpha) => new(MathF.Cos(alpha) * length, MathF.Sin(alpha) * length);
 

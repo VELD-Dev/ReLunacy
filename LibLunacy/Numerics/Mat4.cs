@@ -401,7 +401,7 @@ public record struct Mat4
     }
 
     [Pure]
-    public static Mat4 CreateFromQuaternion(Quaternion q)
+    public static Mat4 CreateFromQuaternion(Quat q)
     {
         CreateFromQuaternion(in q, out var res);
         return res;

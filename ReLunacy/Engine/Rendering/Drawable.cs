@@ -80,7 +80,7 @@ public class Drawable
         SetVertexPositions(mesh.GetVertPositions());
         SetVertexTexCoords(mesh.GetUVs());
         SetIndices(mesh.GetIndices());
-        //Texture? tex = (mesh.shader.albedo == null ? null : new Texture(mesh.shader.albedo));
+        //GLTexture? tex = (mesh.shader.albedo == null ? null : new GLTexture(mesh.shader.albedo));
         SetMaterial(new Material(mesh.GetShader()));
         */
     }

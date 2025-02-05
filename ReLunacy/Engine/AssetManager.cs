@@ -1,4 +1,4 @@
-﻿using Texture = ReLunacy.Engine.Rendering.Texture;
+﻿using GLTexture = ReLunacy.Engine.Rendering.GLTexture;
 
 namespace ReLunacy.Engine;
 
@@ -10,7 +10,7 @@ public class AssetManager
     public Dictionary<ulong, DrawableListList> Mobys { get; private set; } = [];
     public Dictionary<ulong, DrawableList> Ties { get; private set; } = [];
     public Dictionary<ulong, List<Drawable>> UFrags { get; private set; } = [];
-    public Dictionary<uint, Texture> Textures { get; private set; } = [];
+    public Dictionary<uint, GLTexture> Textures { get; private set; } = [];
     public Drawable Cube { get; private set; }
 
     private AssetManager()

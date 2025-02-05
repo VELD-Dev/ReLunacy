@@ -25,7 +25,7 @@ public class ImGuiController : IDisposable
     private int _indexBuffer;
     private int _indexBufferSize;
 
-    //private Texture _fontTexture;
+    //private GLTexture _fontTexture;
 
     private int _fontTexture;
 

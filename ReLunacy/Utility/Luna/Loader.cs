@@ -986,7 +986,7 @@ public class Loader : IDisposable
             for(uint i = 0; i < zoneNamesSec.count; i++)
             {
                 //regStream.Seek(zoneNamesSec.offset + sizeof(uint) * i);
-                //var name = regStream.ReadString((int)regStream.ReadUInt32(0), false);
+                //var Name = regStream.ReadString((int)regStream.ReadUInt32(0), false);
                 regStream.Seek(zoneTUIDsSec.offset + sizeof(ulong) * i);
                 var zoneTuid = regStream.ReadUInt64(0);
                 var zone = TempZones[zoneTuid];

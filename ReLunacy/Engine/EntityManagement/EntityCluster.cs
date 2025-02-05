@@ -61,7 +61,7 @@ public class EntityCluster
     public bool TryGetEntity(ulong id, out Entity entity)
     {
         entity = null;
-        var filter = Entities.Where((e) => e.id == id);
+        var filter = Entities.Where((e) => e.ID == id);
         if (!filter.Any()) return false;
 
         entity = filter.ElementAt(0);

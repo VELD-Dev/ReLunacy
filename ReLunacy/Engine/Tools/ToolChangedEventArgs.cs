@@ -2,12 +2,7 @@
 
 // Credits to github.com/RatchetModding/Replanetizer
 
-public class ToolChangedEventArgs : EventArgs
+public class ToolChangedEventArgs(ToolType tt) : EventArgs
 {
-    public ToolType ToolType { get; }
-
-    public ToolChangedEventArgs(ToolType tt)
-    {
-        ToolType = tt;
-    }
+    public ToolType ToolType { get; } = tt;
 }

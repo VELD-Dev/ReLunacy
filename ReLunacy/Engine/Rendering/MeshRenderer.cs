@@ -25,9 +25,8 @@ public class MeshRenderer : Renderer
     private bool allocatedVAO = false;
 
     private int objectId;
-    private float RenderDistance { get; set; }
-    private Matrix4 modelToWorld = Matrix4.Identity;
-    private Matrix4 worldToView = Matrix4.Identity;
+    private Mat4 modelToWorld = Matrix4.Identity;
+    private Mat4 worldToView = Matrix4.Identity;
 
     private bool selected;
 
@@ -36,8 +35,18 @@ public class MeshRenderer : Renderer
     private bool renderPerformBillboardOnly = false;
 
     // TODO: Animations stuff
-
+    private Material material;
+    private Dictionary<Texture, GLTexture> textureIDs;
     private List<Texture> textures;
+
+    public MeshRenderer(Material mat, List<Texture> tex, Dictionary<Texture, GLTexture> texIds)
+    {
+        material = mat;
+        textureIDs = texIds;
+        textures = tex;
+    }
+
+    private List<GLTexture> textures;
 
     public override void Dispose()
     {

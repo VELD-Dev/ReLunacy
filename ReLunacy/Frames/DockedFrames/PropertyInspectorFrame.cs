@@ -49,7 +49,7 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(SelectedEntity.name.Split('/')[^1]);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("The entity name cannot be changed.");
-            ImGui.Text(SelectedEntity.id.ToString());
+            ImGui.Text(SelectedEntity.ID.ToString());
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("An internal generated ID for rendering. Irrelevant.");
             ImGui.Text(SelectedEntity.instance.GetType().Name);
@@ -58,11 +58,11 @@ public class PropertyInspectorFrame : DockedFrame
 
             ImGui.SeparatorText("Transform");
 
-            ImGui.InputFloat3("Position", ref SelectedEntity.transform.Position, "%.3fm");
+            ImGui.InputFloat3("Position", ref SelectedEntity.Transform.Position, "%.3fm");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.transform.eulerRotation, "%.4frad");
+            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.Transform.eulerRotation, "%.4frad");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Scale", ref SelectedEntity.transform.scale, "%.3f");
+            ImGui.InputFloat3("Scale", ref SelectedEntity.Transform.scale, "%.3f");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
 
             ImGui.SeparatorText("Rendering");
@@ -75,10 +75,10 @@ public class PropertyInspectorFrame : DockedFrame
             
             if(ImGui.Button("Teleport to Entity"))
             {
-                Camera.Main.transform.Position = -(SelectedEntity.transform.Position + (Camera.Main.transform.Forward * 10f).ToNumerics());
+                Camera.Main.transform.Position = -(SelectedEntity.Transform.Position + (Camera.Main.transform.Forward * 10f).ToNumerics());
             }
             ImGui.SameLine();
-            ImGui.Text($"({SelectedEntity.transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m away)");
+            ImGui.Text($"({SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m away)");
 
             ImGui.EndGroup();
         }

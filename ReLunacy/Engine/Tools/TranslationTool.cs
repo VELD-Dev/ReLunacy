@@ -27,8 +27,8 @@ public class TranslationTool : BasicTransformTool
 
     public override void Transform(Entity entity, Vec3 pivot, TransformToolData data)
     {
-        var transform = entity.transform;
-        var mat = Mat4.CreateScale(transform.scale) * Mat4.CreateTranslation(transform.Position) * Mat4.CreateFromQuaternion(transform.Rotation);
+        var transform = entity.Transform;
+        var mat = Mat4.CreateScale(transform.Scale) * Mat4.CreateTranslation(transform.Position) * Mat4.CreateFromQuaternion(transform.Rotation);
         
         if (Toolbox.TransformSpace == TransformSpace.Global)
         {
@@ -54,6 +54,6 @@ public class TranslationTool : BasicTransformTool
             mat *= trans;
         }
 
-
+        entity.Transform.SetMatrix(mat);
     }
 }

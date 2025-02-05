@@ -3,118 +3,42 @@ using ReLunacy.Engine.Numerics;
 
 namespace ReLunacy.Engine.EntityManagement;
 
-public class Entity
+public abstract class Entity
 {
-    public static ulong InstancesCount { get; private set; } = 0;
-    public object instance;                 //Is either a Region.CMobyInstance or a TieInstance depending on if it's a MobyObj or tie repsectively
-    public object drawable;                 //Is either a DrawableListList or a DrawableList depending on if it's a MobyObj or tie respectively
-    public ulong id;
+    public static ulong InstancesCount { get; protected set; } = 0;
+    
+    public abstract EntityType EntityType { get; init; }
+    public ulong ID { get; init; }
     public string name = string.Empty;
     public bool AllowRender = true;
 
-    public Transform transform;
-
-    //xyz is pos, w is radius
+    public required Transform Transform { get; set; }
     public Vec4 boundingSphere;
-
-    public Entity(MobyInstance mobyInstance)
-    {
-        instance = mobyInstance;
-        drawable = AssetManager.Singleton.Mobys[mobyInstance.moby.id];
-        id = InstancesCount;
-        InstancesCount++;
-        transform = new Transform(
-            mobyInstance.instanceData.Position * YardToMeter,
-            mobyInstance.instanceData.Rotation,
-            Vec3.One * mobyInstance.instanceData.Scale * YardToMeter
-        );
-        name = mobyInstance.name;
-        ((DrawableListList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(mobyInstance.Moby.BoundingSphere * YardToMeter + transform.Position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
-    }
-    public Entity(Region.CVolumeInstance volumeInstance)
-    {
-        instance = volumeInstance;
-        drawable = AssetManager.Singleton.Cube;
-        id = InstancesCount;
-        InstancesCount++;
-        transform = new Transform(
-            volumeInstance.position * YardToMeter,
-            volumeInstance.rotation.ToOpenTK(),
-            volumeInstance.scale * YardToMeter
-        );
-        name = volumeInstance.name;
-        ((Drawable)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(volumeInstance.position * YardToMeter, volumeInstance.scale.Length() * YardToMeter);
-    }
-    public Entity(CZone.CTieInstance tieInstance)
-    {
-        instance = tieInstance;
-        drawable = AssetManager.Singleton.Ties[tieInstance.tie.id];
-        id = InstancesCount;
-        InstancesCount++;
-        transform = new Transform(tieInstance.transformation.ToOpenTK());
-        name = tieInstance.name;
-        ((DrawableList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new(tieInstance.boundingPosition * YardToMeter, tieInstance.boundingRadius * YardToMeter);
-    }
-    public Entity(CZone.UFrag ufrag, ulong zoneId, int ufragIndex)
-    {
-        instance = ufrag;
-        id = InstancesCount;
-        InstancesCount++;
-        drawable = AssetManager.Singleton.UFrags[zoneId][ufragIndex];
-        name = $"UFrag_{zoneId}_{ufragIndex}";
-        boundingSphere = ufrag.GetBoundingSphere() / 0x100 * YardToMeter;
-        if (ufrag is CZone.OldUFrag oldUfrag)
-        {
-            var rot = oldUfrag.rotation;
-            transform = new Transform(ufrag.GetPosition() / 0x100 * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
-            boundingSphere.W = 2.5f;
-        }
-        else
-        {
-            transform = new Transform(ufrag.GetPosition() * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
-        }
-        ((Drawable)drawable).AddDrawCall(transform, id);
-        ((Drawable)drawable).ConsolidateDrawCalls();
-    }
 
     public static void Wipe() => InstancesCount = 0;
 
-    public void SetPosition(Vector3 position)
+    public void SetPosition(Vec3 position)
     {
-        transform.Position = position;
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
-        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
+        Transform.Position = position;
     }
-    public void SetRotation(Vector3 rotation)
+    public void SetRotation(Vec3 rotation)
     {
-        transform.SetRotation(rotation);
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
-        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
+        Transform.SetRotation(rotation);
     }
-    public void SetScale(Vector3 scale)
+    public void SetScale(Vec3 scale)
     {
-        transform.scale = scale;
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
-        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
+        Transform.Scale = scale;
     }
-    public void UpdateTransform()
+    public void SetTransform(Mat4 mat)
     {
-        if (drawable is DrawableListList dll) dll.UpdateTransform(transform, id);
-        else if (drawable is DrawableList dl) dl.UpdateTransform(transform, id);
-        else if (drawable is Drawable d) d.UpdateTransform(transform, id);
+        Transform.Matrix = mat;
     }
     public void Draw()
     {
         if (!AllowRender) return;
-        if (drawable is DrawableListList dll) dll.Draw();
-        else if (drawable is DrawableList dl) dl.Draw();
-        else if (drawable is Drawable d) d.Draw(transform);
+        if (drawable is DrawableListList dll) dll.Draw(Transform);
+        else if (drawable is DrawableList dl) dl.Draw(Transform);
+        else if (drawable is Drawable d) d.Draw(Transform);
     }
 
     // It's shaky, I must consolidate that but it works !
@@ -122,21 +46,21 @@ public class Entity
     {
         if (!AllowRender) return;
         LunaLog.LogDebug("Wireframe Drawcall added");
-        if (drawable is DrawableListList dll) dll.AddDrawCallWireframe(transform, id);
-        else if (drawable is DrawableList dl) dl.AddDrawCallWireframe(transform, id);
-        else if (drawable is Drawable d) d.AddDrawCallWireframe(transform, id);
+        if (drawable is DrawableListList dll) dll.AddDrawCallWireframe(Transform, ID);
+        else if (drawable is DrawableList dl) dl.AddDrawCallWireframe(Transform, ID);
+        else if (drawable is Drawable d) d.AddDrawCallWireframe(Transform, ID);
     }
     public void RemoveWireframeDrawCall()
     {
-        if (drawable is DrawableListList dll) dll.RemoveDrawCallWireframe(id);
-        else if (drawable is DrawableList dl) dl.RemoveDrawCallWireframe(id);
-        else if (drawable is Drawable d) d.RemoveDrawCallWireframe(id);
+        if (drawable is DrawableListList dll) dll.RemoveDrawCallWireframe(ID);
+        else if (drawable is DrawableList dl) dl.RemoveDrawCallWireframe(ID);
+        else if (drawable is Drawable d) d.RemoveDrawCallWireframe(ID);
     }
     // /////////////////////////////////////////////// //
  
     public bool IntersectsRay(Vec3 dir, Vec3 position, out float distance)
     {
-        Vec3 localPos = position - boundingSphere.ToOpenTK().Xyz;
+        Vec3 localPos = position - boundingSphere.XYZ;
         float b = Vec3.Dot(localPos, dir);
         float c = Vec3.Dot(localPos, localPos) - boundingSphere.W * boundingSphere.W;
         distance = float.NaN;

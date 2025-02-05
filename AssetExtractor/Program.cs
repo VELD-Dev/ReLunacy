@@ -26,14 +26,14 @@ namespace AssetExtractor
 			}
 			/*foreach(KeyValuePair<ulong, CTie> tie in al.ties)
 			{
-				string exportFilePath = $"{args[0]}/assets/ties/{Path.ChangeExtension(tie.Value.name, "obj")}";
+				string exportFilePath = $"{args[0]}/assets/ties/{Path.ChangeExtension(tie.Value.Name, "obj")}";
 				Directory.CreateDirectory(Path.GetDirectoryName(exportFilePath));
 				Console.WriteLine(exportFilePath);
 				tie.Value.ExportToObj(exportFilePath);
 			}
 			foreach(KeyValuePair<uint, CTexture> texture in al.textures)
 			{
-				string textureName = texture.Value.name;
+				string textureName = texture.Value.Name;
 				if(textureName == string.Empty)
 				{
 					textureName = $"Texture_{texture.Value.id}";

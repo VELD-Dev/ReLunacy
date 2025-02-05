@@ -38,7 +38,7 @@ public class Selection : INotifyCollectionChanged, ICollection<Entity>
         int count = 0;
         foreach(var e in OBJECTS)
         {
-            mean += e.transform.Position;
+            mean += e.Transform.Position;
             count++;
         }
 
