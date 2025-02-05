@@ -5,7 +5,7 @@ namespace ReLunacy.Frames.DockedFrames;
 public abstract class DockedFrame : Frame
 {
     protected abstract ImGuiCond DockingConditions { get; set; }
-    protected abstract Vector2 DefaultPosition { get; set; }
+    protected abstract Vec2 DefaultPosition { get; set; }
 
     public DockedFrame() : base() { }
 

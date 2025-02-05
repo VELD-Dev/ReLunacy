@@ -46,8 +46,6 @@ public class MeshRenderer : Renderer
         textures = tex;
     }
 
-    private List<GLTexture> textures;
-
     public override void Dispose()
     {
         throw new NotImplementedException();

@@ -14,7 +14,7 @@ public class TranslationTool : BasicTransformTool
 
     public TranslationTool(Toolbox tb) : base(tb) { }
 
-    public override void Render(Matrix4 mat, Material material)
+    public override void Render(Mat4 mat, Material material)
     {
         Update();
         material.SimpleUse();

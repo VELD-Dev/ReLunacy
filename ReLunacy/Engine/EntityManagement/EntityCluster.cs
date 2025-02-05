@@ -1,4 +1,6 @@
 ﻿using LibLunacy.Legacy;
+using LibLunacy.Objects.Instances;
+using ReLunacy.Engine.EntityManagement.Entities;
 
 namespace ReLunacy.Engine.EntityManagement;
 
@@ -37,25 +39,25 @@ public class EntityCluster
         TotalEntities++;
         Entities.Add(entity);
     }
-    public void Add(Region.CMobyInstance mobyInstance)
+    public void Add(MobyInstance mobyInstance)
     {
         TotalEntities++;
-        Entities.Add(new(mobyInstance));
+        Entities.Add(new MobyObject(mobyInstance));
     }
-    public void Add(Region.CVolumeInstance volumeInstance)
+    public void Add(Volume volumeInstance)
     {
         TotalEntities++;
-        Entities.Add(new(volumeInstance));
+        Entities.Add(new VolumeObject(volumeInstance));
     }
-    public void Add(CZone.CTieInstance tieInstance)
+    public void Add(TieInstance tieInstance)
     {
         TotalEntities++;
-        Entities.Add(new(tieInstance));
+        Entities.Add(new TieObject(tieInstance));
     }
-    public void Add(CZone.UFrag ufrag, ulong zoneId, int ufragIndex)
+    public void Add(UFrag ufrag, ulong zoneId, int ufragIndex)
     {
         TotalEntities++;
-        Entities.Add(new(ufrag, zoneId, ufragIndex));
+        Entities.Add(new UFragObject(ufrag, zoneId, ufragIndex));
     }
 
     public bool TryGetEntity(ulong id, out Entity entity)

@@ -16,7 +16,7 @@ public abstract class Tool(Toolbox tb) : IDisposable
         //ImGuizmo.SetRect()
     }
 
-    public abstract void Render(Matrix4 mat, Material material);
+    public abstract void Render(Mat4 mat, Material material);
 
     public void Render(Vec3 pos, Camera camera, Material material)
     {

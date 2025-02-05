@@ -35,8 +35,8 @@
     <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.1.10" />
     <PackageReference Include="ImGui.NET" Version="1.89.9.4" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="OpenTK" Version="4.8.2" />
-    <PackageReference Include="SkiaSharp" Version="2.88.8" />
+    <PackageReference Include="OpenTK" Version="4.9.3" />
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
   </ItemGroup>
 
   <ItemGroup>

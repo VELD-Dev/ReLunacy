@@ -13,10 +13,10 @@ public class Material
     public uint numUsing = 0;
     public RenderingMode renderingMode = RenderingMode.Opaque;
     public Shader asset;
-    public static Matrix4 dissolvePattern = new( 1f / 17f,  9f / 17f,  3f / 17f, 11f / 17f,
-                                                13f / 17f,  5f / 17f, 15f / 17f,  7f / 17f,
-                                                 4f / 17f, 12f / 17f,  2f / 17f, 10f / 17f,
-                                                16f / 17f,  8f / 17f, 14f / 17f,  6f / 17f);
+    public static Mat4 dissolvePattern = new( 1f / 17f,  9f / 17f,  3f / 17f, 11f / 17f,
+                                             13f / 17f,  5f / 17f, 15f / 17f,  7f / 17f,
+                                              4f / 17f, 12f / 17f,  2f / 17f, 10f / 17f,
+                                             16f / 17f,  8f / 17f, 14f / 17f,  6f / 17f);
     public bool isSelected = false;
 
     Dictionary<string, int> uniforms = new Dictionary<string, int>();
@@ -57,9 +57,9 @@ public class Material
             albedo.Use();
             SetInt("albedo", 0);
             SetBool("useTexture", true);
-            if (asset.renderingMode == CShader.RenderingMode.AlphaClip)
+            if (asset.RenderingMode == RenderingMode.AlphaClip)
             {
-                SetFloat("alphaClip", asset.alphaClip);
+                SetFloat("alphaClip", asset.metadata.alphaClip);
             }
             else
             {
@@ -78,7 +78,11 @@ public class Material
         GL.UseProgram(programId);
     }
 
-    public void SetMatrix4x4(string name, ref Matrix4 data) => GL.UniformMatrix4(GetUniformLocation(name), true, ref data);
+    public void SetMatrix4x4(string name, ref Mat4 data)
+    {
+        Matrix4 mat = data;
+        GL.UniformMatrix4(GetUniformLocation(name), true, ref mat);
+    }
 
     public void SetBool(string name, bool data) => SetInt(name, data ? 1 : 0);
 

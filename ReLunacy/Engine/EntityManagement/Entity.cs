@@ -1,7 +1,4 @@
-﻿using LibLunacy.Objects.Instances;
-using ReLunacy.Engine.Numerics;
-
-namespace ReLunacy.Engine.EntityManagement;
+﻿namespace ReLunacy.Engine.EntityManagement;
 
 public abstract class Entity
 {

@@ -42,7 +42,7 @@ public class RotationTool : BasicTransformTool
         entity.Transform.SetMatrix(mat);
     }
 
-    public override void Render(Matrix4 mat, Material material)
+    public override void Render(Mat4 mat, Material material)
     {
         // To be rewritten
     }

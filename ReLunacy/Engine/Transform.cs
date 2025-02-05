@@ -141,7 +141,7 @@ public class Transform
         Matrix = mat;
     }
 
-    public Matrix4 GetLocalToWorldMatrix()
+    public Mat4 GetLocalToWorldMatrix()
     {
         //if (useMatrix) return modelMatrix;
         return Mat4.Identity * Mat4.CreateScale(Scale) * Mat4.CreateFromQuaternion(Rotation) * Mat4.CreateTranslation(Position);

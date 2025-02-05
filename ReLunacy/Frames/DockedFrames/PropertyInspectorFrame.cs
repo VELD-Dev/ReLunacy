@@ -52,7 +52,7 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(SelectedEntity.ID.ToString());
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("An internal generated ID for rendering. Irrelevant.");
-            ImGui.Text(SelectedEntity.instance.GetType().Name);
+            ImGui.Text(SelectedEntity.EntityType.ToString());
             ImGui.Text("---");
             ImGui.EndGroup();
 
@@ -60,9 +60,9 @@ public class PropertyInspectorFrame : DockedFrame
 
             ImGui.InputFloat3("Position", ref SelectedEntity.Transform.Position, "%.3fm");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.Transform.eulerRotation, "%.4frad");
+            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.Transform.EulerRotation, "%.4frad");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Scale", ref SelectedEntity.Transform.scale, "%.3f");
+            ImGui.InputFloat3("Scale", ref SelectedEntity.Transform.Scale, "%.3f");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
 
             ImGui.SeparatorText("Rendering");
@@ -75,7 +75,7 @@ public class PropertyInspectorFrame : DockedFrame
             
             if(ImGui.Button("Teleport to Entity"))
             {
-                Camera.Main.transform.Position = -(SelectedEntity.Transform.Position + (Camera.Main.transform.Forward * 10f).ToNumerics());
+                Camera.Main.transform.Position = -(SelectedEntity.Transform.Position + (Camera.Main.transform.Forward * 10f));
             }
             ImGui.SameLine();
             ImGui.Text($"({SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m away)");
@@ -92,7 +92,7 @@ public class PropertyInspectorFrame : DockedFrame
 
     public void UpdateEntity()
     {
-        SelectedEntity?.UpdateTransform();
+
         LunaLog.LogDebug($"Moving entity.");
     }
 }

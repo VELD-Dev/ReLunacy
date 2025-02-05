@@ -1,16 +1,11 @@
-﻿using Vector3 = System.Numerics.Vector3;
-using Vec3 = OpenTK.Mathematics.Vector3;
-using System.Xml;
-using LibLunacy.Legacy;
-
-namespace ReLunacy.Engine.EntityManagement;
+﻿namespace ReLunacy.Engine.EntityManagement;
 
 public class EntityManager
 {
     private static readonly Lazy<EntityManager> lazy = new(() => new EntityManager());
     public static EntityManager Singleton => lazy.Value;
 
-    public Gameplay Gameplay { get; private set; }
+    public Loader Loader { get; private set; }
     public List<EntityRegion> Regions { get; private set; } = [];
 
     #region Counts
@@ -81,11 +76,11 @@ public class EntityManager
     public bool RenderUFrags = true;
     public bool RenderVolumes = true;
 
-    public void LoadGameplay(Gameplay gp)
+    public void LoadRegions(Loader loader)
     {
-        Gameplay = gp;
+        Loader = loader;
 
-        foreach (var region in gp.regions)
+        foreach (var region in Loader.Regions)
         {
             Regions.Add(new EntityRegion(region));
         }
@@ -164,7 +159,7 @@ public class EntityManager
     /// <returns>Returns the list of intersected entities sorted by distance from camera.</returns>
     public (Entity, float)[] Raycast(Vec3 rayDir)
     {
-        var camPos = -Camera.Main.transform.Position.ToOpenTK();
+        var camPos = -Camera.Main.transform.Position;
         List<(Entity, float)> intersectedEntities = [];
         if (RenderMobys || RenderVolumes || RenderTies || RenderUFrags)
         foreach(var reg in Regions)
@@ -201,7 +196,7 @@ public class EntityManager
                 }
             }
         }
-        return [.. intersectedEntities.OrderBy(e => e.Item1.Transform.Position.DistanceFrom(camPos.ToNumerics()))];
+        return [.. intersectedEntities.OrderBy(e => e.Item1.Transform.Position.DistanceFrom(camPos))];
     }
 
     #region Toggles

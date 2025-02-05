@@ -1,18 +1,4 @@
-﻿using ReLunacy.Engine.Rendering;
-using Vec2 = System.Numerics.Vector2;
-using Vector2 = OpenTK.Mathematics.Vector2;
-using Vec3 = System.Numerics.Vector3;
-using Vector3 = OpenTK.Mathematics.Vector3;
-using Vec4 = System.Numerics.Vector4;
-using Vector4 = OpenTK.Mathematics.Vector4;
-using Quaternion = OpenTK.Mathematics.Quaternion;
-using Keys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
-using MouseButton = OpenTK.Windowing.GraphicsLibraryFramework.MouseButton;
-using ReLunacy.Frames.ModalFrames;
-using ReLunacy.Engine.EntityManagement;
-using OpenTK.Windowing.Common.Input;
-using LibLunacy.Legacy;
-using ReLunacy.Utility.Luna;
+﻿
 
 namespace ReLunacy;
 
@@ -27,7 +13,7 @@ public class Window : GameWindow
     public bool showHoveredObject = false;
     public float framerate;
     public Vec4 screenSafeSpace;
-    public Vector2 freecamLocal;
+    public Vec2 freecamLocal;
     public OldRenderer OGLRenderer { get; private set; }
     public ResourcesManager Resources { get; private set; }
 
@@ -168,9 +154,6 @@ public class Window : GameWindow
         doLoadEntities = false;
 
         AssetManager.Singleton.Initialize(AssetLoader);
-        Gameplay = new(AssetLoader);
-        LunaLog.LogDebug("Loading Gameplay into EntityManager.");
-        EntityManager.Singleton.LoadGameplay(Gameplay);
         if(IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>().SetEntities(EntityManager.Singleton.GetAllEntities());
         var loadModal = GetFirstFrame<LoadingModal>();

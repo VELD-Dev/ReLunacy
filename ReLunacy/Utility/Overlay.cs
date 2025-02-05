@@ -43,7 +43,7 @@ public class Overlay
 
         if (Location >= 0 && Location <= 3)
         {
-            Vector2 workPos = useView ? view.FramePos + view.FrameContentRegion.GetOriginF() : viewport.WorkPos;
+            Vector2 workPos = useView ? view.FramePos + (Vec2)view.FrameContentRegion.GetOriginF() : viewport.WorkPos;
             Vector2 workSize = useView ? view.FrameContentRegion.GetSizeF() : viewport.WorkSize;
             Vector2 windowPos, windowPosPivot;
             windowPos.X = (Location == 1 || Location == 3) ? (workPos.X + workSize.X - Padding.X) : (workPos.X + Padding.X);
@@ -111,7 +111,7 @@ public class Overlay
                 ImGui.Text($"UFrags: {EntityManager.Singleton.UFragsCount:N0}");
                 ImGui.Text($"Total entities: {EntityCluster.TotalEntities:N0}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
-                ImGui.Text($"Materials: {((Window.Singleton.FileManager?.isOld ?? false) ? Window.Singleton.AssetLoader?.shaderDB.Count : Window.Singleton.AssetLoader?.shaders.Count):N0}");
+                ImGui.Text($"Materials: {Window.Singleton.AssetLoader.Shaders.Count:N0}");
                 ImGui.EndGroup();
             }
             if(ShowCamInfo)
@@ -122,7 +122,7 @@ public class Overlay
                 ImGui.Spacing();
                 ImGui.SeparatorText("Camera Info");
                 ImGui.BeginGroup();
-                ImGui.Text($"Position: {-Camera.Main.transform.Position.ToOpenTK():N3}");
+                ImGui.Text($"Position: {-Camera.Main.transform.Position:N3}");
                 ImGui.Text($"Rotation: ({x:N3}°, {y:N3}°)");
                 if(useView)
                 {

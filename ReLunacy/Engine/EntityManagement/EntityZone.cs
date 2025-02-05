@@ -1,6 +1,4 @@
-﻿using LibLunacy.Legacy;
-
-namespace ReLunacy.Engine.EntityManagement;
+﻿namespace ReLunacy.Engine.EntityManagement;
 
 public class EntityZone
 {
@@ -13,24 +11,24 @@ public class EntityZone
     public bool AllowRender = true;
 
     public string ZoneName = string.Empty;
-    public int ZoneIndex = -1;
+    public ulong ZoneTUID = 0;
 
     public EntityZone() { }
 
-    public EntityZone(CZone zone)
+    public EntityZone(Zone zone)
     {
-        ZoneName = zone.name;
-        ZoneIndex = zone.index;
+        ZoneName = zone.Name;
+        ZoneTUID = zone.TUID;
 
-        LunaLog.LogDebug($"Zone {ZoneName} ({ZoneIndex}) has {zone.tieInstances.Count} tie instances and {zone.ufrags.Length} UFrags.");
+        LunaLog.LogDebug($"Zone {ZoneName} ({ZoneTUID}) has {zone.tieInstances.Length} tie instances and {zone.ufrags.Length} UFrags.");
         foreach (var tie in zone.tieInstances)
         {
-            TieInstances.Add(tie.Value);
+            TieInstances.Add(tie);
         }
         for (int i = 0; i < zone.ufrags.Length; i++)
         {
             var uf = zone.ufrags[i];
-            UFrags.Add(uf, (ulong)zone.index, i);
+            UFrags.Add(uf, zone.TUID, i);
         }
     }
 

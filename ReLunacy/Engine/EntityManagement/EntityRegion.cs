@@ -1,6 +1,4 @@
-﻿using LibLunacy.Legacy;
-
-namespace ReLunacy.Engine.EntityManagement;
+﻿namespace ReLunacy.Engine.EntityManagement;
 
 public class EntityRegion
 {
@@ -52,18 +50,18 @@ public class EntityRegion
     {
         RegionName = region.name;
 
-        LunaLog.LogDebug($"Region {RegionName} has {region.mobyInstances.Count} moby instances and {region.zones.Length}");
-        foreach (var mInst in region.mobyInstances)
+        LunaLog.LogDebug($"Region {RegionName} has {region.MobyInstances.Count} moby instances and {region.Zones.Count}");
+        foreach (var mInst in region.MobyInstances)
         {
             MobyInstances.Add(mInst.Value);
         }
-        foreach(var vInst in region.volumeInstances)
+        foreach(var vInst in region.Volumes)
         {
-            Volumes.Add(vInst);
+            Volumes.Add(vInst.Value);
         }
-        foreach (var zone in region.zones)
+        foreach (var zone in region.Zones)
         {
-            Zones.Add(new EntityZone(zone));
+            Zones.Add(new EntityZone(zone.Value));
         }
     }
 

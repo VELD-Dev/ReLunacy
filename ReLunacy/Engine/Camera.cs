@@ -18,7 +18,7 @@ public class Camera
     private float _aspect;
     private float _nearClip;
     private float _farClip;
-    private Vector2 CamLocal;
+    private Vec2 CamLocal;
 
     #region Cam Settings
 
@@ -61,15 +61,15 @@ public class Camera
 
     #endregion
 
-    public Matrix4 WorldToView
+    public Mat4 WorldToView
     {
         get
         {
-            return Matrix4.CreateTranslation(transform.Position.ToOpenTK()) * Matrix4.CreateFromQuaternion(transform.Rotation);
+            return Mat4.CreateTranslation(transform.Position) * Mat4.CreateFromQuaternion(transform.Rotation);
         }
     }
 
-    public Matrix4 ViewToClip;
+    public Mat4 ViewToClip;
 
     public void SetPerspective(float fov, float aspect, float depthNear, float depthFar)
     {
@@ -80,7 +80,7 @@ public class Camera
         UpdatePerspective();
     }
 
-    public void SetRotation(Vector2 angle)
+    public void SetRotation(Vec2 angle)
     {
         angle.Y = Math.Clamp(angle.Y, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
         CamLocal = angle;
@@ -88,10 +88,9 @@ public class Camera
         transform.SetRotation(Quat.FromAxisAngle(Vec3.UnitX, angle.Y) * Quat.FromAxisAngle(Vec3.UnitY, angle.X));
     }
 
-    public void Rotate(Vector2 angle)
+    public void Rotate(Vec2 angle)
     {
-        CamLocal.X += angle.X;
-        CamLocal.Y += angle.Y;
+        CamLocal += angle;
         
         SetRotation(CamLocal);
     }
@@ -109,10 +108,10 @@ public class Camera
             1
         );
         Vec4 homogeneousClip = new(viewport.X, viewport.Y, -1, 1);
-        Vec4 eye = Matrix4.Invert(Matrix4.Transpose(ViewToClip)) * homogeneousClip;
+        Vec4 eye = Mat4.Invert(Matrix4.Transpose(ViewToClip)) * homogeneousClip;
         eye.Z = -1;
         eye.W = 0;
-        Vec3 worldRayAngleFromCam = (Matrix4.Invert(Matrix4.Transpose(WorldToView)) * eye).Xyz;
+        Vec3 worldRayAngleFromCam = (Mat4.Invert(Matrix4.Transpose(WorldToView)) * eye).Xyz;
         worldRayAngleFromCam.Normalize();
         return worldRayAngleFromCam;
     }

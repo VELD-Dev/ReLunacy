@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using LibLunacy.Legacy;
+using LibLunacy.Objects.Instances;
 
 namespace ReLunacy.Frames.DockedFrames
 {
@@ -131,10 +132,10 @@ namespace ReLunacy.Frames.DockedFrames
 
         public void SetEntities(List<Entity> newEntityList)
         {
-            mobys = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(Region.CMobyInstance))];
-            ties = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(CZone.CTieInstance))];
-            ufrags = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(CZone.NewUFrag) || e.instance.GetType() == typeof(CZone.OldUFrag))];
-            volumes = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(Region.CVolumeInstance))];
+            mobys = [.. newEntityList.FindAll(e => e.EntityType == EntityType.Moby)];
+            ties = [.. newEntityList.FindAll(e => e.EntityType == EntityType.Tie)];
+            ufrags = [.. newEntityList.FindAll(e => e.EntityType == EntityType.UFrag)];
+            volumes = [.. newEntityList.FindAll(e => e.EntityType == EntityType.Volume)];
         }
 
         public void SearchEntities(in Entity[] entities, string searchArgs, out Entity[] res)
