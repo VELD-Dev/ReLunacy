@@ -37,7 +37,7 @@ namespace ReLunacy.Frames.DockedFrames
             FrameName = "Entity Explorer";
         }
 
-        public BasicEntityExplorer(List<Entity> entities)
+        public BasicEntityExplorer(List<Entity> entities) : this()
         {
             SetEntities(entities);
         }

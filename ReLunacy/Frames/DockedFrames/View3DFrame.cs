@@ -22,15 +22,19 @@ internal class View3DFrame : DockedFrame
             {
                 _entitySelection?.RemoveWireframeDrawCall();
                 _entitySelection = null;
+                SelectedEntityChanged.Invoke(null);
             }
             else
             {
                 _entitySelection?.RemoveWireframeDrawCall();
                 _entitySelection = value;
                 _entitySelection.AddWireframeDrawCall();
+                SelectedEntityChanged.Invoke(value);
             }
         }
     }
+
+    public event Action<Entity?> SelectedEntityChanged;
 
     public View3DFrame() : base()
     {

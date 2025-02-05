@@ -17,6 +17,8 @@ public class PropertyInspectorFrame : DockedFrame
     private System.Numerics.Vector3 selectedScale;
     private System.Numerics.Vector3 selectedBSphere;
 
+    private bool selectionChangeHandled = false;
+
     public Entity? SelectedEntity
     { 
         get
@@ -30,6 +32,16 @@ public class PropertyInspectorFrame : DockedFrame
     public PropertyInspectorFrame() : base()
     {
         FrameName = "Instance Properties";
+
+        if(Window.Singleton.IsAnyFrameOpened<View3DFrame>())
+        {
+            var v3d = Window.Singleton.GetFirstFrame<View3DFrame>();
+            v3d.SelectedEntityChanged += UpdateEntity;
+            selectionChangeHandled = true;
+        }
+
+        Window.Singleton.OnFrameAdded += CheckIfNewFrameIsV3D;
+        Window.Singleton.OnFrameRemoved += CheckIfRemFrameIsV3D;
     }
 
     protected override void Render(float deltaTime)
@@ -95,7 +107,7 @@ public class PropertyInspectorFrame : DockedFrame
             }
             ImGui.InputFloat("Bounding Sphere Size", ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
 
-            ImGui.Spacing();
+            ImGui.Separator();
             
             if(ImGui.Button("Teleport to Entity"))
             {
@@ -114,11 +126,46 @@ public class PropertyInspectorFrame : DockedFrame
         base.RenderAsWindow(deltaTime);
     }
 
-    public void UpdateEntity()
+    private void CheckIfNewFrameIsV3D(Frame frame)
     {
-        if (SelectedEntity is null) return;
+        if (!selectionChangeHandled)
+            if (frame is View3DFrame v3d)
+                v3d.SelectedEntityChanged += UpdateEntity;
+    }
 
+    private void CheckIfRemFrameIsV3D(Frame frame)
+    {
+        if (selectionChangeHandled)
+        {
+            if (frame is View3DFrame v3d)
+            {
+                v3d.SelectedEntityChanged -= UpdateEntity;
+                selectionChangeHandled = false;
+            }
+        }
+
+        if (frame is PropertyInspectorFrame self)
+        {
+            Window.Singleton.OnFrameAdded -= CheckIfNewFrameIsV3D;
+            Window.Singleton.OnFrameRemoved -= CheckIfRemFrameIsV3D;
+        }
+    }
+
+    private void UpdateEntity(Entity? newSelection)
+    {
+        if (SelectedEntity is null)
+        {
+            selectedAngle = Vec3.Zero;
+            selectedBSphere = Vec3.Zero;
+            selectedPosition = Vec3.Zero;
+            selectedScale = Vec3.Zero;
+            return;
+        }
+
+        selectedPosition = SelectedEntity.Transform.Position;
         selectedAngle = SelectedEntity.Transform.EulerRotation * (180f / MathF.PI);
+        selectedScale = SelectedEntity.Transform.Scale;
+        selectedBSphere = SelectedEntity.boundingSphere.XYZ;
 
         LunaLog.LogDebug($"Moving entity.");
     }
