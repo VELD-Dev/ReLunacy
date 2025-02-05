@@ -1,5 +1,7 @@
 ﻿
 
+using System.Runtime.CompilerServices;
+
 namespace ReLunacy;
 
 public class Window : GameWindow
@@ -21,6 +23,9 @@ public class Window : GameWindow
     public FileManager FileManager { get; private set; }
 
     private bool doLoadEntities = false;
+
+    public event Action<Frame> OnFrameAdded;
+    public event Action<Frame> OnFrameRemoved;
 
     public string[] args { get => Program.cmds; }
 
@@ -261,6 +266,7 @@ public class Window : GameWindow
     public void AddFrame(Frame frame)
     {
         openFrames.Add(frame);
+        OnFrameAdded.Invoke(frame);
     }
 
     public bool IsAnyFrameOpened<T>() where T : Frame
@@ -274,6 +280,7 @@ public class Window : GameWindow
         {
             var frameToClose = GetFirstFrame<T>();
             frameToClose.isOpen = false;
+            OnFrameRemoved.Invoke(frameToClose);
         }
     }
 
