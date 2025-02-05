@@ -9,8 +9,13 @@ namespace ReLunacy.Frames.DockedFrames;
 public class PropertyInspectorFrame : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override System.Numerics.Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkSize;
+    protected override Vec2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkSize;
     protected override ImGuiWindowFlags WindowFlags { get; set; }
+
+    private System.Numerics.Vector3 selectedPosition;
+    private System.Numerics.Vector3 selectedAngle;
+    private System.Numerics.Vector3 selectedScale;
+    private System.Numerics.Vector3 selectedBSphere;
 
     public Entity? SelectedEntity
     { 
@@ -56,19 +61,38 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text("---");
             ImGui.EndGroup();
 
+            ImGui.BeginGroup();
+            ImGui.Text("Object path:");
+            ImGui.EndGroup();
+            ImGui.SameLine();
+            ImGui.BeginGroup();
+            ImGui.TextWrapped(SelectedEntity.name);
+            ImGui.EndGroup();
+
             ImGui.SeparatorText("Transform");
 
-            ImGui.InputFloat3("Position", ref SelectedEntity.Transform.Position, "%.3fm");
-            if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.Transform.EulerRotation, "%.4frad");
-            if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Scale", ref SelectedEntity.Transform.Scale, "%.3f");
-            if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
+            if (ImGui.InputFloat3("Position", ref selectedPosition, "%.3fm"))
+            {
+                SelectedEntity.Transform.Position = selectedPosition;
+            }
+            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
+            if (ImGui.InputFloat3("Rotation", ref selectedAngle, "%.1f°"))
+            {
+                SelectedEntity.Transform.EulerRotation = selectedAngle * (MathF.PI / 180f);
+            }
+            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
+            if(ImGui.InputFloat3("Scale", ref selectedScale, "%.3f"))
+            {
+                SelectedEntity.Transform.Scale = selectedScale;
+            }
+            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
 
             ImGui.SeparatorText("Rendering");
 
-            var bs = new System.Numerics.Vector3(SelectedEntity.boundingSphere.X, SelectedEntity.boundingSphere.Y, SelectedEntity.boundingSphere.Z);
-            ImGui.InputFloat3("Bounding Sphere Pos.", ref bs, "%.3f", ImGuiInputTextFlags.ReadOnly);
+            if(ImGui.InputFloat3("Bounding Sphere Pos.", ref selectedBSphere, "%.3fm", ImGuiInputTextFlags.ReadOnly))
+            {
+                SelectedEntity.boundingSphere.XYZ = selectedBSphere;
+            }
             ImGui.InputFloat("Bounding Sphere Size", ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
 
             ImGui.Spacing();
@@ -92,6 +116,9 @@ public class PropertyInspectorFrame : DockedFrame
 
     public void UpdateEntity()
     {
+        if (SelectedEntity is null) return;
+
+        selectedAngle = SelectedEntity.Transform.EulerRotation * (180f / MathF.PI);
 
         LunaLog.LogDebug($"Moving entity.");
     }
