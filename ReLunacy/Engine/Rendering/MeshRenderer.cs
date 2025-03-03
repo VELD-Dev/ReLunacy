@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ReLunacy.Engine.Rendering.Alister;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -13,7 +14,7 @@ public class MeshRenderer : Renderer
     // Mobys use every lists.
     // Ties use only the first list of list of lists.
     // UFrags only use the first drawable mesh of the first list of the first list of lists.
-    public List<List<DrawableMesh>> meshes;
+    public List<List<Model>> meshes;
     public Entity entity;
 
     private int IBO = 0;
@@ -53,7 +54,12 @@ public class MeshRenderer : Renderer
 
     public override void Include(Entity entity)
     {
-        throw new NotImplementedException();
+        meshes = null;
+
+        if (entity )
+        {
+            
+        }
     }
 
     public override void Include(List<Entity> entities)

@@ -1,8 +1,10 @@
-﻿namespace ReLunacy.Engine.EntityManagement;
+﻿using ReLunacy.Engine.Rendering.Alister;
 
-public abstract class Entity
+namespace ReLunacy.Engine.EntityManagement;
+
+public abstract class Entity : IRenderable, IDisposable
 {
-    public static ulong InstancesCount { get; protected set; } = 0;
+    public Model? Model { get; set; }
     
     public abstract EntityType EntityType { get; init; }
     public ulong ID { get; init; }
@@ -10,9 +12,20 @@ public abstract class Entity
     public bool AllowRender = true;
 
     public required Transform Transform { get; set; }
-    public Vec4 boundingSphere;
+    public float[] Vertices { get => Model?.Vertices ?? []; set
+        {
+            if (Model == null) return;
+            Model.Vertices = value;
+        }
+    }
+    public uint[] Indices { get => Model?.Indices ?? []; set
+        {
+            if(Model == null) return;
+            Model.Indices = value;
+        }
+    }
 
-    public static void Wipe() => InstancesCount = 0;
+    public Vec4 boundingSphere;
 
     public void SetPosition(Vec3 position)
     {

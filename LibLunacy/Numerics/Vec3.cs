@@ -56,6 +56,7 @@ public record struct Vec3
     public static bool operator >(Vec3 a, Vec3 b) => a.Length > b.Length;
 
     public readonly float Length => MathF.Sqrt(X*X + Y*Y + Z*Z);
+    public readonly float LengthSquared => X*X + Y*Y + Z*Z;
     public readonly float AngleXY => MathF.Acos(MathF.Sqrt(X*X + Y*Y) / X);
     public readonly float AngleXZ => MathF.Acos(MathF.Sqrt(X*X + Z*Z) / X);
     public readonly Vec2 XY => new(X, Y);

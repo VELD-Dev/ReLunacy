@@ -45,6 +45,7 @@ public record struct Vec4
     public static float operator ~(Vec4 a) => a.Length;
 
     public readonly float Length => MathF.Sqrt(X*X + Y*Y + Z*Z + W*W);
+    public readonly float LengthSquared => X*X + Y*Y + Z*Z + W*W;
     public Vec3 XYZ
     {
         readonly get => new(X, Y, Z);

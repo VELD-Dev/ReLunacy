@@ -11,12 +11,11 @@ public class GLTexture
     public GLTexture(LunaTexture tex)
     {
         textureId = GL.GenTexture();
+        format = tex.TexFormat;
+        Tex = tex;
 
         GL.ActiveTexture(TextureUnit.Texture0);
         GL.BindTexture(TextureTarget.Texture2D, textureId);
-
-        format = tex.TexFormat;
-        Tex = tex;
 
         Define();
     }
@@ -43,38 +42,38 @@ public class GLTexture
             uint offset = 0;
             for (int i = 0; i < Tex.MipmapCounts; i++)
             {
-                if (format == TextureFormat.DXT1)
+                int width = Math.Max(1, (int)Tex.Width / (int)Math.Pow(2, i));
+                int height = Math.Max(1, (int)Tex.Height / (int)Math.Pow(2, i));
+                int size = 0;
+                switch(format)
                 {
-                    int size = Math.Max(1, ((int)Tex.Width / (int)Math.Pow(2, i) + 3) / 4) * Math.Max(1, ((int)Tex.Height / (int)Math.Pow(2, i) + 3) / 4) * 8;
-                    GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbS3tcDxt1Ext, (int)Tex.Width, (int)Tex.Height, 0, size, (nint)(b + offset));
-                    offset += (uint)size;
+                    case TextureFormat.DXT1:
+                        size = ((width + 3) / 4) * ((height + 3) / 4) * 8;
+                        GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbS3tcDxt1Ext, width, height, 0, size, (nint)(b + offset));
+                        break;
+                    case TextureFormat.DXT3:
+                        size = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+                        GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbaS3tcDxt3Ext, width, height, 0, size, (nint)(b + offset));
+                        break;
+                    case TextureFormat.DXT5:
+                        size = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+                        GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbaS3tcDxt5Ext, width, height, 0, size, (nint)(b + offset));
+                        break;
+                    case TextureFormat.A8R8G8B8:
+                        size = width * height * 4;
+                        GL.TexImage2D(TextureTarget.Texture2D, i, PixelInternalFormat.Rgba, width, height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, (nint)(b + offset));
+                        break;
+                    case TextureFormat.R5G6B5:
+                        size = width * height * 2;
+                        GL.TexImage2D(TextureTarget.Texture2D, i, PixelInternalFormat.R5G6B5IccSgix, width, height, 0, PixelFormat.R5G6B5IccSgix, PixelType.UnsignedShort565, (nint)(b + offset));
+                        break;
+
                 }
-                else if (format == TextureFormat.DXT3)
-                {
-                    int size = Math.Max(1, ((int)Tex.Width / (int)Math.Pow(2, i) + 3) / 4) * Math.Max(1, ((int)Tex.Height / (int)Math.Pow(2, i) + 3) / 4) * 16;
-                    GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbaS3tcDxt3Ext, (int)Tex.Width, (int)Tex.Height, 0, size, (nint)(b + offset));
-                    offset += (uint)size;
-                }
-                else if (format == TextureFormat.DXT5)
-                {
-                    int size = Math.Max(1, ((int)Tex.Width / (int)Math.Pow(2, i) + 3) / 4) * Math.Max(1, ((int)Tex.Height / (int)Math.Pow(2, i) + 3) / 4) * 16;
-                    GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbaS3tcDxt5Ext, (int)Tex.Width, (int)Tex.Height, 0, size, (nint)(b + offset));
-                    offset += (uint)size;
-                }
-                else if (format == TextureFormat.A8R8G8B8)
-                {
-                    int size = 4 * (int)Tex.Width * (int)Tex.Width;
-                    GL.TexImage2D(TextureTarget.Texture2D, i, PixelInternalFormat.Rgba, (int)Tex.Width, (int)Tex.Width, 0, PixelFormat.Rgba, PixelType.UnsignedByte, (nint)(b + offset));
-                }
-                else if (format == TextureFormat.R5G6B5)
-                {
-                    int size = 2 * (int)Tex.Width * (int)Tex.Height;
-                    GL.TexImage2D(TextureTarget.Texture2D, i, PixelInternalFormat.R5G6B5IccSgix, (int)Tex.Width, (int)Tex.Height, 0, PixelFormat.R5G6B5IccSgix, PixelType.UnsignedShort565, (nint)(b + offset));
-                }
+                offset += (uint)size;
             }
         }
 
-        //GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
+        // Don't bind the texture when it's not used.
         GL.BindTexture(TextureTarget.Texture2D, 0);
     }
 

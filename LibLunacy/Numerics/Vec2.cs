@@ -46,6 +46,7 @@ public record struct Vec2
     public static bool operator >(Vec2 a, Vec2 b) => a.Length > b.Length;
 
     public readonly float Length => MathF.Sqrt(X*X + Y*Y);
+    public readonly float LengthSquared => X*X + Y*Y;
     public readonly float Angle => MathF.Acos(Length / X);
 
     public readonly void Deconstruct(out float x, out float y) { x = X; y = Y; }

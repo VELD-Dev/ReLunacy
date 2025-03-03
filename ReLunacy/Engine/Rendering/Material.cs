@@ -7,19 +7,14 @@ public class Material
 {
 
     public int programId;
-    GLTexture? albedo;
-    GLTexture? expensive;
-    public PrimitiveType drawType;
-    public uint numUsing = 0;
-    public RenderingMode renderingMode = RenderingMode.Opaque;
-    public Shader asset;
-    public static Mat4 dissolvePattern = new( 1f / 17f,  9f / 17f,  3f / 17f, 11f / 17f,
-                                             13f / 17f,  5f / 17f, 15f / 17f,  7f / 17f,
-                                              4f / 17f, 12f / 17f,  2f / 17f, 10f / 17f,
-                                             16f / 17f,  8f / 17f, 14f / 17f,  6f / 17f);
-    public bool isSelected = false;
+    private GLTexture? albedo;
+    private GLTexture? expensive;
+    public PrimitiveType DrawType { get; private set; }
+    public uint NumUsing { get; set; } = 0;
+    public RenderingMode RenderingMode { get; private set; } = RenderingMode.Opaque;
+    public Shader Asset { get; private set; }
 
-    Dictionary<string, int> uniforms = new Dictionary<string, int>();
+    private Dictionary<string, int> uniforms = [];
 
     public bool HasTransparency
     {
@@ -39,14 +34,15 @@ public class Material
     }
     public Material(Shader cshad)
     {
-        asset = cshad;
-        GLTexture? tex = cshad.Albedo == null ? null : AssetManager.Singleton.Textures[(uint)cshad.Albedo.id];
-        GLTexture? exp = cshad.Expensive == null || Window.Singleton.FileManager.isOld ? null : AssetManager.Singleton.Textures[(uint)cshad.Expensive.id];
-        if (tex == null && cshad.Albedo != null) Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.Albedo.id.ToString("X08")} AKA {cshad.Albedo.name}");
+        Asset = cshad;
+        albedo = cshad.Albedo == null ? null : AssetManager.Singleton.Textures[(uint)cshad.Albedo.id];
+        expensive = cshad.Expensive == null || Window.Singleton.FileManager.isOld ? null : AssetManager.Singleton.Textures[(uint)cshad.Expensive.id];
+        if (albedo == null && cshad.Albedo != null)
+        {
+            Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.Albedo.id.ToString("X08")} AKA {cshad.Albedo.name}");
+        }
         programId = MaterialManager.Materials["stdv;solidf"];
-        albedo = tex;
-        expensive = exp;
-        drawType = PrimitiveType.Triangles;
+        DrawType = PrimitiveType.Triangles;
     }
 
     public void Use()
@@ -57,16 +53,14 @@ public class Material
             albedo.Use();
             SetInt("albedo", 0);
             SetBool("useTexture", true);
-            if (asset.RenderingMode == RenderingMode.AlphaClip)
+            if (Asset.RenderingMode == RenderingMode.AlphaClip)
             {
-                SetFloat("alphaClip", asset.metadata.alphaClip);
+                SetFloat("alphaClip", Asset.metadata.alphaClip);
             }
             else
             {
                 SetFloat("alphaClip", 0f);
             }
-            SetMatrix4x4("dissolvePattern", ref dissolvePattern);
-            SetBool("isSelected", isSelected);
         }
         else
         {
@@ -78,7 +72,7 @@ public class Material
         GL.UseProgram(programId);
     }
 
-    public void SetMatrix4x4(string name, ref Mat4 data)
+    public void SetMatrix4x4(string name, Mat4 data)
     {
         Matrix4 mat = data;
         GL.UniformMatrix4(GetUniformLocation(name), true, ref mat);
