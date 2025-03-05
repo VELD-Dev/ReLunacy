@@ -4,14 +4,15 @@ namespace ReLunacy.Engine.EntityManagement;
 
 public abstract class Entity : IRenderable, IDisposable
 {
-    public Model? Model { get; set; }
+    public Model Model { get; set; }
+    public Transform Transform { get; set; }
     
     public abstract EntityType EntityType { get; init; }
     public ulong ID { get; init; }
     public string name = string.Empty;
     public bool AllowRender = true;
+    public bool Selected = false;
 
-    public required Transform Transform { get; set; }
     public float[] Vertices { get => Model?.Vertices ?? []; set
         {
             if (Model == null) return;
@@ -27,46 +28,16 @@ public abstract class Entity : IRenderable, IDisposable
 
     public Vec4 boundingSphere;
 
-    public void SetPosition(Vec3 position)
-    {
-        Transform.Position = position;
-    }
-    public void SetRotation(Vec3 rotation)
-    {
-        Transform.SetRotation(rotation);
-    }
-    public void SetScale(Vec3 scale)
-    {
-        Transform.Scale = scale;
-    }
-    public void SetTransform(Mat4 mat)
-    {
-        Transform.Matrix = mat;
-    }
+    public void SetPosition(Vec3 position) => Transform.Position = position;
+    public void SetRotation(Vec3 rotation) => Transform.SetRotation(rotation);
+    public void SetScale(Vec3 scale) => Transform.Scale = scale;
+    public void SetTransform(Mat4 mat) =>Transform.Matrix = mat;
+
     public void Draw()
     {
         if (!AllowRender) return;
-        if (drawable is DrawableListList dll) dll.Draw(Transform);
-        else if (drawable is DrawableList dl) dl.Draw(Transform);
-        else if (drawable is Drawable d) d.Draw(Transform);
+        Model.Draw(Transform, Selected);
     }
-
-    // It's shaky, I must consolidate that but it works !
-    public void AddWireframeDrawCall()
-    {
-        if (!AllowRender) return;
-        LunaLog.LogDebug("Wireframe Drawcall added");
-        if (drawable is DrawableListList dll) dll.AddDrawCallWireframe(Transform, ID);
-        else if (drawable is DrawableList dl) dl.AddDrawCallWireframe(Transform, ID);
-        else if (drawable is Drawable d) d.AddDrawCallWireframe(Transform, ID);
-    }
-    public void RemoveWireframeDrawCall()
-    {
-        if (drawable is DrawableListList dll) dll.RemoveDrawCallWireframe(ID);
-        else if (drawable is DrawableList dl) dl.RemoveDrawCallWireframe(ID);
-        else if (drawable is Drawable d) d.RemoveDrawCallWireframe(ID);
-    }
-    // /////////////////////////////////////////////// //
  
     public bool IntersectsRay(Vec3 dir, Vec3 position, out float distance)
     {
@@ -85,5 +56,10 @@ public abstract class Entity : IRenderable, IDisposable
     public bool IntersectsRay(Vec3 dir, Vec3 position)
     {
         return IntersectsRay(dir, position, out _);
+    }
+
+    public void Dispose()
+    {
+        Model.Dispose();
     }
 }

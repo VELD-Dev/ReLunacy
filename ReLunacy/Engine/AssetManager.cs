@@ -1,4 +1,5 @@
-﻿using GLTexture = ReLunacy.Engine.Rendering.GLTexture;
+﻿using ReLunacy.Engine.Rendering.Alister;
+using GLTexture = ReLunacy.Engine.Rendering.GLTexture;
 
 namespace ReLunacy.Engine;
 
@@ -7,17 +8,13 @@ public class AssetManager
     private static Lazy<AssetManager> lazy = new(() => new AssetManager());
     public static AssetManager Singleton => lazy.Value;
 
-    public Dictionary<ulong, DrawableListList> Mobys { get; private set; } = [];
-    public Dictionary<ulong, DrawableList> Ties { get; private set; } = [];
-    public Dictionary<ulong, List<Drawable>> UFrags { get; private set; } = [];
     public Dictionary<uint, GLTexture> Textures { get; private set; } = [];
+    public Dictionary<uint, Material> Materials { get; private set; } = [];
     public Drawable Cube { get; private set; }
 
     private AssetManager()
     {
-        Cube = new Drawable();
-        Cube.SetVertexPositions(
-        [
+        Cube = new Drawable([
             +1, +1, +1,
             +1, +1, -1,
             +1, -1, +1,
@@ -26,8 +23,7 @@ public class AssetManager
             -1, +1, -1,
             -1, -1, +1,
             -1, -1, -1,
-        ]);
-        Cube.SetIndices(
+        ],
         [
             0, 1, // Front
             1, 3,
@@ -64,9 +60,9 @@ public class AssetManager
             1, 7, // Bot diags
             3, 5
             */
-        ]);
-        Cube.SetMaterial(new Material(MaterialManager.Materials["stdv;volumef"]));
-        Cube.drawType = Drawable.DrawType.Lines;
+        ],
+        new Material(MaterialManager.ShaderHandles["stdv;volumef"]),
+        MaterialManager.SelectedVolumeMat);
     }
 
     public void Initialize(Loader loader)
@@ -75,64 +71,17 @@ public class AssetManager
         {
             Textures.Add((uint)tex.Key, new(tex.Value));
         }
-        foreach(var moby in loader.Mobys)
+        foreach(var shader in loader.Shaders)
         {
-            Mobys.Add(moby.Key, new(moby.Value));
-        }
-        foreach(var tie in loader.Ties)
-        {
-            Ties.Add(tie.Key, new(tie.Value));
-        }
-        foreach(var region in loader.Regions)
-        {
-            foreach(var zone in region.Zones)
-            {
-                var uf = new List<Drawable>();
-                foreach(var ufrag in zone.Value.ufrags)
-                {
-                    uf.Add(new(ufrag));
-                }
-                UFrags.Add(zone.Value.metadata.TUID, uf);
-            }
+            Materials.Add((uint)shader.Value.TUID, new(shader.Value));
         }
     }
 
     public void Wipe()
     {
+        foreach (var mat in Materials)
+            mat.Value.Dispose();
         Textures.Clear();
-        Mobys.Clear();
-        Ties.Clear();
-        UFrags.Clear();
-        Cube.transforms.Clear();
-    }
-
-    public void ConsolidateMobys()
-    {
-        foreach(var moby in Mobys)
-        {
-            moby.Value.ConsolidateDrawCalls();
-        }
-    }
-
-    public void ConsolidateTies()
-    {
-        foreach(var tie in Ties)
-        {
-            tie.Value.ConsolidateDrawCalls();
-        }
-    }
-
-    public void ConsolidateUFrags()
-    {
-        foreach(var zoneUfrags in UFrags.Values)
-        {
-            foreach(var ufrag in zoneUfrags)
-                ufrag.ConsolidateDrawCalls();
-        }
-    }
-
-    public void ConsolidateVolumes()
-    {
-        Cube.ConsolidateDrawCalls();
+        Materials.Clear();
     }
 }

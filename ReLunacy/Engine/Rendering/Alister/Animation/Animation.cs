@@ -18,11 +18,11 @@ public class Animation
         Duration = duration;
     }
 
-    public Keyframe GetKeyframe(string boneName, float time)
+    public Keyframe? GetKeyframe(string boneName, float time)
     {
-        if (!Keyframes.ContainsKey(boneName)) return null;
+        if (!Keyframes.TryGetValue(boneName, out List<Keyframe>? keyframes))
+            return null;
 
-        var keyframes = Keyframes[boneName];
         return keyframes.FirstOrDefault(k => k.Time == time);
     }
 }

@@ -28,7 +28,9 @@ global using OpenTK.Windowing.GraphicsLibraryFramework;
 global using OpenTK.Windowing.Desktop;
 
 global using ImGuiNET;
+global using ImGui = ImGuiNET.ImGui;
 global using Hexa.NET.ImGuizmo;
+global using HexaGui = Hexa.NET.ImGui.ImGui;
 
 global using Newtonsoft;
 global using Newtonsoft.Json;
@@ -58,5 +60,3 @@ global using LibLunacy.Objects;
 global using LibLunacy.Textures;
 global using LibLunacy.Vertices;
 global using LibLunacy.Numerics;
-
-global using AssetExtractor;

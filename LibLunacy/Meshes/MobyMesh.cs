@@ -57,7 +57,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                     vp[i + 2] = vertices1[i].position.Item3;
                 }
             }
-            return vp
+            return vp;
         }
     }
 

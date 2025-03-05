@@ -24,16 +24,6 @@ public class EntityCluster
         TotalEntities += Size;
     }
 
-    public void Render()
-    {
-        if (!AllowRender) return;
-
-        foreach (var entity in Entities)
-        {
-            entity.Draw();
-        }
-    }
-
     public void Add(Entity entity)
     {
         TotalEntities++;
@@ -83,18 +73,5 @@ public class EntityCluster
     public static void Wipe()
     {
         TotalEntities = 0;
-    }
-
-    // FOR DEBUG PURPOSE
-    public Drawable[] GetDrawables()
-    {
-        var drawables = new List<Drawable>();
-        foreach(var e in Entities)
-        {
-            if (e.drawable is Drawable d) drawables.Add(d);
-            else if(e.drawable is DrawableList dl) drawables.AddRange(dl);
-            else if(e.drawable is DrawableListList dll) foreach(var dl2 in dll) drawables.AddRange(dl2);
-        }
-        return [.. drawables];
     }
 }

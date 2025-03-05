@@ -2,18 +2,30 @@
 
 public class MaterialManager
 {
-    public static Dictionary<string, int> Materials = [];
+    public static Dictionary<string, int> ShaderHandles = [];
     public static Material SelectedVolumeMat;
 
-    public static int LoadMaterial(string name, string vertexShaderPath, string fragmentShaderPath)
+    public static void Initialize()
     {
-        if (Materials.Any(x => x.Key == name))
+        LoadShader("stdv;transparentf", "Shaders/stdv.glsl", "Shaders/transparentf.glsl");
+        LoadShader("stdv;solidf", "Shaders/stdv.glsl", "Shaders/solidf.glsl");
+        LoadShader("stdv;whitef", "Shaders/stdvsingle.glsl", "Shaders/whitef.glsl");
+        LoadShader("stdv;volumef", "Shaders/stdv.glsl", "Shaders/volumef.glsl");
+        LoadShader("stdv;pickingf", "Shaders/stdv.glsl", "Shaders/pickingf.glsl");
+        LoadShader("screenv;compositef", "Shaders/screenv.glsl", "Shaders/compositef.glsl");
+        LoadShader("screenv;screenf", "Shaders/screenv.glsl", "Shaders/screenf.glsl");
+        SelectedVolumeMat = new(ShaderHandles["stdv;volumef"], null, LibLunacy.Shaders.RenderingMode.Opaque, PrimitiveType.Lines);
+    }
+
+    public static int LoadShader(string name, string vertexShaderPath, string fragmentShaderPath)
+    {
+        if (ShaderHandles.Any(x => x.Key == name))
         {
-            int shaderID = Materials.First(x => x.Key == name).Value;
+            int shaderID = ShaderHandles.First(x => x.Key == name).Value;
             return shaderID;
         }
-        string vertexSource = File.ReadAllText(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/" + vertexShaderPath);
-        string fragmentSource = File.ReadAllText(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/" + fragmentShaderPath);
+        string vertexSource = File.ReadAllText(Program.AppPath + "/" + vertexShaderPath);
+        string fragmentSource = File.ReadAllText(Program.AppPath + "/" + fragmentShaderPath);
 
         int vertexProgramId = GL.CreateShader(ShaderType.VertexShader);
         int fragmentProgramId = GL.CreateShader(ShaderType.FragmentShader);
@@ -57,8 +69,16 @@ public class MaterialManager
         GL.DeleteShader(vertexProgramId);
         GL.DeleteShader(fragmentProgramId);
 
-        Materials.Add(name, programId);
+        ShaderHandles.Add(name, programId);
 
         return programId;
+    }
+
+    public static void Dispose()
+    {
+        foreach(var shader in ShaderHandles)
+        {
+            GL.DeleteProgram(shader.Value);
+        }
     }
 }

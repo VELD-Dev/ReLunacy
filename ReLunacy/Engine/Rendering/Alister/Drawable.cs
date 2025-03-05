@@ -12,20 +12,24 @@ public class Drawable : IDisposable
     private readonly int vbo;
     private readonly int ebo;
     public readonly int vertexCount;
-    private readonly Material material;
-    private readonly Material wireframeMaterial;
+    public readonly int facesCount;
+    public readonly Material material;
+    public readonly Material wireframeMaterial;
 
-    public Drawable(IMesh sourceMesh, Material material, Material wireframeMaterial) : this(sourceMesh.vpos, sourceMesh.indices, material, wireframeMaterial)
-    {
-      
-    }
+    public float[] Vpos { get; private set; }
+    public uint[] Indices { get; private set; }
+
+    public Drawable(IMesh sourceMesh, Material material, Material wireframeMaterial) : this(sourceMesh.vpos, sourceMesh.indices, material, wireframeMaterial) { }
 
     public Drawable(float[] vertices, uint[] indices, Material material, Material wireframeMaterial)
     {
+        Vpos = vertices;
+        Indices = indices;
         this.material = material;
         this.wireframeMaterial = wireframeMaterial;
 
         vertexCount = indices.Length;
+        facesCount = indices.Length / 3;
 
         vao = GL.GenVertexArray();
         vbo = GL.GenBuffer();

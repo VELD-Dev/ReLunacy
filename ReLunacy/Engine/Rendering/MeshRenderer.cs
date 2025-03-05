@@ -55,11 +55,6 @@ public class MeshRenderer : Renderer
     public override void Include(Entity entity)
     {
         meshes = null;
-
-        if (entity )
-        {
-            
-        }
     }
 
     public override void Include(List<Entity> entities)

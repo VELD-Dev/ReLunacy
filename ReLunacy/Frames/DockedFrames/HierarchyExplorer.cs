@@ -9,7 +9,7 @@ namespace ReLunacy.Frames.DockedFrames;
 public class HierarchyExplorer : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override System.Numerics.Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
+    protected override Vec2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
     public List<Entity> entities;
 

@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Objects.Instances;
+using ReLunacy.Engine.Rendering.Alister;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,8 +19,6 @@ public class MobyObject : Entity
     {
         Instance = mobyInstance;
         Asset = Window.Singleton.AssetLoader.Mobys[mobyInstance.TUID];
-        ID = InstancesCount;
-        InstancesCount++;
         Transform = new Transform(
             mobyInstance.instanceData.Position * YardToMeter,
             mobyInstance.instanceData.Rotation,
@@ -27,5 +26,18 @@ public class MobyObject : Entity
         );
         name = mobyInstance.name;
         boundingSphere = new(mobyInstance.Moby.BoundingSphere.XYZ * YardToMeter + Transform.Position, mobyInstance.Moby.BoundingSphere.W * mobyInstance.instanceData.Scale);
+
+        var models = new List<List<Model>>();
+        foreach(var bangle in Asset.Bangles)
+        {
+            var list = new List<Model>();
+            foreach (var model in bangle.meshes)
+            {
+                list.Add(new Model(new Drawable(model, AssetManager.Singleton.Materials[model.shaderIndex], MaterialManager.SelectedVolumeMat), model.boneWeight, model.vertToBonemap));
+            }
+            models.Add(list);
+        }
+
+        Model = new Model(models);
     }
 }

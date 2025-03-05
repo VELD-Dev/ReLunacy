@@ -31,18 +31,4 @@ public class EntityZone
             UFrags.Add(uf, zone.TUID, i);
         }
     }
-
-    public void Render()
-    {
-        if (!AllowRender) return;
-
-        TieInstances.Render();
-        UFrags.Render();
-    }
-
-    // FOR DEBUG PURPOSE
-    public Drawable[] GetDrawables()
-    {
-        return [.. UFrags.GetDrawables(), .. TieInstances.GetDrawables()];
-    }
 }

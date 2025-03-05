@@ -29,8 +29,8 @@ public class Material
     {
         albedo = color;
         programId = handle;
-        drawType = primitiveType;
-        renderingMode = renderMode;
+        DrawType = primitiveType;
+        RenderingMode = renderMode;
     }
     public Material(Shader cshad)
     {
@@ -41,7 +41,7 @@ public class Material
         {
             Console.Error.WriteLine($"WARNING: FAILED TO FIND TEXTURE {cshad.Albedo.id.ToString("X08")} AKA {cshad.Albedo.name}");
         }
-        programId = MaterialManager.Materials["stdv;solidf"];
+        programId = MaterialManager.ShaderHandles["stdv;solidf"];
         DrawType = PrimitiveType.Triangles;
     }
 

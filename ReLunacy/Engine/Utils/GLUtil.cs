@@ -18,7 +18,7 @@ static class GLUtil
     public static void CheckGlError(string title, [CallerLineNumber] int lineNumber = 0, [CallerFilePath] string caller = "")
     {
         var error = GL.GetError();
-        if (error != ErrorCode.NoError)
+        if (error != OpenTK.Graphics.OpenGL4.ErrorCode.NoError)
         {
             string fileName = Path.GetFileName(caller);
             Debug.Print($"[{fileName}:{lineNumber}] {title}: {error}");

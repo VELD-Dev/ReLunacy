@@ -1,6 +1,6 @@
 ﻿namespace ReLunacy.Engine.Rendering.Alister;
 
-public readonly ref struct Frustrum
+public readonly record struct Frustrum
 {
     private readonly Plane[] planes = new Plane[6];
     

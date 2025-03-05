@@ -1,4 +1,6 @@
-﻿namespace ReLunacy.Frames.DockedFrames;
+﻿using ReLunacy.Engine.Rendering.Alister;
+
+namespace ReLunacy.Frames.DockedFrames;
 
 internal class View3DFrame : DockedFrame
 {
@@ -6,7 +8,7 @@ internal class View3DFrame : DockedFrame
     protected override Vec2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
-    public OldRenderer OGLRenderer { get => Window.Singleton.OGLRenderer; }
+    public AlisterRenderer OGLRenderer { get => Window.Singleton.OGLRenderer; }
 
     public Rectangle FrameContentRegion { get; private set; }
     public Vec2 FramePos { get; private set; }
@@ -20,15 +22,17 @@ internal class View3DFrame : DockedFrame
         {
             if(value == null)
             {
-                _entitySelection?.RemoveWireframeDrawCall();
+                if(_entitySelection != null)
+                    _entitySelection.Selected = false;
                 _entitySelection = null;
                 SelectedEntityChanged.Invoke(null);
             }
             else
             {
-                _entitySelection?.RemoveWireframeDrawCall();
+                if(SelectedEntity != null)
+                    SelectedEntity.Selected = false;
                 _entitySelection = value;
-                _entitySelection.AddWireframeDrawCall();
+                _entitySelection.Selected = true;
                 SelectedEntityChanged.Invoke(value);
             }
         }
@@ -46,9 +50,9 @@ internal class View3DFrame : DockedFrame
         Tick(deltaTime);
 
         OGLRenderer.Resize3DView(FrameContentRegion.GetSizeI());
-        OGLRenderer.RenderFrame();
+        OGLRenderer.Render();
 
-        ImGui.Image(OGLRenderer.ColourTex, FrameContentRegion.GetSizeF(), Vec2.UnitY, Vec2.UnitX);
+        ImGui.Image(OGLRenderer.RenderTexture, FrameContentRegion.GetSizeF(), Vec2.UnitY, Vec2.UnitX);
     }
 
     public override void RenderAsWindow(float deltaTime)
@@ -59,15 +63,12 @@ internal class View3DFrame : DockedFrame
 
     private void Tick(float deltaTime)
     {
-        Vec2 wcrmin = ImGui.GetWindowContentRegionMin();
-        Vec2 wcrmax = ImGui.GetWindowContentRegionMax();
-        int x, y, width, height;
-        x = (int)wcrmin.X;
-        y = (int)wcrmin.Y;
-        width = (int)wcrmax.X - x;
-        height = (int)wcrmax.Y - y;
+        Vec2 wcravail = ImGui.GetContentRegionAvail();
+        int width, height;
+        width = (int)wcravail.X;
+        height = (int)wcravail.Y;
 
-        FrameContentRegion = new(x, y, width, height);
+        FrameContentRegion = new(0, 0, width, height);
         FramePos = ImGui.GetWindowPos();
         MousePos = (Vec2)Window.Singleton.MousePosition - (FramePos + (Vec2)FrameContentRegion.GetOriginF());
 

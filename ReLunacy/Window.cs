@@ -1,5 +1,6 @@
 ﻿
 
+using ReLunacy.Engine.Rendering.Alister;
 using System.Runtime.CompilerServices;
 
 namespace ReLunacy;
@@ -9,14 +10,14 @@ public class Window : GameWindow
     public static Window? Singleton { get; private set; }
     public static string AppPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
     public string oglVersionStr = "Unknown OpenGL version";
-    public ImGuiController controller;
+    public ImGuiController controller { get; private set; }
     public List<Frame> openFrames = [];
     public bool showOverlay = false;
     public bool showHoveredObject = false;
     public float framerate;
     public Vec4 screenSafeSpace;
     public Vec2 freecamLocal;
-    public OldRenderer OGLRenderer { get; private set; }
+    public AlisterRenderer OGLRenderer { get; private set; }
     public ResourcesManager Resources { get; private set; }
 
     public Loader AssetLoader { get; private set; }
@@ -51,7 +52,9 @@ public class Window : GameWindow
             Icon = new WindowIcon([ico]);
         }
 
-        OGLRenderer = new OldRenderer();
+        MaterialManager.Initialize();
+        Camera.Main = new Camera();
+        OGLRenderer = new AlisterRenderer(Camera.Main, new Toolbox());
 
         controller = new ImGuiController(ClientSize.X, ClientSize.Y);
 
@@ -59,7 +62,6 @@ public class Window : GameWindow
 
         LunaLog.LogInfo("Loading the OpenGL renderer.");
 
-        SetDefaultStyleVar();
         ImGuiIOPtr io = ImGui.GetIO();
         io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
 
@@ -148,7 +150,6 @@ public class Window : GameWindow
         AssetLoader = null;
         FileManager = null;
         Program.ProvidedPath = string.Empty;
-        Entity.Wipe();
         if(IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>().Wipe();
     }
@@ -159,6 +160,7 @@ public class Window : GameWindow
         doLoadEntities = false;
 
         AssetManager.Singleton.Initialize(AssetLoader);
+        EntityManager.Singleton.LoadRegions(AssetLoader);
         if(IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>().SetEntities(EntityManager.Singleton.GetAllEntities());
         var loadModal = GetFirstFrame<LoadingModal>();
@@ -169,12 +171,23 @@ public class Window : GameWindow
     private void RenderUI(float deltaTime)
     {
         RenderMenuBar();
+
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vec2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vec2.Zero);
         RenderDockSpace();
 
+        ImGui.PopStyleVar();
+        SetDefaultStyleVar();
         foreach (Frame frame in openFrames.ToList())
         {
             frame.RenderAsWindow(deltaTime);
         }
+        ImGui.PopStyleVar(9);
+
+        // Dockspace end
+        ImGui.End();
     }
 
     private void RenderDockSpace()
@@ -192,13 +205,7 @@ public class Window : GameWindow
         ImGui.SetNextWindowPos(ImGui.GetMainViewport().WorkPos);
         ImGui.SetNextWindowSize(ImGui.GetMainViewport().WorkSize);
 
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0);
         ImGui.Begin("dockspace", windowFlags);
-        ImGui.PopStyleVar(4);
-        SetDefaultStyleVar();
 
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);
@@ -266,7 +273,7 @@ public class Window : GameWindow
     public void AddFrame(Frame frame)
     {
         openFrames.Add(frame);
-        OnFrameAdded.Invoke(frame);
+        OnFrameAdded?.Invoke(frame);
     }
 
     public bool IsAnyFrameOpened<T>() where T : Frame
@@ -280,7 +287,7 @@ public class Window : GameWindow
         {
             var frameToClose = GetFirstFrame<T>();
             frameToClose.isOpen = false;
-            OnFrameRemoved.Invoke(frameToClose);
+            OnFrameRemoved?.Invoke(frameToClose);
         }
     }
 

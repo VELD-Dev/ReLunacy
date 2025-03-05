@@ -39,17 +39,18 @@ public class Transform
     } = Vec3.One;
 
     public Mat4 Reflection { get; set; } = Mat4.Identity;
+    private Mat4 _mat = Mat4.Identity;
     public Mat4 Matrix
     {
-        get;
+        get => _mat;
         set
         {
-            field = value;
+            _mat = value;
             Rotation = value.ExtractRotation();
             Position = value.ExtractTranslation() * YardToMeter;
             Scale = value.ExtractScale() * YardToMeter;
         }
-    } = Mat4.Identity;
+    }
 
     public Vec3 Forward => Rotation.Inverted() * Vec3.UnitZ;
 
@@ -89,7 +90,7 @@ public class Transform
 
     public void UpdateTransformMatrix()
     {
-        Matrix = Reflection * Mat4.CreateScale(Scale) * Mat4.CreateFromQuaternion(Rotation) * Mat4.CreateTranslation(Position);
+        _mat = Reflection * Mat4.CreateScale(Scale) * Mat4.CreateFromQuaternion(Rotation) * Mat4.CreateTranslation(Position);
     }
 
     public void SetPosition(Vec3 pos)

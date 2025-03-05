@@ -64,28 +64,4 @@ public class EntityRegion
             Zones.Add(new EntityZone(zone.Value));
         }
     }
-
-    public void Render()
-    {
-        if (!AllowRender) return;
-
-        MobyInstances.Render();
-
-        foreach (var zone in Zones)
-        {
-            zone.Render();
-        }
-    }
-    
-    // FOR DEBUG PURPOSE
-    public Drawable[] GetDrawables()
-    {
-        var drawables = new List<Drawable>();
-        foreach (var z in Zones)
-        {
-            drawables.AddRange(z.GetDrawables());
-        }
-
-        return [.. MobyInstances.GetDrawables(), .. drawables];
-    }
 }

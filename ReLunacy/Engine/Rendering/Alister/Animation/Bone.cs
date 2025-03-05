@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ReLunacy.Engine.Rendering.Alister.Animation.Animation;
+namespace ReLunacy.Engine.Rendering.Alister.Animation;
 
 public class Bone
 {
@@ -22,5 +22,11 @@ public class Bone
         Parent = parent;
     }
 
-    public void Update(float deltaTime)
+    public void Update(float deltaTime, Animation animation)
+    {
+        var keyframe = animation.GetKeyframe(Name, deltaTime);
+        if (keyframe is null)
+            return;
+        Transform = keyframe.Value.Transform;
+    }
 }

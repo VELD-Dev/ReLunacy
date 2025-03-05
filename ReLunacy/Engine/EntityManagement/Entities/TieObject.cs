@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Objects.Instances;
+using ReLunacy.Engine.Rendering.Alister;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,10 +19,18 @@ public class TieObject : Entity
     {
         Asset = Window.Singleton.AssetLoader.Ties[tieInstance.tieIndex];
         Instance = tieInstance;
-        ID = InstancesCount;
-        InstancesCount++;
         Transform = new Transform(tieInstance.transform);
         name = Asset.Name == string.Empty ? $"Tie_{ID}" : $"{Asset.Name}_{ID}";
         boundingSphere = tieInstance.boundingSphere * YardToMeter;
+
+        var list = new List<Model>();
+        foreach(var mesh in Asset.Meshes)
+        {
+            if(mesh.isOld)
+                list.Add(new Model(mesh, AssetManager.Singleton.Materials[mesh.oldShaderIndex]));
+            else
+                list.Add(new Model(mesh, AssetManager.Singleton.Materials[mesh.newShaderIndex]));
+        }
+        Model = new(list);
     }
 }

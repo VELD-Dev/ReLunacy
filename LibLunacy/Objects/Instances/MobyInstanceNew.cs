@@ -8,9 +8,11 @@ namespace LibLunacy.Objects.Instances
         public const uint ID = 0x25048;
         public const uint Size = 0x50;
 
-        public ushort mobyIndex;
-        public ushort groupIndex;
+        public ushort mobyIndex; // Unknown
+        public ushort groupIndex; // Unknown
         public byte[] Unk1;
+        public float minRenderDistance;
+        public float maxRenderDistance;
         public Vec3 position;
         public Vec3 rotation;
         public float scale;

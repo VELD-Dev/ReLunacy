@@ -19,10 +19,10 @@ public class TranslationTool : BasicTransformTool
         Update();
         material.SimpleUse();
 
-        material.SetMatrix4x4("modelToWorld", ref mat);
+        material.SetMatrix4x4("modelToWorld", mat);
 
         material.SetInt("levelObjectNumber", 0);
-        // material.SetFloat()  // REWORK OF MATERIAL SYSTEM NEEDED
+        // Material.SetFloat()  // REWORK OF MATERIAL SYSTEM NEEDED
     }
 
     public override void Transform(Entity entity, Vec3 pivot, TransformToolData data)

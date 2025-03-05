@@ -16,6 +16,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
 {
     // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banlesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
+    public bool isOld;
 
     public uint indicesIndex;
     public ushort verticesIndex;
@@ -57,6 +58,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
 
     public TieMesh(LunaStream stream, bool isOld)
     {
+        this.isOld = isOld;
         indicesIndex =      stream.ReadUInt32(0x00);
         verticesIndex =     stream.ReadUInt16(0x04);
         Unk1 =              stream.ReadUInt16(0x06);

@@ -18,7 +18,7 @@ internal class EditorSettingsFrame : Frame
 
     protected override void Render(float deltaTime)
     {
-        ImGui.BeginChild("settings", new(0, 450), true);
+        ImGui.BeginChild("settings", new(0, 450));
 
         if(ImGui.BeginTabBar("settings_tab"))
         {

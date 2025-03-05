@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ReLunacy.Engine.Rendering.Alister;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -14,8 +15,6 @@ public class VolumeObject : Entity
     public VolumeObject(Volume volumeInstance)
     {
         Instance = volumeInstance;
-        ID = InstancesCount;
-        InstancesCount++;
         Transform = new Transform(
             volumeInstance.position * YardToMeter,
             volumeInstance.rotation,
@@ -23,5 +22,7 @@ public class VolumeObject : Entity
         );
         name = volumeInstance.name;
         boundingSphere = new(volumeInstance.position * YardToMeter, volumeInstance.scale.Length * YardToMeter);
+
+        Model = new Model(AssetManager.Singleton.Cube, [], []);
     }
 }

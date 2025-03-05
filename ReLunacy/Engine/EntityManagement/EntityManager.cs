@@ -85,15 +85,6 @@ public class EntityManager
             Regions.Add(new EntityRegion(region));
         }
         LunaLog.LogDebug($"Total entities: {EntityCluster.TotalEntities}");
-
-        LunaLog.LogDebug("Consolidating Mobys");
-        AssetManager.Singleton.ConsolidateMobys();
-        LunaLog.LogDebug("Consolidating Ties");
-        AssetManager.Singleton.ConsolidateTies();
-        LunaLog.LogDebug("Consolidating UFrags");
-        AssetManager.Singleton.ConsolidateUFrags();
-        LunaLog.LogDebug("Consolidating Volumes");
-        AssetManager.Singleton.ConsolidateVolumes();
     }
 
     public List<Entity> GetAllEntities()
@@ -110,41 +101,6 @@ public class EntityManager
             }
         }
         return entities;
-    }
-
-    public void Render()
-    {
-        if(!Program.Settings.LegacyRenderingMode)
-        {
-            if(RenderMobys)
-            foreach (var moby in AssetManager.Singleton.Mobys.Values.ToList())
-            {
-                moby.Draw();
-            }
-
-            if(RenderTies)
-            foreach(var tie in AssetManager.Singleton.Ties.Values.ToList())
-            {
-                tie.Draw();
-            }
-
-            if(RenderUFrags)
-            foreach(var zoneUfrags in AssetManager.Singleton.UFrags.Values.ToList())
-            {
-                foreach(var ufrag in zoneUfrags)
-                    ufrag.Draw();
-            }
-
-            if(RenderVolumes) AssetManager.Singleton.Cube.Draw();
-        }
-        else
-        {
-            // LEGACY, AVOID USING THAT... PLEASE.
-            foreach (var region in Regions)
-            {
-                region.Render();
-            }
-        }
     }
 
     public void Wipe()

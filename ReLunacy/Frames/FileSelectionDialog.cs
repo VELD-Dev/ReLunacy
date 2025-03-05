@@ -35,6 +35,7 @@ namespace ReLunacy.Frames
                     isOpen = false;
                 }
             }
+            ImGui.EndGroup();
         }
 
         public override void RenderAsWindow(float deltaTime)
