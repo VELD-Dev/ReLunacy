@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -78,8 +79,16 @@ namespace LibLunacy.Textures
             {
                 data = new byte[HighmipSize];
                 var texstreamRef = highmipsMetadatasOld?.First();
-                if (texstreamRef != null) offset = (int)texstreamRef.Value.offset;
-                else offset = (int)((TextureMetadataOld)textureMetadata).offset;
+                if (texstreamRef != null)
+                {
+                    Console.WriteLine($"texstreamRef offset: {texstreamRef.Value.offset:X}");
+                    offset = (int)texstreamRef.Value.offset;
+                }
+                else
+                {
+                    Console.WriteLine($"TextureMetadata offset: {((TextureMetadataOld)textureMetadata).offset:X}/{stream.Length:X}");
+                    offset = (int)((TextureMetadataOld)textureMetadata).offset;
+                }
             }
             else
             {
@@ -95,15 +104,17 @@ namespace LibLunacy.Textures
                 data = new byte[hmref.length];
             }
 
+            if(offset > stream.Length || offset < 0)
+                throw new IndexOutOfRangeException($"Offset is out of bounds: {offset}/{stream.Length}");
 
-            if(TexFormat >= TextureFormat.DXT1 && TexFormat <= TextureFormat.DXT5)
+            Console.WriteLine($"Offset: 0x{offset:X}");
+            if (TexFormat >= TextureFormat.DXT1 && TexFormat <= TextureFormat.DXT5)
             {
-                stream.Read(data, offset, data.Length);
-
+                stream.Seek(offset);
+                stream.Read(data);
             }
             else
             {
-                Console.WriteLine($"Offset: 0x{offset:X}");
                 stream.Seek(offset);
                 Unswizzle(stream);
             }
@@ -119,17 +130,16 @@ namespace LibLunacy.Textures
             if      (TexFormat == TextureFormat.R5G6B5)   pixelSize = 2;
             else if (TexFormat == TextureFormat.A8R8G8B8) pixelSize = 4;
 
-            byte[] pixel = ArrayPool<byte>.Shared.Rent(pixelSize);
+            Span<byte> pixel = stackalloc byte[pixelSize];
             var dataspan = data.AsSpan(0, data.Length);
 
             for(int i = 0; i < Width * Height; i++)
             {
                 var index = MortonSwizzle(i, (int)Width, (int)Height);
                 stream.Read(pixel);
-                if(TexFormat == TextureFormat.A8R8G8B8) Array.Reverse(pixel, 0, 4); // ABGR -> RGBA
-                pixel.CopyTo(data, index * pixelSize);
+                if (TexFormat == TextureFormat.A8R8G8B8) pixel.Reverse(); // ABGR -> RGBA
+                pixel[(index * pixelSize)..].CopyTo(data);
             }
-            ArrayPool<byte>.Shared.Return(pixel);
         }
         
         // Once again, somewhere where AI is useful... lol...

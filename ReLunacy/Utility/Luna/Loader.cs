@@ -6,7 +6,6 @@ using LibLunacy.Vertices;
 using ReLunacy.Frames.ModalFrames;
 using System.Buffers;
 using System.Security.Cryptography.X509Certificates;
-using Texture = LibLunacy.Textures.Texture;
 
 namespace ReLunacy.Utility.Luna;
 
