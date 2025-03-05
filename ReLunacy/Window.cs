@@ -1,7 +1,4 @@
-﻿
-
-using ReLunacy.Engine.Rendering.Alister;
-using System.Runtime.CompilerServices;
+﻿using ReLunacy.Engine.Rendering.Alister;
 
 namespace ReLunacy;
 
@@ -35,14 +32,21 @@ public class Window : GameWindow
         Singleton = this;
         VSync = Program.Settings.VSyncMode;
         Resources = ResourcesManager.LoadResourcesFromManifest();
+
+        LunaLog.LogInfo("Loading the OpenGL renderer.");
+        controller = new ImGuiController(ClientSize.X, ClientSize.Y);
+
+        /*
+        ImGuiIOPtr io = ImGui.GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags.ViewportsEnable;
+        io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
+        */
     }
 
     protected override void OnLoad()
     {
         base.OnLoad();
 
-        LunaLog.LogInfo("Checking for updates...");
-        UpdateChecker.CheckUpdates();
 
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
         Title = $"{Program.AppDisplayName} {Program.Version} ({oglVersionStr})";
@@ -55,15 +59,11 @@ public class Window : GameWindow
         MaterialManager.Initialize();
         Camera.Main = new Camera();
         OGLRenderer = new AlisterRenderer(Camera.Main, new Toolbox());
-
-        controller = new ImGuiController(ClientSize.X, ClientSize.Y);
-
+        
         screenSafeSpace = new(0, 0, ImGui.GetMainViewport().Size.X, ImGui.GetMainViewport().Size.Y);
 
-        LunaLog.LogInfo("Loading the OpenGL renderer.");
-
-        ImGuiIOPtr io = ImGui.GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
+        LunaLog.LogInfo("Checking for updates...");
+        UpdateChecker.CheckUpdates();
 
         AddFrame(new View3DFrame());
         AddFrame(new BasicEntityExplorer());
@@ -205,7 +205,10 @@ public class Window : GameWindow
         ImGui.SetNextWindowPos(ImGui.GetMainViewport().WorkPos);
         ImGui.SetNextWindowSize(ImGui.GetMainViewport().WorkSize);
 
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0.0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0.0f);
         ImGui.Begin("dockspace", windowFlags);
+        ImGui.PopStyleVar(2);
 
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);

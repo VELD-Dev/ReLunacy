@@ -17,8 +17,19 @@ namespace ReLunacy.Frames
         protected override void Render(float deltaTime)
         {
             ImGui.BeginGroup();
-            ImGui.InputTextWithHint("Path to Level", "C:\\NPEA00088\\packed\\levels\\metropolis\\main.dat", ref levelPath, 256);
-            
+            ImGui.Text("Level Path");
+            ImGui.SameLine();
+            ImGui.InputTextWithHint("", "C:\\NPEA00088\\packed\\levels\\metropolis\\main.dat", ref levelPath, 256);
+            ImGui.SameLine();
+            ImGui.Button("...");
+            ImGui.SameLine();
+            if(ImGui.Button("Paste"))
+            {
+                if (ImGui.GetClipboardText() != null)
+                    levelPath = ImGui.GetClipboardText();
+            }
+
+
             if(ImGui.Button("Cancel")) isOpen = false;
             ImGui.SameLine();
             if(ImGui.Button("Load"))

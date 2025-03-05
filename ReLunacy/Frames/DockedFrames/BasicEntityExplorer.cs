@@ -116,7 +116,7 @@ namespace ReLunacy.Frames.DockedFrames
 
         public void ShowEntities(Entity[] entities)
         {
-            ImGui.BeginChild("hierarchy_container", ImGui.GetContentRegionAvail(), true);
+            ImGui.BeginChild("hierarchy_container", ImGui.GetContentRegionAvail());
             foreach(var entity in entities)
             {
                 if (ImGui.Button(entity.name.Split('/')[^1]))

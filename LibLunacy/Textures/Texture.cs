@@ -103,6 +103,7 @@ namespace LibLunacy.Textures
             }
             else
             {
+                Console.WriteLine($"Offset: 0x{offset:X}");
                 stream.Seek(offset);
                 Unswizzle(stream);
             }

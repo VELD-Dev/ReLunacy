@@ -29,8 +29,6 @@ global using OpenTK.Windowing.Desktop;
 
 global using ImGuiNET;
 global using ImGui = ImGuiNET.ImGui;
-global using Hexa.NET.ImGuizmo;
-global using HexaGui = Hexa.NET.ImGui.ImGui;
 
 global using Newtonsoft;
 global using Newtonsoft.Json;

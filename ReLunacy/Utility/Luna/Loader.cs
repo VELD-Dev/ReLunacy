@@ -262,6 +262,7 @@ public class Loader : IDisposable
         var streamToRead = texstream is null ? textures : texstream;
         for(uint i = 0; i < Textures.Count; i++)
         {
+            LunaLog.LogInfo($"Reading Texture {i}: {Textures[i].id:X} {Textures[i].name} | Is old: {Textures[i].isOld}");
             Textures[i].ReadTexture(streamToRead);
             loadState.SetProgress(i + 1);
         }

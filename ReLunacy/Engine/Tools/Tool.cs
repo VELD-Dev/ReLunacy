@@ -12,7 +12,7 @@ public abstract class Tool(Toolbox tb) : IDisposable
 
     protected void Update()
     {
-        ImGuizmo.SetDrawlist();
+        //ImGuizmo.SetDrawlist();
         //ImGuizmo.SetRect()
     }
 
@@ -85,6 +85,6 @@ public abstract class Tool(Toolbox tb) : IDisposable
 
     public void Dispose()
     {
-        ImGuizmo.Destroy(ImGuizmo.GetStyle());
+        //ImGuizmo.Destroy(ImGuizmo.GetStyle());
     }
 }
