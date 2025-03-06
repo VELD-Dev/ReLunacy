@@ -25,8 +25,15 @@ namespace ReLunacy.Frames
             ImGui.SameLine();
             if(ImGui.Button("Paste"))
             {
-                if (ImGui.GetClipboardText() != null)
-                    levelPath = ImGui.GetClipboardText();
+                try
+                {
+                    if (ImGui.GetClipboardText() != null)
+                        levelPath = ImGui.GetClipboardText();
+                }
+                catch(Exception e)
+                {
+                    LunaLog.LogError($"Unable to paste from clipboard: {e}");
+                }
             }
 
 

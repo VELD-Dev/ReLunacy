@@ -10,6 +10,7 @@ public class EditorSettings
     public float CamMaxSpeed;
     public float CamFOV;
     public float CamSensivity;
+    public bool FrustrumCulling;
     public uint MSAA_Level;
     public VSyncMode VSyncMode;
     public bool OverlayFramerate;
@@ -41,6 +42,7 @@ public class EditorSettings
         CamMaxSpeed = 25f;
         CamFOV = 82.4f;
         CamSensivity = 1f;
+        FrustrumCulling = true;
         VSyncMode = VSyncMode.Off;
         OverlayFramerate = true;
         OverlayLevelStats = false;

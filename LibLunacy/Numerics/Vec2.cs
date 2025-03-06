@@ -116,4 +116,9 @@ public record struct Vec2
             BinaryPrimitives.WriteSingleLittleEndian(buffer[sizeof(float)..], Y);
         }
     }
+
+    public override string ToString()
+    {
+        return $"({X}, {Y})";
+    }
 }

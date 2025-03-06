@@ -83,6 +83,8 @@ public class Window : GameWindow
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 2.5f);
         ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 2.5f);
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 2.5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vec2(5, 5));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vec2(5, 5));
     }
 
     protected override void OnRenderFrame(FrameEventArgs eventArgs)
@@ -188,7 +190,7 @@ public class Window : GameWindow
         {
             frame.RenderAsWindow(deltaTime);
         }
-        ImGui.PopStyleVar(9);
+        ImGui.PopStyleVar(11);
 
         // Dockspace end
         ImGui.End();

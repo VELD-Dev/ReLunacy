@@ -111,7 +111,7 @@ public class Overlay
                 ImGui.Text($"UFrags: {EntityManager.Singleton.UFragsCount:N0}");
                 ImGui.Text($"Total entities: {EntityCluster.TotalEntities:N0}");
                 ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
-                ImGui.Text($"Materials: {Window.Singleton.AssetLoader.Shaders.Count:N0}");
+                ImGui.Text($"Materials: {(Window.Singleton.AssetLoader?.Shaders.Count ?? 0):N0}");
                 ImGui.EndGroup();
             }
             if(ShowCamInfo)

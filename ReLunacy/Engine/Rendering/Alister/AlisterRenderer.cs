@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Transactions;
@@ -47,10 +48,12 @@ public class AlisterRenderer : IDisposable
             if (entity.Model?.Material.HasTransparency ?? false)
             {
                 transparentEntities.Add(entity);
+                LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
             }
             else
             {
                 opaqueEntities.Add(entity);
+                LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
             }
         }
         else if(entity.Model.Children.Count > 0)
@@ -62,10 +65,12 @@ public class AlisterRenderer : IDisposable
                     if (child.Material?.HasTransparency ?? false)
                     {
                         transparentEntities.Add(entity);
+                        LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
                     }
                     else
                     {
                         opaqueEntities.Add(entity);
+                        LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
                     }
                 }
                 else
@@ -78,10 +83,12 @@ public class AlisterRenderer : IDisposable
                         if (subChild.Material.HasTransparency)
                         {
                             transparentEntities.Add(entity);
+                            LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
                         }
                         else
                         {
                             opaqueEntities.Add(entity);
+                            LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
                         }
                     }
                 }
@@ -89,10 +96,10 @@ public class AlisterRenderer : IDisposable
         }
         else
         {
+            LunaLog.LogDebug($"Entity {entity.name} skipped.");
             // Billboard entities.
             return;
         }
-        LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
     }
 
     public void Render()
@@ -109,7 +116,7 @@ public class AlisterRenderer : IDisposable
         // Opaque render pass
         foreach (var entity in opaqueEntities)
         {
-            if(entity.boundingSphere.W > 0)
+            if(entity.boundingSphere.W > 0 && Program.Settings.FrustrumCulling)
             {
                 if (Frustrum.IsInside(entity.boundingSphere.XYZ, entity.boundingSphere.W))
                 {
@@ -118,7 +125,11 @@ public class AlisterRenderer : IDisposable
             }
             else
             {
-                if(Frustrum.IsInside(entity.Transform.Position))
+                if(Frustrum.IsInside(entity.Transform.Position) && Program.Settings.FrustrumCulling)
+                {
+                    entity.Draw();
+                }
+                else
                 {
                     entity.Draw();
                 }
@@ -140,7 +151,7 @@ public class AlisterRenderer : IDisposable
         // Transparent render pass
         foreach (var entity in transparentEntities)
         {
-            if (entity.boundingSphere.W > 0)
+            if (entity.boundingSphere.W > 0 && Program.Settings.FrustrumCulling)
             {
                 if (Frustrum.IsInside(entity.boundingSphere.XYZ, entity.boundingSphere.W))
                 {
@@ -149,7 +160,11 @@ public class AlisterRenderer : IDisposable
             }
             else
             {
-                if (Frustrum.IsInside(entity.Transform.Position))
+                if (Frustrum.IsInside(entity.Transform.Position) && Program.Settings.FrustrumCulling)
+                {
+                    entity.Draw();
+                }
+                else
                 {
                     entity.Draw();
                 }

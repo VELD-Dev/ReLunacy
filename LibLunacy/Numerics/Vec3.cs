@@ -282,4 +282,9 @@ public record struct Vec3
             BinaryPrimitives.WriteSingleLittleEndian(buffer[(sizeof(float) * 2)..], Z);
         }
     }
+
+    public override string ToString()
+    {
+        return $"({X}, {Y}, {Z})";
+    }
 }

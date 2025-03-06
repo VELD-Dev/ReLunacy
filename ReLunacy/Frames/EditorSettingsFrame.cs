@@ -22,12 +22,13 @@ internal class EditorSettingsFrame : Frame
 
         if(ImGui.BeginTabBar("settings_tab"))
         {
-            if(ImGui.BeginTabItem("Core settings"))
+            if(ImGui.BeginTabItem("Visual settings"))
             {
                 ImGui.BeginGroup();
                 ImGui.DragFloat("Far clip distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.Combo("MSAA level", ref currentMsaa, AAoptions, maxMsaa + 1);
                 ImGui.Combo("V-Sync", ref currentVSync, ["Off", "On", "Adaptative"], 3);
+                ImGui.Checkbox("Use Frustrum Culling", ref Program.Settings.FrustrumCulling);
                 if (ImGui.CollapsingHeader("Advanced"))
                 {
                     ImGui.Text("Custom shaders");

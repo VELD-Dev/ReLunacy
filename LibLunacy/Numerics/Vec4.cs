@@ -44,8 +44,8 @@ public record struct Vec4
     public static Vec4 operator -(Vec4 a) => new(-a.X, -a.Y, -a.Z, -a.W);
     public static float operator ~(Vec4 a) => a.Length;
 
-    public readonly float Length => MathF.Sqrt(X*X + Y*Y + Z*Z + W*W);
-    public readonly float LengthSquared => X*X + Y*Y + Z*Z + W*W;
+    public readonly float Length => MathF.Sqrt(X * X + Y * Y + Z * Z + W * W);
+    public readonly float LengthSquared => X * X + Y * Y + Z * Z + W * W;
     public Vec3 XYZ
     {
         readonly get => new(X, Y, Z);
@@ -104,7 +104,7 @@ public record struct Vec4
 
     public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
     {
-        if(endianness == LunaStream.Endianness.Big)
+        if (endianness == LunaStream.Endianness.Big)
         {
             BinaryPrimitives.WriteSingleBigEndian(buffer[0..], X);
             BinaryPrimitives.WriteSingleBigEndian(buffer[sizeof(float)..], Y);
@@ -118,5 +118,10 @@ public record struct Vec4
             BinaryPrimitives.WriteSingleLittleEndian(buffer[(sizeof(float) * 2)..], Z);
             BinaryPrimitives.WriteSingleLittleEndian(buffer[(sizeof(float) * 3)..], W);
         }
+    }
+
+    public override string ToString()
+    {
+        return $"({X}, {Y}, {Z}, {W})";
     }
 }
