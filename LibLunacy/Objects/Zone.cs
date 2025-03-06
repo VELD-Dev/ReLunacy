@@ -41,6 +41,7 @@ namespace LibLunacy.Objects
                 ufragVertSection = zoneIGFile.QuerySection(UFragVertex.OldID);
                 ufragIndxSection = zoneIGFile.QuerySection(UFragVertIndex.OldID);
                 tieInstanceSection = zoneIGFile.QuerySection(TieInstance.OldID);
+                // The ufrag part is wrong, it's not inside the ZoneIGFile.
             }
             else
             {
@@ -54,7 +55,7 @@ namespace LibLunacy.Objects
             ufragShdrSection = zoneIGFile.QuerySection(0x71A0);
 
             tieInstances = ArrayPool<TieInstance>.Shared.Rent((int)tieInstanceSection.count);
-            ufrags = ArrayPool<UFrag>.Shared.Rent((int)ufragSection.count);
+            ufrags = new UFrag[ufragSection.count];
         }
 
         public void Dispose()

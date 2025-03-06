@@ -27,16 +27,16 @@ public class Moby : IDisposable
     public MobyBangle[] Bangles => MobyObj.Bangles;
     public ulong[]? ShaderTUIDs;
 
-    public Moby(LunaStream stream)
+    public Moby(LunaStream stream, int index = 0) // Index only for old mobys
     {
         mobyStream = stream;
 
         var igFile = new IGFile(mobyStream);
-        IGFile.SectionHeader section = igFile.QuerySection(NewMoby.ID);
+        IGFile.SectionHeader section = igFile.QuerySection(NewMoby.ID); // Old and new mobys have the same section ID
         if(section.length != 0x100)
 
         mobyStream.Seek(section.offset);
-        ReadMoby(isOld: section.length != 0x100);
+        ReadMoby(isOld: section.length != 0x100, index);
 
         if(!IsOld)
         {
@@ -48,11 +48,11 @@ public class Moby : IDisposable
         }
     }
 
-    public void ReadMoby(bool isOld)
+    public void ReadMoby(bool isOld, int index = 0) // index only for old mobys
     {
         if(isOld)
         {
-            MobyObj = new OldMoby(mobyStream);
+            MobyObj = new OldMoby(mobyStream, index);
         }
         else
         {

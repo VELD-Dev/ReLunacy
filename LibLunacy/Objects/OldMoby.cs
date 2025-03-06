@@ -29,12 +29,13 @@ public record struct OldMoby : IMoby
     public float scale;
     public byte[] Unk5;
 
-    public ulong TUID { get => mobyId; init {} }
+    public ulong TUID { get; init; }
 
     public MobyBangle[] Bangles { get; set; }
 
-    public OldMoby(LunaStream stream)
+    public OldMoby(LunaStream stream, int index)
     {
+        TUID = (ulong)index;
         boundingSphere = stream.ReadVec4(0x00);
         Unk1 = stream.ReadUInt16(0x10);
         Unk2 = stream.ReadUInt16(0x12);
@@ -55,7 +56,7 @@ public record struct OldMoby : IMoby
         scale = stream.ReadSingle(0x3C);
         Unk5 = stream.Peek(0x40, 32 * 0x4);
 
-        Bangles = ArrayPool<MobyBangle>.Shared.Rent(bangleCount);
+        Bangles = new MobyBangle[bangleCount];
     }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)

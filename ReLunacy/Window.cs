@@ -161,7 +161,11 @@ public class Window : GameWindow
 
         AssetManager.Singleton.Initialize(AssetLoader);
         EntityManager.Singleton.LoadRegions(AssetLoader);
-        if(IsAnyFrameOpened<BasicEntityExplorer>())
+        foreach(Entity e in EntityManager.Singleton.GetAllEntities())
+        {
+            OGLRenderer.Include(e);
+        }
+        if (IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>().SetEntities(EntityManager.Singleton.GetAllEntities());
         var loadModal = GetFirstFrame<LoadingModal>();
         loadModal.loadingFinished = true;

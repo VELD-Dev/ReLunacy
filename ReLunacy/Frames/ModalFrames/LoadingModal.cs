@@ -26,7 +26,7 @@ public class LoadingModal : Frame
 
     protected override void Render(float deltaTime)
     {
-        foreach (var load in LoadProgresses)
+        foreach (var load in LoadProgresses.ToList())
         {
             ImGui.BeginGroup();
             ImGui.Text(load.status);

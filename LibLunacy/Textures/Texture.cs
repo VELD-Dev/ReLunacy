@@ -45,13 +45,13 @@ namespace LibLunacy.Textures
             }
         }
 
-        public Texture(LunaStream stream, bool old = false, uint index = 0)
+        public Texture(LunaStream stream, bool old = false)
         {
             isOld = old;
 
             if(isOld)
             {
-                id = index;
+                id = (ulong)stream.Position;
                 textureMetadata = new TextureMetadataOld(stream);
                 // Highmips must be defined from the Loader for better performances (otherwise it must go through all the highmips and all...
             }
@@ -108,7 +108,7 @@ namespace LibLunacy.Textures
                 throw new IndexOutOfRangeException($"Offset is out of bounds: {offset}/{stream.Length}");
 
             Console.WriteLine($"Offset: 0x{offset:X}");
-            if (TexFormat >= TextureFormat.DXT1 && TexFormat <= TextureFormat.DXT5)
+            if (TexFormat > TextureFormat.A8R8G8B8)
             {
                 stream.Seek(offset);
                 stream.Read(data);
@@ -138,7 +138,7 @@ namespace LibLunacy.Textures
                 var index = MortonSwizzle(i, (int)Width, (int)Height);
                 stream.Read(pixel);
                 if (TexFormat == TextureFormat.A8R8G8B8) pixel.Reverse(); // ABGR -> RGBA
-                pixel[(index * pixelSize)..].CopyTo(data);
+                pixel.CopyTo(data.AsSpan(pixelSize * i));
             }
         }
         

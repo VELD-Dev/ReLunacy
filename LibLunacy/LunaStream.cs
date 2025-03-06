@@ -85,8 +85,8 @@ public class LunaStream : Stream
 
         var buffer = new byte[count];
         ReadStream.Read(buffer, 0, count);
-        ReadStream.Seek(offset, SeekOrigin.Begin);
-        if (endianness == Endianness.Big)
+        ReadStream.Seek(baseOffset, SeekOrigin.Begin);
+        if (endianness == Endianness.Little)
             buffer = buffer.Reverse().ToArray();
         return buffer;
     }

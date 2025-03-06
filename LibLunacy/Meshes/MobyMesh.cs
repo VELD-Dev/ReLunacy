@@ -61,7 +61,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         }
     }
 
-    readonly uint[] IMesh.indices => indices.Cast<uint>().ToArray();
+    readonly uint[] IMesh.indices => indices.Select(e => (uint)e).ToArray();
     public readonly uint[] boneWeight => Array.Empty<uint>();
     public readonly uint[] vertToBonemap => Array.Empty<uint>();
 

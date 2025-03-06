@@ -18,7 +18,7 @@ public class MobyObject : Entity
     public MobyObject(MobyInstance mobyInstance)
     {
         Instance = mobyInstance;
-        Asset = Window.Singleton.AssetLoader.Mobys[mobyInstance.TUID];
+        Asset = mobyInstance.Moby;
         Transform = new Transform(
             mobyInstance.instanceData.Position * YardToMeter,
             mobyInstance.instanceData.Rotation,
@@ -31,9 +31,9 @@ public class MobyObject : Entity
         foreach(var bangle in Asset.Bangles)
         {
             var list = new List<Model>();
-            foreach (var model in bangle.meshes)
+            foreach (var mesh in bangle.meshes)
             {
-                list.Add(new Model(new Drawable(model, AssetManager.Singleton.Materials[model.shaderIndex], MaterialManager.SelectedVolumeMat), model.boneWeight, model.vertToBonemap));
+                list.Add(new Model(new Drawable(mesh, AssetManager.Singleton.Materials[mesh.shaderIndex], MaterialManager.SelectedVolumeMat), mesh.boneWeight, mesh.vertToBonemap));
             }
             models.Add(list);
         }

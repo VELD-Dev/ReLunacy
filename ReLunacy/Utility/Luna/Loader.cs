@@ -233,7 +233,7 @@ public class Loader : IDisposable
         for(uint i = 0; i < textureMetadataSection.count; i++)
         {
             mainStream.Seek(textureMetadataSection.offset + TextureMetadataOld.Size * i);
-            var texture = new Texture(mainStream, true, i);
+            var texture = new Texture(mainStream, true);
             Textures.Add(texture.id, texture);
 
             if (texstream is not null) texture.highmipsMetadatasOld = [];
@@ -248,9 +248,10 @@ public class Loader : IDisposable
             loadState.SetProgress(0);
             for(uint i = 0; i < texstreamRefSection.count; i++)
             {
+                var tex = Textures.Values.ToArray()[i];
                 mainStream.Seek(texstreamRefSection.offset + TexstreamReference.Size * i);
                 var texref = new TexstreamReference(mainStream);
-                Textures[texref.index].highmipsMetadatasOld?.Add(texref);
+                tex.highmipsMetadatasOld?.Add(texref);
                 loadState.SetProgress(i + 1);
             }
         }
@@ -261,8 +262,8 @@ public class Loader : IDisposable
         var streamToRead = texstream is null ? textures : texstream;
         for(uint i = 0; i < Textures.Count; i++)
         {
-            LunaLog.LogInfo($"Reading Texture {i}: {Textures[i].id:X} {Textures[i].name} | Is old: {Textures[i].isOld}");
-            Textures[i].ReadTexture(streamToRead);
+            var tex = Textures.Values.ToArray()[i];
+            tex.ReadTexture(streamToRead);
             loadState.SetProgress(i + 1);
         }
         loadingTracker.LoadProgresses.Remove(loadState);
@@ -357,7 +358,7 @@ public class Loader : IDisposable
     {
         if (!fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
         {
-            var e = new FileNotFoundException("Assetlookup is missing.", "assetlookup.dat");
+            var e = new FileNotFoundException("Main file is missing.", "main.dat");
             LunaLog.LogError(e);
             throw e;
         }
@@ -525,7 +526,7 @@ public class Loader : IDisposable
         for(uint i = 0; i < mobySection.count; i++)
         {
             mainStream.Seek(mobySection.offset + 0x0C * i);
-            var moby = new Moby(mainStream);
+            var moby = new Moby(mainStream, (int)i);
 
             var bangleLoading = new LoadingProgress("Loading bangles...", moby.BanglesCount);
             loadingTracker.LoadProgresses.Add(bangleLoading);
@@ -835,7 +836,39 @@ public class Loader : IDisposable
 
     public void LoadUFragsOld()
     {
+        if(!fileManager.igfiles.TryGetValue("main.dat", out IGFile? mainIG) || mainIG is null)
+        {
+            var e = new FileNotFoundException("Main file is missing.", "main.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
+        if(!fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertices) || vertices is null)
+        {
+            var e = new FileNotFoundException("Vertices file is missing.", "vertices.dat");
+            LunaLog.LogError(e);
+            throw e;
+        }
 
+        var main = new LunaStream(mainIG.sh.BaseStream, mainIG.sh.BaseStream);
+        var vertexStream = new LunaStream(vertices.sh.BaseStream, vertices.sh.BaseStream);
+
+        var artZone = TempZones[0];
+
+        for(int i = 0; i < artZone.ufragSection.count; i++)
+        {
+            main.Seek(artZone.ufragSection.offset + UFragMetadata.Size * i);
+            var ufrag = new UFrag(main, true)
+            {
+                zoneStream = vertexStream
+            };
+
+            vertexStream.Seek(artZone.ufragVertSection.offset + ufrag.metadata.vertexOffset);
+            ufrag.ReadVertices();
+
+            vertexStream.Seek(artZone.ufragIndxSection.offset + ufrag.metadata.indexOffset);
+            ufrag.ReadIndicesBuffer();
+            artZone.ufrags[i] = ufrag;
+        }
     }
     #endregion
 

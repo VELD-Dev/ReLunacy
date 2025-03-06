@@ -18,7 +18,7 @@ namespace LibLunacy.Objects
 
         public uint[] boneWeight { get; set; }
 
-        public uint[] vertToBonemap => throw new NotImplementedException();
+        public uint[] vertToBonemap { get; set; }
 
         public UFrag(LunaStream zstream, bool old)
         {

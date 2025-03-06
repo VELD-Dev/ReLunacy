@@ -90,7 +90,9 @@ public class AlisterRenderer : IDisposable
         else
         {
             // Billboard entities.
+            return;
         }
+        LunaLog.LogDebug($"Added entity {entity.name} to render pass.");
     }
 
     public void Render()
