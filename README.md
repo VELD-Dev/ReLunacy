@@ -90,8 +90,9 @@ Controls:
 
 ## Building
 * Clone the repo with `git clone https://github.com/VELD-Dev/ReLunacy.git --recursive` (add `-b dev` if you want to use branch dev)
+* After cloning, make sure to run `git submodules update --recursive` to update the external dependencies (LibreFios).
 * cd into the directory with the `Lunacy.sln` file
-* Run `dotnet build`
+* Run `dotnet build ReLunacy` (Lunacy probably won't build anymore, I did not try to fix its errors or adapt it to the new LunaLib)
 
 ## Running
 
