@@ -27,10 +27,13 @@ public class ConsoleFrame : DockedFrame
 
         
         var size = ImGui.GetContentRegionAvail();
-        if(ImGui.BeginChild("Output", size, ImGuiChildFlags.NavFlattened | ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysHorizontalScrollbar | ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vec4(1f, 1f, 1f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vec4(0, 0, 0, 1));
+        if (ImGui.BeginChild("Output", size, ImGuiChildFlags.NavFlattened | ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysHorizontalScrollbar | ImGuiWindowFlags.AlwaysVerticalScrollbar))
         {
             ImGui.TextUnformatted(consOut);
             ImGui.SetScrollHereY(1.0f);
+            ImGui.PopStyleColor(2);
             ImGui.EndChild();
         }
     }
