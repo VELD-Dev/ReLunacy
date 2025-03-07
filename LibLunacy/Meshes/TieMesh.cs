@@ -47,6 +47,20 @@ public record struct TieMesh : ILunaSerializable, IMesh
         }
     }
 
+    public readonly float[] uvs
+    {
+        get
+        {
+            var uv = new float[verticesCount * 2];
+            for(int i = 0; i < verticesCount; i++)
+            {
+                uv[i + 0] = (float)vertices[i].UVs.Item1;
+                uv[i + 1] = (float)vertices[i].UVs.Item2;
+            }
+            return uv;
+        }
+    }
+
     readonly uint[] IMesh.indices => indices.Cast<uint>().ToArray();
 
     public readonly uint[] boneWeight => Array.Empty<uint>();

@@ -61,6 +61,31 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         }
     }
 
+    public readonly float[] uvs
+    {
+        get
+        {
+            var uv = new float[verticesCount * 2];
+            if(verticesType == 0)
+            {
+                for(int i = 0; i < vertices0.Length; i++)
+                {
+                    uv[i + 0] = (float)vertices0[i].UVs.Item1;
+                    uv[i + 1] = (float)vertices0[i].UVs.Item2;
+                }
+            }
+            else
+            {
+                for(int i = 0; i < vertices1.Length; i++)
+                {
+                    uv[i + 0] = (float)vertices1[i].UVs.Item1;
+                    uv[i + 1] = (float)vertices1[i].UVs.Item2;
+                }
+            }
+            return uv;
+        }
+    }
+
     readonly uint[] IMesh.indices => indices.Select(e => (uint)e).ToArray();
     public readonly uint[] boneWeight => Array.Empty<uint>();
     public readonly uint[] vertToBonemap => Array.Empty<uint>();

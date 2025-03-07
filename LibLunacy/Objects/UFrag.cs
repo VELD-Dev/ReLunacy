@@ -16,6 +16,8 @@ namespace LibLunacy.Objects
 
         public uint[] indices { get; set; }
 
+        public float[] uvs { get; set; }
+
         public uint[] boneWeight { get; set; }
 
         public uint[] vertToBonemap { get; set; }
@@ -38,11 +40,14 @@ namespace LibLunacy.Objects
             }
 
             vpos = new float[vertices.Length * 3];
+            uvs = new float[vertices.Length * 2];
             for (int i = 0; i < vertices.Length; i++)
             {
-                vpos[i * 3] = vertices[i].position.Item1;
+                vpos[i * 3 + 0] = vertices[i].position.Item1;
                 vpos[i * 3 + 1] = vertices[i].position.Item2;
                 vpos[i * 3 + 2] = vertices[i].position.Item3;
+                uvs[i * 2 + 0] = (float)vertices[i].UVs.Item1;
+                uvs[i * 2 + 1] = (float)vertices[i].UVs.Item2;
             }
         }
 

@@ -59,6 +59,7 @@ public class Window : GameWindow
         MaterialManager.Initialize();
         Camera.Main = new Camera();
         OGLRenderer = new AlisterRenderer(Camera.Main, new Toolbox());
+        OGLRenderer.SetTestDrawable(new Drawable(new Material(MaterialManager.ShaderHandles["stdv;whitef"]), MaterialManager.SelectedVolumeMat));
         
         screenSafeSpace = new(0, 0, ImGui.GetMainViewport().Size.X, ImGui.GetMainViewport().Size.Y);
 

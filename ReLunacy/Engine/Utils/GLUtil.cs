@@ -21,7 +21,7 @@ static class GLUtil
         if (error != OpenTK.Graphics.OpenGL4.ErrorCode.NoError)
         {
             string fileName = Path.GetFileName(caller);
-            Debug.Print($"[{fileName}:{lineNumber}] {title}: {error}");
+            Debug.Print($"[{fileName}:{lineNumber - 1}] {title}: {error}");
         }
     }
 

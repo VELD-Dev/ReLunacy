@@ -11,6 +11,7 @@ namespace LibLunacy.Interfaces
     {
         public float[] vpos { get; }
         public uint[] indices { get; }
+        public float[] uvs { get; }
         public uint[] boneWeight { get; }
         public uint[] vertToBonemap { get; }
     }

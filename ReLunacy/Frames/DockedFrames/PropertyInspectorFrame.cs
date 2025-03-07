@@ -57,7 +57,6 @@ public class PropertyInspectorFrame : DockedFrame
 
             ImGui.BeginGroup();
             ImGui.Text("Name:");
-            ImGui.Text("Instance ID:");
             ImGui.Text("Type:");
             ImGui.Text("Vertices:");
             ImGui.EndGroup();
@@ -66,11 +65,8 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(SelectedEntity.name.Split('/')[^1]);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("The entity name cannot be changed.");
-            ImGui.Text(SelectedEntity.ID.ToString());
-            ImGui.SameLine();
-            ImGuiPlus.HelpMarker("An internal generated ID for rendering. Irrelevant.");
             ImGui.Text(SelectedEntity.EntityType.ToString());
-            ImGui.Text("---");
+            ImGui.Text(SelectedEntity.Model.StaticVerticesCount.ToString());
             ImGui.EndGroup();
 
             ImGui.BeginGroup();

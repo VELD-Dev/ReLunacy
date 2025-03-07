@@ -16,29 +16,32 @@ public class AlisterRenderer : IDisposable
     private readonly Camera camera;
     private readonly Toolbox toolbox;
     private int framebuffer;
+    private int depthBuffer;
     private bool initialized = false;
-    private Material composite;
-    private Material screen;
     public Frustrum Frustrum { get; private set; }
     public int RenderTexture { get; private set; }
     public Vector2i RenderSize { get; private set; }
+    private Drawable? testDrawable = null;
+    private readonly Transform testDrawableTransform = new(new(1, 1, 1), Quat.Identity, new(1, 1, 1));
 
 
-    public static readonly Color4 ClearColour = new(0x20, 0x20, 0x30, 0xFF);
+    public static readonly Color4 ClearColour = new(0x02, 0x02, 0x02, 0xFF);
     public static readonly Color4 BgClearColour = new(0x1B, 0x1B, 0x1B, 0xFF);
 
     public AlisterRenderer(Camera camera, Toolbox toolbox)
     {
         this.camera = camera;
         this.toolbox = toolbox;
-
-        composite = new Material(MaterialManager.ShaderHandles["screenv;compositef"]);
-        screen = new Material(MaterialManager.ShaderHandles["screenv;screenf"]);
     }
 
     public void SetSkybox(Entity skybox)
     {
         this.skybox = skybox;
+    }
+
+    public void SetTestDrawable(Drawable drawable)
+    {
+         testDrawable = drawable;
     }
 
     public void Include(Entity entity)
@@ -105,10 +108,19 @@ public class AlisterRenderer : IDisposable
     public void Render()
     {
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+        GLUtil.CheckGlError("BindFramebuffer");
         GL.ClearColor(ClearColour);
+        GLUtil.CheckGlError("ClearColour");
         GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        GLUtil.CheckGlError("Clear");
         GL.DepthMask(true);
+        GLUtil.CheckGlError("DepthMask");
         GL.Viewport(0, 0, RenderSize.X, RenderSize.Y);
+        GLUtil.CheckGlError("DepthMask");
+        GL.Enable(EnableCap.DepthTest);
+        GLUtil.CheckGlError("Enable");
+
+        testDrawable?.Draw(testDrawableTransform);
 
         // Skybox render pass
         skybox?.Draw();
@@ -187,7 +199,7 @@ public class AlisterRenderer : IDisposable
         {
             GL.DeleteFramebuffer(framebuffer);
             GL.DeleteTexture(RenderTexture);
-            //GL.DeleteTexture(depthTex);
+            GL.DeleteRenderbuffer(depthBuffer);
         }
 
         framebuffer = GL.GenFramebuffer();
@@ -199,18 +211,13 @@ public class AlisterRenderer : IDisposable
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
         GL.BindTexture(TextureTarget.Texture2D, 0);
 
-        /*
-        depthTex = GL.GenTexture();
-        GL.BindTexture(TextureTarget.Texture2D, (int)depthTex);
-        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.DepthComponent, newSize.X, newSize.Y, 0, PixelFormat.DepthComponent, PixelType.Float, nint.Zero);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
-        GL.BindTexture(TextureTarget.Texture2D, 0);
-        */
+        depthBuffer = GL.GenRenderbuffer();
+        GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, depthBuffer);
+        GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.DepthComponent, newSize.X, newSize.Y);
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
-        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, (int)RenderTexture, 0);
-        //GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, (int)depthTex, 0);
+        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, RenderTexture, 0);
+        GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, RenderbufferTarget.Renderbuffer, depthBuffer);
 
         var fboStatus = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
         if (fboStatus != FramebufferErrorCode.FramebufferComplete)
@@ -218,6 +225,7 @@ public class AlisterRenderer : IDisposable
             throw new Exception($"Framebuffer failed to (re)initialize with error {fboStatus}.");
         }
 
+        initialized = true;
         UpdatePerspective();
     }
 

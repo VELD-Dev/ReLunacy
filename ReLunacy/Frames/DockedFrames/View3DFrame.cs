@@ -1,4 +1,5 @@
-﻿using ReLunacy.Engine.Rendering.Alister;
+﻿using OpenTK.Graphics.ES20;
+using ReLunacy.Engine.Rendering.Alister;
 
 namespace ReLunacy.Frames.DockedFrames;
 
@@ -58,7 +59,10 @@ internal class View3DFrame : DockedFrame
     public override void RenderAsWindow(float deltaTime)
     {
         ImGui.SetNextWindowSizeConstraints(new(300, 300), ImGui.GetMainViewport().WorkSize);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vec2(0, 0));
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vec2(0, 0));
         base.RenderAsWindow(deltaTime);
+        ImGui.PopStyleVar(2);
     }
 
     private void Tick(float deltaTime)

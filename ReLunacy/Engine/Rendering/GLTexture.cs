@@ -45,26 +45,62 @@ public class GLTexture
                 int width = Math.Max(1, (int)Tex.Width / (int)Math.Pow(2, i));
                 int height = Math.Max(1, (int)Tex.Height / (int)Math.Pow(2, i));
                 int size = 0;
-                switch(format)
+
+                switch (format)
                 {
                     case TextureFormat.DXT1:
                         size = ((width + 3) / 4) * ((height + 3) / 4) * 8;
+
+                        if (size + offset > Tex.data.Length)
+                        {
+                            LunaLog.LogError("Reading texture data out of bounds.");
+                            break;
+                        }
+
                         GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbS3tcDxt1Ext, width, height, 0, size, (nint)(b + offset));
                         break;
                     case TextureFormat.DXT3:
                         size = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+
+                        if (size + offset > Tex.data.Length)
+                        {
+                            LunaLog.LogError("Reading texture data out of bounds.");
+                            break;
+                        }
+
                         GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbaS3tcDxt3Ext, width, height, 0, size, (nint)(b + offset));
                         break;
                     case TextureFormat.DXT5:
                         size = ((width + 3) / 4) * ((height + 3) / 4) * 16;
+
+                        if (size + offset > Tex.data.Length)
+                        {
+                            LunaLog.LogError("Reading texture data out of bounds.");
+                            break;
+                        }
+
                         GL.CompressedTexImage2D(TextureTarget.Texture2D, i, InternalFormat.CompressedRgbaS3tcDxt5Ext, width, height, 0, size, (nint)(b + offset));
                         break;
                     case TextureFormat.A8R8G8B8:
                         size = width * height * 4;
+
+                        if (size + offset > Tex.data.Length)
+                        {
+                            LunaLog.LogError("Reading texture data out of bounds.");
+                            break;
+                        }
+
                         GL.TexImage2D(TextureTarget.Texture2D, i, PixelInternalFormat.Rgba, width, height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, (nint)(b + offset));
                         break;
                     case TextureFormat.R5G6B5:
                         size = width * height * 2;
+
+                        if (size + offset > Tex.data.Length)
+                        {
+                            LunaLog.LogError("Reading texture data out of bounds.");
+                            break;
+                        }
+
                         GL.TexImage2D(TextureTarget.Texture2D, i, PixelInternalFormat.R5G6B5IccSgix, width, height, 0, PixelFormat.R5G6B5IccSgix, PixelType.UnsignedShort565, (nint)(b + offset));
                         break;
 

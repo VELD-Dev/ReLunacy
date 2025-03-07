@@ -61,6 +61,16 @@ public class AssetManager
             3, 5
             */
         ],
+        [
+            0, 0,
+            1, 0,
+            0, 1,
+            1, 1,
+            0, 0,
+            1, 0,
+            0, 1,
+            1, 1,
+        ],
         new Material(MaterialManager.ShaderHandles["stdv;volumef"]),
         MaterialManager.SelectedVolumeMat);
     }
