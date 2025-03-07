@@ -13,7 +13,7 @@
     <a href="#features">Features</a> •
     <a href="#prerequisites">Prerequisites</a> •
     <a href="#usage">Usage</a> •
-    <a href="#building">Building</a> •
+    <a href="#clone_build">Clone & Build</a> •
     <a href="#running">Running</a> •
     <a href="#notes">Notes</a> •
     <a href="./LICENSE">License</a> •
@@ -88,11 +88,12 @@ Controls:
   - The Stats Overlay can be customized inside `Edit > Editor Settings > Overlay settings`.
   - The interface language can be changed inside `Edit > Editor Settings > Visual settings`.
 
-## Building
-* Clone the repo with `git clone https://github.com/VELD-Dev/ReLunacy.git --recursive` (add `-b dev` if you want to use branch dev)
-* After cloning, make sure to run `git submodules update --recursive` to update the external dependencies (LibreFios).
-* cd into the directory with the `Lunacy.sln` file
-* Run `dotnet build ReLunacy` (Lunacy probably won't build anymore, I did not try to fix its errors or adapt it to the new LunaLib)
+<h2 id="clone_build">Clone & Build</h2>
+
+- Clone the repo with `git clone https://github.com/VELD-Dev/ReLunacy.git --recursive` (add `-b dev` if you want to use branch dev)
+- After cloning, make sure to run `git submodules update --recursive` to update the external dependencies (LibreFios).
+- cd into the directory with the `Lunacy.sln` file
+- Run `dotnet build ReLunacy` (Lunacy probably won't build anymore, I did not try to fix its errors or adapt it to the new LunaLib)
 
 ## Running
 
