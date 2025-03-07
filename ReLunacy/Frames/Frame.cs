@@ -22,7 +22,7 @@ public abstract class Frame
         if(ImGui.Begin(frameName, ref isOpen, WindowFlags))
         {
             Render(deltaTime);
-            ImGui.End();
         }
+        ImGui.End();
     }
 }

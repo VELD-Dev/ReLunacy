@@ -286,8 +286,16 @@ void main()
     {
         ImGuiIOPtr io = ImGui.GetIO();
 
-        io.MouseWheel = offset.Y;
-        io.MouseWheelH = offset.X;
+        if (io.KeyShift)
+        {
+            io.MouseWheel = offset.X;
+            io.MouseWheelH = offset.Y;
+        }
+        else
+        {
+            io.MouseWheel = offset.Y;
+            io.MouseWheelH = offset.X;
+        }
     }
 
     private void RenderImDrawData(ImDrawDataPtr draw_data)

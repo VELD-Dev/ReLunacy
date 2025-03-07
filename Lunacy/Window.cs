@@ -1,4 +1,5 @@
 using LibLunacy.Legacy;
+using LibLunacy.Numerics;
 using System.ComponentModel;
 
 namespace Lunacy;

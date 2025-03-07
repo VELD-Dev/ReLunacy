@@ -11,11 +11,33 @@ public class ConsoleFrame : DockedFrame
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vec2 DefaultPosition { get; set; }
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
-    private readonly TextWriter ConsoleOut = Console.Out;
+
+    public ConsoleFrame() : base()
+    {
+        FrameName = "Console";
+    }
 
     protected override void Render(float deltaTime)
     {
-        var consOut = ConsoleOut.ToString();
-        ImGui.Text(consOut);
+        int maxLength = 10_000_000;
+        var conLength = LunaLog.Captured.Length;
+        var start = Math.Clamp(conLength - maxLength - 1, 0, conLength);
+        var substringLen = Math.Clamp(maxLength, 0, conLength - start);
+        var consOut = LunaLog.Captured.ToString(start, substringLen);
+
+        
+        var size = ImGui.GetContentRegionAvail();
+        if(ImGui.BeginChild("Output", size, ImGuiChildFlags.NavFlattened | ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysHorizontalScrollbar | ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        {
+            ImGui.TextUnformatted(consOut);
+            ImGui.SetScrollHereY(1.0f);
+            ImGui.EndChild();
+        }
+    }
+
+    public override void RenderAsWindow(float deltaTime)
+    {
+        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.Appearing, new(0.5f, 0.5f));
+        base.RenderAsWindow(deltaTime);
     }
 }

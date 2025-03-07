@@ -45,7 +45,7 @@ namespace ReLunacy.Frames.DockedFrames
         protected override void Render(float deltaTime)
         {
             ImGui.BeginGroup();
-            ImGui.InputTextWithHint("", "Search for entity...", ref entityResearch, 128);
+            ImGui.InputTextWithHint("##", "Search for entity...", ref entityResearch, 128);
             if(ImGui.IsItemDeactivatedAfterEdit())
             {
                 if(entityResearch.Length > 1)

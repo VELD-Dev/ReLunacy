@@ -51,13 +51,14 @@ internal class LunaLog : TextWriter, IDisposable
     private static TextWriter stdErr = Console.Error;
 
     private readonly static ErrorLogger ErrorOut = new ErrorLogger();
-    public static StringWriter Captured = new();
+    public static StringBuilder Captured;
     public static StreamWriter FileOut { get; private set; } = File.CreateText(Path.Combine(Window.AppPath, "Logs", $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
     public override Encoding Encoding => Encoding.ASCII;
 
     static LunaLog()
     {
         Instance = new Lazy<LunaLog>((() => new LunaLog())).Value;
+        new Thread(() => Captured = new()).Start();
     }
 
     public LunaLog()
@@ -83,7 +84,7 @@ internal class LunaLog : TextWriter, IDisposable
                 if (LoggingLevel > LogLevel.Debug) break;
                 message = $"{prefix} [DEBUG] {message}";
                 FileOut.Write(message);
-                Captured.Write(message);
+                Captured?.Append(message);
                 Console.ForegroundColor = ConsoleColor.DarkGray;
                 stdOut.Write(message);
                 Console.ResetColor();
@@ -92,7 +93,7 @@ internal class LunaLog : TextWriter, IDisposable
                 if(LoggingLevel > LogLevel.Info) break;
                 message = $"{prefix} [INFO]  {message}";
                 FileOut.Write(message);
-                Captured.Write(message);
+                Captured?.Append(message);
                 Console.ForegroundColor = ConsoleColor.White;
                 stdOut.Write(message);
                 Console.ResetColor();
@@ -101,7 +102,7 @@ internal class LunaLog : TextWriter, IDisposable
                 if (LoggingLevel > LogLevel.Warning) break;
                 message = $"{prefix} [WARN]  {message}";
                 FileOut.Write(message);
-                Captured.Write(message);
+                Captured?.Append(message);
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 stdOut.Write(message);
                 Console.ResetColor();
@@ -110,7 +111,7 @@ internal class LunaLog : TextWriter, IDisposable
                 if (LoggingLevel > LogLevel.Error) break;
                 message = $"{prefix} [ERROR] {message}";
                 FileOut.Write(message);
-                Captured.Write(message);
+                Captured?.Append(message);
                 Console.ForegroundColor = ConsoleColor.DarkRed;
                 stdOut.Write(message);
                 Console.ResetColor();
@@ -118,7 +119,7 @@ internal class LunaLog : TextWriter, IDisposable
             case LogLevel.Fatal:
                 message = $"{prefix} [FATAL] {message}";
                 FileOut.Write(message);
-                Captured.Write(message);
+                Captured?.Append(message);
                 Console.ForegroundColor = ConsoleColor.White;
                 Console.BackgroundColor = ConsoleColor.DarkBlue;
                 stdOut.Write(message);
@@ -126,6 +127,7 @@ internal class LunaLog : TextWriter, IDisposable
                 stdErr.Write(message);
                 break;
         }
+        Captured?.Remove(0, Math.Clamp(-Array.MaxLength + Captured.Length + (message?.Length ?? 0), 0, Captured.Length));
     }
 
     public override void WriteLine()

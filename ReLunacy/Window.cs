@@ -256,6 +256,7 @@ public class Window : GameWindow
             ViewMenuDraw.ShowView3D();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
+            ViewMenuDraw.ShowConsoleFrame();
             ImGui.EndMenu();
         }
 

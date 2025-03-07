@@ -28,6 +28,8 @@ public class LoadingModal : Frame
     {
         foreach (var load in LoadProgresses.ToList())
         {
+            if (load is null)
+                break;
             ImGui.BeginGroup();
             ImGui.Text(load.status);
             ImGui.ProgressBar(load.Progress, new(400, 20), $"{load.current:N0}/{load.max:N0}");

@@ -34,7 +34,6 @@ public class Overlay
         ImGuiViewportPtr viewport = ImGui.GetMainViewport();
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration
             | ImGuiWindowFlags.AlwaysAutoResize
-            | ImGuiWindowFlags.NoSavedSettings
             | ImGuiWindowFlags.NoFocusOnAppearing
             | ImGuiWindowFlags.NoDocking
             | ImGuiWindowFlags.NoInputs;

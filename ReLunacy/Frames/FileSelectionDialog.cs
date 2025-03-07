@@ -19,7 +19,7 @@ namespace ReLunacy.Frames
             ImGui.BeginGroup();
             ImGui.Text("Level Path");
             ImGui.SameLine();
-            ImGui.InputTextWithHint("", "C:\\NPEA00088\\packed\\levels\\metropolis\\main.dat", ref levelPath, 256);
+            ImGui.InputTextWithHint("##", "C:\\NPEA00088\\packed\\levels\\metropolis\\main.dat", ref levelPath, 256);
             ImGui.SameLine();
             ImGui.Button("...");
             ImGui.SameLine();
