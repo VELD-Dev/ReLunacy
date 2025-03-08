@@ -1,5 +1,6 @@
-﻿using OpenTK.Graphics.ES20;
-using ReLunacy.Engine.Rendering.Alister;
+﻿using ReLunacy.Engine.Rendering;
+using System.Collections.Specialized;
+using System.Threading;
 
 namespace ReLunacy.Frames.DockedFrames;
 
@@ -9,8 +10,17 @@ internal class View3DFrame : DockedFrame
     protected override Vec2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
-    public AlisterRenderer OGLRenderer { get => Window.Singleton.OGLRenderer; }
+    private FramebufferRenderer Renderer;
+    public LevelRenderer levelRenderer;
+    private RenderPayload renderPayload;
+    public Camera Camera { get; private set; }
+    public readonly Selection selectedEntities = [];
+    private Toolbox toolbox = new();
 
+    private int aligmnentUbo = GL.GetInteger(GetPName.UniformBufferOffsetAlignment);
+
+    private bool invalidate = true;
+    private bool initialized = false;
     public Rectangle FrameContentRegion { get; private set; }
     public Vec2 FramePos { get; private set; }
     public Vec2 MousePos { get; private set; }
@@ -44,16 +54,39 @@ internal class View3DFrame : DockedFrame
     public View3DFrame() : base()
     {
         FrameName = "View 3D";
+        Camera = new();
+        Camera.Main = Camera;
+
+        selectedEntities.CollectionChanged += (_, _) => { };
+        toolbox.ToolChanged += (_, _) => InvalidateView();
+        renderPayload = new(Camera, selectedEntities, toolbox);
+        
     }
 
     protected override void Render(float deltaTime)
     {
+        UpdateWindowSize();
         Tick(deltaTime);
 
-        OGLRenderer.Resize3DView(FrameContentRegion.GetSizeI());
-        OGLRenderer.Render();
+        if(invalidate)
+        {
+            Renderer.RenderToTexture(() =>
+            {
+                GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+                GL.Enable(EnableCap.DepthTest);
+                GL.Viewport(0, 0, FrameContentRegion.Width, FrameContentRegion.Height);
+                GL.Enable(EnableCap.ScissorTest);
+                GL.Scissor(0, 0, FrameContentRegion.Width, FrameContentRegion.Height);
 
-        ImGui.Image(OGLRenderer.RenderTexture, FrameContentRegion.GetSizeF(), Vec2.UnitY, Vec2.UnitX);
+                OnPaint();
+            });
+            invalidate = false;
+        }
+        
+        Renderer.Resize3DView(FrameContentRegion.GetSizeI());
+        Renderer.Render();
+
+        ImGui.Image(Renderer.RenderTexture, FrameContentRegion.GetSizeF(), Vec2.UnitY, Vec2.UnitX);
     }
 
     public override void RenderAsWindow(float deltaTime)
@@ -63,6 +96,18 @@ internal class View3DFrame : DockedFrame
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vec2(0, 0));
         base.RenderAsWindow(deltaTime);
         ImGui.PopStyleVar(2);
+    }
+
+    public void UpdateWindowSize()
+    {
+        var prevSize = Renderer.RenderSize;
+
+        if (FrameContentRegion.Width <= 0 || FrameContentRegion.Height <= 0) return;
+
+        if(prevSize != FrameContentRegion.GetSizeI())
+        {
+
+        }
     }
 
     private void Tick(float deltaTime)
@@ -94,20 +139,74 @@ internal class View3DFrame : DockedFrame
             (Entity, float)[] intersectedEntities = EntityManager.Singleton.Raycast(mouseRay);
             if (intersectedEntities.Length > 0)
             {
-                SelectedEntity = intersectedEntities[0].Item1;
-                if(SelectedEntity is VolumeObject selection)
+                if (Window.Singleton.KeyboardState.IsKeyDown(Keys.LeftShift))
                 {
-                    // Set volume selected
-                    //selection.SetBool("isSelected", true);
+                    selectedEntities.Add(intersectedEntities[0].Item1);
+                }
+                else
+                {
+                    selectedEntities.Set(intersectedEntities[0].Item1);
                 }
             }
             else
             {
                 SelectedEntity = null;
             }
-            LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m)", 10)}) ");
+            LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities.Length} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m)", 10)}) ");
         }
 
+    }
+
+    private bool HandleLeftMouseDown(Vec3 mouseRay)
+    {
+        if (!Window.Singleton.IsMouseButtonDown(MouseButton.Left))
+            return false;
+
+        if (Renderer == null) return false;
+
+        Entity? obj = null;
+
+        Renderer.ExposeFramebuffer(() => { obj = GetObjectAtScreenPosition(MousePos); });
+
+        HandleSelect(obj);
+
+        return true;
+    }
+
+    public void SelectedObjectsOnCollectionChange(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        InvalidateView();
+    }
+
+    protected void OnResize()
+    {
+        if (!initialized) return;
+        GL.Viewport(0, 0, FrameContentRegion.Width, FrameContentRegion.Height);
+
+        Renderer?.Dispose();
+        Renderer = new FramebufferRenderer(FrameContentRegion.Width, FrameContentRegion.Height);
+        UpdateAaLevel();
+    }
+
+    public void InvalidateView()
+    {
+        invalidate = true;
+    }
+
+    protected void OnPaint()
+    {
+        renderPayload.SetWindowSize(FrameContentRegion.Width, FrameContentRegion.Height);
+        levelRenderer?.Render(renderPayload);
+    }
+
+    private void UpdateAaLevel()
+    {
+        if (Program.Settings.MSAA_Level == 0)
+            GL.Disable(EnableCap.Multisample);
+        else
+            GL.Enable(EnableCap.Multisample);
+
+        FramebufferRenderer.MSAA_LEVEL = 1 << (int)Program.Settings.MSAA_Level;
     }
 
     public void HandleShortcuts()
@@ -123,11 +222,52 @@ internal class View3DFrame : DockedFrame
         if (modifierCtrl && kbState.IsKeyPressed(Keys.P)) Window.Singleton.TryWipeLevel();
     }
 
+    public bool HandleSelect(Entity? obj, bool externalCaller = false, bool pointCameraAtObject = false)
+    {
+        if (Window.Singleton.MouseState.WasButtonDown(MouseButton.Left) && !externalCaller)
+            return false;
+
+        bool isMultiSelect = Window.Singleton.KeyboardState.IsKeyDown(Keys.LeftShift);
+
+        if (obj == null)
+        {
+            if (!isMultiSelect)
+                selectedEntities.Clear();
+            return false;
+        }
+
+        if (isMultiSelect)
+        {
+            selectedEntities.Toggle(obj);
+        }
+        else
+        {
+            selectedEntities.ToggleOne(obj);
+        }
+
+        return true;
+    }
+
+    public Entity? GetObjectAtScreenPosition(Vec2 pos)
+    {
+        int hit = 0;
+        GL.ReadBuffer(ReadBufferMode.ColorAttachment1);
+        GL.ReadPixel((int)pos.X, FrameContentRegion.Height - (int)pos.Y, 1, 1, PixelFormat.RedInteger, PixelType.Int, ref hit);
+
+        if (hit == 0) return null;
+
+        EntityManager.Singleton.GetAllEntities().Find(e => e.ID == (ulong)hit);
+    }
+
     private bool CheckLMBClick()
     {
+        return Window.Singleton.MouseState.IsButtonDown(MouseButton.Left);
+
+        /*
         if (!Window.Singleton.MouseState.IsButtonPressed(MouseButton.Left))
             return false;
         return true;
+        */
     }
 
     private bool CheckRotationInput(float deltaTime, bool allowGrab)

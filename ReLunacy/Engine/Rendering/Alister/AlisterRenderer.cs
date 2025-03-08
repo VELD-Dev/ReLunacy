@@ -232,7 +232,6 @@ public class AlisterRenderer : IDisposable
     public void UpdatePerspective()
     {
         camera.SetPerspective(Program.Settings.CamFOVRad, RenderSize.X / (float)RenderSize.Y, 0.01f, Program.Settings.RenderDistance);
-        Frustrum = new Frustrum(camera.ViewToClip);
     }
 
     public void Dispose()

@@ -6,6 +6,7 @@ using Vec3 = OpenTK.Mathematics.Vector3;
 using Vec4 = OpenTK.Mathematics.Vector4;
 using Quaternion = System.Numerics.Quaternion;
 using Quat = OpenTK.Mathematics.Quaternion;
+using ReLunacy.Engine.Rendering.Alister;
 
 namespace ReLunacy.Engine;
 
@@ -19,6 +20,20 @@ public class Camera
     private float _nearClip;
     private float _farClip;
     private Vec2 CamLocal;
+    private Frustrum frustrum;
+    private bool frustrumDirty = true;
+    public Frustrum Frustrum
+    {
+        get
+        {
+            if (frustrumDirty)
+            {
+                frustrum = new Frustrum(ViewToProj);
+                frustrumDirty = false;
+            }
+            return frustrum;
+        }
+    }
 
     #region Cam Settings
 
@@ -69,7 +84,7 @@ public class Camera
         }
     }
 
-    public Mat4 ViewToClip;
+    public Mat4 ViewToProj;
 
     public void SetPerspective(float fov, float aspect, float depthNear, float depthFar)
     {
@@ -97,7 +112,8 @@ public class Camera
 
     public void UpdatePerspective()
     {
-        ViewToClip = Matrix4.CreatePerspectiveFieldOfView(FOV, Aspect, NearClipDistance, RenderDistance);
+        ViewToProj = Matrix4.CreatePerspectiveFieldOfView(FOV, Aspect, NearClipDistance, RenderDistance);
+        frustrumDirty = true;
     }
 
     public Vec3 CreateRay(Vector2 castPositionOnClip, Vector2 frameSize)
@@ -108,7 +124,7 @@ public class Camera
             1
         );
         Vec4 homogeneousClip = new(viewport.X, viewport.Y, -1, 1);
-        Vec4 eye = Mat4.Invert(Matrix4.Transpose(ViewToClip)) * homogeneousClip;
+        Vec4 eye = Mat4.Invert(Matrix4.Transpose(ViewToProj)) * homogeneousClip;
         eye.Z = -1;
         eye.W = 0;
         Vec3 worldRayAngleFromCam = (Mat4.Invert(Matrix4.Transpose(WorldToView)) * eye).Xyz;
