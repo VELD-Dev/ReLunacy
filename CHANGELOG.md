@@ -29,6 +29,7 @@ Because the European date format is better, please keep date format like this: `
 - Instance Properties frame now shows the vertices of the object (will be moved to Asset View).
 - Rewrote Textures reading and implemented their original mipmaps as internal mipmaps, slightly improving performances when far away from texture.
 - Reducing far clip distance should now increase performance as it now unloads objects that are further this distance (which was not the case before, it was just not showing them but they were still rendering)
+- Updated Entity Explorer frame's search bar: It will now update the output only when pressing "enter", and above that the search results are now cached, improving considerably performances.
 
 ## [v0.02](https://github.com/VELD-Dev/ReLunacy/releases/0.02) - 24-08-2024
 
