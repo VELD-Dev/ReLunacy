@@ -252,7 +252,7 @@ internal class View3DFrame : DockedFrame
     {
         int hit = 0;
         GL.ReadBuffer(ReadBufferMode.ColorAttachment1);
-        GL.ReadPixel((int)pos.X, FrameContentRegion.Height - (int)pos.Y, 1, 1, PixelFormat.RedInteger, PixelType.Int, ref hit);
+        GL.ReadPixels((int)pos.X, FrameContentRegion.Height - (int)pos.Y, 1, 1, PixelFormat.RedInteger, PixelType.Int, ref hit);
 
         if (hit == 0) return null;
 
