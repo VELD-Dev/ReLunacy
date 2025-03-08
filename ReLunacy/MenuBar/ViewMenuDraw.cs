@@ -66,17 +66,17 @@ internal static class ViewMenuDraw
 
     internal static void ShowConsoleFrame()
     {
-        bool frameAlreadyOpen = Window.Singleton.IsAnyFrameOpened<ConsoleFrame>();
+        bool frameAlreadyOpen = Window.Singleton.IsAnyFrameOpened<LogsFrame>();
         if (!ImGui.MenuItem("Console", "", frameAlreadyOpen, true))
             return;
 
         if (frameAlreadyOpen)
         {
-            Window.Singleton.TryCloseFirstFrame<ConsoleFrame>();
+            Window.Singleton.TryCloseFirstFrame<LogsFrame>();
         }
         else
         {
-            Window.Singleton.AddFrame(new ConsoleFrame());
+            Window.Singleton.AddFrame(new LogsFrame());
         }
     }
 }

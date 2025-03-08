@@ -6,15 +6,15 @@ using System.Threading.Tasks;
 
 namespace ReLunacy.Frames.DockedFrames;
 
-public class ConsoleFrame : DockedFrame
+public class LogsFrame : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vec2 DefaultPosition { get; set; }
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
-    public ConsoleFrame() : base()
+    public LogsFrame() : base()
     {
-        FrameName = "Console";
+        FrameName = "Logs";
     }
 
     protected override void Render(float deltaTime)
@@ -32,10 +32,11 @@ public class ConsoleFrame : DockedFrame
         if (ImGui.BeginChild("Output", size, ImGuiChildFlags.NavFlattened | ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysHorizontalScrollbar | ImGuiWindowFlags.AlwaysVerticalScrollbar))
         {
             ImGui.TextUnformatted(consOut);
-            ImGui.SetScrollHereY(1.0f);
-            ImGui.PopStyleColor(2);
-            ImGui.EndChild();
+            if(ImGui.GetScrollY() == ImGui.GetScrollMaxY())
+                ImGui.SetScrollHereY(1.0f);
         }
+        ImGui.PopStyleColor(2);
+        ImGui.EndChild();
     }
 
     public override void RenderAsWindow(float deltaTime)

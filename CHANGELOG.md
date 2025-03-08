@@ -26,6 +26,9 @@ Because the European date format is better, please keep date format like this: `
 - Modified the rendering technique, will now render elements individually instead of using instancing. Slightly decreases performances but allows for more flexibility, especially when moving objects or when selecting objects.
 - Fixed a bug that was showing a padding or a black border around the whole viewport.
 - Fixed black borders around the 3D view inside the frame.
+- Instance Properties frame now shows the vertices of the object (will be moved to Asset View).
+- Rewrote Textures reading and implemented their original mipmaps as internal mipmaps, slightly improving performances when far away from texture.
+- Reducing far clip distance should now increase performance as it now unloads objects that are further this distance (which was not the case before, it was just not showing them but they were still rendering)
 
 ## [v0.02](https://github.com/VELD-Dev/ReLunacy/releases/0.02) - 24-08-2024
 
