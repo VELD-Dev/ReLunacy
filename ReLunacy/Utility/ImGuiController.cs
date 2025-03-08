@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using ErrorCode = OpenTK.Graphics.OpenGL4.ErrorCode;
 
-//Credits: https://github.com/NogginBops/ImGui.NET_OpenTK_Sample
+// Credits: https://github.com/NogginBops/ImGui.NET_OpenTK_Sample/tree/opentk4.0
 
 namespace ReLunacy.Utility;
 

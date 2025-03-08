@@ -9,6 +9,7 @@ Because the European date format is better, please keep date format like this: `
 - Rewrote entirely the file reading library. Reading speeds have been significantly improved, especially on old-engine levels.
 - Made a new rendering engine, running under OpenGL 4.4.0, based on Replanetizer's rendering engine.
 - Updated ImGui.NET version from 1.89 to 1.91, fixing some bugs and improving the UI.
+- Rewrote the ImGuiController for the new version of ImGui.NET, credits to @NogginBops for the code, it greatly helped, because the original one was totally broken.
 - Updated .NET version from 8.0 to 9.0, improving performances.
 - Added Frustrum Culling, improving performances on levels.
 - Made a new transform system, fixing previous rotation bugs.
