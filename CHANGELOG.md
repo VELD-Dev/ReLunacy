@@ -23,11 +23,12 @@ Because the European date format is better, please keep date format like this: `
 - [TO BE DONE] Edited Update frame, it will now show a frame telling that there is no newer version too.
 - Added a loading modal when loading a level, showing the precise progress of the level loading, with all the detailed steps.
 - Added UFrags support for old-engine levels (ToD, QfB) (no gaps on the old engine, good news !)
+- Rewrote Textures reading and implemented their original mipmaps as internal mipmaps, slightly improving performances when far away from texture.
+- Rewrote the Asset Loader, the new one loads levels much faster and has everything explicitly defined, making it easier to understand as contributor.
 - Modified the rendering technique, will now render elements individually instead of using instancing. Slightly decreases performances but allows for more flexibility, especially when moving objects or when selecting objects.
 - Fixed a bug that was showing a padding or a black border around the whole viewport.
 - Fixed black borders around the 3D view inside the frame.
 - Instance Properties frame now shows the vertices of the object (will be moved to Asset View).
-- Rewrote Textures reading and implemented their original mipmaps as internal mipmaps, slightly improving performances when far away from texture.
 - Reducing far clip distance should now increase performance as it now unloads objects that are further this distance (which was not the case before, it was just not showing them but they were still rendering)
 - Updated Entity Explorer frame's search bar: It will now update the output only when pressing "enter", and above that the search results are now cached, improving considerably performances.
 
