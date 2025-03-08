@@ -15,7 +15,7 @@ Because the European date format is better, please keep date format like this: `
 - Added a new logging system, logging everything to a file (except the errors, will be fixed in a future release)
 - Added a new `Logs` frame, showing the logs output.
 - Created internal Entity types based off their real types, increasing editor flexibility and reliability.
-- Added a new `Asset view` frame, allowing to isolate an entity and its data on a separate frame, showing its model in its own frame. It will also allow to export objects as `.gltf`, `.obj` and `.dae` models in the future.
+- [TO BE DONE] Added a new `Asset view` frame, allowing to isolate an entity and its data on a separate frame, showing its model in its own frame. It will also allow to export objects as `.gltf`, `.obj` and `.dae` models in the future.
 - Added bases for animations and animations viewing in the Asset view.
 - Added basic transform tools to interact with assets directly from the 3D View.
 - Added frames rounding and removed frames borders, making the UI more modern and pleasant for the eyes.
