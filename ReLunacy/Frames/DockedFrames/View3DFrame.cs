@@ -1,5 +1,6 @@
 ﻿using ReLunacy.Engine.Rendering;
 using System.Collections.Specialized;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 
 namespace ReLunacy.Frames.DockedFrames;
@@ -55,12 +56,16 @@ internal class View3DFrame : DockedFrame
     {
         FrameName = "View 3D";
         Camera = new();
+        Camera.SetPerspective(Program.Settings.CamFOVRad, 300f / 300f, 0.01f, Program.Settings.RenderDistance);
         Camera.Main = Camera;
 
         selectedEntities.CollectionChanged += (_, _) => { };
         toolbox.ToolChanged += (_, _) => InvalidateView();
         renderPayload = new(Camera, selectedEntities, toolbox);
-        
+
+        levelRenderer = new();
+        Renderer = new(300, 300);
+        initialized = true;
     }
 
     protected override void Render(float deltaTime)
@@ -68,8 +73,9 @@ internal class View3DFrame : DockedFrame
         UpdateWindowSize();
         Tick(deltaTime);
 
-        if(invalidate)
+        if (invalidate)
         {
+            LunaLog.LogDebug("Clearing buffers");
             Renderer.RenderToTexture(() =>
             {
                 GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
@@ -82,9 +88,6 @@ internal class View3DFrame : DockedFrame
             });
             invalidate = false;
         }
-        
-        Renderer.Resize3DView(FrameContentRegion.GetSizeI());
-        Renderer.Render();
 
         ImGui.Image(Renderer.RenderTexture, FrameContentRegion.GetSizeF(), Vec2.UnitY, Vec2.UnitX);
     }
@@ -106,7 +109,9 @@ internal class View3DFrame : DockedFrame
 
         if(prevSize != FrameContentRegion.GetSizeI())
         {
-
+            LunaLog.LogDebug($"Resizing framebuffer renderer to {FrameContentRegion.GetSizeI()}.");
+            OnResize();
+            InvalidateView();
         }
     }
 
@@ -131,28 +136,14 @@ internal class View3DFrame : DockedFrame
 
         CheckMovementInput(deltaTime);
         HandleShortcuts();
-        if(CheckLMBClick())
-        {
-            LunaLog.LogDebug("Left mouse button handled.");
 
-            Vec3 mouseRay = Camera.Main.CreateRay(MousePos, FrameContentRegion.GetSizeF());
-            (Entity, float)[] intersectedEntities = EntityManager.Singleton.Raycast(mouseRay);
-            if (intersectedEntities.Length > 0)
+        if(CheckLMBClick() && MousePos < FrameContentRegion.GetSizeF())
+        {
+            var ray = renderPayload.camera.CreateRay(MousePos, FrameContentRegion.GetSizeF());
+            if (HandleLeftMouseDown(ray))
             {
-                if (Window.Singleton.KeyboardState.IsKeyDown(Keys.LeftShift))
-                {
-                    selectedEntities.Add(intersectedEntities[0].Item1);
-                }
-                else
-                {
-                    selectedEntities.Set(intersectedEntities[0].Item1);
-                }
+                LunaLog.LogDebug("Left mouse button handled.");
             }
-            else
-            {
-                SelectedEntity = null;
-            }
-            LunaLog.LogDebug($"Selecting new object '{SelectedEntity?.name ?? "None"}' among {intersectedEntities.Length} intersections ({intersectedEntities.Stringify("\n", e => $"{e.Item1.name} (i:{e.Item2:N3}m / {e.Item1.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m)", 10)}) ");
         }
 
     }
@@ -185,6 +176,7 @@ internal class View3DFrame : DockedFrame
 
         Renderer?.Dispose();
         Renderer = new FramebufferRenderer(FrameContentRegion.Width, FrameContentRegion.Height);
+        Camera.Aspect = FrameContentRegion.Width / FrameContentRegion.Height;
         UpdateAaLevel();
     }
 
@@ -250,24 +242,24 @@ internal class View3DFrame : DockedFrame
 
     public Entity? GetObjectAtScreenPosition(Vec2 pos)
     {
-        int hit = 0;
+        uint hit = 0;
         GL.ReadBuffer(ReadBufferMode.ColorAttachment1);
         GL.ReadPixels((int)pos.X, FrameContentRegion.Height - (int)pos.Y, 1, 1, PixelFormat.RedInteger, PixelType.Int, ref hit);
 
         if (hit == 0) return null;
 
-        EntityManager.Singleton.GetAllEntities().Find(e => e.ID == (ulong)hit);
+        var filter = EntityManager.Singleton.GetAllEntities().Find(e => e.InternalID == hit);
+        if(filter == null)
+        {
+            LunaLog.LogInfo($"Did not find any object with ID {hit}. This should not happen.");
+        }
+
+        return filter;
     }
 
     private bool CheckLMBClick()
     {
         return Window.Singleton.MouseState.IsButtonDown(MouseButton.Left);
-
-        /*
-        if (!Window.Singleton.MouseState.IsButtonPressed(MouseButton.Left))
-            return false;
-        return true;
-        */
     }
 
     private bool CheckRotationInput(float deltaTime, bool allowGrab)
@@ -287,6 +279,7 @@ internal class View3DFrame : DockedFrame
         rot *= 0.01f * Program.Settings.CamSensivity;
 
         Camera.Main.Rotate(rot);
+        InvalidateView();
         return true;
     }
 
@@ -299,6 +292,7 @@ internal class View3DFrame : DockedFrame
         {
             movement *= moveSpeed * deltaTime;
             Camera.Main.transform.Position += movement;
+            InvalidateView();
         }
     }
 

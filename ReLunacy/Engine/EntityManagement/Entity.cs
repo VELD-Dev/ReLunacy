@@ -4,14 +4,21 @@ namespace ReLunacy.Engine.EntityManagement;
 
 public abstract class Entity : IRenderable, IDisposable
 {
+    private static uint entityCount = 1;
     public Model Model { get; set; }
     public Transform Transform { get; set; }
     
     public abstract EntityType EntityType { get; init; }
     public ulong ID { get; init; }
+    public uint InternalID { get; set; }
     public string name = string.Empty;
     public bool AllowRender = true;
     public bool Selected = false;
+
+    public Entity()
+    {
+        InternalID = entityCount++;
+    }
 
     public float[] Vertices { get => Model?.Vertices ?? []; set
         {
@@ -61,5 +68,10 @@ public abstract class Entity : IRenderable, IDisposable
     public void Dispose()
     {
         Model.Dispose();
+    }
+
+    public static void ResetIDCount()
+    {
+        entityCount = 1;
     }
 }
