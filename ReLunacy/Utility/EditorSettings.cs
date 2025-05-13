@@ -1,7 +1,9 @@
-﻿using Vector2 = System.Numerics.Vector2;
+﻿using System.Runtime.CompilerServices;
+using Vector2 = System.Numerics.Vector2;
 
 namespace ReLunacy.Utility;
 
+[JsonObject]
 public class EditorSettings
 {
     public bool DebugMode;

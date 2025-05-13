@@ -90,6 +90,7 @@ internal class View3DFrame : DockedFrame
         }
 
         ImGui.Image(Renderer.RenderTexture, FrameContentRegion.GetSizeF(), Vec2.UnitY, Vec2.UnitX);
+        InvalidateView();
     }
 
     public override void RenderAsWindow(float deltaTime)
@@ -188,6 +189,7 @@ internal class View3DFrame : DockedFrame
     protected void OnPaint()
     {
         renderPayload.SetWindowSize(FrameContentRegion.Width, FrameContentRegion.Height);
+        renderPayload.visibility.enableFurstrumCulling = Program.Settings.FrustrumCulling;
         levelRenderer?.Render(renderPayload);
     }
 

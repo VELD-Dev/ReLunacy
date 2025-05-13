@@ -20,6 +20,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Engine\Model\**" />
+    <EmbeddedResource Remove="Engine\Model\**" />
+    <None Remove="Engine\Model\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Remove="Assets\logo.ico" />
   </ItemGroup>
 
@@ -74,10 +80,6 @@
     <None Update="Shaders\whitef.glsl">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Engine\Model\" />
   </ItemGroup>
 
 </Project>
