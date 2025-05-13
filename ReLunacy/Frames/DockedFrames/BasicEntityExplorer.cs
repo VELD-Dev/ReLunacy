@@ -114,7 +114,7 @@ namespace ReLunacy.Frames.DockedFrames
 
         public void ShowEntities(Entity[] entities)
         {
-            ImGui.BeginChild("hierarchy_container");
+            ImGui.BeginChild("hierarchy_container", ImGui.GetContentRegionAvail(), true);
             foreach(var entity in entities)
             {
                 if (ImGui.Button(entity.name.Split('/')[^1]))
@@ -132,7 +132,7 @@ namespace ReLunacy.Frames.DockedFrames
         {
             mobys = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(Region.CMobyInstance))];
             ties = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(CZone.CTieInstance))];
-            ufrags = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(CZone.UFrag))];
+            ufrags = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(CZone.NewUFrag) || e.instance.GetType() == typeof(CZone.OldUFrag))];
             volumes = [.. newEntityList.FindAll(e => e.instance.GetType() == typeof(Region.CVolumeInstance))];
         }
 
@@ -157,6 +157,7 @@ namespace ReLunacy.Frames.DockedFrames
             ties = [];
             ufrags = [];
             volumes = [];
+            _searchResults = [];
         }
     }
 }

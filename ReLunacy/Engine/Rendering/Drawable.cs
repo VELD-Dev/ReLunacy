@@ -11,6 +11,7 @@ public class Drawable
     int EBO;
     int indexCount;
     public Material material { get; private set; }
+    public DrawType drawType = DrawType.Triangles;
 
 
     int wfVwBO;
@@ -19,6 +20,14 @@ public class Drawable
     int wfVAO;
     int wfEBO;
     public readonly Material WFMaterial = new(MaterialManager.Materials["stdv;volumef"]);
+
+    public enum DrawType
+    {
+        Triangles,
+        Quads,
+        Lines,
+        Points
+    }
 
     public Drawable()
     {
@@ -186,19 +195,36 @@ public class Drawable
 
     public void Draw()
     {
+        var worldToClip = Camera.Main.WorldToView * Camera.Main.ViewToClip;
         material.Use();
-        material.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        material.SetMatrix4x4("worldToClip", ref worldToClip);
 
         GL.BindVertexArray(VAO);
-        GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        if(drawType == DrawType.Triangles)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
+        else if(drawType == DrawType.Quads)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Quads, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
+        else if (drawType == DrawType.Lines)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Lines, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
+        else if(drawType == DrawType.Points)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Points, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
 
         DrawWireframe();
     }
 
     public void DrawWireframe()
     {
+        var worldToClip = Camera.Main.WorldToView * Camera.Main.ViewToClip;
         WFMaterial.SimpleUse();
-        WFMaterial.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        WFMaterial.SetMatrix4x4("worldToClip", ref worldToClip);
 
         GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
         GL.BindVertexArray(wfVAO);
@@ -207,25 +233,25 @@ public class Drawable
         GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
     }
 
-    public void DrawAsLines()
-    {
-        material.SimpleUse();
-        material.SetMatrix4x4("worldToClip", Camera.Main.WorldToView * Camera.Main.ViewToClip);
-
-        //GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-        GL.BindVertexArray(VAO);
-        GL.LineWidth(15);
-        GL.DrawElementsInstanced(PrimitiveType.Lines, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
-        //GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-    }
-
     public void Draw(Transform transform)
     {
+        var world = transform.GetLocalToWorldMatrix() * Camera.Main.WorldToView * Camera.Main.ViewToClip;
         material.Use();
-        material.SetMatrix4x4("world", transform.GetLocalToWorldMatrix() * Camera.Main.WorldToView * Camera.Main.ViewToClip);
+        material.SetMatrix4x4("world", ref world);
 
         GL.BindVertexArray(VAO);
-        GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero);
+        if (drawType == DrawType.Triangles)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
+        else if (drawType == DrawType.Quads)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Quads, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
+        else if (drawType == DrawType.Lines)
+        {
+            GL.DrawElementsInstanced(PrimitiveType.Lines, indexCount, DrawElementsType.UnsignedInt, nint.Zero, transforms.Count);
+        }
     }
 
     public void SimpleDraw()

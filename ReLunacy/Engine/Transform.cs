@@ -63,28 +63,39 @@ public class Transform
         SetRotation(rotation);
         this.scale = scale;
     }
+
+    public Transform(Vector3 position, Quaternion rotation, Vector3 scale)
+    {
+        this.position = position;
+        SetRotation(rotation);
+        this.scale = scale;
+    }
+
     public Transform(Matrix4 mat)
     {
-        useMatrix = true;
+        //useMatrix = true;
         modelMatrix = mat;
-        position = mat.ExtractTranslation().ToNumerics();
-        scale = mat.ExtractScale().ToNumerics();
-        Quaternion quatRotation = mat.ExtractRotation();
-        SetRotation(quatRotation.ToEulerAngles().ToNumerics());
+        position = mat.ExtractTranslation().ToNumerics() * YardToMeter;
+        scale = mat.ExtractScale().ToNumerics() * YardToMeter;
+        SetRotationE(mat.ExtractRotation().ToEulerAngles().ToNumerics());
     }
 
     public void SetRotation(Quaternion quaternion)
     {
-        eulerRotation = quaternion.ToEulerAngles().ToNumerics();
+        rotation = quaternion;
     }
-    public void SetRotation(Vector3 eulers)
+    public void SetRotation(Vector3 axis)
     {
-        eulerRotation = eulers;
+        rotation = Quaternion.FromAxisAngle(Vec3.UnitX, axis.X) * Quaternion.FromAxisAngle(Vec3.UnitY, axis.Y) * Quaternion.FromAxisAngle(Vec3.UnitZ, axis.Z);
+    }
+    public void SetRotationE(Vector3 euler)
+    {
+        rotation = Quaternion.FromEulerAngles(euler.ToOpenTK());
     }
 
     public Matrix4 GetLocalToWorldMatrix()
     {
-        if (useMatrix) return modelMatrix;
+        //if (useMatrix) return modelMatrix;
         return Matrix4.Identity * Matrix4.CreateScale(scale.ToOpenTK()) * Matrix4.CreateFromQuaternion(rotation) * Matrix4.CreateTranslation(position.ToOpenTK());
     }
 }

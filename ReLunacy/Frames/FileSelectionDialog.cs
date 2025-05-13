@@ -30,7 +30,7 @@ namespace ReLunacy.Frames
                 else
                 {
                     Program.ProvidedPath = levelPath;
-                    var lm = new LoadingModal([ new("Loading level", new(0, 1)) ]);
+                    var lm = new LoadingModal([ ("Loading level", new(0, 5)), ("", new()) ]);
                     Task.Run(() => Window.Singleton.LoadLevelDataAsync(levelPath, lm));
                     isOpen = false;
                 }

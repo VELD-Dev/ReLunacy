@@ -88,7 +88,7 @@ namespace LibLunacy
 
 				width = otr.width;
 				height = otr.height;
-				mipmapCount = otr.mipmapCount;
+				mipmapCount = 0;
 				format = (TexFormat)((otr.formatBitField >> 8) & 0xF);
 
 				if(texstream != null && ots.Any(x => x.index == index))
@@ -105,7 +105,7 @@ namespace LibLunacy
 				if(texstream != null && ots.Any(x => x.index == index))
 				{
 					texstream.Seek(ots.First(x => x.index == index).offset, SeekOrigin.Begin);
-					if((format == TexFormat.DXT1 || format == TexFormat.DXT3 || format == TexFormat.DXT5) && (otr.formatBitField & 0x2000) == 0)
+					if((format == TexFormat.DXT1 || format == TexFormat.DXT3 || format == TexFormat.DXT5) /*&& (otr.formatBitField & 0x2000) == 0*/)
 					{
 						texstream.Read(data);
 					}
@@ -120,7 +120,7 @@ namespace LibLunacy
 				else
 				{
 					textures.Seek(otr.offset, SeekOrigin.Begin);
-					if((format == TexFormat.DXT1 || format == TexFormat.DXT3 || format == TexFormat.DXT5) && (otr.formatBitField & 0x2000) == 0)
+					if((format == TexFormat.DXT1 || format == TexFormat.DXT3 || format == TexFormat.DXT5) /*&& (otr.formatBitField & 0x2000) == 0*/)
 					{
 						textures.Read(data);
 					}

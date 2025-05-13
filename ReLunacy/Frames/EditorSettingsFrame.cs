@@ -6,12 +6,14 @@ internal class EditorSettingsFrame : Frame
 
     private string[] AAoptions = [ "Disabled", "x2", "x4", "x8", "x16", "x32", "x64", "x128", "x256", "x512"];
     public int currentMsaa = 0;
+    private int maxMsaa = 8;
     public int currentVSync = (int)Program.Settings.VSyncMode;
     public int currentLogLevel = (int)Program.Settings.LogLevel;
 
     public EditorSettingsFrame() : base()
     {
         FrameName = "Editor settings";
+        maxMsaa = (int)Math.Log2(GL.GetInteger(GetPName.MaxSamples));
     }
 
     protected override void Render(float deltaTime)
@@ -24,7 +26,7 @@ internal class EditorSettingsFrame : Frame
             {
                 ImGui.BeginGroup();
                 ImGui.DragFloat("Far clip distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
-                ImGui.Combo("MSAA level", ref currentMsaa, AAoptions, AAoptions.Length);
+                ImGui.Combo("MSAA level", ref currentMsaa, AAoptions, maxMsaa + 1);
                 ImGui.Combo("V-Sync", ref currentVSync, ["Off", "On", "Adaptative"], 3);
                 if (ImGui.CollapsingHeader("Advanced"))
                 {

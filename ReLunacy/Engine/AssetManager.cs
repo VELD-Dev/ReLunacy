@@ -71,7 +71,9 @@ public class AssetManager
             */
         ]);
         Cube.SetMaterial(new Material(MaterialManager.Materials["stdv;volumef"]));
+        Cube.drawType = Drawable.DrawType.Lines;
     }
+
     public void Initialize(AssetLoader loader)
     {
         foreach(var ctex in loader.textures)

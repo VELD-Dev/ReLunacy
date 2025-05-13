@@ -93,6 +93,10 @@ internal class View3DFrame : DockedFrame
             if (intersectedEntities.Length > 0)
             {
                 SelectedEntity = intersectedEntities[0].Item1;
+                if(SelectedEntity.instance is Region.CVolumeInstance)
+                {
+                    ((Drawable)SelectedEntity.drawable).material.SetBool("isSelected", true);
+                }
             }
             else
             {

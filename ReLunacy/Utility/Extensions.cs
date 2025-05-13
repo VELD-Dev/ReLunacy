@@ -11,6 +11,9 @@ namespace ReLunacy.Utility;
 
 public static class Extensions
 {
+    public const float YardToMeter = 0.914402f;
+    public const float MeterToYard = 1.093611f;
+
     public static Vector2 ToNumerics(this Vec2 vec) => new(vec.X, vec.Y);
     public static Vector2 ToNumerics(this Vector2i vec) => new(vec.X, vec.Y);
     public static Vec2 ToOpenTK(this Vector2 vec) => new(vec.X, vec.Y);
@@ -62,6 +65,8 @@ public static class Extensions
         double distance = Math.Sqrt(Math.Pow(objRelPos.X, 2) + Math.Pow(objRelPos.Y, 2) + Math.Pow(objRelPos.Z, 2));
         return (float)distance;
     }
+
+    public static Vector3 GetXYZ(this Vector4 vec4) => new(vec4.X, vec4.Y, vec4.Z);
 
     /// <summary>
     /// Stringifies efficiently any <see cref="IEnumerable{T}"/> using a defined key, separated by a char or a string and a defined amount of times.

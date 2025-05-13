@@ -41,6 +41,8 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.BeginGroup();
             ImGui.Text("Name:");
             ImGui.Text("Instance ID:");
+            ImGui.Text("Type:");
+            ImGui.Text("Vertices:");
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
@@ -50,22 +52,30 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(SelectedEntity.id.ToString());
             ImGui.SameLine();
             ImGuiPlus.HelpMarker("An internal generated ID for rendering. Irrelevant.");
+            ImGui.Text(SelectedEntity.instance.GetType().Name);
+            ImGui.Text("---");
             ImGui.EndGroup();
 
             ImGui.SeparatorText("Transform");
 
-            ImGui.InputFloat3("Position", ref SelectedEntity.transform.position, "%.3f");
+            ImGui.InputFloat3("Position", ref SelectedEntity.transform.position, "%.3fm");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.transform.eulerRotation, "%.4f");
+            ImGui.InputFloat3("Rotation (rad)", ref SelectedEntity.transform.eulerRotation, "%.4frad");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
             ImGui.InputFloat3("Scale", ref SelectedEntity.transform.scale, "%.3f");
             if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
+
+            ImGui.SeparatorText("Rendering");
+
+            var bs = new System.Numerics.Vector3(SelectedEntity.boundingSphere.X, SelectedEntity.boundingSphere.Y, SelectedEntity.boundingSphere.Z);
+            ImGui.InputFloat3("Bounding Sphere Pos.", ref bs, "%.3f", ImGuiInputTextFlags.ReadOnly);
+            ImGui.InputFloat("Bounding Sphere Size", ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
 
             ImGui.Spacing();
             
             if(ImGui.Button("Teleport to Entity"))
             {
-                Camera.Main.transform.position = -SelectedEntity.transform.position;
+                Camera.Main.transform.position = -(SelectedEntity.transform.position + (Camera.Main.transform.Forward * 10f).ToNumerics());
             }
             ImGui.SameLine();
             ImGui.Text($"({SelectedEntity.transform.position.DistanceFrom(-Camera.Main.transform.position):N3}m away)");

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Numerics;
+using System.Text;
 using LibLunacy;
 
 namespace AssetExtractor
@@ -10,7 +11,10 @@ namespace AssetExtractor
 			FileManager fm = new FileManager();
 			fm.LoadFolder(args[0]);
 			AssetLoader al = new AssetLoader(fm);
-			al.LoadAssets();
+			Vector2 __prog = new();
+			float totprog = 0;
+			string status = "";
+			al.LoadAssets(ref __prog, ref totprog, ref status);
 			foreach(KeyValuePair<ulong, CMoby> mobys in al.mobys)
 			{
 				if(!mobys.Value.name.Contains("talwyn")) continue;

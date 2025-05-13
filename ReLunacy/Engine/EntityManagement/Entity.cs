@@ -2,6 +2,7 @@
 using Vector3 = System.Numerics.Vector3;
 using Vec4 = OpenTK.Mathematics.Vector4;
 using Vector4 = System.Numerics.Vector4;
+using Quaternion = OpenTK.Mathematics.Quaternion;
 
 namespace ReLunacy.Engine.EntityManagement;
 
@@ -17,7 +18,7 @@ public class Entity
     public Transform transform;
 
     //xyz is pos, w is radius
-    public Vec4 boundingSphere;
+    public Vector4 boundingSphere;
 
     public Entity(Region.CMobyInstance mobyInstance)
     {
@@ -26,13 +27,13 @@ public class Entity
         id = InstancesCount;
         InstancesCount++;
         transform = new Transform(
-            mobyInstance.position,
+            mobyInstance.position * YardToMeter,
             mobyInstance.rotation,
-            Vector3.One * mobyInstance.scale
+            Vector3.One * mobyInstance.scale * YardToMeter
         );
         name = mobyInstance.name;
         ((DrawableListList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new Vec4(mobyInstance.moby.boundingSpherePosition.ToOpenTK() + transform.position.ToOpenTK(), mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
+        boundingSphere = new(mobyInstance.moby.boundingSpherePosition * YardToMeter + transform.position, mobyInstance.moby.boundingSphereRadius * mobyInstance.scale);
     }
     public Entity(Region.CVolumeInstance volumeInstance)
     {
@@ -41,13 +42,13 @@ public class Entity
         id = InstancesCount;
         InstancesCount++;
         transform = new Transform(
-            volumeInstance.position,
-            volumeInstance.rotation.ToOpenTK().ToEulerAngles().ToNumerics(),
-            volumeInstance.scale
+            volumeInstance.position * YardToMeter,
+            volumeInstance.rotation.ToOpenTK(),
+            volumeInstance.scale * YardToMeter
         );
         name = volumeInstance.name;
         ((Drawable)drawable).AddDrawCall(transform, id);
-        boundingSphere = new Vec4(volumeInstance.position.ToOpenTK(), volumeInstance.scale.Length());
+        boundingSphere = new(volumeInstance.position * YardToMeter, volumeInstance.scale.Length() * YardToMeter);
     }
     public Entity(CZone.CTieInstance tieInstance)
     {
@@ -58,7 +59,7 @@ public class Entity
         transform = new Transform(tieInstance.transformation.ToOpenTK());
         name = tieInstance.name;
         ((DrawableList)drawable).AddDrawCall(transform, id);
-        boundingSphere = new Vec4(tieInstance.boundingPosition.ToOpenTK(), tieInstance.boundingRadius);
+        boundingSphere = new(tieInstance.boundingPosition * YardToMeter, tieInstance.boundingRadius * YardToMeter);
     }
     public Entity(CZone.UFrag ufrag)
     {
@@ -67,8 +68,17 @@ public class Entity
         InstancesCount++;
         drawable = AssetManager.Singleton.UFrags[ufrag.GetTuid()];
         name = $"UFrag_{ufrag.GetTuid():X08}";
-        transform = new Transform(ufrag.GetPosition(), Vector3.Zero, Vector3.One / (float)255f);
-
+        boundingSphere = ufrag.GetBoundingSphere() / 0x100 * YardToMeter;
+        if (ufrag is CZone.OldUFrag oldUfrag)
+        {
+            var rot = oldUfrag.rotation;
+            transform = new Transform(ufrag.GetPosition() / 0x100 * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
+            boundingSphere.W = 2.5f;
+        }
+        else
+        {
+            transform = new Transform(ufrag.GetPosition() * YardToMeter, Vector3.Zero, Vector3.One / 0x100 * YardToMeter);
+        }
         ((Drawable)drawable).AddDrawCall(transform, id);
         ((Drawable)drawable).ConsolidateDrawCalls();
     }
@@ -129,7 +139,7 @@ public class Entity
  
     public bool IntersectsRay(Vec3 dir, Vec3 position, out float distance)
     {
-        Vec3 localPos = position - boundingSphere.Xyz;
+        Vec3 localPos = position - boundingSphere.ToOpenTK().Xyz;
         float b = Vec3.Dot(localPos, dir);
         float c = Vec3.Dot(localPos, localPos) - boundingSphere.W * boundingSphere.W;
         distance = float.NaN;
