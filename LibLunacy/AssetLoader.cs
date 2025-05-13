@@ -247,13 +247,13 @@ namespace LibLunacy
 			IGFile main = fm.igfiles["main.dat"];
 			IGFile.SectionHeader zoneSection = main.QuerySection(0x5000);
 			progress.X = 0;
-			progress.Y = zoneSection.count;
+			progress.Y = 1;
 			Console.WriteLine($"{zoneSection.count} zones detected (0x{zoneSection.length:X} bytes long)");
-			for (int i = 0; i < zoneSection.count; i++)
+			for (int i = 0; i < 1; i++)
 			{
 				CZone zone = new(main, this, i);
 
-                Console.WriteLine("[0x{0:X}] Zone {1} ({2}/{3}) has {4} ufrags", "unk", zone.name, i+1, zoneSection.count, zone.ufrags.Length);
+                Console.WriteLine("[0x{0:X}] Zone {1} ({2}/{3}) has {4} ufrags", "unk", zone.name, i+1, 1, zone.ufrags.Length);
 				zones.Add((ulong)i, zone);
 
 				ufrags.Add((ulong)zone.index, new());
