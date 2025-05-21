@@ -8,3 +8,6 @@
 *.ini
 *.zip
 recovery
+
+# Other files
+*.rdc  # RenderDoc captures

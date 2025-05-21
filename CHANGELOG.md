@@ -3,9 +3,9 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
-## [v0.03](https://github.com/VELD-Dev/ReLunacy/releases/0.03) - DD-MM-2025
+## [v0.04](https://github.com/VELD-Dev/ReLunacy/releases/0.04) - DD-MM-2025
 
-[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.02..0.03)
+[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.03..0.04)
 - Rewrote entirely the file reading library. Reading speeds have been significantly improved, especially on old-engine levels.
 - Made a new rendering engine, running under OpenGL 4.4.0, based on Replanetizer's rendering engine.
 - Updated ImGui.NET version from 1.89 to 1.91, fixing some bugs and improving the UI.
@@ -22,7 +22,7 @@ Because the European date format is better, please keep date format like this: `
 - Added frames rounding and removed frames borders, making the UI more modern and pleasant for the eyes.
 - [TO BE DONE] Edited Update frame, it will now show a frame telling that there is no newer version too.
 - Added a loading modal when loading a level, showing the precise progress of the level loading, with all the detailed steps.
-- Added UFrags support for old-engine levels (ToD, QfB) (no gaps on the old engine, good news !)
+- A few fixes for UFrags on old engine.
 - Rewrote Textures reading and implemented their original mipmaps as internal mipmaps, slightly improving performances when far away from texture.
 - Rewrote the Asset Loader, the new one loads levels much faster and has everything explicitly defined, making it easier to understand as contributor.
 - Modified the rendering technique, will now render elements individually instead of using instancing. Slightly decreases performances but allows for more flexibility, especially when moving objects or when selecting objects.
@@ -31,6 +31,20 @@ Because the European date format is better, please keep date format like this: `
 - Instance Properties frame now shows the vertices of the object (will be moved to Asset View).
 - Reducing far clip distance should now increase performance as it now unloads objects that are further this distance (which was not the case before, it was just not showing them but they were still rendering)
 - Updated Entity Explorer frame's search bar: It will now update the output only when pressing "enter", and above that the search results are now cached, improving considerably performances.
+
+## [v0.03](https://github.com/VELD-Dev/ReLunacy/releases/0.03) - 23-05-2025
+
+[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.02..0.03)
+- Greatly improved loading times for old engine levels
+- Fixed some levels that couldn't load because of a texture format misimplemented
+- Changed transform system, it has broken some rotations. This will be addressed in a future version.
+- Fixed overlay causing stutters
+- UFrags can now be selected in the 3D View
+- Ties can now be moved (normally)
+- Updated styles: smoother UI, round corners, and more.
+- Added a loading popup for more convenience when loading levels.
+- Added texture transparency support.
+- UFrags now load on pre-ACIT games ! (Resistance: Fall of Man, Ratchet & Clank: Tools of Destruction & Quest For Booty)
 
 ## [v0.02](https://github.com/VELD-Dev/ReLunacy/releases/0.02) - 24-08-2024
 
