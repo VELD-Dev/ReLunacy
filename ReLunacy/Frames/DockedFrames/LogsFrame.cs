@@ -14,7 +14,7 @@ public class LogsFrame : DockedFrame
 
     public LogsFrame() : base()
     {
-        FrameName = "Logs";
+        FrameName = LM.Get("GUI_Frame_Logs");
     }
 
     protected override void Render(float deltaTime)

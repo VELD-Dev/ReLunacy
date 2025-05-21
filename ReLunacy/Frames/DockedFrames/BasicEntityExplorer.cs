@@ -34,7 +34,7 @@ namespace ReLunacy.Frames.DockedFrames
 
         public BasicEntityExplorer() : base()
         {
-            FrameName = "Entity Explorer";
+            FrameName = LM.Get("GUI_Frame_EntityExplorer");
         }
 
         public BasicEntityExplorer(List<Entity> entities) : this()
@@ -45,7 +45,7 @@ namespace ReLunacy.Frames.DockedFrames
         protected override void Render(float deltaTime)
         {
             ImGui.BeginGroup();
-            ImGui.InputTextWithHint("##", "Search for entity...", ref entityResearch, 128);
+            ImGui.InputTextWithHint("##", LM.Get("GUI_Frame_EntityExplorer_SearchEntities"), ref entityResearch, 128);
             if(ImGui.IsItemDeactivatedAfterEdit())
             {
                 if(entityResearch.Length > 1)
@@ -71,7 +71,7 @@ namespace ReLunacy.Frames.DockedFrames
             }
             if(ImGui.BeginTabBar("hierarchy_filter", ImGuiTabBarFlags.NoCloseWithMiddleMouseButton))
             {
-                if (ImGui.BeginTabItem("Mobys"))
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_MobysTab")))
                 {
                     currentTab = Tabs.Mobys;
                     ShowEntities(_searchResults);
@@ -79,7 +79,7 @@ namespace ReLunacy.Frames.DockedFrames
                 }
                 if (ImGui.IsItemClicked()) _searchResults = mobys;
 
-                if (ImGui.BeginTabItem("Ties"))
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_TiesTab")))
                 {
                     currentTab = Tabs.Ties;
                     ShowEntities(_searchResults);
@@ -87,7 +87,7 @@ namespace ReLunacy.Frames.DockedFrames
                 }
                 if (ImGui.IsItemActivated()) _searchResults = ties;
 
-                if (ImGui.BeginTabItem("UFrags"))
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_UFragsTab")))
                 {
                     currentTab = Tabs.UFrags;
                     ShowEntities(_searchResults);
@@ -95,7 +95,7 @@ namespace ReLunacy.Frames.DockedFrames
                 }
                 if (ImGui.IsItemClicked()) _searchResults = ufrags;
 
-                if (ImGui.BeginTabItem("Volumes"))
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_VolumesTab")))
                 {
                     currentTab = Tabs.Volumes;
                     ShowEntities(_searchResults);

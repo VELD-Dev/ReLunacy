@@ -50,6 +50,7 @@ global using ReLunacy.Engine.Utils;
 global using ReLunacy.Utility;
 global using ReLunacy.Utility.Luna;
 global using static ReLunacy.Utility.Extensions;
+global using ReLunacy.Utility.Localization;
 
 global using LibLunacy;
 global using LibLunacy.Interfaces;

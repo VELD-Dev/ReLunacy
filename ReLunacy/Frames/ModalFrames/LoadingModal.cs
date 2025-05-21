@@ -14,13 +14,13 @@ public class LoadingModal : Frame
 
     public LoadingModal(string loadingString, uint max) : base()
     {
-        FrameName = "Loading...";
+        FrameName = LM.Get("GUI_Frame_LoadingModal");
         LoadProgresses = [new(loadingString, max)];
     }
 
     public LoadingModal(List<LoadingProgress> loadingTasks) : base()
     {
-        FrameName = "Loading...";
+        FrameName = LM.Get("GUI_Frame_LoadingModal");
         LoadProgresses = [.. loadingTasks];
     }
 
@@ -40,12 +40,12 @@ public class LoadingModal : Frame
         if(!loadingFinished)
         {
             var elapsed = DateTime.Now - LoadStart;
-            ImGuiPlus.CenteredText($"{elapsed.TotalSeconds:N0}s elapsed");
+            ImGuiPlus.CenteredText(LM.Get("GUI_Frame_LoadingModal_ElapsedTime", elapsed.TotalSeconds) /*$"{elapsed.TotalSeconds:N0}s elapsed"*/);
         }
         else
         {
             var elapsed = LoadEnd - LoadStart;
-            ImGuiPlus.CenteredText($"Completed in {elapsed.TotalSeconds:N0}s.");
+            ImGuiPlus.CenteredText(LM.Get("GUI_Frame_LoadingModal_CompletionTime", elapsed.TotalSeconds) /*$"Completed in {elapsed.TotalSeconds:N0}s."*/);
         }
     }
 

@@ -31,7 +31,7 @@ public class PropertyInspectorFrame : DockedFrame
 
     public PropertyInspectorFrame() : base()
     {
-        FrameName = "Instance Properties";
+        FrameName = LM.Get("GUI_Frame_InstanceInspector");
 
         if(Window.Singleton.IsAnyFrameOpened<View3DFrame>())
         {
@@ -48,7 +48,7 @@ public class PropertyInspectorFrame : DockedFrame
     {
         if(SelectedEntity == null)
         {
-            ImGui.Text("Select an entity...");
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_WaitingForSelection"));
             return;
         }
         else
@@ -56,61 +56,61 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.BeginGroup();
 
             ImGui.BeginGroup();
-            ImGui.Text("Name:");
-            ImGui.Text("Type:");
-            ImGui.Text("Vertices:");
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_InstanceName"));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_InstanceType"));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_Vertices"));
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
             ImGui.Text(SelectedEntity.name.Split('/')[^1]);
             ImGui.SameLine();
-            ImGuiPlus.HelpMarker("The entity name cannot be changed.");
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice") /*"The entity name cannot be changed."*/);
             ImGui.Text(SelectedEntity.EntityType.ToString());
             ImGui.Text(SelectedEntity.Model.StaticVerticesCount.ToString());
             ImGui.EndGroup();
 
             ImGui.BeginGroup();
-            ImGui.Text("Object path:");
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_ObjectPath"));
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
             ImGui.TextWrapped(SelectedEntity.name);
             ImGui.EndGroup();
 
-            ImGui.SeparatorText("Transform");
+            ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_TransformCategory"));
 
-            if (ImGui.InputFloat3("Position", ref selectedPosition, "%.3fm"))
+            if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Position"), ref selectedPosition, "%.3fm"))
             {
                 SelectedEntity.Transform.Position = selectedPosition;
             }
             //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            if (ImGui.InputFloat3("Rotation", ref selectedAngle, "%.1f°"))
+            if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, "%.1f°"))
             {
                 SelectedEntity.Transform.EulerRotation = selectedAngle * (MathF.PI / 180f);
             }
             //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            if(ImGui.InputFloat3("Scale", ref selectedScale, "%.3f"))
+            if(ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
             {
                 SelectedEntity.Transform.Scale = selectedScale;
             }
             //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
 
-            ImGui.SeparatorText("Rendering");
+            ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
 
-            if(ImGui.InputFloat3("Bounding Sphere Pos.", ref selectedBSphere, "%.3fm", ImGuiInputTextFlags.ReadOnly))
+            if(ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_BoundingSpherePos"), ref selectedBSphere, "%.3fm", ImGuiInputTextFlags.ReadOnly))
             {
                 SelectedEntity.boundingSphere.XYZ = selectedBSphere;
             }
-            ImGui.InputFloat("Bounding Sphere Size", ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
+            ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_BoundingSphereSize"), ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
 
             ImGui.Separator();
             
-            if(ImGui.Button("Teleport to Entity"))
+            if(ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_ViewToEntity")))
             {
                 Camera.Main.transform.Position = -(SelectedEntity.Transform.Position + (Camera.Main.transform.Forward * 10f));
             }
             ImGui.SameLine();
-            ImGui.Text($"({SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m away)");
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_DistanceViewEntity", SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position)) /*$"({SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position):N3}m away)"*/);
 
             ImGui.EndGroup();
         }

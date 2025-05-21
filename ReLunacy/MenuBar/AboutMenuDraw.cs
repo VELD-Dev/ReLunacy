@@ -5,11 +5,11 @@ namespace ReLunacy.MenuBar;
 internal static class AboutMenuDraw
 {
     private static bool allowCheckforUpdate = true;
-    private static Timer cooldownCallback;
+    private static Timer? cooldownCallback;
 
     internal static void GithubLink()
     {
-        if (!ImGui.MenuItem("Official GitHub"))
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_OfficialGithub")))
             return;
 
         Process.Start(new ProcessStartInfo("https://github.com/VELD-Dev/ReLunacy/issues") { UseShellExecute = true });
@@ -17,7 +17,7 @@ internal static class AboutMenuDraw
 
     internal static void CheckForUpdate()
     {
-        if (!ImGui.MenuItem("Check for update", allowCheckforUpdate))
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_CheckUpdates"), allowCheckforUpdate))
             return;
 
         UpdateChecker.CheckUpdates();

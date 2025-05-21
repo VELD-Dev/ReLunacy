@@ -54,7 +54,7 @@ internal class View3DFrame : DockedFrame
 
     public View3DFrame() : base()
     {
-        FrameName = "View 3D";
+        FrameName = LM.Get("GUI_Frame_View3D");
         Camera = new();
         Camera.SetPerspective(Program.Settings.CamFOVRad, 300f / 300f, 0.01f, Program.Settings.RenderDistance);
         Camera.Main = Camera;

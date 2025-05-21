@@ -43,10 +43,20 @@ public class Window : GameWindow
         */
     }
 
+    public async void PeriodicalSave()
+    {
+        while(true)
+        {
+            await Task.Delay(30 * 1000);
+            LM.SaveLanguages();
+        }
+    }
+
     protected override void OnLoad()
     {
         base.OnLoad();
 
+        LM.Initialize();
 
         oglVersionStr = $"OpenGL {GL.GetString(StringName.Version)}";
         Title = $"{Program.AppDisplayName} {Program.Version} ({oglVersionStr})";
@@ -72,7 +82,7 @@ public class Window : GameWindow
 
         if(Program.ProvidedPath != string.Empty)
         {
-            LoadLevelDataAsync(Program.ProvidedPath, new("Loading level...", 5));
+            LoadLevelDataAsync(Program.ProvidedPath, new(LM.Get("GUI_LoadLevelModal_Title"), 5));
         }
     }
 
@@ -223,20 +233,20 @@ public class Window : GameWindow
         if (!ImGui.BeginMainMenuBar())
             return;
 
-        if (ImGui.BeginMenu("File"))
+        if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
         {
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("Edit"))
+        if (ImGui.BeginMenu(LM.Get("GUI_Menu_Edit")))
         {
             EditMenuDraw.EditorSettingsMenuItem();
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("Tools"))
+        if (ImGui.BeginMenu(LM.Get("GUI_Menu_Tools")))
         {
             ToolsMenuDraw.TranslationTool();
             ToolsMenuDraw.RotationTool();
@@ -246,7 +256,7 @@ public class Window : GameWindow
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("View"))
+        if (ImGui.BeginMenu(LM.Get("GUI_Menu_View")))
         {
             ViewMenuDraw.ShowOverlay();
             ImGui.Separator();
@@ -257,7 +267,7 @@ public class Window : GameWindow
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("Render"))
+        if (ImGui.BeginMenu(LM.Get("GUI_Menu_Render")))
         {
             RenderMenuDraw.ShowMobys();
             RenderMenuDraw.ShowTies();
@@ -266,7 +276,7 @@ public class Window : GameWindow
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("About"))
+        if (ImGui.BeginMenu(LM.Get("GUI_Menu_About")))
         {
             AboutMenuDraw.GithubLink();
             AboutMenuDraw.CheckForUpdate();

@@ -15,6 +15,8 @@ public class EditorSettings
     public bool FrustrumCulling;
     public uint MSAA_Level;
     public VSyncMode VSyncMode;
+    public string Language;
+    public bool UseFallbackLanguage;
     public bool OverlayFramerate;
     public bool OverlayLevelStats;
     public bool OverlayProfiler;
@@ -46,6 +48,8 @@ public class EditorSettings
         CamSensivity = 1f;
         FrustrumCulling = true;
         VSyncMode = VSyncMode.Off;
+        Language = "en";
+        UseFallbackLanguage = true;
         OverlayFramerate = true;
         OverlayLevelStats = false;
         OverlayProfiler = false;

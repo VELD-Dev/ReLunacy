@@ -4,7 +4,7 @@ internal static class ViewMenuDraw
 {
     internal static void ShowOverlay()
     {
-        if(!ImGui.MenuItem("Show Overlay", "", Overlay.showOverlay, true)) return;
+        if(!ImGui.MenuItem(LM.Get("GUI_MenuItem_ShowOverlay"), "", Overlay.showOverlay, true)) return;
         
         Overlay.showOverlay = !Overlay.showOverlay;
     }
@@ -12,7 +12,7 @@ internal static class ViewMenuDraw
     internal static void ShowView3D()
     {
         bool frameAlreadyOpen = Window.Singleton.IsAnyFrameOpened<View3DFrame>();
-        if (!ImGui.MenuItem("View 3D", "", frameAlreadyOpen, true))
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_View3D"), "", frameAlreadyOpen, true))
             return;
 
         if(frameAlreadyOpen)
@@ -28,7 +28,7 @@ internal static class ViewMenuDraw
     internal static void ShowEntityExplorer()
     {
         bool frameAlreadyOpen = Window.Singleton.IsAnyFrameOpened<BasicEntityExplorer>();
-        if (!ImGui.MenuItem("Entity Instances Explorer", "", frameAlreadyOpen, true))
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer"), "", frameAlreadyOpen, true))
             return;
 
         if(frameAlreadyOpen)
@@ -51,7 +51,7 @@ internal static class ViewMenuDraw
     internal static void ShowInstanceInspector()
     {
         bool frameAlreadyOpen = Window.Singleton.IsAnyFrameOpened<PropertyInspectorFrame>();
-        if (!ImGui.MenuItem("Instance Inspector", "", frameAlreadyOpen, true))
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector"), "", frameAlreadyOpen, true))
             return;
 
         if (frameAlreadyOpen)
@@ -67,7 +67,7 @@ internal static class ViewMenuDraw
     internal static void ShowConsoleFrame()
     {
         bool frameAlreadyOpen = Window.Singleton.IsAnyFrameOpened<LogsFrame>();
-        if (!ImGui.MenuItem("Console", "", frameAlreadyOpen, true))
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_Logs"), "", frameAlreadyOpen, true))
             return;
 
         if (frameAlreadyOpen)

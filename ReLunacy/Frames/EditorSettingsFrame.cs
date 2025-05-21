@@ -5,6 +5,9 @@ internal class EditorSettingsFrame : Frame
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize;
 
     private string[] AAoptions = [ "Disabled", "x2", "x4", "x8", "x16", "x32", "x64", "x128", "x256", "x512"];
+    private string[] Languages;
+    private int selectedLanguage = 0;
+    private int currLanguage = 0;
     public int currentMsaa = 0;
     private int maxMsaa = 8;
     public int currentVSync = (int)Program.Settings.VSyncMode;
@@ -12,8 +15,9 @@ internal class EditorSettingsFrame : Frame
 
     public EditorSettingsFrame() : base()
     {
-        FrameName = "Editor settings";
+        FrameName = LM.Get("GUI_Frame_EditorSettings");
         maxMsaa = (int)Math.Log2(GL.GetInteger(GetPName.MaxSamples));
+        Languages = [.. LM.Languages.Select(l => l.Value.LangName)];
     }
 
     protected override void Render(float deltaTime)
@@ -22,47 +26,56 @@ internal class EditorSettingsFrame : Frame
 
         if(ImGui.BeginTabBar("settings_tab"))
         {
-            if(ImGui.BeginTabItem("Visual settings"))
+            if(ImGui.BeginTabItem(LM.Get("GUI_Frame_EditorSettings_VisualSettings")))
             {
                 ImGui.BeginGroup();
-                ImGui.DragFloat("Far clip distance", ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
-                ImGui.Combo("MSAA level", ref currentMsaa, AAoptions, maxMsaa + 1);
-                ImGui.Combo("V-Sync", ref currentVSync, ["Off", "On", "Adaptative"], 3);
-                ImGui.Checkbox("Use Frustrum Culling", ref Program.Settings.FrustrumCulling);
-                if (ImGui.CollapsingHeader("Advanced"))
+                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_FarClipDist"), ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
+                ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1);
+                ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_VSync"), ref currentVSync, [LM.Get("GUI_VSyncMode_Off"), LM.Get("GUI_VSyncMode_On"), LM.Get("GUI_VSyncMode_Adaptative")], 3);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
+                if(ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length + 1))
                 {
-                    ImGui.Text("Custom shaders");
+                    if (LM.Languages.Values.ElementAt(selectedLanguage) == null)
+                        selectedLanguage = currLanguage;
+
+                    currLanguage = selectedLanguage;
+                    LM.TrySetLanguage(LM.Languages.Values.ElementAt(selectedLanguage).LangCode);
+
+                }
+                if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
+                {
+                    ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));
                 }
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
-            if(ImGui.BeginTabItem("Camera settings"))
+            if(ImGui.BeginTabItem(LM.Get("GUI_Frame_EditorSettings_CameraSettings")))
             {
                 ImGui.BeginGroup();
-                ImGui.DragFloat("Camera speed", ref Program.Settings.CamMoveSpeed, 0.5f, 0.5f, 10000, "%0.2fm/s");
-                ImGui.DragFloat("Camera shift speed", ref Program.Settings.CamMaxSpeed, 0.5f, 0.5f, 10000, "%0.2fm/s");
-                ImGui.SliderFloat("Field of view", ref Program.Settings.CamFOV, 30f, 120f, "%0.1f°");
-                ImGui.SliderFloat("Camera sensivity", ref Program.Settings.CamSensivity, 0.001f, 2f, "%0.3f");
+                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_CameraSpeed"), ref Program.Settings.CamMoveSpeed, 0.5f, 0.5f, 10000, "%0.2fm/s");
+                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_CameraShiftSpeed"), ref Program.Settings.CamMaxSpeed, 0.5f, 0.5f, 10000, "%0.2fm/s");
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_FOV"), ref Program.Settings.CamFOV, 30f, 120f, "%0.1f°");
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_Sensitivity"), ref Program.Settings.CamSensivity, 0.001f, 2f, "%0.3f");
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Overlay settings"))
+            if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EditorSettings_OverlaySettings")))
             {
                 ImGui.BeginGroup();
-                ImGui.Checkbox("Show Framerate", ref Program.Settings.OverlayFramerate);
-                ImGui.Checkbox("Show Profiler", ref Program.Settings.OverlayProfiler);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_OverlayFPS"), ref Program.Settings.OverlayFramerate);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_OverlayProfiler"), ref Program.Settings.OverlayProfiler);
 
                 ImGui.BeginGroup();
                 ImGui.Indent();
-                ImGui.DragInt("Profiler Refresh Rate", ref Program.Settings.ProfilerRefreshRate, 50, 0, 1000, "%dms");
-                ImGui.DragInt("Profiler FPS Sample Size", ref Program.Settings.ProfilerFrameSampleSize, 1, 3, 100, "%d");
+                ImGui.DragInt(LM.Get("GUI_Frame_EditorSettings_OverlayProfiler_RefreshRate"), ref Program.Settings.ProfilerRefreshRate, 50, 0, 1000, "%dms");
+                ImGui.DragInt(LM.Get("GUI_Frame_EditorSettings_OverlayProfiler_FPSSampleSize"), ref Program.Settings.ProfilerFrameSampleSize, 1, 3, 100, "%d");
                 ImGui.EndGroup();
 
-                ImGui.Checkbox("Show Level Stats", ref Program.Settings.OverlayLevelStats);
-                ImGui.Checkbox("Show Camera Info", ref Program.Settings.OverlayCamInfo);
-                ImGui.SliderFloat("Background Opacity", ref Program.Settings.OverlayOpacity, 0f, 1f);
-                ImGui.InputFloat2("Overlay Padding", ref Program.Settings.OverlayPadding, "%0.1f");
-                ImGui.Combo("Overlay Location", ref Program.Settings.OverlayPos, [ "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right", "Center..?" ], 5);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_OverlayLevelStats"), ref Program.Settings.OverlayLevelStats);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_OveralyCameraInfo"), ref Program.Settings.OverlayCamInfo);
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_OverlayBGOpacity"), ref Program.Settings.OverlayOpacity, 0f, 1f);
+                ImGui.InputFloat2(LM.Get("GUI_Frame_EditorSettings_OverlayPadding"), ref Program.Settings.OverlayPadding, "%0.1f");
+                ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_OverlayLocation"), ref Program.Settings.OverlayPos, [ "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right", "Center..?" ], 5);
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
@@ -83,7 +96,7 @@ internal class EditorSettingsFrame : Frame
 
         ImGui.Separator();
         ImGui.BeginGroup();
-        if(ImGui.Button("Save & Apply"))
+        if(ImGui.Button(LM.Get("GUI_Frame_EditorSettings_SaveApply")))
         {
             Program.Settings.VSyncMode = (VSyncMode)currentVSync;
             Program.Settings.LogLevel = (LunaLog.LogLevel)currentLogLevel;
@@ -92,12 +105,12 @@ internal class EditorSettingsFrame : Frame
             Program.Settings.SaveSettingsToFile();
         }
         ImGui.SameLine();
-        if(ImGui.Button("Cancel"))
+        if(ImGui.Button(LM.Get("GUI_Frame_EditorSettings_CancelChanges")))
         {
             Program.Settings.ReloadSettings();
         }
         ImGui.SameLine();
-        if(ImGui.Button("Close"))
+        if(ImGui.Button(LM.Get("GUI_Frame_EditorSettings_Close")))
         {
             Program.Settings.ReloadSettings();
             isOpen = false;
