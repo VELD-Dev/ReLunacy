@@ -75,7 +75,6 @@ internal class View3DFrame : DockedFrame
 
         if (invalidate)
         {
-            LunaLog.LogDebug("Clearing buffers");
             Renderer.RenderToTexture(() =>
             {
                 GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);

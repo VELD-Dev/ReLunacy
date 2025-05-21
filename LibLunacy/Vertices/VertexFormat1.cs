@@ -39,4 +39,10 @@ public record struct VertexFormat1
         normal = stream.ReadUInt32(0x14);
         tangent = stream.ReadUInt32(0x18);
     }
+
+
+    public readonly override string ToString()
+    {
+        return $"Pos: ({position.Item1}; {position.Item2}; {position.Item3}) UVs: ({UVs.Item1}; {UVs.Item2})";
+    }
 }

@@ -477,6 +477,14 @@ public class Loader : IDisposable
                     mobyStream.Seek(vertSection.offset + vertSize * mesh.verticesOffset);
                     mesh.ReadVerticesBuffer(mobyStream);
 
+                    for(int l = 0; l < 100 || l < mesh.verticesCount; l++)
+                    {
+                        if (mesh.verticesType == 0)
+                            LunaLog.LogDebug($"Vertex {l}: {mesh.vertices0[l]}");
+                        else if (mesh.verticesType == 1)
+                            LunaLog.LogDebug($"Vertex {l}: {mesh.vertices1[l]}");
+                    }
+
                     mobyStream.Seek(indxSection.offset + sizeof(uint) * mesh.indicesOffset);
                     mesh.ReadIndicesBuffer(mobyStream);
 
@@ -599,6 +607,15 @@ public class Loader : IDisposable
 
                     vertexStream.Seek(mesh.verticesOffset);
                     mesh.ReadVerticesBuffer(vertexStream);
+
+                    for (int l = 0; l < 100 && l < mesh.verticesCount; l++)
+                    {
+                        if (mesh.verticesType == 0)
+                            LunaLog.LogDebug($"Vertex {l}: {mesh.vertices0[l]}");
+                        else if (mesh.verticesType == 1)
+                            LunaLog.LogDebug($"Vertex {l}: {mesh.vertices1[l]}");
+                    }
+
                     indexStream.Seek(mesh.indicesOffset);
                     mesh.ReadIndicesBuffer(indexStream);
                 }
@@ -678,6 +695,12 @@ public class Loader : IDisposable
 
                 tieStream.Seek(vertSection.offset + VertexFormat0.Size * j);
                 mesh.ReadVerticesBuffer(tieStream);
+
+                LunaLog.LogDebug($"Vertices: {mesh.vertices.Length}");
+                for(int k = 0; k < 100 || k < mesh.vertices.Length; k++)
+                {
+                    LunaLog.LogDebug($"Vertex {k}: {mesh.vertices[k]}");
+                }
 
                 tieStream.Seek(indxSection.offset + sizeof(ushort) * j);
                 mesh.ReadIndicesBuffer(tieStream);

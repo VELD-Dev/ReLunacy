@@ -26,7 +26,8 @@ public class LoadingModal : Frame
 
     protected override void Render(float deltaTime)
     {
-        foreach (var load in LoadProgresses.ToList())
+        var snapshot = LoadProgresses.ToList();
+        foreach (var load in snapshot)
         {
             if (load is null)
                 break;
