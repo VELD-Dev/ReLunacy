@@ -14,28 +14,36 @@ public static class LM
     {
         RefreshLanguages();
 
-        if (Languages.Count == 0)
-        {
-            LunaLog.LogError($"No languages were found in {defaultLanguageFolder}. Please check your locales folder.");
-            return;
-        }
-
-        if (Languages.TryGetValue(defaultLanguage, out Language? defloc))
+        if (Languages.Count > 0 && Languages.TryGetValue(defaultLanguage, out Language? defloc))
         {
             DefaultLanguage = defloc;
         }
-        else
+        else if(Languages.Count == 0)
         {
             var templateLanguage = new Language()
             {
                 LangCode = "template_locale",
                 LangName = "Template Language"
             };
+            Languages.Add(templateLanguage.LangCode, templateLanguage);
+
             var locfile = JsonConvert.SerializeObject(templateLanguage, Formatting.Indented);
+
+            if(!Directory.Exists(defaultLanguageFolder))
+                Directory.CreateDirectory(defaultLanguageFolder);
+
             File.WriteAllText(Path.Combine(defaultLanguageFolder, $"template_locale.json"), locfile);
+            LunaLog.LogDebug($"Created language template file in {defaultLanguageFolder}");
+
+            TrySetLanguage(templateLanguage.LangCode);
+            return;
+        }
+        else if(Languages.ContainsKey("template_locale"))
+        {
+            TrySetLanguage("template_locale");
         }
 
-        TrySetLanguage(Program.Settings.Language);
+            TrySetLanguage(Program.Settings.Language);
     }
 
     public static void RefreshLanguages(bool overwrite = false)
@@ -85,17 +93,20 @@ public static class LM
         {
             CurrentLanguage = newLocale;
             LunaLog.LogInfo($"Language set to {CurrentLanguage.LangCode}.");
+            Program.Settings.Language = CurrentLanguage.LangCode;
         }
         else if (DefaultLanguage != null)
         {
             LunaLog.LogWarn($"Unable to set language to {langcode}. Language not found. Defaulting to {defaultLanguage}.");
             CurrentLanguage = DefaultLanguage;
+            Program.Settings.Language = CurrentLanguage.LangCode;
         }
         else
         {
             LunaLog.LogError($"Unable to set language to {langcode}. No locale file found. Using keys instead.");
             CurrentLanguage = null;
         }
+
     }
 
     public static string Get(string key, params object[] args)
@@ -135,6 +146,8 @@ public static class LM
             File.WriteAllText(DefaultLanguage.Filepath, locfile);
         }
 
+        LunaLog.LogInfo("Saved primary language files.");
+
         if (!all)
             return;
 
@@ -145,5 +158,7 @@ public static class LM
             var locfile = JsonConvert.SerializeObject(lang.Value, Formatting.Indented);
             File.WriteAllText(lang.Value.Filepath, locfile);
         }
+
+        LunaLog.LogInfo("Saved all language files.");
     }
 }

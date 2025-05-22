@@ -47,8 +47,8 @@ public class Window : GameWindow
     {
         while(true)
         {
-            await Task.Delay(30 * 1000);
             LM.SaveLanguages();
+            await Task.Delay(30 * 1000);
         }
     }
 
@@ -84,6 +84,8 @@ public class Window : GameWindow
         {
             LoadLevelDataAsync(Program.ProvidedPath, new(LM.Get("GUI_LoadLevelModal_Title"), 5));
         }
+
+        PeriodicalSave();
     }
 
     public static void SetDefaultStyleVar()

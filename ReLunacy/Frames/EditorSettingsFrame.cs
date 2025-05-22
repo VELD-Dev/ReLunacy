@@ -33,14 +33,14 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1);
                 ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_VSync"), ref currentVSync, [LM.Get("GUI_VSyncMode_Off"), LM.Get("GUI_VSyncMode_On"), LM.Get("GUI_VSyncMode_Adaptative")], 3);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
-                if(ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length + 1))
+                if(ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     if (LM.Languages.Values.ElementAt(selectedLanguage) == null)
                         selectedLanguage = currLanguage;
 
                     currLanguage = selectedLanguage;
-                    LM.TrySetLanguage(LM.Languages.Values.ElementAt(selectedLanguage).LangCode);
-
+                    string langCode = LM.Languages.Values.ElementAt(selectedLanguage).LangCode;
+                    LM.TrySetLanguage(langCode);
                 }
                 if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
                 {
