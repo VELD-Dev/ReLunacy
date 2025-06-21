@@ -105,12 +105,12 @@ internal class EditorSettingsFrame : Frame
             Program.Settings.SaveSettingsToFile();
         }
         ImGui.SameLine();
-        if(ImGui.Button(LM.Get("GUI_Frame_EditorSettings_CancelChanges")))
+        if(ImGui.Button(LM.Get("GUI_Common_CancelWord")))
         {
             Program.Settings.ReloadSettings();
         }
         ImGui.SameLine();
-        if(ImGui.Button(LM.Get("GUI_Frame_EditorSettings_Close")))
+        if(ImGui.Button(LM.Get("GUI_Common_CloseWord")))
         {
             Program.Settings.ReloadSettings();
             isOpen = false;

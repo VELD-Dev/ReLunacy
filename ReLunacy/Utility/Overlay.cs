@@ -63,7 +63,7 @@ public class Overlay
         {
             if(ShowFramerate || ShowProfiler)
             {
-                ImGui.SeparatorText("Performances");
+                ImGui.SeparatorText(LM.Get("GUI_Overlay_Performances"));
                 ImGui.BeginGroup();
                 if (ShowFramerate)
                 {
@@ -77,40 +77,40 @@ public class Overlay
                         true when fps >= 15f && fps < 50f => colYellow,
                         _ => colGreen,
                     };
-                    ImGui.Text($"Framerate: ");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_Framerate")}: ");
                     ImGui.SameLine();
                     ImGui.TextColored(textCol, $"{fps:N0}FPS");
                 }
                 if(ShowProfiler)
                 {
-                    ImGui.Text($"Framerate Avg.: {PerformanceProfiler.Singleton.FramerateAvg:N0}FPS");
-                    ImGui.Text($"Framerate Min.: {PerformanceProfiler.Singleton.FramerateMin:N0}FPS");
-                    ImGui.Text($"Framerate Max.: {PerformanceProfiler.Singleton.FramerateMax:N0}FPS");
-                    ImGui.Text($"Render delay: {PerformanceProfiler.Singleton.RenderTime:N3}ms");
-                    ImGui.Text($"RAM Usage: {PerformanceProfiler.Singleton.RAMUsage / 1_000_000f:N2}MB");
-                    ImGui.Text($"GC Size: {PerformanceProfiler.Singleton.GCRAMUsage / 1_000_000f:N2}MB");
-                    ImGui.Text($"VRAM Usage: {PerformanceProfiler.Singleton.VRAMUsage / 1_000_000f:N2}MB");
-                    ImGui.Text($"Shaders: {MaterialManager.ShaderHandles.Count:N0}");
-                    ImGui.Text($"Threads: {PerformanceProfiler.Singleton.Threads:N0}"); 
+                    ImGui.Text($"{LM.Get("GUI_Overlay_FpsAvg")}: {PerformanceProfiler.Singleton.FramerateAvg:N0}FPS");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_FpsMin")}: {PerformanceProfiler.Singleton.FramerateMin:N0}FPS");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_FpsMax")}: {PerformanceProfiler.Singleton.FramerateMax:N0}FPS");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_RenderDelay")}: {PerformanceProfiler.Singleton.RenderTime:N3}ms");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_RamUsage")}: {PerformanceProfiler.Singleton.RAMUsage / 1_000_000f:N2}MB");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_GCSize")}: {PerformanceProfiler.Singleton.GCRAMUsage / 1_000_000f:N2}MB");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_VramUsage")}: {PerformanceProfiler.Singleton.VRAMUsage / 1_000_000f:N2}MB");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_Shaders")}: {MaterialManager.ShaderHandles.Count:N0}");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_Threads")}: {PerformanceProfiler.Singleton.Threads:N0}"); 
                 }
                 ImGui.EndGroup();
             }
             if(ShowLevelStats)
             {
                 ImGui.Spacing();
-                ImGui.SeparatorText("Render Stats");
+                ImGui.SeparatorText(LM.Get("GUI_Overlay_RenderStats"));
                 ImGui.BeginGroup();
                 ImGui.Text($"Loaded level: {levelName}");
                 // ... YES I AM CHEATING, WHAT NOW ?
-                ImGui.Text($"Regions: {EntityManager.Singleton.Regions.Count:N0}");
-                ImGui.Text($"Zones: {EntityManager.Singleton.ZonesCount:N0}");
-                ImGui.Text($"Mobys: {EntityManager.Singleton.MobysCount:N0}");
-                ImGui.Text($"Volumes: {EntityManager.Singleton.VolumesCount:N0}");
-                ImGui.Text($"Ties: {EntityManager.Singleton.TiesCount:N0}");
-                ImGui.Text($"UFrags: {EntityManager.Singleton.UFragsCount:N0}");
-                ImGui.Text($"Total entities: {EntityCluster.TotalEntities:N0}");
-                ImGui.Text($"Textures: {AssetManager.Singleton.Textures.Count:N0}");
-                ImGui.Text($"Materials: {(Window.Singleton.AssetLoader?.Shaders.Count ?? 0):N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_LevelRegions")}: {EntityManager.Singleton.Regions.Count:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_LevelZones")}: {EntityManager.Singleton.ZonesCount:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_LevelMobys")}: {EntityManager.Singleton.MobysCount:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_LevelVolumes")}: {EntityManager.Singleton.VolumesCount:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_LevelTies")}: {EntityManager.Singleton.TiesCount:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_LevelUFrags")}: {EntityManager.Singleton.UFragsCount:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_TotalEntities")}: {EntityCluster.TotalEntities:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_Textures")}: {AssetManager.Singleton.Textures.Count:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_Shaders")}: {(Window.Singleton.AssetLoader?.Shaders.Count ?? 0):N0}");
                 ImGui.EndGroup();
             }
             if(ShowCamInfo)
@@ -119,16 +119,16 @@ public class Overlay
                 x = Camera.Main.transform.EulerRotation.X * (180f / MathHelper.Pi);
                 y = Camera.Main.transform.EulerRotation.Y * (180f / MathHelper.Pi);
                 ImGui.Spacing();
-                ImGui.SeparatorText("Camera Info");
+                ImGui.SeparatorText(LM.Get("GUI_Overlay_CameraStats"));
                 ImGui.BeginGroup();
-                ImGui.Text($"Position: {-Camera.Main.transform.Position:N3}");
-                ImGui.Text($"Rotation: ({x:N3}°, {y:N3}°)");
+                ImGui.Text($"{LM.Get("GUI_Overlay_CameraPosition")}: {-Camera.Main.transform.Position:N3}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_CameraRotation")}: ({x:N3}°, {y:N3}°)");
                 if(useView)
                 {
                     float resx, resy;
                     resx = view.FrameContentRegion.Width;
                     resy = view.FrameContentRegion.Height;
-                    ImGui.Text($"Resolution: ({resx}x{resy})");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_Resolution")}: ({resx}x{resy})");
                 }
                 ImGui.EndGroup();
             }

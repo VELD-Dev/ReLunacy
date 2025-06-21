@@ -28,18 +28,29 @@ public class UpdateChecker
             JObject data = (JObject?)JsonConvert.DeserializeObject(content) ?? throw new Exception("Request failed to be read. Response content is not readable.");
 
             string? time = (string?)data["created_at"];
-            string? url  = (string?)data["html_url"];
             string? newReleaseTag = (string?)data["tag_name"];
+            JArray? assets = (JArray?)data["assets"];
+
 
             if (newReleaseTag == null) return;
             if (time == null) return;
-            if (url == null) return;
+            if (assets == null || assets.Count < 1) return;
+
+            var asset = (JObject?)assets[0];
+            if (asset == null) return;
+
+            var downloadUrl = (string?)asset["browser_download_url"];
+            var fileSize = (int?)asset["size"];
+
+            if (downloadUrl == null) return;
+            if (fileSize == null) return;
+
             var parsedReleaseTag = new Version(newReleaseTag);
             if (parsedReleaseTag > new Version(Program.Version))
             {
                 var timeParsed = DateTime.ParseExact(time, "MM/dd/yyyy HH:mm:ss", CultureInfo.InvariantCulture);
                 LunaLog.LogInfo($"An update is available: v{parsedReleaseTag} ({(DateTime.Now - timeParsed)} ago)");
-                var updateFrame = new UpdateInfoFrame(url, newReleaseTag, timeParsed);
+                var updateFrame = new UpdateInfoFrame(downloadUrl, newReleaseTag, timeParsed, (float)fileSize / 1_000_000f);
                 Window.Singleton.AddFrame(updateFrame);
             }
             else if(parsedReleaseTag < new Version(Program.Version))

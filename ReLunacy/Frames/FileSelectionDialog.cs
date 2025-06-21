@@ -17,13 +17,13 @@ namespace ReLunacy.Frames
         protected override void Render(float deltaTime)
         {
             ImGui.BeginGroup();
-            ImGui.Text("Level Path");
+            ImGui.Text(LM.Get("GUI_Frame_OpenLevel_LevelPath"));
             ImGui.SameLine();
             ImGui.InputTextWithHint("##", "C:\\NPEA00088\\packed\\levels\\metropolis\\main.dat", ref levelPath, 256);
             ImGui.SameLine();
             ImGui.Button("...");
             ImGui.SameLine();
-            if(ImGui.Button("Paste"))
+            if(ImGui.Button(LM.Get("GUI_Frame_OpenLevel_PasteClipboard")))
             {
                 try
                 {
@@ -37,9 +37,9 @@ namespace ReLunacy.Frames
             }
 
 
-            if(ImGui.Button("Cancel")) isOpen = false;
+            if(ImGui.Button(LM.Get("GUI_Common_CancelWord"))) isOpen = false;
             ImGui.SameLine();
-            if(ImGui.Button("Load"))
+            if(ImGui.Button(LM.Get("GUI_Common_LoadWord")))
             {
                 if(levelPath == "")
                 {
@@ -48,7 +48,7 @@ namespace ReLunacy.Frames
                 else
                 {
                     Program.ProvidedPath = levelPath;
-                    var lm = new LoadingModal("Loading level...", 1);
+                    var lm = new LoadingModal(LM.Get("GUI_LoadLevelModal_Title"), 1);
                     Task.Run(() => Window.Singleton.LoadLevelDataAsync(levelPath, lm));
                     isOpen = false;
                 }
