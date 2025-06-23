@@ -44,7 +44,7 @@ public class EntityTie : Entity
 
     public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera)
     {
-        if (!camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
+        if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
             return;
 
         Model.Draw(commandList, Transform, outputDescription);
