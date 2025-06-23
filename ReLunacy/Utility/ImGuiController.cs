@@ -118,8 +118,8 @@ public class ImGuiController : IDisposable
         );
 
         _effect = new Effect(_graphicsDevice, vertexLayoutDescription,
-            "Assets/Shaders/ImGui/default.vert",
-            "Assets/Shaders/ImGui/default.frag"
+            "Shaders/ImGui/default.vert",
+            "Shaders/ImGui/default.frag"
         );
 
         _layout = factory.CreateResourceLayout(new ResourceLayoutDescription(

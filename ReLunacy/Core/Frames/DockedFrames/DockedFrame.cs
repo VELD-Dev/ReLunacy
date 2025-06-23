@@ -18,7 +18,7 @@ public abstract class DockedFrame : Frame
     public override void RenderAsWindow(double deltaTime)
     {
         uint dockspaceId = ImGui.GetID("dockspace");
-        ImGui.SetNextWindowDockID(dockspaceId);
+        ImGui.SetNextWindowDockID(dockspaceId, DockingConditions);
         base.RenderAsWindow(deltaTime);
     }
 }

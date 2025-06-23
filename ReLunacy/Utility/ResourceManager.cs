@@ -1,5 +1,4 @@
 ﻿using Bliss.CSharp.Images;
-using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -52,13 +51,16 @@ public class ResourcesManager
 
             resMan.Buffers.TryAdd(filenameonly, fileBuffer);
         }
+
         return resMan;
     }
 
     public Image? GetWindowIcon()
     {
-        if (!Buffers.TryGetValue("icon.png", out var iconBuffer))
+        if (!Buffers.TryGetValue("logo.png", out var iconBuffer))
             return null;
+
+        
 
         return new Image(iconBuffer);
     }

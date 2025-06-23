@@ -28,6 +28,63 @@ public class EntityManager : IDisposable
 
     private bool initialized = false;
 
+    #region Counts
+    public int MobysCount
+    {
+        get
+        {
+            var c = 0;
+            foreach (var r in Regions)
+                c += r.MobyInstances.Size;
+            return c;
+        }
+    }
+
+    public int VolumesCount
+    {
+        get
+        {
+            var c = 0;
+            foreach (var r in Regions)
+                c += r.Volumes.Size;
+            return c;
+        }
+    }
+
+    public int TiesCount
+    {
+        get
+        {
+            var c = 0;
+            foreach (var r in Regions)
+                c += r.TiesCount;
+            return c;
+        }
+    }
+
+    public int UFragsCount
+    {
+        get
+        {
+            var c = 0;
+            foreach (var r in Regions)
+                c += r.UFragsCount;
+            return c;
+        }
+    }
+
+    public int ZonesCount
+    {
+        get
+        {
+            var c = 0;
+            foreach (var r in Regions)
+                c += r.ZonesCount;
+            return c;
+        }
+    }
+    #endregion
+
     public void LoadRegions(LunaLoader loader, AssetManager am, GraphicsDevice gd)
     {
         this.loader = loader;

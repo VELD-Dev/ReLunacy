@@ -53,7 +53,21 @@ internal class LunaLog : TextWriter, IDisposable
 
     private readonly static ErrorLogger ErrorOut = new ErrorLogger();
     public static StringBuilder Captured;
-    public static StreamWriter FileOut { get; private set; } = File.CreateText(Path.Combine(Program.EditorPath, "Logs", $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
+    private static StreamWriter _fileOut;
+    public static StreamWriter FileOut
+    {
+        get
+        {
+            if (_fileOut is null)
+            {
+                if (!Directory.Exists(Path.Combine(Program.EditorPath, "Logs")))
+                    Directory.CreateDirectory(Path.Combine(Program.EditorPath, "Logs"));
+                _fileOut = File.CreateText(Path.Combine(Program.EditorPath, "Logs", $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
+            }
+
+            return _fileOut;
+        }
+    }
     public override Encoding Encoding => Encoding.ASCII;
 
     static LunaLog()

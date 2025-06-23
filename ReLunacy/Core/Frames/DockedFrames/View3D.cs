@@ -26,9 +26,9 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 public class View3D : DockedFrame
 {
-    protected override ImGuiCond DockingConditions { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    protected override Vector2 DefaultPosition { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    protected override ImGuiWindowFlags WindowFlags { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
+    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
+    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
     private readonly GraphicsDevice graphicsDevice;
     private readonly CommandList commandList;
@@ -74,16 +74,19 @@ public class View3D : DockedFrame
 
         commandList.Begin();
         commandList.SetFramebuffer(renderTexture.Framebuffer);
-        commandList.ClearColorTarget(1, new(0, 0, 0, 0));
+        commandList.ClearColorTarget(0, new(0, 0, 0, 1));
         commandList.ClearDepthStencil(1.0f);
 
+        Camera.Begin();
         EntityManager.Singleton.Draw(renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
+        Camera.End();
 
         commandList.End();
         graphicsDevice.SubmitCommands(commandList);
+        //var texView = graphicsDevice.ResourceFactory.CreateTextureView(renderTexture.DestinationTexture);
         ImGui.Image(
-            graphicsDevice.GetD3D11Info().GetTexturePointer(renderTexture.DestinationTexture),
-            new Vector2(FrameContentRegion.Width, FrameContentRegion.Height),
+            LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
+            new(renderTexture.Width, renderTexture.Height),
             Vector2.UnitY,
             Vector2.UnitX
         );
@@ -92,7 +95,10 @@ public class View3D : DockedFrame
     public override void RenderAsWindow(double deltaTime)
     {
         ImGui.SetNextWindowSizeConstraints(new(300, 300), ImGui.GetMainViewport().WorkSize);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0));
         base.RenderAsWindow(deltaTime);
+        ImGui.PopStyleVar(2);
     }
 
     public void UpdateWindowSize()
