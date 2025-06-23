@@ -1,9 +1,11 @@
 ﻿using LibLunacy;
+using LibLunacy.Meshes;
 using LibLunacy.Objects;
 using LibLunacy.Objects.Instances;
 using LibLunacy.Shaders;
 using LibLunacy.Textures;
 using LibLunacy.Vertices;
+using ReLunacy.Core.Frames.Modals;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -315,7 +317,7 @@ public class LunaLoader : IDisposable
         {
             ref var ptr = ref ShaderPointers[i];
             var shaderBuffer = new byte[ptr.length];
-            shaderStream.Read(shaderBuffer, (int)ptr.offset, (int)ptr.length);
+            shaderStream.ReadExactly(shaderBuffer, (int)ptr.offset, (int)ptr.length);
             var memstream = new MemoryStream(shaderBuffer);
             var igshader = new IGFile(memstream);
             var shadstream = new LunaStream(memstream, memstream);
@@ -449,7 +451,7 @@ public class LunaLoader : IDisposable
         {
             var offset = MobyPointers[i].offset;
             var rentedBuffer = ArrayPool<byte>.Shared.Rent((int)MobyPointers[i].length);
-            mobysDatStream.Read(rentedBuffer, (int)offset, rentedBuffer.Length);
+            mobysDatStream.ReadExactly(rentedBuffer, (int)offset, rentedBuffer.Length);
             var memstream = new MemoryStream(rentedBuffer);
             var mobyStream = new LunaStream(memstream, memstream);
 
@@ -593,12 +595,12 @@ public class LunaLoader : IDisposable
             var lastMesh = moby.Bangles.Last(b => b.meshesCount > 0).meshes[^1];
             var vertBufferSize = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
             var vertBuffer = new byte[vertBufferSize];
-            vertFile.Read(vertBuffer);
+            vertFile.ReadExactly(vertBuffer);
             var vertMemStream = new MemoryStream(vertBuffer);
             var vertexStream = new LunaStream(vertMemStream, vertMemStream);
             var indBufferSize = (lastMesh.indicesOffset + lastMesh.indicesCount) * sizeof(ushort);
             var indBuffer = new byte[indBufferSize];
-            indFile.Read(indBuffer);
+            indFile.ReadExactly(indBuffer);
             var indMemStream = new MemoryStream(indBuffer);
             var indexStream = new LunaStream(indMemStream, indMemStream);
 
@@ -677,7 +679,7 @@ public class LunaLoader : IDisposable
         {
             ref var tiePtr = ref TiePointers[i];
             var buffer = ArrayPool<byte>.Shared.Rent((int)tiePtr.length);
-            tieFileStream.Read(buffer, (int)tiePtr.offset, buffer.Length);
+            tieFileStream.ReadExactly(buffer, (int)tiePtr.offset, buffer.Length);
             var memstream = new MemoryStream(buffer);
             var tieStream = new LunaStream(memstream, memstream);
 
@@ -807,7 +809,7 @@ public class LunaLoader : IDisposable
         {
             ref var pointer = ref ZonePointers[i];
             var buffer = new byte[pointer.length];
-            zonesFileStream.Read(buffer, (int)pointer.offset, (int)pointer.length);
+            zonesFileStream.ReadExactly(buffer, (int)pointer.offset, (int)pointer.length);
             var memStream = new MemoryStream(buffer);
             var zoneStream = new LunaStream(memStream, memStream);
 

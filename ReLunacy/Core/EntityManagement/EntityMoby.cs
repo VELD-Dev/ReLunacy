@@ -1,5 +1,6 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Geometry;
+using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
 using LibLunacy.Objects;
@@ -42,8 +43,11 @@ public class EntityMoby : Entity
         Models = assetManager.Mobys[mobyInstance.TUID];
     }
 
-    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera)
+    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
+        if(!allowRender || !EntityManager.Singleton.renderMobys)
+            return;
+
         if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
             return;
 

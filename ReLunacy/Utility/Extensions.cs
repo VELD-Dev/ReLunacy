@@ -1,5 +1,6 @@
 ﻿using Bliss.CSharp.Graphics.VertexTypes;
 using LibLunacy.Vertices;
+using System.Drawing;
 using System.Numerics;
 using System.Text;
 using Vortice.Mathematics;
@@ -52,6 +53,15 @@ public static class Extensions
             Vector4.Zero
         );
     }
+
+    public static Vector2 GetSizeF(this Rectangle rect) => new(rect.Width, rect.Height);
+    public static Int2 GetSizeI(this Rectangle rect) => new(rect.Width, rect.Height);
+    public static Vector2 GetOriginF(this Rectangle rect) => new(rect.Location.X, rect.Location.Y);
+    public static Int2 GetOriginI(this Rectangle rect) => new(rect.Location.X, rect.Location.Y);
+    public static Vector2 GetEndF(this Rectangle rect) => new(rect.Right, rect.Bottom);
+    public static Int2 GetEndI(this Rectangle rect) => new(rect.Right, rect.Bottom);
+    public static Vector2 GetCenterF(this Rectangle rect) => new(rect.Width / 2f, rect.Height / 2f);
+    public static Int2 GetCenterI(this Rectangle rect) => new(rect.Width / 2, rect.Height / 2);
 
     public static Vertex3D[] ToVert3D(this IEnumerable<VertexFormat0> verts)
     {

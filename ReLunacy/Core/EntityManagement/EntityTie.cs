@@ -1,5 +1,6 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Geometry;
+using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
 using LibLunacy.Objects;
@@ -20,7 +21,7 @@ public class EntityTie : Entity
     public readonly Tie BaseTie;
 
     public override Transform Transform { get => throw new NotImplementedException(); protected set => throw new NotImplementedException(); }
-    public override Vector4 BoundingSphere { get; protected set; }
+    public override Vector4 BoundingSphere { get; }
     public override string Name { get; protected set; }
 
     public Model Model { get; private set; }
@@ -37,13 +38,16 @@ public class EntityTie : Entity
 
         BoundingSphere = tieInstance.boundingSphere;
 
-        Name = $"{BaseTie.Name}_{ID}";
+        Name = BaseTie.Name != string.Empty ? $"{BaseTie.Name.Split('/')[^1]}_{ID}" : $"Tie_{BaseTie.TUID:X}_{ID}";
 
         Model = assetManager.Ties[tieInstance.tieIndex];
     }
 
-    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera)
+    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
+        if (!allowRender || !EntityManager.Singleton.renderTies)
+            return;
+
         if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
             return;
 

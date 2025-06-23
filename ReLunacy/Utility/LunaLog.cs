@@ -1,4 +1,5 @@
 ﻿
+using ReLunacy.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -52,7 +53,7 @@ internal class LunaLog : TextWriter, IDisposable
 
     private readonly static ErrorLogger ErrorOut = new ErrorLogger();
     public static StringBuilder Captured;
-    public static StreamWriter FileOut { get; private set; } = File.CreateText(Path.Combine(Window.AppPath, "Logs", $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
+    public static StreamWriter FileOut { get; private set; } = File.CreateText(Path.Combine(Program.EditorPath, "Logs", $"relunacy_{DateTime.Now:dd-MM-yyyy_hh.mm.ss}.log"));
     public override Encoding Encoding => Encoding.ASCII;
 
     static LunaLog()

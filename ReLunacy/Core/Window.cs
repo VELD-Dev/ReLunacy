@@ -16,7 +16,10 @@ using Bliss.CSharp.Textures.Cubemaps;
 using Bliss.CSharp.Transformations;
 using Bliss.CSharp.Windowing;
 using Bliss.CSharp.Windowing.Events;
+using ImGuiNET;
+using LibLunacy.Numerics;
 using MiniAudioEx;
+using ReLunacy.Core.Frames;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
@@ -49,11 +52,7 @@ public class LunaWindow : Disposable
     public RenderTexture2D FullScreenTexture { get; private set; }
 
     private ImGuiController imGuiController;
-    private ImmediateRenderer immediateRenderer;
-    private Font font;
     private Texture2D logoTexture;
-    private Cubemap skyboxCubemap;
-    private Texture2D skyboxTexture;
 
     private Cam3D camera;
     // Assetmanager
@@ -157,25 +156,45 @@ public class LunaWindow : Disposable
     {
         FullScreenRenderPass = new FullScreenRenderPass(GraphicsDevice);
         FullScreenTexture = new RenderTexture2D(GraphicsDevice, (uint)MainWindow.GetWidth(), (uint)MainWindow.GetHeight(), (TextureSampleCount)EditorSettings.MSAA_Level);
+    }
 
-        immediateRenderer = new ImmediateRenderer(GraphicsDevice);
-        float aspectRation = (float)MainWindow.GetWidth() / MainWindow.GetHeight();
-        camera = new Cam3D(
-            new(0, 0, 0), // Start position
-            Vector3.UnitZ,  // Looking at
-            aspectRation,
-            Vector3.UnitY, // Up vector
-            ProjectionType.Perspective,
-            CameraMode.Free,
-            EditorSettings.CamFOV, // FOV (degrees)
-            0.01f, // Near plane
-            EditorSettings.RenderDistance // Far plane
-        );
+    public static void SetDefaultStyleVar()
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.TabRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 2.5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 2.5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 2.5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vec2(5, 5));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vec2(5, 5));
     }
 
     protected virtual void Update(double deltaTime)
     {
         camera.Update(deltaTime);
+    }
+
+    private void RenderUI(float deltaTime)
+    {
+        RenderMenuBar();
+
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vec2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vec2.Zero);
+        RenderDockSpace();
+
+        ImGui.PopStyleVar();
+        SetDefaultStyleVar();
+        foreach (Frame frame in openFrames.ToList())
+        {
+            frame.RenderAsWindow(deltaTime);
+        }
+        ImGui.PopStyleVar(11);
+
+        // Dockspace end
+        ImGui.End();
     }
 
     protected virtual void AfterUpdate()
@@ -196,21 +215,6 @@ public class LunaWindow : Disposable
 
         Input.EnableRelativeMouseMode();
 
-        camera.Begin();
-
-        // Enumerate all objects like point lights and colliders, and draw them !
-        // foreach(volume in Volumes) renderer.Draw(immediateRenderer, commandList);
-
-        // Draw each mesh now !
-        // foreach(entity in Entities)
-        // {
-        //      if(!camera.GetFrustrum().ContainsSphere(entity.BoundingSphere))
-        //          continue;
-        //      entity.Draw(commandList, FullScreenTexture.Framebuffer.OutputDescription);
-        // }
-
-        camera.End();
-
         if(Input.IsTextInputActive())
         {
             if(Input.GetTypedText(out string txt))
@@ -226,6 +230,8 @@ public class LunaWindow : Disposable
                 }
             }
         }
+
+        imGuiController.Render(graphicsDevice, commandList);
 
         commandList.End();
         graphicsDevice.SubmitCommands(commandList);
