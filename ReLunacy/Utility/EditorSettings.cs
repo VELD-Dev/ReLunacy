@@ -1,7 +1,11 @@
-﻿using System.Runtime.CompilerServices;
-using Vector2 = System.Numerics.Vector2;
-
-namespace ReLunacy.Utility;
+﻿using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using System.Text;
+using System.Threading.Tasks;
+using Vortice.Mathematics;
 
 [JsonObject]
 public class EditorSettings
@@ -13,8 +17,10 @@ public class EditorSettings
     public float CamFOV;
     public float CamSensivity;
     public bool FrustrumCulling;
-    public uint MSAA_Level;
-    public VSyncMode VSyncMode;
+    public uint MSAA_Level; // 0 = no MSAA, 1 = 2x, 2 = 4x, 3 = 8x
+    public bool VSync;
+    public int TargetFPS;
+    public double FrametimeCap;
     public string Language;
     public bool UseFallbackLanguage;
     public bool OverlayFramerate;
@@ -47,7 +53,10 @@ public class EditorSettings
         CamFOV = 82.4f;
         CamSensivity = 1f;
         FrustrumCulling = true;
-        VSyncMode = VSyncMode.Off;
+        VSync = false;
+        TargetFPS = 60;
+        FrametimeCap = 1.0 / 60.0;
+        MSAA_Level = 0; // 0 = no MSAA, 1 = 2x, 2 = 4x, 3 = 8x
         Language = "en";
         UseFallbackLanguage = true;
         OverlayFramerate = true;
@@ -73,7 +82,7 @@ public class EditorSettings
     public static EditorSettings? LoadFromFile(string path)
     {
         EditorSettings? settingsToLoad;
-        if(File.Exists(path))
+        if (File.Exists(path))
         {
             settingsToLoad = JsonConvert.DeserializeObject<EditorSettings>(path);
             settingsToLoad.SettingsFilePath = path;
@@ -102,7 +111,7 @@ public class EditorSettings
 
     public static bool TryLoadFromFile(string path, out EditorSettings settings)
     {
-        if(File.Exists(path))
+        if (File.Exists(path))
         {
             settings = JsonConvert.DeserializeObject<EditorSettings>(File.ReadAllText(path));
             settings.SettingsFilePath = path;
@@ -117,11 +126,11 @@ public class EditorSettings
 
     public static EditorSettings LoadOrCreate(string path)
     {
-        if(TryLoadFromFile(path, out EditorSettings settings))
+        if (TryLoadFromFile(path, out EditorSettings settings))
         {
             return settings;
         }
-        
+
         settings = new EditorSettings() { SettingsFilePath = path };
         settings.SaveSettingsToFile();
         return settings;

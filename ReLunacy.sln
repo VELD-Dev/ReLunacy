@@ -9,12 +9,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Lunacy", "Lunacy\Lunacy.csp
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetExtractor", "AssetExtractor\AssetExtractor.csproj", "{DD2066B5-AC6A-4844-8F69-CA4CD521CA66}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ReLunacy", "ReLunacy\ReLunacy.csproj", "{0DE34278-CF55-428E-AD79-93B1EFD69E5D}"
-	ProjectSection(ProjectDependencies) = postProject
-		{51E3CA4C-84C7-4605-B342-770EC5F0451E} = {51E3CA4C-84C7-4605-B342-770EC5F0451E}
-		{DD2066B5-AC6A-4844-8F69-CA4CD521CA66} = {DD2066B5-AC6A-4844-8F69-CA4CD521CA66}
-	EndProjectSection
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{EBEC1050-353F-4BEA-9675-F40667FD721A}"
 	ProjectSection(SolutionItems) = preProject
 		.gitignore = .gitignore
@@ -27,6 +21,8 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "submodules", "submodules", "{BE399D72-C406-4FDB-A18C-FFEBFB2324C2}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LibreFios", "LibreFios\LibreFios\LibreFios.csproj", "{212A91E5-C98D-41B8-9E69-B038B6DEAEB0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReLunacy", "ReLunacy\ReLunacy.csproj", "{5CEEB1F7-857E-4F79-9F2B-3AB3DBD703CF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -46,14 +42,14 @@ Global
 		{DD2066B5-AC6A-4844-8F69-CA4CD521CA66}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DD2066B5-AC6A-4844-8F69-CA4CD521CA66}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DD2066B5-AC6A-4844-8F69-CA4CD521CA66}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0DE34278-CF55-428E-AD79-93B1EFD69E5D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0DE34278-CF55-428E-AD79-93B1EFD69E5D}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0DE34278-CF55-428E-AD79-93B1EFD69E5D}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0DE34278-CF55-428E-AD79-93B1EFD69E5D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{212A91E5-C98D-41B8-9E69-B038B6DEAEB0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{212A91E5-C98D-41B8-9E69-B038B6DEAEB0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{212A91E5-C98D-41B8-9E69-B038B6DEAEB0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{212A91E5-C98D-41B8-9E69-B038B6DEAEB0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5CEEB1F7-857E-4F79-9F2B-3AB3DBD703CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5CEEB1F7-857E-4F79-9F2B-3AB3DBD703CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5CEEB1F7-857E-4F79-9F2B-3AB3DBD703CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5CEEB1F7-857E-4F79-9F2B-3AB3DBD703CF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -1,37 +1,26 @@
-﻿namespace ReLunacy;
+﻿using Bliss.CSharp.Windowing;
+using ReLunacy.Core;
+using ReLunacy.Utility;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using Veldrid;
 
-internal class Program
+namespace ReLunacy;
+
+public class Program
 {
-    public const string AppName = "Lunacy_v2";
-    public const string AppDisplayName = "ReLunacy";
-    public const string Version = "0.03";
-    public static string ProvidedPath = "";
-    public static string AppPath { get => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
+    [NotNull] public static LunaWindow Window { get; private set; }
+    [NotNull] public static EditorSettings Settings { get; private set; }
+    [NotNull] public static ResourcesManager Resources { get; private set; } = ResourcesManager.LoadResourcesFromManifest();
 
-    public static Window MainWindow { get => Window.Singleton; }
-    public static EditorSettings Settings { get; private set; } = EditorSettings.LoadOrCreate(Path.Combine(AppPath, "EditorSettings.json"));
+    public static readonly string EditorPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
-    internal static GameWindowSettings gameWindowSettings = new();
-    internal static NativeWindowSettings nativeWindowSettings = new()
-    {
-        MinimumClientSize = new(600, 400),
-        ClientSize = new(1600, 900),
-        Title = AppDisplayName,
-        APIVersion = new(4, 4, 0)
-    };
-
-    public static string[] cmds;
 
     static void Main(string[] args)
     {
-        if(!Directory.Exists(Path.Combine(AppPath, "Logs")))
-        {
-            Directory.CreateDirectory(Path.Combine(AppPath, "Logs"));
-        }
-        LunaLog.LogInfo($"ReLunacy v{Version} by VELD-Dev. Fork of Lunacy, by NefariousTechSupport.");
-        cmds = args;
-        Console.Title = AppName;
-        Window wnd = new(gameWindowSettings, nativeWindowSettings);
-        wnd.Run();
+        Settings = EditorSettings.LoadOrCreate(Path.Combine(EditorPath, "EditorSettings.json"));
+        Window = new LunaWindow();
+
+        Window.Run();
     }
 }

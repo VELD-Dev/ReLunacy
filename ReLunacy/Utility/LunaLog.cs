@@ -1,7 +1,7 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.Versioning;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -16,7 +16,7 @@ internal class LunaLog : TextWriter, IDisposable
         public override void Write(string? error)
         {
             Instance.Write(LogLevel.Fatal, error);
-        } 
+        }
 
         public void Write(Exception exception)
         {
@@ -78,7 +78,7 @@ internal class LunaLog : TextWriter, IDisposable
     public void Write(LogLevel logLevel, string? message)
     {
         string prefix = DateTime.Now.ToString("HH:mm:ss.fff");
-        switch(logLevel)
+        switch (logLevel)
         {
             case LogLevel.Debug:
                 if (LoggingLevel > LogLevel.Debug) break;
@@ -90,7 +90,7 @@ internal class LunaLog : TextWriter, IDisposable
                 Console.ResetColor();
                 break;
             case LogLevel.Info:
-                if(LoggingLevel > LogLevel.Info) break;
+                if (LoggingLevel > LogLevel.Info) break;
                 message = $"{prefix} [INFO]  {message}";
                 FileOut.Write(message);
                 Captured?.Append(message);
