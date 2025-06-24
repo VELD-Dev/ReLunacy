@@ -79,12 +79,13 @@ public class View3D : DockedFrame
         commandList.ClearDepthStencil(1.0f);
 
         Camera.Begin();
+
         EntityManager.Singleton.Draw(renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
+
         Camera.End();
 
         commandList.End();
         graphicsDevice.SubmitCommands(commandList);
-        //var texView = graphicsDevice.ResourceFactory.CreateTextureView(renderTexture.DestinationTexture);
         ImGui.Image(
             LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
             new(renderTexture.Width, renderTexture.Height),
@@ -110,7 +111,6 @@ public class View3D : DockedFrame
 
         if (prevSize != FrameContentRegion.GetSizeI())
         {
-            LunaLog.LogDebug($"Resizing framebuffer renderer to {FrameContentRegion.GetSizeI()}.");
             OnResize();
             InvalidateView();
         }
@@ -250,6 +250,7 @@ public class View3D : DockedFrame
         if (rmbghandler.TryGrabMouse(allowGrab))
         {
             io.ConfigFlags |= ImGuiConfigFlags.NoMouse;
+            Input.SetMousePosition(rmbghandler.GrabPosition);
         }
         else
         {
@@ -258,10 +259,10 @@ public class View3D : DockedFrame
         }
 
         Vector2 rot = Input.GetMouseDelta();
-        rot *= Program.Settings.CamSensivity * (float)deltaTime;
+        rot *= Program.Settings.CamSensivity;
 
-        Camera.SetPitch(Camera.GetPitch() + rot.X, false);
-        Camera.SetYaw(Camera.GetYaw() + rot.Y, false);
+        Camera.SetPitch(Camera.GetPitch() + rot.Y, false);
+        Camera.SetYaw(Camera.GetYaw() - rot.X, false);
         InvalidateView();
         return true;
     }
@@ -271,7 +272,7 @@ public class View3D : DockedFrame
         float moveSpeed = Program.Settings.CamMoveSpeed;
         if (Input.IsKeyDown(KeyboardKey.ShiftLeft)) moveSpeed = Program.Settings.CamMaxSpeed;
         Vector3 deltaPosition = GetInputAxes();
-        if (deltaPosition.Length() > 0)
+        if (deltaPosition.LengthSquared() > 0)
         {
             deltaPosition *= moveSpeed * (float)deltaTime;
             Camera.Position += deltaPosition;

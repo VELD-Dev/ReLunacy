@@ -117,6 +117,7 @@ public class Overlay
                 ImGui.Text($"{LM.Get("GUI_Overlay_LevelTies")}: {EntityManager.Singleton.TiesCount:N0}");
                 ImGui.Text($"{LM.Get("GUI_Overlay_LevelUFrags")}: {EntityManager.Singleton.UFragsCount:N0}");
                 ImGui.Text($"{LM.Get("GUI_Overlay_TotalEntities")}: {EntityCluster.TotalEntities:N0}");
+                ImGui.Text($"{LM.Get("GUI_Overlay_EntitiesRenderedThisFrame")}: {Entity.EntitiesRenderedThisFrame:N0}");
                 ImGui.Text($"{LM.Get("GUI_Overlay_Textures")}: {(LunaWindow.Instance.AssetManager?.Textures.Count  ?? 0):N0}");
                 ImGui.Text($"{LM.Get("GUI_Overlay_Materials")}: {(LunaWindow.Instance.AssetManager?.Materials.Count ?? 0):N0}");
                 ImGui.EndGroup();

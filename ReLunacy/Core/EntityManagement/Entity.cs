@@ -29,10 +29,11 @@ public enum EntityType
 public abstract class Entity : IDisposable
 {
     public static int EntityIndex = 0;
+    public static int EntitiesRenderedThisFrame = 0;
 
     public int ID { get; protected set; }
-    public bool allowRender;
-    public bool selected;
+    public bool allowRender = true;
+    public bool selected = false;
     public abstract Transform Transform { get; protected set; }
     public abstract Vector4 BoundingSphere { get; }
     public abstract string Name { get; protected set; }

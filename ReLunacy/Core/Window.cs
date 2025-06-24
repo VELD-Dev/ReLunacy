@@ -402,6 +402,8 @@ public class LunaWindow : Disposable
 
     protected virtual void Update(double deltaTime)
     {
+        Entity.EntitiesRenderedThisFrame = 0;
+
         openFrames.RemoveAll(FrameMustClose);
 
         if(Overlay.showOverlay)

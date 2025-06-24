@@ -53,9 +53,14 @@ public class EntityMoby : Entity
         if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
             return;
 
-        foreach(Model model in Models)
+        if (Models is null)
+            return;
+
+        foreach (Model model in Models)
         {
             model.Draw(commandList, Transform, outputDescription);
         }
+
+        EntitiesRenderedThisFrame++;
     }
 }

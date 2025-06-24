@@ -49,7 +49,7 @@ public class AssetManager : IDisposable
                     break;
                 default:
                     LunaLog.LogWarn("Unknown compression format ! Skipping texture.");
-                    Textures[texture.Key] = new Texture2D(gd, new Image(128, 128, new byte[128 * 128 * 4]), false);
+                    Textures[texture.Key] = GlobalResource.DefaultModelTexture;
                     continue;
             }
 
@@ -59,9 +59,9 @@ public class AssetManager : IDisposable
 
         foreach (var shader in loader.Shaders)
         {
-            var material = new Material(gd, ShaderManager.Shaders["solid"], BlendStateDescription.SINGLE_ALPHA_BLEND);
+            var material = new Material(gd, GlobalResource.DefaultModelEffect, BlendStateDescription.SINGLE_ALPHA_BLEND);
             if (shader.Value.metadata.albedo != 0)
-                material.AddMaterialMap("albedo", new MaterialMap(Textures[shader.Value.metadata.albedo]));
+                material.AddMaterialMap("fAlbedo", new MaterialMap(Textures[shader.Value.metadata.albedo]));
             if(shader.Value.metadata.expensive != 0)
                 material.AddMaterialMap("expensive", new MaterialMap(Textures[shader.Value.metadata.expensive]));
             if(shader.Value.metadata.normal != 0)

@@ -48,6 +48,7 @@ public class EntityVolume : Entity
             return;
 
         immediateRenderer.DrawCubeWires(commandList, outputDescription, Transform, BaseVolume.scale, (selected ? Color.White : Color.DarkYellow));
+        EntitiesRenderedThisFrame++;
         //Cube.Draw(commandList, Transform, outputDescription);
     }
 }

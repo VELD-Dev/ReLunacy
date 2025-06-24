@@ -52,5 +52,6 @@ public class EntityTie : Entity
             return;
 
         Model.Draw(commandList, Transform, outputDescription);
+        EntitiesRenderedThisFrame++;
     }
 }

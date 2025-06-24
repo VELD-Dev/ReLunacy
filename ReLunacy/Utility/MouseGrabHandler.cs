@@ -3,6 +3,7 @@ using Bliss.CSharp.Interact.Mice;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -13,6 +14,8 @@ public class MouseGrabHandler
     private bool isGrabbed;
 
     public MouseButton mouseButton { get; set; }
+
+    public Vector2 GrabPosition;
 
     public bool TryGrabMouse(bool allowNewGrab)
     {
@@ -25,7 +28,8 @@ public class MouseGrabHandler
             {
                 isGrabbed = false;
                 Input.DisableRelativeMouseMode();
-                Input.ShowCursor();
+                Input.SetMousePosition(GrabPosition);
+                GrabPosition = Vector2.Zero;
             }
             return false;
         }
@@ -36,8 +40,8 @@ public class MouseGrabHandler
                 return false;
 
             isGrabbed = true;
+            GrabPosition = Input.GetMousePosition();
             Input.EnableRelativeMouseMode();
-            Input.HideCursor();
         }
 
         return isGrabbed;

@@ -46,6 +46,7 @@ public class EntityUFrag : Entity
             return;
 
         UFragMesh.Draw(commandList, Transform, outputDescription);
+        EntitiesRenderedThisFrame++;
     }
 
     public override void Dispose()
