@@ -9,6 +9,7 @@ using ImGuiNET;
 using LibLunacy.Numerics;
 using ReLunacy.Core.EntityManagement;
 using ReLunacy.Utility;
+using ReLunacy.Utility.Localization;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -46,7 +47,7 @@ public class View3D : DockedFrame
 
     public View3D(GraphicsDevice gd) : base()
     {
-        FrameName = "View 3D";
+        FrameName = LM.Get("GUI_Frame_View3D");
         Camera = new(
             new(0, 0, 0),
             Vector3.UnitZ,

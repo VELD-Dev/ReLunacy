@@ -225,7 +225,7 @@ public class LunaLoader : IDisposable
         }
         else
         {
-            textureStream = new LunaStream(texstreamStream, textureStream);
+            texstream = new LunaStream(texstreamStream, texstreamStream);
         }
 
         var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
@@ -252,12 +252,21 @@ public class LunaLoader : IDisposable
             loadState.SetStatus("Loading textures highmips...");
             loadState.SetTotal(texstreamRefSection.count);
             loadState.SetProgress(0);
+            var texstreamReferences = new List<TexstreamReference>();
+            for(int i = 0; i <  texstreamRefSection.count; i++)
+            {
+                mainStream.Seek(texstreamRefSection.offset + TexstreamReference.Size * i);
+                texstreamReferences.Add(new TexstreamReference(mainStream));
+            }
+
             for (uint i = 0; i < texstreamRefSection.count; i++)
             {
                 var tex = Textures.Values.ToArray()[i];
-                mainStream.Seek(texstreamRefSection.offset + TexstreamReference.Size * i);
-                var texref = new TexstreamReference(mainStream);
-                tex.highmipsMetadatasOld?.Add(texref);
+                if (!texstreamReferences.Any(otr => otr.index == i))
+                    continue;
+
+                var texstreamref = texstreamReferences.Find(otr => otr.index == i);
+                tex.highmipsMetadatasOld?.Add(texstreamref);
                 loadState.SetProgress(i + 1);
             }
         }
@@ -369,7 +378,7 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var mstream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
+        var mainstream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
 
         var shaderMetadataSec = main.QuerySection(ShaderMetadata.ID);
 
@@ -377,8 +386,8 @@ public class LunaLoader : IDisposable
         loadingTracker.LoadProgresses.Add(loadState);
         for (uint i = 0; i < shaderMetadataSec.count; i++)
         {
-            mstream.Seek(shaderMetadataSec.offset + ShaderMetadata.Size * i);
-            var shader = new Shader(mstream, true, i);
+            mainstream.Seek(shaderMetadataSec.offset + ShaderMetadata.Size * i);
+            var shader = new Shader(mainstream, true, i);
 
             if (Textures.Count < 1)
             {
@@ -539,7 +548,7 @@ public class LunaLoader : IDisposable
         loadingTracker.LoadProgresses.Add(loadState);
         for (uint i = 0; i < mobySection.count; i++)
         {
-            mainStream.Seek(mobySection.offset + 0x0C * i);
+            mainStream.Seek(mobySection.offset + OldMoby.Size * i);
             var moby = new Moby(mainStream, (int)i);
 
             var bangleLoading = new LoadingProgress("Loading bangles...", moby.BanglesCount);
@@ -598,7 +607,8 @@ public class LunaLoader : IDisposable
             vertFile.ReadExactly(vertBuffer);
             var vertMemStream = new MemoryStream(vertBuffer);
             var vertexStream = new LunaStream(vertMemStream, vertMemStream);
-            var indBufferSize = (lastMesh.indicesOffset + lastMesh.indicesCount) * sizeof(ushort);
+
+            var indBufferSize = lastMesh.indicesOffset + lastMesh.indicesCount * sizeof(ushort);
             var indBuffer = new byte[indBufferSize];
             indFile.ReadExactly(indBuffer);
             var indMemStream = new MemoryStream(indBuffer);
@@ -614,6 +624,7 @@ public class LunaLoader : IDisposable
                     vertexStream.Seek(mesh.verticesOffset);
                     mesh.ReadVerticesBuffer(vertexStream);
 
+                    /*
                     for (int l = 0; l < 100 && l < mesh.verticesCount; l++)
                     {
                         if (mesh.verticesType == 0)
@@ -621,6 +632,7 @@ public class LunaLoader : IDisposable
                         else if (mesh.verticesType == 1)
                             LunaLog.LogDebug($"Vertex {l}: {mesh.vertices1[l]}");
                     }
+                    */
 
                     indexStream.Seek(mesh.indicesOffset);
                     mesh.ReadIndicesBuffer(indexStream);

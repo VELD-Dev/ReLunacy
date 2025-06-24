@@ -180,6 +180,8 @@ public class LunaWindow : Disposable
 
         LM.Initialize();
 
+        ShaderManager.LoadDefaultShaders(GraphicsDevice);
+
         // Update Checker
 
         AddFrame(new View3D(GraphicsDevice));
@@ -194,7 +196,7 @@ public class LunaWindow : Disposable
         TryWipeLevel();
         AddFrame(loadingFrame);
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
-        //Program.ProvidedPath = path;
+        Program.ProvidedPath = path;
 
         fileManager = new();
         LunaLog.LogDebug("Starting FileManager threaded task.");
@@ -242,6 +244,8 @@ public class LunaWindow : Disposable
         if (IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>();//.SetEntities(EntityManager.Singleton.GetAllEntities());
         var loadModal = GetFirstFrame<LoadingModal>();
+        if (loadModal is null)
+            return;
         loadModal.loadingFinished = true;
         loadModal.LoadEnd = DateTime.Now;
     }

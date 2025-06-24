@@ -19,8 +19,8 @@ namespace LibLunacy.Textures
         public string name;
         public byte[] data;
         public TextureFormat TexFormat => textureMetadata.Format;
-        public uint Width => textureMetadata.Width;
-        public uint Height => textureMetadata.Height;
+        public uint Width { get; set; }
+        public uint Height { get; set; }
         public uint MipmapCounts => textureMetadata.MipmapCount;
 
         // Only in old engine
@@ -54,6 +54,8 @@ namespace LibLunacy.Textures
                 id = (ulong)stream.Position;
                 textureMetadata = new TextureMetadataOld(stream);
                 // Highmips must be defined from the Loader for better performances (otherwise it must go through all the highmips and all...
+                Width = textureMetadata.Width;
+                Height = textureMetadata.Height;
             }
             else
             {
@@ -77,18 +79,20 @@ namespace LibLunacy.Textures
             int offset;
             if (isOld)
             {
-                data = new byte[HighmipSize];
-                var texstreamRef = highmipsMetadatasOld?.First();
-                if (texstreamRef != null)
+                if ((highmipsMetadatasOld?.Count ?? 0) > 0)
                 {
-                    Console.WriteLine($"texstreamRef offset: {texstreamRef.Value.offset:X}");
-                    offset = (int)texstreamRef.Value.offset;
+                    var texstreamRef = highmipsMetadatasOld[0];
+                    Console.WriteLine($"texstreamRef offset: {texstreamRef.offset:X}");
+                    offset = (int)texstreamRef.offset;
+                    Width *= 2;
+                    Height *= 2;
                 }
                 else
                 {
                     Console.WriteLine($"TextureMetadata offset: {((TextureMetadataOld)textureMetadata).offset:X}/{stream.Length:X}");
                     offset = (int)((TextureMetadataOld)textureMetadata).offset;
                 }
+                data = new byte[HighmipSize];
             }
             else
             {
@@ -123,7 +127,7 @@ namespace LibLunacy.Textures
         public void Unswizzle(LunaStream stream)
         {
             Console.WriteLine($"Unswizzling texture {id} with format {TexFormat}");
-            if (TexFormat > TextureFormat.A8R8G8B8) throw new InvalidOperationException("DXT formats aren't swizzled.");
+            if ((int)TexFormat > (int)TextureFormat.A8R8G8B8) throw new InvalidOperationException("DXT formats aren't swizzled.");
             if (data.Length <= 1) return; // Data is too small. Do not unswizzle.
 
             int pixelSize = 0;

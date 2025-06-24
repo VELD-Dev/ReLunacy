@@ -1,4 +1,6 @@
-﻿using Bliss.CSharp.Effects;
+﻿using BCnEncoder.Decoder;
+using Bliss.CSharp;
+using Bliss.CSharp.Effects;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Materials;
@@ -25,16 +27,45 @@ public class AssetManager : IDisposable
     {
         foreach (var texture in loader.Textures)
         {
-            var image = new Image((int)texture.Value.Width, (int)texture.Value.Height, texture.Value.data);
+            var texDecoder = new BcDecoder();
+            byte[] realData;
+            int width = (int)texture.Value.Width, height = (int)texture.Value.Height;
+            switch(texture.Value.TexFormat)
+            {
+                case LibLunacy.Textures.TextureFormat.R5G6B5:
+                    realData = TextureUtils.RGB565ToRGBA8888(texture.Value.data, width, height);
+                    break;
+                case LibLunacy.Textures.TextureFormat.A8R8G8B8:
+                    realData = TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
+                    break;
+                case LibLunacy.Textures.TextureFormat.DXT1:
+                    realData = texDecoder.DecodeRaw(texture.Value.data, width, height, BCnEncoder.Shared.CompressionFormat.Bc1).ToBytes();
+                    break;
+                case LibLunacy.Textures.TextureFormat.DXT3:
+                    realData = texDecoder.DecodeRaw(texture.Value.data, width, height, BCnEncoder.Shared.CompressionFormat.Bc3).ToBytes();
+                    break;
+                case LibLunacy.Textures.TextureFormat.DXT5:
+                    realData = texDecoder.DecodeRaw(texture.Value.data, width, height, BCnEncoder.Shared.CompressionFormat.Bc5).ToBytes();
+                    break;
+                default:
+                    LunaLog.LogWarn("Unknown compression format ! Skipping texture.");
+                    Textures[texture.Key] = new Texture2D(gd, new Image(128, 128, new byte[128 * 128 * 4]), false);
+                    continue;
+            }
+
+            var image = new Image(width, height, realData);
             Textures[texture.Key] = new Texture2D(gd, image);
         }
 
         foreach (var shader in loader.Shaders)
         {
             var material = new Material(gd, ShaderManager.Shaders["solid"], BlendStateDescription.SINGLE_ALPHA_BLEND);
-            material.SetMapTexture("albedo", Textures[shader.Value.metadata.albedo]);
-            material.SetMapTexture("expensive", Textures[shader.Value.metadata.expensive]);
-            material.SetMapTexture("normal", Textures[shader.Value.metadata.normal]);
+            if (shader.Value.metadata.albedo != 0)
+                material.AddMaterialMap("albedo", new MaterialMap(Textures[shader.Value.metadata.albedo]));
+            if(shader.Value.metadata.expensive != 0)
+                material.AddMaterialMap("expensive", new MaterialMap(Textures[shader.Value.metadata.expensive]));
+            if(shader.Value.metadata.normal != 0)
+                material.AddMaterialMap("normal", new MaterialMap(Textures[shader.Value.metadata.normal]));
             Materials[shader.Key] = material;
         }
 

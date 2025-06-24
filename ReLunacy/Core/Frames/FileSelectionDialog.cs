@@ -16,7 +16,7 @@ internal class FileSelectionDialog : Frame
 
     public FileSelectionDialog() : base()
     {
-        FrameName = "Select a Level";
+        FrameName = LM.Get("GUI_Frame_LevelSelection");
     }
 
     public string levelPath = "";

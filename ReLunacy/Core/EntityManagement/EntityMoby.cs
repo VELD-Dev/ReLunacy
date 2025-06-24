@@ -40,6 +40,8 @@ public class EntityMoby : Entity
 
         Name = mobyInstance.name != string.Empty ? mobyInstance.name.Split('/')[^1] : $"Moby_{BaseMoby.TUID:X}_{(mobyInstance.metadata is not null ? mobyInstance.metadata?.group : ID)}";
 
+        if (!assetManager.Mobys.ContainsKey(mobyInstance.TUID))
+            return;
         Models = assetManager.Mobys[mobyInstance.TUID];
     }
 

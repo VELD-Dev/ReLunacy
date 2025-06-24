@@ -1,5 +1,6 @@
 ﻿using ImGuiNET;
 using ReLunacy.Utility;
+using ReLunacy.Utility.Localization;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,13 +22,13 @@ public class LoadingModal : Modal
 
     public LoadingModal(string loadingString, uint max) : base()
     {
-        FrameName = "Loading...";
+        FrameName = LM.Get("GUI_Frame_LoadingModal");
         LoadProgresses = [new(loadingString, max)];
     }
 
     public LoadingModal(List<LoadingProgress> loadingTasks) : base()
     {
-        FrameName = "Loading...";
+        FrameName = LM.Get("GUI_Frame_LoadingModal");
         LoadProgresses = [.. loadingTasks];
     }
 
