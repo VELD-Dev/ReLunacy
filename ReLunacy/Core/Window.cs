@@ -68,6 +68,7 @@ public class LunaWindow : Disposable
 
     public event Action<Frame> OnFrameAdded;
     public event Action<Frame> OnFrameRemoved;
+    public event Action<AssetManager, LunaLoader> OnLoadingFinished;
 
     public LunaWindow()
     {
@@ -194,7 +195,7 @@ public class LunaWindow : Disposable
     public async void LoadLevelDataAsync(string path, LoadingModal loadingFrame)
     {
         TryWipeLevel();
-        AddFrame(loadingFrame);
+        //AddFrame(loadingFrame);
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
         Program.ProvidedPath = path;
 
@@ -226,6 +227,7 @@ public class LunaWindow : Disposable
         Loader?.Dispose();
         Loader = null;
         fileManager = null;
+        AssetManager = null;
         Program.ProvidedPath = string.Empty;
         /*
         if (IsAnyFrameOpened<BasicEntityExplorer>())
@@ -244,6 +246,12 @@ public class LunaWindow : Disposable
         if (IsAnyFrameOpened<BasicEntityExplorer>())
             GetFirstFrame<BasicEntityExplorer>();//.SetEntities(EntityManager.Singleton.GetAllEntities());
         var loadModal = GetFirstFrame<LoadingModal>();
+        if (IsAnyFrameOpened<TexturesExplorer>())
+            GetFirstFrame<TexturesExplorer>().TransmitTextures(AssetManager, Loader);
+
+        if (IsAnyFrameOpened<AssetViewer>())
+            GetFirstFrame<AssetViewer>().TransmitAssets(AssetManager, Loader);
+
         if (loadModal is null)
             return;
         loadModal.loadingFinished = true;
@@ -344,6 +352,8 @@ public class LunaWindow : Disposable
             ViewMenuDraw.ShowOverlay();
             ImGui.Separator();
             ViewMenuDraw.ShowView3D();
+            ViewMenuDraw.ShowAssetViewer();
+            ViewMenuDraw.ShowTextureExplorer();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
             ViewMenuDraw.ShowConsoleFrame();

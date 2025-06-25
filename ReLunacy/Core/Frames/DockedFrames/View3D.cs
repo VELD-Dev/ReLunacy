@@ -54,7 +54,7 @@ public class View3D : DockedFrame
             300f / 300f,
             Vector3.UnitY,
             ProjectionType.Perspective, 
-            CameraMode.Free,
+            CameraMode.FirstPerson,
             Program.Settings.CamFOV,
             0.01f,
             Program.Settings.RenderDistance

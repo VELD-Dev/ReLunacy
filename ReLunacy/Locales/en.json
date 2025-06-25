@@ -38,10 +38,15 @@
     "GUI_Frame_EntityExplorer_VolumesTab": "Volumes",
     "GUI_Frame_InstanceInspector": "Properties Inspector",
     "GUI_Frame_InstanceInspector_WaitingForSelection": "Select an entity...",
+    "GUI_Frame_LevelSelection": "Load a level",
+    "GUI_Frame_LoadingModal": "Loading...",
     "GUI_Frame_Logs": "Logs",
     "GUI_Frame_OpenLevel": "Open level",
     "GUI_Frame_OpenLevel_LevelPath": "Level Path",
     "GUI_Frame_OpenLevel_PasteClipboard": "Paste",
+    "GUI_Frame_TextureExplorer": "Textures Explorer",
+    "GUI_Frame_TextureExplorer_SearchHint": "Search among {0} textures...",
+    "GUI_Frame_TextureExplorer_SearchLabel": "Search",
     "GUI_Frame_View3D": "3D View",
     "GUI_LoadLevelModal_Title": "Loading level",
     "GUI_MenuItem_CheckUpdates": "Check for updates",
@@ -62,6 +67,7 @@
     "GUI_Overlay_CameraPosition": "Camera Position",
     "GUI_Overlay_CameraRotation": "Camera Rotation",
     "GUI_Overlay_CameraStats": "Camera Stats",
+    "GUI_Overlay_EntitiesRenderedThisFrame": "Rendered",
     "GUI_Overlay_FpsAvg": "FPS Avg.",
     "GUI_Overlay_FpsMax": "FPS Max",
     "GUI_Overlay_FpsMin": "FPS Min",
@@ -87,8 +93,5 @@
     "GUI_TransformTools_Rotation": "Rotation",
     "GUI_TransformTools_Scale": "Scale",
     "GUI_TransformTools_Translation": "Translation",
-    "GUI_VSyncMode_Adaptative": "Adaptative",
-    "GUI_VSyncMode_Off": "Off",
-    "GUI_VSyncMode_On": "On"
   }
 }

@@ -12,7 +12,7 @@ namespace ReLunacy.Core.Frames;
 
 internal class FileSelectionDialog : Frame
 {
-    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoDocking;
+    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoDocking | ImGuiWindowFlags.NoCollapse;
 
     public FileSelectionDialog() : base()
     {
@@ -56,6 +56,7 @@ internal class FileSelectionDialog : Frame
             {
                 Program.ProvidedPath = levelPath;
                 var lm = new LoadingModal(LM.Get("GUI_LoadLevelModal_Title"), 1);
+                LunaWindow.Instance.AddFrame(lm);
                 Task.Run(() => LunaWindow.Instance.LoadLevelDataAsync(levelPath, lm));
                 isOpen = false;
             }

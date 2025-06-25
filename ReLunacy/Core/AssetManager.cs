@@ -1,5 +1,4 @@
-﻿using BCnEncoder.Decoder;
-using Bliss.CSharp;
+﻿using Bliss.CSharp;
 using Bliss.CSharp.Effects;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Images;
@@ -12,6 +11,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TinyBCSharp;
 using Veldrid;
 
 namespace ReLunacy.Core;
@@ -25,9 +25,11 @@ public class AssetManager : IDisposable
 
     public AssetManager(LunaLoader loader, GraphicsDevice gd)
     {
+        BlockDecoder dxt1Decoder = BlockDecoder.Create(BlockFormat.BC1);
+        BlockDecoder dxt3Decoder = BlockDecoder.Create(BlockFormat.BC3);
+        BlockDecoder dxt5Decoder = BlockDecoder.Create(BlockFormat.BC5U);
         foreach (var texture in loader.Textures)
         {
-            var texDecoder = new BcDecoder();
             byte[] realData;
             int width = (int)texture.Value.Width, height = (int)texture.Value.Height;
             switch(texture.Value.TexFormat)
@@ -39,13 +41,13 @@ public class AssetManager : IDisposable
                     realData = TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT1:
-                    realData = texDecoder.DecodeRaw(texture.Value.data, width, height, BCnEncoder.Shared.CompressionFormat.Bc1).ToBytes();
+                    realData = dxt1Decoder.Decode(width, height, texture.Value.data);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT3:
-                    realData = texDecoder.DecodeRaw(texture.Value.data, width, height, BCnEncoder.Shared.CompressionFormat.Bc3).ToBytes();
+                    realData = dxt3Decoder.Decode(width, height, texture.Value.data);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT5:
-                    realData = texDecoder.DecodeRaw(texture.Value.data, width, height, BCnEncoder.Shared.CompressionFormat.Bc5).ToBytes();
+                    realData = dxt5Decoder.Decode(width, height, texture.Value.data);
                     break;
                 default:
                     LunaLog.LogWarn("Unknown compression format ! Skipping texture.");

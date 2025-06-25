@@ -1,5 +1,4 @@
-﻿using BCnEncoder.Shared;
-using Bliss.CSharp.Graphics.VertexTypes;
+﻿using Bliss.CSharp.Graphics.VertexTypes;
 using Bliss.CSharp.Textures;
 using LibLunacy.Vertices;
 using System.Drawing;
@@ -112,21 +111,5 @@ public static class Extensions
             sb.Append(separator);
         }
         return sb.ToString();
-    }
-
-    public static byte[] ToBytes(this IEnumerable<ColorRgba32> pixels)
-    {
-        const int PIXEL_SIZE = 4;
-        byte[] result = new byte[pixels.Count() * PIXEL_SIZE];
-
-        for(int i = 0; i < pixels.Count(); i++)
-        {
-            result[i * PIXEL_SIZE + 0] = pixels.ElementAt(i).r;
-            result[i * PIXEL_SIZE + 1] = pixels.ElementAt(i).g;
-            result[i * PIXEL_SIZE + 2] = pixels.ElementAt(i).b;
-            result[i * PIXEL_SIZE + 3] = pixels.ElementAt(i).a;
-        }
-
-        return result;
     }
 }
