@@ -1,5 +1,6 @@
 ﻿using Bliss.CSharp.Textures;
 using ImGuiNET;
+using LibLunacy.Textures;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System;
@@ -11,6 +12,21 @@ using System.Threading.Tasks;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
+public record struct TextureObject
+{
+    public TextureObject(nint texturePtr, Texture lunaTexture, Texture2D tex2d)
+    {
+        Texture = lunaTexture;
+        TexturePtr = texturePtr;
+        BlissTexture = tex2d;
+    }
+
+    public readonly string? TextureName => Texture.name;
+    public readonly Texture Texture;
+    public readonly Texture2D BlissTexture;
+    public readonly nint TexturePtr;
+}
+
 public class TexturesExplorer : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
@@ -20,8 +36,9 @@ public class TexturesExplorer : DockedFrame
     private string inputText = "";
 
     // for now I do it this way so it's faster
-    private List<nint> texturesHandles = [];
-    private List<string> texturesNames = [];
+    private List<TextureObject> textureObjects = [];
+
+    private int selectedTexture = -1;
 
     public TexturesExplorer() : base()
     {
@@ -36,8 +53,7 @@ public class TexturesExplorer : DockedFrame
             var tex = textures[i];
             var lunaTex = loader.Textures.Values.ToArray()[i];
             var handle = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex.DeviceTexture);
-            texturesHandles.Add(handle);
-            texturesNames.Add(lunaTex.name);
+            textureObjects.Add(new(handle, lunaTex, tex));
         }
     }
 
@@ -47,23 +63,73 @@ public class TexturesExplorer : DockedFrame
         {
 
         }
-        if (ImGui.BeginChild("texture_gridview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
+        if (ImGui.BeginChild("texture_gridview", new (ImGui.GetContentRegionAvail().X / 2, ImGui.GetContentRegionAvail().Y), ImGuiChildFlags.Borders))
         {
             var columns = (int)ImGui.GetContentRegionAvail().X / 128;
             ImGui.Columns(columns, "texture_grid", false);
-            for(int i = 0; i < texturesHandles.Count; i++)
+            for(int i = 0; i < textureObjects.Count; i++)
             {
-                var texPtr = texturesHandles.ToArray()[i];
-                var texName = texturesNames.ToArray()[i];
+                var texobj = textureObjects[i];
                 if (i > 0 && i % columns == 0) ImGui.Spacing();
 
-                ImGui.Image(texPtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
-                ImGui.Text(texName ?? $"Tex_{i}");
+
+
+                ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
+                if (ImGui.IsItemClicked())
+                {
+                    selectedTexture = i;
+                }
+                ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
+
 
                 ImGui.NextColumn();
             }
         }
         ImGui.EndChild();
+        if(selectedTexture != -1)
+        {
+            ImGui.SameLine();
+            if(ImGui.BeginChild("texture_preview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
+            {
+                var selection = textureObjects[selectedTexture];
+
+                ImGui.Image(selection.TexturePtr, new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX);
+                ImGui.Separator();
+                ImGui.BeginGroup();
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureName"));
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureCompressionType"));
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureDimensions"));
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureBufferSize"));
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureSizeOnDisk"));
+                ImGui.EndGroup();
+                ImGui.SameLine();
+                ImGui.BeginGroup();
+                ImGui.Text(selection.TextureName ?? $"Tex_{selectedTexture}");
+                ImGui.Text(selection.Texture.TexFormat.ToString());
+                ImGui.Text($"{selection.Texture.Width}x{selection.Texture.Height}");
+                ImGui.Text($"{selection.BlissTexture.Images[0].Data.Length / 1000f}KB");
+                ImGui.Text($"{selection.Texture.data.Length / 1000f}KB");
+                ImGui.EndGroup();
+                if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportRaw")))
+                {
+                    var path = Path.Combine(Program.EditorPath, "Extracted");
+                    if (!Directory.Exists(path))
+                        Directory.CreateDirectory(path);
+
+                    File.WriteAllBytes(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".raw" : $"Tex_{selectedTexture}.raw"), selection.Texture.data);
+                }
+
+                if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
+                {
+                    var path = Path.Combine(Program.EditorPath, "Extracted");
+                    if (!Directory.Exists(path))
+                        Directory.CreateDirectory(path);
+
+                    selection.BlissTexture.Images[0].SaveAsPng(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".png" : $"Tex_{selectedTexture}.png"));
+                }
+            }
+            ImGui.EndChild();
+        }
     }
 
     public override void RenderAsWindow(double deltaTime)

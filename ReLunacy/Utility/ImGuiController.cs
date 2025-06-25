@@ -157,7 +157,7 @@ public class ImGuiController : IDisposable
     }
 
     /// <summary>
-    /// Gets or creates a handle for a texture to be drawn with ImGui.
+    /// Gets or creates a handle for a Texture to be drawn with ImGui.
     /// Pass the returned handle to Image() or ImageButton().
     /// </summary>
     public nint GetOrCreateImGuiBinding(ResourceFactory factory, TextureView textureView)
@@ -177,7 +177,7 @@ public class ImGuiController : IDisposable
     private nint GetNextImGuiBindingId() => _lastAssignedId++;
 
     /// <summary>
-    /// Gets or creates a handle for a texture to be drawn with ImGui.
+    /// Gets or creates a handle for a Texture to be drawn with ImGui.
     /// Pass the returned handle to Image() or ImageButton().
     /// </summary>
     public nint GetOrCreateImGuiBinding(ResourceFactory factory, Texture texture)
@@ -193,7 +193,7 @@ public class ImGuiController : IDisposable
     }
 
     /// <summary>
-    /// Retrieves the shader texture binding for the given helper handle.
+    /// Retrieves the shader Texture binding for the given helper handle.
     /// </summary>
     public ResourceSet GetImageResourceSet(nint imGuiBinding)
     {
@@ -216,7 +216,7 @@ public class ImGuiController : IDisposable
     }
 
     /// <summary>
-    /// Recreates the device texture used to render text.
+    /// Recreates the device Texture used to render text.
     /// </summary>
     public void RecreateFontDeviceTexture(GraphicsDevice gd)
     {

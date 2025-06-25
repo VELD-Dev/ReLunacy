@@ -1,4 +1,5 @@
-﻿using ImGuiNET;
+﻿using Bliss.CSharp.Interact;
+using ImGuiNET;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -34,8 +35,8 @@ internal class FileSelectionDialog : Frame
         {
             try
             {
-                if (ImGui.GetClipboardText() != null)
-                    levelPath = ImGui.GetClipboardText();
+                if (Input.GetClipboardText() != null)
+                    levelPath = Input.GetClipboardText();
             }
             catch (Exception e)
             {

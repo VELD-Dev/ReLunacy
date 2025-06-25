@@ -5,6 +5,9 @@
     "GUI_Common_CancelWord": "Cancel",
     "GUI_Common_CloseWord": "Close",
     "GUI_Common_LoadWord": "Load Level",
+    "GUI_Frame_AssetViewer": "Asset Viewer",
+    "GUI_Frame_AssetViewer_MobyTab": "Mobys",
+    "GUI_Frame_AssetViewer_Tab": "Assets",
     "GUI_Frame_EditorSettings": "Editor Settings",
     "GUI_Frame_EditorSettings_CameraSettings": "Camera settings",
     "GUI_Frame_EditorSettings_CameraShiftSpeed": "Camera shift speed",
@@ -45,6 +48,13 @@
     "GUI_Frame_OpenLevel_LevelPath": "Level Path",
     "GUI_Frame_OpenLevel_PasteClipboard": "Paste",
     "GUI_Frame_TextureExplorer": "Textures Explorer",
+    "GUI_Frame_TextureExplorer_Preview_ExportPNG": "Export as PNG",
+    "GUI_Frame_TextureExplorer_Preview_ExportRaw": "Export raw data",
+    "GUI_Frame_TextureExplorer_Preview_TextureBufferSize": "Buffer Size",
+    "GUI_Frame_TextureExplorer_Preview_TextureCompressionType": "Compression Format",
+    "GUI_Frame_TextureExplorer_Preview_TextureDimensions": "Dimensions",
+    "GUI_Frame_TextureExplorer_Preview_TextureName": "Name",
+    "GUI_Frame_TextureExplorer_Preview_TextureSizeOnDisk": "Size on Disk",
     "GUI_Frame_TextureExplorer_SearchHint": "Search among {0} textures...",
     "GUI_Frame_TextureExplorer_SearchLabel": "Search",
     "GUI_Frame_View3D": "3D View",
@@ -92,6 +102,6 @@
     "GUI_Overlay_VramUsage": "VRAM Usage",
     "GUI_TransformTools_Rotation": "Rotation",
     "GUI_TransformTools_Scale": "Scale",
-    "GUI_TransformTools_Translation": "Translation",
+    "GUI_TransformTools_Translation": "Translation"
   }
 }

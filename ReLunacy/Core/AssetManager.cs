@@ -25,9 +25,9 @@ public class AssetManager : IDisposable
 
     public AssetManager(LunaLoader loader, GraphicsDevice gd)
     {
-        BlockDecoder dxt1Decoder = BlockDecoder.Create(BlockFormat.BC1);
-        BlockDecoder dxt3Decoder = BlockDecoder.Create(BlockFormat.BC3);
-        BlockDecoder dxt5Decoder = BlockDecoder.Create(BlockFormat.BC5U);
+        BlockDecoder BC1Decoder = BlockDecoder.Create(BlockFormat.BC1);
+        BlockDecoder BC2Decoder = BlockDecoder.Create(BlockFormat.BC2);
+        BlockDecoder BC3Decoder = BlockDecoder.Create(BlockFormat.BC3);
         foreach (var texture in loader.Textures)
         {
             byte[] realData;
@@ -41,13 +41,13 @@ public class AssetManager : IDisposable
                     realData = TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT1:
-                    realData = dxt1Decoder.Decode(width, height, texture.Value.data);
+                    realData = BC1Decoder.Decode(width, height, texture.Value.data);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT3:
-                    realData = dxt3Decoder.Decode(width, height, texture.Value.data);
+                    realData = BC2Decoder.Decode(width, height, texture.Value.data);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT5:
-                    realData = dxt5Decoder.Decode(width, height, texture.Value.data);
+                    realData = BC3Decoder.Decode(width, height, texture.Value.data);
                     break;
                 default:
                     LunaLog.LogWarn("Unknown compression format ! Skipping texture.");
@@ -56,7 +56,7 @@ public class AssetManager : IDisposable
             }
 
             var image = new Image(width, height, realData);
-            Textures[texture.Key] = new Texture2D(gd, image);
+            Textures[texture.Key] = new Texture2D(gd, image, true);
         }
 
         foreach (var shader in loader.Shaders)
