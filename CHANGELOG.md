@@ -7,25 +7,25 @@ Because the European date format is better, please keep date format like this: `
 
 [View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.03..0.04)
 - Rewrote entirely the file reading library. Reading speeds have been significantly improved, especially on old-engine levels.
-- Made a new rendering engine, running under OpenGL 4.4.0, based on Replanetizer's rendering engine.
-- Updated ImGui.NET version from 1.89 to 1.91, fixing some bugs and improving the UI.
-- Rewrote the ImGuiController for the new version of ImGui.NET, credits to @NogginBops for the code, it greatly helped, because the original one was totally broken.
+- Switched rendering engine to [Bliss Rendering Framework](), running the app under **Vulkan**.
+- Updated ImGui.NET version from 1.89 to 1.91.6, fixing some bugs and improving the UI.
+- New ImGuiController, copied from Sparkle Engine.
 - Updated .NET version from 8.0 to 9.0, improving performances.
 - Added Frustrum Culling, improving performances on levels.
-- Made a new transform system, fixing previous rotation bugs.
 - Added a new logging system, logging everything to a file (except the errors, will be fixed in a future release)
 - Added a new `Logs` frame, showing the logs output.
 - Created internal Entity types based off their real types, increasing editor flexibility and reliability.
-- [TO BE DONE] Added a new `Asset view` frame, allowing to isolate an entity and its data on a separate frame, showing its model in its own frame. It will also allow to export objects as `.gltf`, `.obj` and `.dae` models in the future.
+- [TO BE DONE] Added a new `Asset View` frame, allowing to isolate an entity and its data on a separate frame, showing its model in its own frame. It will also allow to export objects as `.gltf`, `.obj` and `.dae` models in the future.
+- Added a new `Texture Explorer` frame, allowing to inspect a texture and its data on a separate frame, and export its raw data or export them as `.bmp` and `.png`
 - Added bases for animations and animations viewing in the Asset view.
-- Added basic transform tools to interact with assets directly from the 3D View.
+- [TO BE DONE] Added basic transform tools to interact with assets directly from the 3D View.
 - Added frames rounding and removed frames borders, making the UI more modern and pleasant for the eyes.
 - [TO BE DONE] Edited Update frame, it will now show a frame telling that there is no newer version too.
 - Added a loading modal when loading a level, showing the precise progress of the level loading, with all the detailed steps.
 - A few fixes for UFrags on old engine.
-- Rewrote Textures reading and implemented their original mipmaps as internal mipmaps, slightly improving performances when far away from texture.
+- Rewrote Textures reading, it is much faster than before.
 - Rewrote the Asset Loader, the new one loads levels much faster and has everything explicitly defined, making it easier to understand as contributor.
-- Modified the rendering technique, will now render elements individually instead of using instancing. Slightly decreases performances but allows for more flexibility, especially when moving objects or when selecting objects.
+- Modified the rendering technique thanks to Bliss, will now render elements individually instead of using instancing. Slightly decreases performances but allows for more flexibility, especially when moving objects or when selecting objects.
 - Fixed a bug that was showing a padding or a black border around the whole viewport.
 - Fixed black borders around the 3D view inside the frame.
 - Instance Properties frame now shows the vertices of the object (will be moved to Asset View).

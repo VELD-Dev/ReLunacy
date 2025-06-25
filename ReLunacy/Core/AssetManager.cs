@@ -35,10 +35,10 @@ public class AssetManager : IDisposable
             switch(texture.Value.TexFormat)
             {
                 case LibLunacy.Textures.TextureFormat.R5G6B5:
-                    realData = TextureUtils.RGB565ToRGBA8888(texture.Value.data, width, height);
+                    realData = texture.Value.data; //TextureUtils.RGB565ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.A8R8G8B8:
-                    realData = TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
+                    realData = texture.Value.data; //TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT1:
                     realData = BC1Decoder.Decode(width, height, texture.Value.data);

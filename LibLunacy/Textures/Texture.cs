@@ -141,7 +141,7 @@ namespace LibLunacy.Textures
             {
                 var index = MortonSwizzle(i, (int)Width, (int)Height);
                 stream.Read(pixel);
-                if (TexFormat == TextureFormat.A8R8G8B8) pixel.Reverse(); // ABGR -> RGBA
+                //if (TexFormat == TextureFormat.A8R8G8B8) pixel.Reverse(); // ABGR -> RGBA
                 pixel.CopyTo(data.AsSpan(pixelSize * i));
             }
         }

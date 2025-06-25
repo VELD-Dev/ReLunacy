@@ -1,4 +1,5 @@
-﻿using Bliss.CSharp.Textures;
+﻿using Bliss.CSharp.Images;
+using Bliss.CSharp.Textures;
 using ImGuiNET;
 using LibLunacy.Textures;
 using ReLunacy.Utility;
@@ -125,7 +126,10 @@ public class TexturesExplorer : DockedFrame
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
 
-                    selection.BlissTexture.Images[0].SaveAsPng(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".png" : $"Tex_{selectedTexture}.png"));
+                    var clone = (Image)selection.BlissTexture.Images[0].Clone();
+                    if (selection.Texture.TexFormat > TextureFormat.A8R8G8B8)
+                        clone.FlipVertical();
+                    clone.SaveAsPng(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".png" : $"Tex_{selectedTexture}.png"));
                 }
             }
             ImGui.EndChild();
