@@ -32,4 +32,11 @@ internal static class RenderMenuDraw
 
         EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
     }
+
+    internal static void ShowBoundingSpheres()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres, !Program.Settings.LegacyRenderingMode)) return;
+
+        EntityManager.Singleton.renderBoundingSpheres = !EntityManager.Singleton.renderBoundingSpheres;
+    }
 }

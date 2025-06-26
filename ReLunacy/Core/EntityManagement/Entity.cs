@@ -1,4 +1,5 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
+using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Materials;
@@ -6,6 +7,7 @@ using Bliss.CSharp.Textures;
 using Bliss.CSharp.Transformations;
 using LibLunacy.Objects;
 using LibLunacy.Objects.Instances;
+using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,7 +37,7 @@ public abstract class Entity : IDisposable
     public bool allowRender = true;
     public bool selected = false;
     public abstract Transform Transform { get; protected set; }
-    public abstract Vector4 BoundingSphere { get; }
+    public abstract Vector4 BoundingSphere { get; set; }
     public abstract string Name { get; protected set; }
 
     public Entity()
@@ -44,6 +46,11 @@ public abstract class Entity : IDisposable
     }
 
     public abstract void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer);
+
+    public virtual void DrawBoundingSphere(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
+    {
+        immediateRenderer.DrawSphereWires(commandList, outputDescription, new Transform() { Translation = BoundingSphere.GetXYZ() }, BoundingSphere.W, 8, 8, Color.Cyan);
+    }
 
     public virtual void Dispose() {}
 }

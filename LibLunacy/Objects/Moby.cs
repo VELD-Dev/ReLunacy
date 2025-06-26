@@ -32,10 +32,12 @@ public class Moby : IDisposable
         mobyStream = stream;
 
         var igFile = new IGFile(mobyStream);
-        IGFile.SectionHeader section = igFile.QuerySection(NewMoby.ID); // Old and new mobys have the same section ID
-        if(section.length != 0x100)
+        IGFile.SectionHeader section = igFile.QuerySection(OldMoby.ID); // Old and new mobys have the same section ID
+        if (section.length == 0x100)
+            mobyStream.Seek(section.offset);
+        else
+            mobyStream.Seek(section.offset + OldMoby.Size * index);
 
-        mobyStream.Seek(section.offset);
         ReadMoby(isOld: section.length != 0x100, index);
 
         if(!IsOld)

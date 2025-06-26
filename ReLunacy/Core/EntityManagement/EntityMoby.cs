@@ -1,4 +1,5 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
+using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Materials;
@@ -21,7 +22,7 @@ public class EntityMoby : Entity
     public override string Name { get; protected set; }
     public Model[] Models { get; private set; }
 
-    public override Vector4 BoundingSphere => BaseMoby.BoundingSphere;
+    public override Vector4 BoundingSphere { get; set; }
 
     public EntityMoby(MobyInstance mobyInstance, AssetManager assetManager) : base()
     {
@@ -37,6 +38,8 @@ public class EntityMoby : Entity
             Rotation = rotationQuat,
             Scale = new(mobyInstance.instanceData.Scale)
         };
+
+        BoundingSphere = new(BaseMoby.BoundingSphere.XYZ + mobyInstance.instanceData.Position, BaseMoby.BoundingSphere.W);
 
         Name = mobyInstance.name != string.Empty ? mobyInstance.name.Split('/')[^1] : $"Moby_{BaseMoby.TUID:X}_{(mobyInstance.metadata is not null ? mobyInstance.metadata?.group : ID)}";
 
@@ -56,9 +59,12 @@ public class EntityMoby : Entity
         if (Models is null)
             return;
 
+        if (EntityManager.Singleton.renderBoundingSpheres)
+            DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
+
         foreach (Model model in Models)
         {
-            model.Draw(commandList, Transform, outputDescription);
+            model.Draw(commandList, Transform, outputDescription, null, null, new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, true, true));
         }
 
         EntitiesRenderedThisFrame++;

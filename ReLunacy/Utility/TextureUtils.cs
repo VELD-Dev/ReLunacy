@@ -50,7 +50,7 @@ public static class TextureUtils
         if (rawData.Length / PIXEL_SIZE != width * height)
             throw new InvalidOperationException($"Pixel count does not match the raw data size ! ({rawData.Length / PIXEL_SIZE} pixels, but {width * height} pixels expected)");
 
-        for(int i = 0; i < size; i +=4)
+        for(int i = 0; i < size; i += PIXEL_SIZE)
         {
             result[i + 0] = rawData[i + 1];
             result[i + 1] = rawData[i + 2];
@@ -60,6 +60,66 @@ public static class TextureUtils
         }
 
         return result;
+    }
+
+    public enum Colours
+    {
+        Red = 0,
+        Green = 1,
+        Blue = 2,
+        Alpha = 3,
+    }
+
+    public static byte[] ColourAsMain(in byte[] rawData, Colours colourFilter)
+    {
+        const int PIXEL_SIZE = 4;
+
+        if (rawData.Length % PIXEL_SIZE != 0)
+            throw new InvalidOperationException($"This image does not have the right count of bytes !");
+
+        byte[] result = new byte[rawData.Length];
+
+        for (int i = 0; i < rawData.Length; i += PIXEL_SIZE)
+        {
+            result[i + 0] = rawData[i + (int)colourFilter];
+            result[i + 1] = rawData[i + (int)colourFilter];
+            result[i + 2] = rawData[i + (int)colourFilter];
+            result[i + 3] = 0xFF;
+        }
+
+        return result;
+    }
+
+    public static Image ColourAsMain(this Image img, Colours colourFilter)
+    {
+        for(int y = 0; y < img.Height; y++)
+            for(int x = 0; x < img.Width; x++)
+            {
+                Color currCol = img.GetColor(x, y);
+                byte pxlCol;
+                switch(colourFilter)
+                {
+                    case Colours.Red:
+                        pxlCol = currCol.R;
+                        break;
+                    case Colours.Green:
+                        pxlCol = currCol.G;
+                        break;
+                    case Colours.Blue:
+                        pxlCol = currCol.B;
+                        break;
+                    case Colours.Alpha:
+                        pxlCol = currCol.A;
+                        break;
+                    default:
+                        pxlCol = 0;
+                        break;
+                }
+
+                img.SetPixel(x, y, new(pxlCol, pxlCol, pxlCol, 0xFF));
+            }
+
+        return img;
     }
 
     public static byte[] RGB565ToRGBA8888(in byte[] rawData, int width, int height)

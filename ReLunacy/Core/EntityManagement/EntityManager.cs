@@ -26,6 +26,8 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderVolumes = true;
 
+    public bool renderBoundingSpheres = false;
+
     private bool initialized = false;
 
     #region Counts

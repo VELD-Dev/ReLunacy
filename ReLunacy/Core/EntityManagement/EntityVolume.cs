@@ -21,7 +21,7 @@ public class EntityVolume : Entity
 
     public override Transform Transform { get; protected set; }
 
-    public override Vector4 BoundingSphere => Vector4.Zero;
+    public override Vector4 BoundingSphere { get; set; } = Vector4.Zero;
     public BoundingBox boundingBox;
 
     public override string Name { get => throw new NotImplementedException(); protected set => throw new NotImplementedException(); }

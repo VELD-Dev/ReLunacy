@@ -4,21 +4,16 @@ using ImGuiNET;
 using LibLunacy.Textures;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
 public record struct TextureObject
 {
-    public TextureObject(nint texturePtr, Texture lunaTexture, Texture2D tex2d)
+    public TextureObject(Texture lunaTexture, Texture2D tex2d)
     {
         Texture = lunaTexture;
-        TexturePtr = texturePtr;
+        TexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
         BlissTexture = tex2d;
     }
 
@@ -40,6 +35,7 @@ public class TexturesExplorer : DockedFrame
     private List<TextureObject> textureObjects = [];
 
     private int selectedTexture = -1;
+    private nint selectedTexturePtr = nint.Zero;
 
     public TexturesExplorer() : base()
     {
@@ -53,8 +49,7 @@ public class TexturesExplorer : DockedFrame
         {
             var tex = textures[i];
             var lunaTex = loader.Textures.Values.ToArray()[i];
-            var handle = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex.DeviceTexture);
-            textureObjects.Add(new(handle, lunaTex, tex));
+            textureObjects.Add(new(lunaTex, tex));
         }
     }
 
@@ -73,12 +68,11 @@ public class TexturesExplorer : DockedFrame
                 var texobj = textureObjects[i];
                 if (i > 0 && i % columns == 0) ImGui.Spacing();
 
-
-
                 ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
                 if (ImGui.IsItemClicked())
                 {
                     selectedTexture = i;
+                    selectedTexturePtr = texobj.TexturePtr;
                 }
                 ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
 
@@ -94,7 +88,33 @@ public class TexturesExplorer : DockedFrame
             {
                 var selection = textureObjects[selectedTexture];
 
-                ImGui.Image(selection.TexturePtr, new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX);
+                ImGui.Image(selectedTexturePtr, new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX);
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_SelectColorChannel"));
+                ImGui.SameLine();
+                // Optimizations will be done by making copies of these channels only when the texture is selected.
+                if(ImGui.Button("All"))
+                {
+                    selectedTexturePtr = selection.TexturePtr;
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("R"))
+                {
+                }
+                ImGui.SameLine();
+                if(ImGui.Button("G"))
+                {
+                }
+                ImGui.SameLine();
+                if(ImGui.Button("B"))
+                {
+                }
+                if(selection.Texture.TexFormat != TextureFormat.DXT1 && selection.Texture.TexFormat != TextureFormat.R5G6B5)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.Button("A"))
+                    {
+                    }
+                }
                 ImGui.Separator();
                 ImGui.BeginGroup();
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureName"));
@@ -119,7 +139,7 @@ public class TexturesExplorer : DockedFrame
 
                     File.WriteAllBytes(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".raw" : $"Tex_{selectedTexture}.raw"), selection.Texture.data);
                 }
-
+                ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
                 {
                     var path = Path.Combine(Program.EditorPath, "Extracted");

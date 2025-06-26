@@ -247,10 +247,10 @@ public class LunaWindow : Disposable
             GetFirstFrame<BasicEntityExplorer>();//.SetEntities(EntityManager.Singleton.GetAllEntities());
         var loadModal = GetFirstFrame<LoadingModal>();
         if (IsAnyFrameOpened<TexturesExplorer>())
-            GetFirstFrame<TexturesExplorer>().TransmitTextures(AssetManager, Loader);
+            Task.Run(() => GetFirstFrame<TexturesExplorer>().TransmitTextures(AssetManager, Loader));
 
         if (IsAnyFrameOpened<AssetViewer>())
-            GetFirstFrame<AssetViewer>().TransmitAssets(AssetManager, Loader);
+            Task.Run(() => GetFirstFrame<AssetViewer>().TransmitAssets(AssetManager, Loader));
 
         if (loadModal is null)
             return;
@@ -366,6 +366,7 @@ public class LunaWindow : Disposable
             RenderMenuDraw.ShowTies();
             RenderMenuDraw.ShowUFrags();
             RenderMenuDraw.ShowVolumes();
+            RenderMenuDraw.ShowBoundingSpheres();
             ImGui.EndMenu();
         }
 

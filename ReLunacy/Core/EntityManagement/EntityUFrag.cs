@@ -18,7 +18,7 @@ public class EntityUFrag : Entity
 {
     public readonly UFrag UFrag;
     public override Transform Transform { get; protected set; }
-    public override Vector4 BoundingSphere => UFrag.metadata.boundingSphere;
+    public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
     
     public Mesh UFragMesh { get; protected set; }
@@ -35,6 +35,8 @@ public class EntityUFrag : Entity
             Rotation = Quaternion.Identity,
             Scale = new Vector3(1f / 0x100)
         };
+
+        BoundingSphere = UFrag.metadata.boundingSphere;
     }
 
     public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
@@ -44,6 +46,9 @@ public class EntityUFrag : Entity
 
         if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
             return;
+
+        if (EntityManager.Singleton.renderBoundingSpheres)
+            DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
         UFragMesh.Draw(commandList, Transform, outputDescription);
         EntitiesRenderedThisFrame++;

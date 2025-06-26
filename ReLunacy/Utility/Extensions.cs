@@ -14,10 +14,10 @@ public static class Extensions
     public const float YardToMeter = 0.914402f;
     public const float MeterToYard = 1.093611f;
 
-    public static Vertex3D FromVert0(this VertexFormat0 vert)
+    public static Vertex3D FromVert0(this VertexFormat0 vert, float scale = 1f)
     {
         return new Vertex3D(
-            new (vert.position.Item1, vert.position.Item2, vert.position.Item3),
+            new (vert.position.Item1 * scale, vert.position.Item2 * scale, vert.position.Item3 * scale),
             Vector4.Zero,
             new UInt4((uint)vert.boneIndex),
             new((float)vert.UVs.Item1, (float)vert.UVs.Item2),
@@ -28,10 +28,10 @@ public static class Extensions
         );
     }
 
-    public static Vertex3D FromVert1(this VertexFormat1 vert)
+    public static Vertex3D FromVert1(this VertexFormat1 vert, float scale = 1f)
     {
         return new Vertex3D(
-            new(vert.position.Item1, vert.position.Item2, vert.position.Item3),
+            new(vert.position.Item1 * scale, vert.position.Item2 * scale, vert.position.Item3 * scale),
             new(1f / vert.weights.Item1, 1f / vert.weights.Item2, 1f / vert.weights.Item3, 1f / vert.weights.Item4),
             new(vert.bones.Item1, vert.bones.Item2, vert.bones.Item3, vert.bones.Item4),
             new((float)vert.UVs.Item1, (float)vert.UVs.Item2),
@@ -65,14 +65,14 @@ public static class Extensions
     public static Vector2 GetCenterF(this Rectangle rect) => new(rect.Width / 2f, rect.Height / 2f);
     public static Int2 GetCenterI(this Rectangle rect) => new(rect.Width / 2, rect.Height / 2);
 
-    public static Vertex3D[] ToVert3D(this IEnumerable<VertexFormat0> verts)
+    public static Vertex3D[] ToVert3D(this IEnumerable<VertexFormat0> verts, float scale = 1f)
     {
-        return [.. verts.Select(vert => vert.FromVert0())];
+        return [.. verts.Select(vert => vert.FromVert0(scale))];
     }
 
-    public static Vertex3D[] ToVert3D(this IEnumerable<VertexFormat1> verts)
+    public static Vertex3D[] ToVert3D(this IEnumerable<VertexFormat1> verts, float scale = 1f)
     {
-        return [.. verts.Select(vert => vert.FromVert1())];
+        return [.. verts.Select(vert => vert.FromVert1(scale))];
     }
 
     public static Vertex3D[] ToVert3D(this IEnumerable<UFragVertex> verts)

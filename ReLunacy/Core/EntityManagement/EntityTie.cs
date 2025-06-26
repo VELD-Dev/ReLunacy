@@ -21,7 +21,7 @@ public class EntityTie : Entity
     public readonly Tie BaseTie;
 
     public override Transform Transform { get => throw new NotImplementedException(); protected set => throw new NotImplementedException(); }
-    public override Vector4 BoundingSphere { get; }
+    public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
     public Model Model { get; private set; }
@@ -50,6 +50,9 @@ public class EntityTie : Entity
 
         if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
             return;
+
+        if (EntityManager.Singleton.renderBoundingSpheres)
+            DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
         Model.Draw(commandList, Transform, outputDescription);
         EntitiesRenderedThisFrame++;

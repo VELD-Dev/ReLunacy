@@ -85,7 +85,7 @@ internal static class ViewMenuDraw
         {
             var frame = new TexturesExplorer();
             if (LunaWindow.Instance.AssetManager is not null && LunaWindow.Instance.Loader is not null && LunaWindow.Instance.AssetManager.Textures.Count > 0)
-                frame.TransmitTextures(LunaWindow.Instance.AssetManager, LunaWindow.Instance.Loader);
+                Task.Run(() => frame.TransmitTextures(LunaWindow.Instance.AssetManager, LunaWindow.Instance.Loader));
             LunaWindow.Instance.AddFrame(frame);
         }
     }

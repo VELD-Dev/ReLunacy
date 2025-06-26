@@ -64,7 +64,9 @@ public class AssetManager : IDisposable
             var material = new Material(gd, GlobalResource.DefaultModelEffect, BlendStateDescription.SINGLE_ALPHA_BLEND);
             if (shader.Value.metadata.albedo != 0)
                 material.AddMaterialMap("fAlbedo", new MaterialMap(Textures[shader.Value.metadata.albedo]));
-            if(shader.Value.metadata.expensive != 0)
+            else
+                material.AddMaterialMap("fAlbedo", new MaterialMap(GlobalResource.DefaultModelTexture));
+            if (shader.Value.metadata.expensive != 0)
                 material.AddMaterialMap("expensive", new MaterialMap(Textures[shader.Value.metadata.expensive]));
             if(shader.Value.metadata.normal != 0)
                 material.AddMaterialMap("normal", new MaterialMap(Textures[shader.Value.metadata.normal]));
@@ -75,6 +77,7 @@ public class AssetManager : IDisposable
         {
             var models = new Model[moby.Value.BanglesCount];
 
+            LunaLog.LogDebug($"Moby_{moby.Key:X} has {moby.Value.BanglesCount} bangles");
             for(int i = 0; i < moby.Value.BanglesCount; i++)
             {
                 var bangle = moby.Value.Bangles[i];
@@ -86,7 +89,7 @@ public class AssetManager : IDisposable
                     var mesh = new Mesh(
                         gd,
                         Materials[bangleMesh.shaderIndex],
-                        (bangleMesh.verticesType == 0 ? bangleMesh.vertices0.ToVert3D() : bangleMesh.vertices1.ToVert3D()),
+                        (bangleMesh.verticesType == 0 ? bangleMesh.vertices0.ToVert3D(moby.Value.Scale) : bangleMesh.vertices1.ToVert3D(moby.Value.Scale)),
                         [.. bangleMesh.indices.Select(n => (uint)n)]
                     );
                     meshes[j] = mesh;

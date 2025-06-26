@@ -26,13 +26,19 @@ public record struct MobyAsset
     {
         Moby = moby;
         Model = mobyModel;
+        RenderModelMap = new bool[Model.Length];
         MobyName = moby.TUID.ToString("X");
-        foreach (var m in Model)
-            foreach (var me in m.Meshes)
-                verticesCount += me.VertexCount;
+        for(int i = 0; i < Model.Length; i++)
+        {
+            var bangle = Model[i];
+            RenderModelMap[i] = true;
+            foreach (var bangmesh in bangle.Meshes)
+                verticesCount += bangmesh.VertexCount;
+        }
     }
 
     public Model[] Model;
+    public bool[] RenderModelMap;
     public Moby Moby;
     public string MobyName;
     public uint verticesCount;
@@ -141,25 +147,68 @@ public class AssetViewer : DockedFrame
 
             Camera.Begin();
 
-            if(selectedMobyAsset == null)
+            if (selectedMobyAsset == null)
                 immediateRenderer.DrawCube(commandList, renderTexture.Framebuffer.OutputDescription, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }, Vector3.One, Bliss.CSharp.Colors.Color.DarkGray);
             else
             {
-                foreach (var model in selectedMobyAsset.Value.Model)
-                    model.Draw(commandList, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }, renderTexture.Framebuffer.OutputDescription);
+                for (int i = 0; i < selectedMobyAsset.Value.Model.Length; i++) {
+                    var model = selectedMobyAsset.Value.Model[i];
+                    if (selectedMobyAsset.Value.RenderModelMap[i])
+                        model.Draw(commandList, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }, renderTexture.Framebuffer.OutputDescription);
+                }
             }
 
             Camera.End();
 
             commandList.End();
             graphicsDevice.SubmitCommands(commandList);
-            ImGui.Image(LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture), RenderFrameSize.GetSizeF(), Vector2.UnitY, Vector2.UnitY);
+            ImGui.Image(
+                LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
+                RenderFrameSize.GetSizeF(),
+                Vector2.UnitX,
+                Vector2.UnitY
+            );
         }
         ImGui.EndChild();
 
         ImGui.Text($"{RenderFrameSize.Width}x{RenderFrameSize.Height}");
         ImGui.Separator();
         ImGui.Text("Asset");
+
+        if(selectedMobyAsset != null)
+        {
+            var fields = selectedMobyAsset.Value.Moby.GetType().GetFields();
+            var properties = selectedMobyAsset.Value.Moby.GetType().GetProperties();
+            ImGui.BeginGroup();
+            foreach(var field in fields)
+            {
+                ImGui.Text(field.Name);
+            }
+            foreach(var prop in properties)
+            {
+                ImGui.Text(prop.Name);
+            }
+            ImGui.EndGroup();
+            ImGui.SameLine();
+            ImGui.BeginGroup();
+            foreach(var field in fields)
+            {
+                ImGui.Text((field.GetValue(selectedMobyAsset.Value.Moby) ?? "null").ToString());
+            }
+            foreach(var prop in properties)
+            {
+                ImGui.Text((prop.GetValue(selectedMobyAsset.Value.Moby) ?? "null").ToString());
+            }
+            ImGui.EndGroup();
+            if(ImGui.BeginChild("moby_bangles_switches", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+            {
+                for (int i = 0; i < selectedMobyAsset.Value.RenderModelMap.Length; i++)
+                {
+                    ImGui.Checkbox($"Bangle_{i}", ref selectedMobyAsset.Value.RenderModelMap[i]);
+                }
+            }
+            ImGui.EndChild();
+        }
 
         ImGui.EndGroup();
     }
@@ -188,8 +237,10 @@ public class AssetViewer : DockedFrame
         bool isMouseInCntReg = RenderFrameSize.Contains(absMousePos);
         bool isRotating = CheckRotationInput(deltaTime, isMouseInCntReg);
 
-        //if (!isRotating && !(isHoveringWnd && isMouseInCntReg))
-        //    return;
+        if (!isRotating && !(isHoveringWnd && isMouseInCntReg))
+            return;
+
+        Camera.Update(deltaTime);
     }
 
     private bool CheckRotationInput(double deltaTime, bool allowGrab)
@@ -205,6 +256,7 @@ public class AssetViewer : DockedFrame
             return false;
         }
 
+        /*
         Vector2 rot = Input.GetMouseDelta();
         rot *= Program.Settings.CamSensivity;
 
@@ -215,6 +267,8 @@ public class AssetViewer : DockedFrame
 
         Camera.SetPitch(Camera.GetPitch() + rot.Y, false);
         Camera.SetYaw(Camera.GetYaw() - rot.X, false);
+        */
+
         InvalidateView();
         return true;
     }

@@ -1,4 +1,5 @@
-﻿using Bliss.CSharp.Camera.Dim3;
+﻿using Bliss.CSharp;
+using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Interact;
@@ -54,7 +55,7 @@ public class View3D : DockedFrame
             300f / 300f,
             Vector3.UnitY,
             ProjectionType.Perspective, 
-            CameraMode.FirstPerson,
+            CameraMode.Custom,
             Program.Settings.CamFOV,
             0.01f,
             Program.Settings.RenderDistance
@@ -79,6 +80,7 @@ public class View3D : DockedFrame
         commandList.ClearDepthStencil(1.0f);
 
         Camera.Begin();
+        Camera.Update(deltaTime);
 
         EntityManager.Singleton.Draw(renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
 
@@ -89,8 +91,8 @@ public class View3D : DockedFrame
         ImGui.Image(
             LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
             new(renderTexture.Width, renderTexture.Height),
-            Vector2.UnitY,
-            Vector2.UnitX
+            Vector2.UnitX,
+            Vector2.UnitY
         );
     }
 
@@ -261,8 +263,8 @@ public class View3D : DockedFrame
         Vector2 rot = Input.GetMouseDelta();
         rot *= Program.Settings.CamSensivity;
 
-        Camera.SetPitch(Camera.GetPitch() + rot.Y, false);
-        Camera.SetYaw(Camera.GetYaw() - rot.X, false);
+        Camera.SetPitch(Camera.GetPitch() - rot.Y, false);
+        Camera.SetYaw(Camera.GetYaw() + rot.X, false);
         InvalidateView();
         return true;
     }
@@ -276,6 +278,7 @@ public class View3D : DockedFrame
         {
             deltaPosition *= moveSpeed * (float)deltaTime;
             Camera.Position += deltaPosition;
+            Camera.Target += deltaPosition;
             InvalidateView();
         }
     }
@@ -288,8 +291,8 @@ public class View3D : DockedFrame
         if (Input.IsKeyDown(KeyboardKey.S)) dir -= Camera.GetForward();
         if (Input.IsKeyDown(KeyboardKey.A)) dir += Camera.GetRight();
         if (Input.IsKeyDown(KeyboardKey.D)) dir -= Camera.GetRight();
-        if (Input.IsKeyDown(KeyboardKey.Q)) dir += Camera.Up;
-        if (Input.IsKeyDown(KeyboardKey.E)) dir -= Camera.Up;
+        if (Input.IsKeyDown(KeyboardKey.Q)) dir -= Camera.Up;
+        if (Input.IsKeyDown(KeyboardKey.E)) dir += Camera.Up;
 
         dir = new Vector3(dir.X / dir.Length(), dir.Y / dir.Length(), dir.Z / dir.Length());
 

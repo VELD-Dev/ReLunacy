@@ -636,6 +636,7 @@ public class LunaLoader : IDisposable
 
                     indexStream.Seek(mesh.indicesOffset);
                     mesh.ReadIndicesBuffer(indexStream);
+                    LunaLog.LogDebug($"[ {mesh.indices.Stringify(",")} ]");
                 }
             }
 
