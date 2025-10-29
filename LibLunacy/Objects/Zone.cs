@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Objects.Instances;
 using LibLunacy.Vertices;
 using System;
@@ -20,7 +21,7 @@ namespace LibLunacy.Objects
         public string Name => metadata.name;
         public UFrag[] ufrags;
         public TieInstance[] tieInstances;
-        public LunaStream zoneStream;
+        public StreamHelper zoneStream;
         public IGFile zoneIGFile;
         public IGFile.SectionHeader tieInstanceSection;
         public IGFile.SectionHeader ufragSection;
@@ -28,10 +29,10 @@ namespace LibLunacy.Objects
         public IGFile.SectionHeader ufragIndxSection;
         public IGFile.SectionHeader ufragShdrSection;
 
-        public Zone(LunaStream stream, bool old = false)
+        public Zone(StreamHelper sh, bool old = false)
         {
-            zoneStream = stream;
-            zoneIGFile = new IGFile(stream);
+            zoneStream = sh;
+            zoneIGFile = new IGFile(sh.BaseStream);
             isOld = old;
 
             if(isOld)

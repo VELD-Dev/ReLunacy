@@ -1,82 +1,55 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Numerics;
 using System.Buffers;
 using System.Buffers.Binary;
 
 namespace LibLunacy.Objects;
 
+[FileStructure(0x100)]
 public record struct NewMoby : IMoby
 {
     public const uint PointerID = 0x1D600;
     public const uint ID = 0xD100;
     public const uint Size = 0x100;
 
-    public Vec4 boundingSphere;  // Relative
-    public uint Unk1;
-    public uint Unk2;
-    public ushort bangleCount1;
-    public ushort bangleCount2;
-    public ushort bonesCount1;
-    public ushort bonesCount2;
-    public uint Unk3;
-    public uint banglesPointer;
-    public uint skeletonPointer;  // new engine only
-    public uint UnkPointer1;
-    public uint transformPointer;
-    public byte[] Unk4;  // 1C
-    public ulong animsetTuid;
-    public byte[] Unk5;  // 10
-    public uint UnkPointer2;
-    public uint Unk6;
-    public float scale;
-    public uint Unk7;
-    public uint Unk8;
-    public float Unk9;
-    public float Unk10;
-    public uint UnkPointer3;
-    public uint UnkPointer4;
-    public byte[] Unk11;
-    public ulong TUID { get; init; }
-    public uint namePointer;
-    public byte[] Unk12;
+    [FileOffset(0x00)] public Vec4 boundingSphere;  // Relative
+    [FileOffset(0x10)] public uint Unk1;
+    [FileOffset(0x14)] public uint Unk2;
+    [FileOffset(0x18)] public ushort bangleCount1;
+    [FileOffset(0x1A)] public ushort bangleCount2;
+    [FileOffset(0x1C)] public ushort bonesCount1;
+    [FileOffset(0x1E)] public ushort bonesCount2;
+    [FileOffset(0x20)] public uint Unk3;
+    [FileOffset(0x24)] public uint banglesPointer;
+    [FileOffset(0x28)] public uint skeletonPointer;  // new engine only
+    [FileOffset(0x2C)] public uint UnkPointer1;
+    [FileOffset(0x30)] public uint transformPointer;
+    [FileOffset(0x34)] [Reference(0x1C)] public byte[] Unk4;
+    [FileOffset(0x50)] public ulong animsetTuid;
+    [FileOffset(0x58)] [Reference(0x10)] public byte[] Unk5;
+    [FileOffset(0x68)] public uint UnkPointer2;
+    [FileOffset(0x6C)] public uint Unk6;
+    [FileOffset(0x70)] public float scale;
+    [FileOffset(0x74)] public uint Unk7;
+    [FileOffset(0x78)] public uint Unk8;
+    [FileOffset(0x7C)] public float Unk9;
+    [FileOffset(0x80)] public float Unk10;
+    [FileOffset(0x84)] public uint UnkPointer3;
+    [FileOffset(0x88)] public uint UnkPointer4;
+    [FileOffset(0x8C)] [Reference(0x24)] public byte[] Unk11;
+    public ulong TUID { get => _tuid; init => _tuid = value; }
+    [FileOffset(0xB0)] private ulong _tuid;
+    [FileOffset(0xB8)] public uint namePointer;
+    [FileOffset(0xBC)] [Reference(0x44)] public byte[] Unk12;
 
     public MobyBangle[] Bangles { get; set; }
 
-    public NewMoby(LunaStream stream)
+    public static NewMoby Read(StreamHelper sh)
     {
-        boundingSphere.X = stream.ReadSingle(0x00);
-        boundingSphere.Y = stream.ReadSingle(0x04);
-        boundingSphere.Z = stream.ReadSingle(0x08);
-        boundingSphere.W = stream.ReadSingle(0x0C);
-        Unk1 = stream.ReadUInt32(0x10);
-        Unk2 = stream.ReadUInt32(0x14);
-        bangleCount1 = stream.ReadUInt16(0x18);
-        bangleCount2 = stream.ReadUInt16(0x1A);
-        bonesCount1 = stream.ReadUInt16(0x1C);
-        bonesCount2 = stream.ReadUInt16(0x1E);
-        Unk3 = stream.ReadUInt32(0x20);
-        banglesPointer = stream.ReadUInt32(0x24);
-        skeletonPointer = stream.ReadUInt32(0x28);
-        UnkPointer1 = stream.ReadUInt32(0x2C);
-        transformPointer = stream.ReadUInt32(0x30);
-        Unk4 = stream.Peek(0x34, 0x1C);
-        animsetTuid = stream.ReadUInt64(0x50);
-        Unk5 = stream.Peek(0x58, 0x10);
-        UnkPointer2 = stream.ReadUInt32(0x68);
-        Unk6 = stream.ReadUInt32(0x6C);
-        scale = stream.ReadSingle(0x70);
-        Unk7 = stream.ReadUInt32(0x74);
-        Unk8 = stream.ReadUInt32(0x78);
-        Unk9 = stream.ReadSingle(0x7C);
-        Unk10 = stream.ReadSingle(0x80);
-        UnkPointer3 = stream.ReadUInt32(0x84);
-        UnkPointer4 = stream.ReadUInt32(0x88);
-        Unk11 = stream.Peek(0x8C, 0x24);
-        TUID = stream.ReadUInt64(0xB0);
-        namePointer = stream.ReadUInt32(0xB8);
-        Unk12 = stream.Peek(0xBC, 0x44);
-
-        Bangles = ArrayPool<MobyBangle>.Shared.Rent(bangleCount1);
+        var moby = FileUtils.ReadStructure<NewMoby>(sh);
+        moby.Bangles = ArrayPool<MobyBangle>.Shared.Rent(moby.bangleCount1);
+        return moby;
     }
 
     public readonly byte[] ToBytes(bool isOld, params object[]? additionalParams)

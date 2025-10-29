@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,51 +9,59 @@ using System.Threading.Tasks;
 namespace LibLunacy.Shaders
 {
     /// <summary>
-    /// On new engine, albedo, normal and expensive are indices stored as int but always positive.<br/>
-    /// On old engine, albedo, normal and expensive are offsets stored as uint and obviously,<br/>
-    /// absolute and always positive (it's unsigned)
+    /// Old engine: albedo, normal and expensive are offsets stored as uint
     /// </summary>
-    public record struct ShaderMetadata : ILunaSerializable
+    [FileStructure(0x80)]
+    public record struct ShaderMetadataOld : ILunaSerializable
     {
         public const uint ID = 0x5000;
         public const uint Size = 0x80;
-        public uint albedo;
-        public uint normal;
-        public uint expensive;
-        public byte[] Unk1;
-        public byte renderingMode;
-        public byte[] Unk2;
-        public float alphaClip;
-        public byte[] Unk3;
 
-        public readonly bool isOld;
+        [FileOffset(0x00)] public uint albedo;
+        [FileOffset(0x04)] public uint normal;
+        [FileOffset(0x08)] public uint expensive;
+        [FileOffset(0x0C)] [Reference(0x05)] public byte[] Unk1;
+        [FileOffset(0x11)] public byte renderingMode;
+        [FileOffset(0x12)] [Reference(0x0E)] public byte[] Unk2;  // includes 1 byte gap at 0x12
+        [FileOffset(0x20)] public float alphaClip;
+        [FileOffset(0x24)] [Reference(0x5C)] public byte[] Unk3;
 
-        public ShaderMetadata(LunaStream stream, bool old)
+        public byte renderingModeValue => renderingMode;
+
+        public static ShaderMetadataOld Read(StreamHelper sh)
         {
-            isOld = old;
+            return FileUtils.ReadStructure<ShaderMetadataOld>(sh);
+        }
 
-            if (isOld)
-            {
-                albedo = stream.ReadUInt32(0x00);
-                normal = stream.ReadUInt32(0x04);
-                expensive = stream.ReadUInt32(0x08);
-                Unk1 = stream.Peek(0x0C, 0x11 - 0x0C);
-                renderingMode = stream.Peek(0x11, 1)[0];
-                Unk2 = stream.Peek(0x13, 0x20 - 0x13);
-                alphaClip = stream.ReadSingle(0x20);
-                Unk3 = stream.Peek(0x24, 0x80 - 0x24);
-            }
-            else
-            {
-                albedo = (uint)stream.ReadInt32(0x00);
-                normal = (uint)stream.ReadInt32(0x04);
-                expensive = (uint)stream.ReadInt32(0x08);
-                Unk1 = stream.Peek(0x0C, 0x21 - 0x0C);
-                renderingMode = stream.Peek(0x21, 1)[0];
-                Unk2 = stream.Peek(0x23, 0x30 - 0x23);
-                alphaClip = stream.ReadSingle(0x30);
-                Unk3 = stream.Peek(0x34, 0x80 - 0x34);
-            }
+        public byte[] ToBytes(bool isOld, params object[]? additionalParams)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    /// <summary>
+    /// New engine: albedo, normal and expensive are indices stored as int
+    /// </summary>
+    [FileStructure(0x80)]
+    public record struct ShaderMetadataNew : ILunaSerializable
+    {
+        public const uint ID = 0x5000;
+        public const uint Size = 0x80;
+
+        [FileOffset(0x00)] public int albedo;
+        [FileOffset(0x04)] public int normal;
+        [FileOffset(0x08)] public int expensive;
+        [FileOffset(0x0C)] [Reference(0x15)] public byte[] Unk1;
+        [FileOffset(0x21)] public byte renderingMode;
+        [FileOffset(0x22)] [Reference(0x0E)] public byte[] Unk2;  // includes 1 byte gap at 0x22
+        [FileOffset(0x30)] public float alphaClip;
+        [FileOffset(0x34)] [Reference(0x4C)] public byte[] Unk3;
+
+        public byte renderingModeValue => renderingMode;
+
+        public static ShaderMetadataNew Read(StreamHelper sh)
+        {
+            return FileUtils.ReadStructure<ShaderMetadataNew>(sh);
         }
 
         public byte[] ToBytes(bool isOld, params object[]? additionalParams)

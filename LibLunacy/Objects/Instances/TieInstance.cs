@@ -1,29 +1,28 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Numerics;
 using System.Buffers;
 using System.Buffers.Binary;
 namespace LibLunacy.Objects.Instances
 {
+    [FileStructure(0x80)]
     public record struct TieInstance : ILunaSerializable
     {
         public const uint ID = 0x72C0;
         public const uint OldID = 0x9240;
         public const uint Size = 0x80;
 
-        public Mat4 transform;
-        public Vec4 boundingSphere;
+        [FileOffset(0x00)] public Mat4 transform;
+        [FileOffset(0x40)] public Vec4 boundingSphere;
         /// <summary>
         /// OldEngine: Index of the tie.<br/>NewEngine: Index of Tie TUID in section 0x7200
         /// </summary>
-        public uint tieIndex;
-        public byte[] Unk;
+        [FileOffset(0x50)] public uint tieIndex;
+        [FileOffset(0x54)] [Reference(0x2C)] public byte[] Unk;
 
-        public TieInstance(LunaStream stream)
+        public static TieInstance Read(StreamHelper sh)
         {
-            transform = stream.ReadMat4(0x00);
-            boundingSphere = stream.ReadVec4(0x40);
-            tieIndex = stream.ReadUInt32(0x50);
-            Unk = stream.Peek(0x54, 0x2C);
+            return FileUtils.ReadStructure<TieInstance>(sh);
         }
 
         public byte[] ToBytes(bool isOld, params object[]? additionalParams)

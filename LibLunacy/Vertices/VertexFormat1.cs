@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LibLunacy.Legacy;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -19,13 +20,13 @@ public record struct VertexFormat1
     public uint normal;
     public uint tangent;
 
-    public VertexFormat1(LunaStream stream)
+    public VertexFormat1(StreamHelper sh)
     {
-        position.Item1 = stream.ReadInt16(0x00);
-        position.Item2 = stream.ReadInt16(0x02);
-        position.Item3 = stream.ReadInt16(0x04);
-        Unk1 = stream.ReadInt16(0x06);
-        var buff = stream.Peek(0x08, 8);
+        position.Item1 = sh.ReadInt16((uint)0x00);
+        position.Item2 = sh.ReadInt16((uint)0x02);
+        position.Item3 = sh.ReadInt16((uint)0x04);
+        Unk1 = sh.ReadInt16((uint)0x06);
+        var buff = sh.ReadFromOffset(8, (uint)0x08);
         bones.Item1 = buff[0];
         bones.Item2 = buff[1];
         bones.Item3 = buff[2];
@@ -34,10 +35,11 @@ public record struct VertexFormat1
         weights.Item2 = buff[5];
         weights.Item3 = buff[6];
         weights.Item4 = buff[7];
-        UVs.Item1 = stream.ReadHalf(0x10);
-        UVs.Item2 = stream.ReadHalf(0x12);
-        normal = stream.ReadUInt32(0x14);
-        tangent = stream.ReadUInt32(0x18);
+        sh.Seek(0x10);
+        UVs.Item1 = sh.ReadHalf();
+        UVs.Item2 = sh.ReadHalf();
+        normal = sh.ReadUInt32((uint)0x14);
+        tangent = sh.ReadUInt32((uint)0x18);
     }
 
 

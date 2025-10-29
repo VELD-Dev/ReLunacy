@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Textures;
 using System;
 using System.Collections.Generic;
@@ -15,26 +16,33 @@ namespace LibLunacy.Shaders
 
         public ulong TUID { get; private set; }
         public string name;
-        public ShaderMetadata metadata;
+        public ShaderMetadataOld? metadataOld;
+        public ShaderMetadataNew? metadataNew;
         public ShaderReference? reference;
-        public LunaStream shaderStream;
+        public StreamHelper shaderStream;
+        public bool isOld;
 
         public Texture Albedo;
         public Texture Normal;
         public Texture Expensive;
-        public RenderingMode RenderingMode => (RenderingMode)metadata.renderingMode;
+        public RenderingMode RenderingMode => (RenderingMode)(isOld ? metadataOld!.Value.renderingMode : metadataNew!.Value.renderingMode);
 
-        public Shader(LunaStream stream, bool isOld = false, uint index = 0)
+        public Shader(StreamHelper sh, bool isOld = false, uint index = 0)
         {
-            metadata = new ShaderMetadata(stream, isOld);
-            if (isOld) TUID = index;
+            this.isOld = isOld;
 
-            if (!isOld)
+            if (isOld)
             {
-                var ig = new IGFile(stream);
+                metadataOld = ShaderMetadataOld.Read(sh);
+                TUID = index;
+            }
+            else
+            {
+                metadataNew = ShaderMetadataNew.Read(sh);
+                var ig = new IGFile(sh.BaseStream);
                 var refSec = ig.QuerySection(ShaderReference.ID);
-                stream.Seek(refSec.offset);
-                reference = new ShaderReference(stream);
+                sh.Seek(refSec.offset);
+                reference = ShaderReference.Read(sh);
                 TUID = reference.Value.TUID;
             }
         }

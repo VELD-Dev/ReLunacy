@@ -62,7 +62,7 @@ public class AssetManager : IDisposable
         foreach (var shader in loader.Shaders)
         {
             var material = new Material(gd, GlobalResource.DefaultModelEffect, BlendStateDescription.SINGLE_ALPHA_BLEND);
-            if (shader.Value.metadata.albedo != 0)
+            if (shader.Value.Albedo != 0)
                 material.AddMaterialMap("fAlbedo", new MaterialMap(Textures[shader.Value.metadata.albedo]));
             else
                 material.AddMaterialMap("fAlbedo", new MaterialMap(GlobalResource.DefaultModelTexture));

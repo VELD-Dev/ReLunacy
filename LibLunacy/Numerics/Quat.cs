@@ -263,5 +263,5 @@ public record struct Quat
         Quat.InvertFast(in this, out this);
     }
 
-    public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness) => ((Vec4)this).ToBytes(buffer, endianness);
+    public readonly void ToBytes(in Span<byte> buffer, Legacy.StreamHelper.Endianness endianness) => ((Vec4)this).ToBytes(buffer, endianness);
 }

@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Vertices;
 using System;
 using System.Buffers;
@@ -70,50 +71,51 @@ public record struct TieMesh : ILunaSerializable, IMesh
     // public ref Shader shader;
 
 
-    public TieMesh(LunaStream stream, bool isOld)
+    public TieMesh(StreamHelper sh, bool isOld)
     {
         this.isOld = isOld;
-        indicesIndex =      stream.ReadUInt32(0x00);
-        verticesIndex =     stream.ReadUInt16(0x04);
-        Unk1 =              stream.ReadUInt16(0x06);
-        verticesCount =     stream.ReadUInt16(0x08);
-        Unk2 =              stream.ReadUInt64(0x0A);
-        indicesCount =      stream.ReadUInt16(0x12);
-        
+        indicesIndex =      sh.ReadUInt32((uint)0x00);
+        verticesIndex =     sh.ReadUInt16(0x04);
+        Unk1 =              sh.ReadUInt16(0x06);
+        verticesCount =     sh.ReadUInt16(0x08);
+        sh.Seek(0x0A);
+        Unk2 =              sh.ReadUInt64();
+        indicesCount =      sh.ReadUInt16(0x12);
+
         if(isOld)
         {
-            Unk3 = stream.Peek(0x14, 0x14);
-            oldShaderIndex = stream.ReadUInt16(0x28);
+            Unk3 = sh.ReadFromOffset(0x14, 0x14);
+            oldShaderIndex = sh.ReadUInt16(0x28);
             newShaderIndex = 0;
-            Unk4 = stream.Peek(0x2A, (int)Size - 0x2A);
+            Unk4 = sh.ReadFromOffset((int)Size - 0x2A, 0x2A);
         }
         else
         {
-            Unk3 = stream.Peek(0x14, 0x16);
+            Unk3 = sh.ReadFromOffset(0x16, 0x14);
             oldShaderIndex = 0;
-            newShaderIndex = stream.Peek(0x2A, 1)[0];
-            Unk4 = stream.Peek(0x2B, (int)Size - 0x2B);
+            newShaderIndex = sh.ReadFromOffset(1, 0x2A)[0];
+            Unk4 = sh.ReadFromOffset((int)Size - 0x2B, 0x2B);
         }
 
         vertices = ArrayPool<VertexFormat0>.Shared.Rent(verticesCount);
         indices = ArrayPool<ushort>.Shared.Rent(indicesCount);
     }
 
-    public readonly void ReadVerticesBuffer(LunaStream verticesBuffer)
+    public readonly void ReadVerticesBuffer(StreamHelper sh)
     {
         for(int i = 0; i < verticesCount; i++)
         {
-            vertices[i] = new VertexFormat0(verticesBuffer);
-            verticesBuffer.JumpRead((int)VertexFormat0.Size);
+            vertices[i] = new VertexFormat0(sh);
+            sh.BaseStream.Position += VertexFormat0.Size;
         }
     }
 
-    public readonly void ReadIndicesBuffer(LunaStream indicesBuffer)
+    public readonly void ReadIndicesBuffer(StreamHelper sh)
     {
         for(int i = 0; i < indicesCount; i++)
         {
-            indices[i] = indicesBuffer.ReadUInt16(0);
-            indicesBuffer.JumpRead(0x02);
+            indices[i] = sh.ReadUInt16();
+            sh.BaseStream.Position += 0x02;
         }
     }
 

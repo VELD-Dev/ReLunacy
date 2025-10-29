@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(dotnet build:*)",
+      "Bash(find:*)",
+      "Bash(Select-String -Pattern \"Error\\(s\\)|Avertissement\\(s\\)|ÉCHEC|Build succeeded\")",
+      "Bash(Select-Object -First 5)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

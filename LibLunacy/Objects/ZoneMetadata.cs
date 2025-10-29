@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -21,14 +22,14 @@ namespace LibLunacy.Objects
 
         public string name;
 
-        public ZoneMetadata(LunaStream stream)
+        public ZoneMetadata(StreamHelper sh)
         {
-            TUID = stream.ReadUInt64(0x00);
-            nameOffset = stream.ReadUInt32(0x08);
-            padding = stream.ReadUInt32(0X0C);
+            TUID = sh.ReadUInt64(0x00);
+            nameOffset = sh.ReadUInt32(0x08);
+            padding = sh.ReadUInt32(0X0C);
 
-            stream.Seek(nameOffset, SeekOrigin.Begin);
-            name = stream.ReadString(0);
+            sh.Seek(nameOffset, SeekOrigin.Begin);
+            name = sh.ReadString();
         }
 
         public readonly byte[] ToBytes(bool isOld, params object[]? additionalParams)

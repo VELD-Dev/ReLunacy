@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Shaders;
 using LibLunacy.Vertices;
 using System;
@@ -11,23 +12,25 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Meshes;
 
+[FileStructure(0x40)]
 public record struct MobyMesh : ILunaSerializable, IMesh
 {
     public const uint ID = 0xDD00;
     public const uint Size = 0x40;
 
-    public uint indicesOffset;
-    public uint verticesOffset;
-    public ushort shaderIndex;
-    public ushort verticesCount;
-    public byte boneMapIndicesCount;
-    public byte verticesType;
-    public byte boneMapIndex;
-    public byte[] Unk1;  // Always 3 bytes*
-    public ushort indicesCount;
-    public byte[] Unk2;
-    public uint boneMapOffset;
-    public byte[] Unk3;
+    [FileOffset(0x00)] public uint indicesOffset;
+    [FileOffset(0x04)] public uint verticesOffset;
+    [FileOffset(0x08)] public ushort shaderIndex;
+    [FileOffset(0x0A)] public ushort verticesCount;
+    [FileOffset(0x0C)] public byte boneMapIndicesCount;
+    [FileOffset(0x0D)] public byte verticesType;
+    [FileOffset(0x0E)] public byte boneMapIndex;
+    [FileOffset(0x0F)] public byte Unk1;
+    [FileOffset(0x10)] public ushort Unk2;
+    [FileOffset(0x12)] public ushort indicesCount;
+    [FileOffset(0x14)] [Reference(0x0C)] public byte[] Unk3;
+    [FileOffset(0x20)] public uint boneMapOffset;
+    [FileOffset(0x24)] [Reference(0x1C)] public byte[] Unk4;
 
     public VertexFormat0[] vertices0;
     public VertexFormat1[] vertices1;
@@ -92,64 +95,57 @@ public record struct MobyMesh : ILunaSerializable, IMesh
 
     // public ref Shader shader;
 
-    public MobyMesh(LunaStream stream)
+    public static MobyMesh Read(StreamHelper sh)
     {
-        indicesOffset =         stream.ReadUInt32(0x00) * sizeof(ushort);
-        verticesOffset =        stream.ReadUInt32(0x04);
-        shaderIndex =           stream.ReadUInt16(0x08);
-        verticesCount =         stream.ReadUInt16(0x0A);
-        boneMapIndicesCount =   stream.Peek(0x0C, 1)[0];
-        verticesType =          stream.Peek(0x0D, 1)[0];
-        boneMapIndex =          stream.Peek(0x0E, 1)[0];
-        Unk1 =                  stream.Peek(0x0F, 3);
-        indicesCount =          stream.ReadUInt16(0x12);
-        Unk2 =                  stream.Peek(0x14, 0x0C);
-        boneMapOffset =         stream.ReadUInt32(0x20);
-        Unk3 =                  stream.Peek(0x24, 0x1C);
+        var mesh = FileUtils.ReadStructure<MobyMesh>(sh);
 
-        if (verticesType == 0)
+        // Note: indicesOffset is stored divided by sizeof(ushort) in the file
+        mesh.indicesOffset *= sizeof(ushort);
+
+        if (mesh.verticesType == 0)
         {
-            vertices0 = ArrayPool<VertexFormat0>.Shared.Rent(verticesCount);
-            vertices1 = Array.Empty<VertexFormat1>();
+            mesh.vertices0 = ArrayPool<VertexFormat0>.Shared.Rent(mesh.verticesCount);
+            mesh.vertices1 = Array.Empty<VertexFormat1>();
         }
-        else if (verticesType == 1)
+        else if (mesh.verticesType == 1)
         {
-            vertices0 = Array.Empty<VertexFormat0>();
-            vertices1 = ArrayPool<VertexFormat1>.Shared.Rent(verticesCount);
+            mesh.vertices0 = Array.Empty<VertexFormat0>();
+            mesh.vertices1 = ArrayPool<VertexFormat1>.Shared.Rent(mesh.verticesCount);
         }
         else
         {
-            vertices0 = Array.Empty<VertexFormat0>();
-            vertices1 = Array.Empty<VertexFormat1>();
+            mesh.vertices0 = Array.Empty<VertexFormat0>();
+            mesh.vertices1 = Array.Empty<VertexFormat1>();
         }
 
-        indices = ArrayPool<ushort>.Shared.Rent(indicesCount);
+        mesh.indices = ArrayPool<ushort>.Shared.Rent(mesh.indicesCount);
+        return mesh;
     }
 
-    public readonly void ReadVerticesBuffer(LunaStream stream)
+    public readonly void ReadVerticesBuffer(StreamHelper sh)
     {
         for(int i = 0; i < verticesCount; i++)
         {
             if (verticesType == 0)
             {
-                var vert = new VertexFormat0(stream);
+                var vert = new VertexFormat0(sh);
                 vertices0[i] = vert;
-                stream.JumpRead((int)VertexFormat0.Size);
+                sh.BaseStream.Position += VertexFormat0.Size;
             } else if (verticesType == 1)
             {
-                var vert = new VertexFormat1(stream);
+                var vert = new VertexFormat1(sh);
                 vertices1[i] = vert;
-                stream.JumpRead((int)VertexFormat1.Size);
+                sh.BaseStream.Position += VertexFormat1.Size;
             }
         }
     }
 
-    public readonly void ReadIndicesBuffer(LunaStream stream)
+    public readonly void ReadIndicesBuffer(StreamHelper sh)
     {
         for(int i = 0; i < indicesCount; i++)
         {
-            indices[i] = stream.ReadUInt16(0);
-            stream.JumpRead(sizeof(ushort));
+            indices[i] = sh.ReadUInt16();
+            sh.BaseStream.Position += sizeof(ushort);
         }
     }
 
@@ -195,11 +191,12 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         MemoryMarshal.Write(span[offset..], ref boneMapIndicesCount);                           offset += sizeof(byte);
         MemoryMarshal.Write(span[offset..], ref verticesType);                                  offset += sizeof(byte);
         MemoryMarshal.Write(span[offset..], ref boneMapIndex);                                  offset += sizeof(byte);
-        Unk1.CopyTo(span[offset..]);                                                            offset += Unk1.Length;
+        MemoryMarshal.Write(span[offset..], ref Unk1);                                          offset += sizeof(byte);
+        BinaryPrimitives.WriteUInt16BigEndian(span[offset..], Unk2);                            offset += sizeof(ushort);
         BinaryPrimitives.WriteUInt16BigEndian(span[offset..], indicesCount);                    offset += sizeof(ushort);
-        Unk2.CopyTo(span[offset..]);                                                            offset += Unk2.Length;
-        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], boneMapOffset);                   offset += sizeof(ushort);
         Unk3.CopyTo(span[offset..]);                                                            offset += Unk3.Length;
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], boneMapOffset);                   offset += sizeof(uint);
+        Unk4.CopyTo(span[offset..]);                                                            offset += Unk4.Length;
         if(rented.Length != Size)
         {
             throw new InvalidOperationException($"[WONKY_CONVERT_ERR] Data have been lost while turning a {nameof(MobyMesh)} into an array of bytes: Sizes does not match (0x{rented.Length:X}/0x{Size:X})");

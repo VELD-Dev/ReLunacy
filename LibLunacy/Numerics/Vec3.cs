@@ -6,9 +6,12 @@ namespace LibLunacy.Numerics;
 
 [Serializable]
 [StructLayout(LayoutKind.Sequential)]
+[FileStructure(0x0C)]
 public record struct Vec3
 {
-    public float X, Y, Z;
+    [FileOffset(0x00)] public float X;
+    [FileOffset(0x04)] public float Y;
+    [FileOffset(0x08)] public float Z;
 
     public static readonly Vec3 Zero = new(0, 0, 0);
     public static readonly Vec3 One = new(1, 1, 1);
@@ -267,9 +270,9 @@ public record struct Vec3
         Z *= scale;
     }
 
-    public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
+    public readonly void ToBytes(in Span<byte> buffer, Legacy.StreamHelper.Endianness endianness = Legacy.StreamHelper.Endianness.Big)
     {
-        if(endianness == LunaStream.Endianness.Big)
+        if(endianness == Legacy.StreamHelper.Endianness.Big)
         {
             BinaryPrimitives.WriteSingleBigEndian(buffer[0..], X);
             BinaryPrimitives.WriteSingleBigEndian(buffer[sizeof(float)..], Y);

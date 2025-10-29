@@ -3,9 +3,13 @@ using System.Diagnostics.Contracts;
 
 namespace LibLunacy.Numerics;
 
+[FileStructure(0x10)]
 public record struct Vec4
 {
-    public float X, Y, Z, W;
+    [FileOffset(0x00)] public float X;
+    [FileOffset(0x04)] public float Y;
+    [FileOffset(0x08)] public float Z;
+    [FileOffset(0x0C)] public float W;
 
     public static readonly Vec4 Zero = new(0, 0, 0, 0);
     public static readonly Vec4 One = new(1, 1, 1, 1);
@@ -102,9 +106,9 @@ public record struct Vec4
             (vec.X * mat.Row0.W) + (vec.Y * mat.Row1.W) + (vec.Z * mat.Row2.W) + (vec.W * mat.Row3.W));
     }
 
-    public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
+    public readonly void ToBytes(in Span<byte> buffer, Legacy.StreamHelper.Endianness endianness = Legacy.StreamHelper.Endianness.Big)
     {
-        if (endianness == LunaStream.Endianness.Big)
+        if (endianness == Legacy.StreamHelper.Endianness.Big)
         {
             BinaryPrimitives.WriteSingleBigEndian(buffer[0..], X);
             BinaryPrimitives.WriteSingleBigEndian(buffer[sizeof(float)..], Y);

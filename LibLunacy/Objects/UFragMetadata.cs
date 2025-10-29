@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Buffers.Binary;
 using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Numerics;
 
 namespace LibLunacy.Objects;
@@ -22,32 +23,36 @@ public struct UFragMetadata : ILunaSerializable
     public byte[] Unk3;
     public byte[] Unk4;
 
-    public UFragMetadata(LunaStream stream, bool oldEngine, int index = 0)
+    public UFragMetadata(StreamHelper sh, bool oldEngine, int index = 0)
     {
         if (oldEngine)
         {
-            Unk1 = stream.Peek(0x00, 0x40);
-            indexOffset = stream.ReadUInt32(0x40) * sizeof(ushort);
-            Unk3 = stream.Peek(0x52, 0x0E);
-            position = stream.ReadVec3(0x60);
-            boundingSphere = stream.ReadVec4(0x60);
-            Unk4 = stream.Peek(0x6C, 0x14);
+            Unk1 = sh.ReadFromOffset(0x40, 0x00);
+            indexOffset = sh.ReadUInt32(0x40) * sizeof(ushort);
+            Unk3 = sh.ReadFromOffset(0x0E, 0x52);
+            sh.Seek(0x60);
+            position = new Vec3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+            sh.Seek(0x60);
+            boundingSphere = new Vec4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+            Unk4 = sh.ReadFromOffset(0x14, 0x6C);
         }
         else
         {
-            Unk1 = stream.Peek(0x00, 0x30);
-            position = stream.ReadVec3(0x30);
-            boundingSphere = stream.ReadVec4(0x30);
-            indexOffset = stream.ReadUInt32(0x40);
-            Unk3 = stream.Peek(0x52, 0x2E);
+            Unk1 = sh.ReadFromOffset(0x30, 0x00);
+            sh.Seek(0x30);
+            position = new Vec3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+            sh.Seek(0x30);
+            boundingSphere = new Vec4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+            indexOffset = sh.ReadUInt32(0x40);
+            Unk3 = sh.ReadFromOffset(0x2E, 0x52);
             Unk4 = Array.Empty<byte>();
         }
 
-        vertexOffset = stream.ReadUInt32(0x44);
-        indexCount = stream.ReadUInt16(0x48);
-        vertexCount = stream.ReadUInt16(0x4A);
-        Unk2 = stream.Peek(0x4C, 0x04);
-        shaderIndex = stream.ReadUInt16(0x50);
+        vertexOffset = sh.ReadUInt32(0x44);
+        indexCount = sh.ReadUInt16(0x48);
+        vertexCount = sh.ReadUInt16(0x4A);
+        Unk2 = sh.ReadFromOffset(0x04, 0x4C);
+        shaderIndex = sh.ReadUInt16(0x50);
     }
 
     public readonly byte[] ToBytes(bool isOld, params object[]? additionalParams)

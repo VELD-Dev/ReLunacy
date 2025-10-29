@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,15 +8,16 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Textures
 {
+    [FileStructure(0x04)]
     public record struct TextureMetadataNew : ILunaSerializable, ITextureMetadata
     {
         public const uint ID = 0x1D140;
         public const uint Size = 0x04;
 
-        public byte format;
-        public byte mipmapCount;
-        public byte widthPow;
-        public byte heightPow;
+        [FileOffset(0x00)] public byte format;
+        [FileOffset(0x01)] public byte mipmapCount;
+        [FileOffset(0x02)] public byte widthPow;
+        [FileOffset(0x03)] public byte heightPow;
 
         public readonly uint Width => (uint)1 << widthPow; // Shifting bits like this is the equivalent of powers of two.
 
@@ -25,13 +27,9 @@ namespace LibLunacy.Textures
 
         public readonly ushort MipmapCount => mipmapCount;
 
-        public TextureMetadataNew(LunaStream stream)
+        public static TextureMetadataNew Read(StreamHelper sh)
         {
-            var bfr = stream.Peek(0x00, 4);
-            format = bfr[0];
-            mipmapCount = bfr[1];
-            widthPow = bfr[2];
-            heightPow = bfr[3];
+            return FileUtils.ReadStructure<TextureMetadataNew>(sh);
         }
 
         public byte[] ToBytes(bool isOld, params object[]? additionalParams)

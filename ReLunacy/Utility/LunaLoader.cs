@@ -1,5 +1,7 @@
 ﻿using LibLunacy;
+using LibLunacy.Legacy;
 using LibLunacy.Meshes;
+using LibLunacy.Numerics;
 using LibLunacy.Objects;
 using LibLunacy.Objects.Instances;
 using LibLunacy.Shaders;
@@ -29,7 +31,7 @@ public class LunaLoader : IDisposable
     public Dictionary<ulong, Shader> Shaders = [];
     public Dictionary<ulong, Moby> Mobys = [];
     public Dictionary<ulong, Tie> Ties = [];
-    public Region[] Regions;
+    public LibLunacy.Objects.Region[] Regions;
     private Dictionary<ulong, Zone> TempZones = [];
 
     public bool Loaded { get; private set; } = false;
@@ -184,8 +186,8 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var alstream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
-        var hmstream = new LunaStream(highmipstream, highmipstream);
+        var alstream = assetlookup.sh;
+        var hmstream = new StreamHelper(highmipstream, StreamHelper.Endianness.Big);
 
         var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
         var textureMetaSec = assetlookup.QuerySection(TextureMetadataNew.ID);
@@ -218,18 +220,18 @@ public class LunaLoader : IDisposable
         {
             throw new FileNotFoundException("textures.dat is absent");
         }
-        LunaStream? texstream = null;
+        StreamHelper? texstream = null;
         if (!fileManager.rawfiles.TryGetValue("texstream.dat", out Stream? texstreamStream) || texstreamStream is null)
         {
             LunaLog.LogWarn("texstream.dat is missing. Low quality textures only.");
         }
         else
         {
-            texstream = new LunaStream(texstreamStream, texstreamStream);
+            texstream = new StreamHelper(texstreamStream, StreamHelper.Endianness.Big);
         }
 
-        var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
-        var textures = new LunaStream(textureStream, textureStream);
+        var mainStream = main.sh;
+        var textures = new StreamHelper(textureStream, StreamHelper.Endianness.Big);
 
         var textureMetadataSection = main.QuerySection(TextureMetadataOld.ID);
         var texstreamRefSection = main.QuerySection(TexstreamReference.ID);
@@ -301,8 +303,8 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var alstream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
-        var shaderStream = new LunaStream(shadersStream, shadersStream);
+        var alstream = assetlookup.sh;
+        var shaderStream = new StreamHelper(shadersStream, StreamHelper.Endianness.Big);
 
         var shaderPtrSec = assetlookup.QuerySection(Shader.PointerID);
 
@@ -326,10 +328,11 @@ public class LunaLoader : IDisposable
         {
             ref var ptr = ref ShaderPointers[i];
             var shaderBuffer = new byte[ptr.length];
-            shaderStream.ReadExactly(shaderBuffer, (int)ptr.offset, (int)ptr.length);
+            shaderStream.BaseStream.Seek(ptr.offset, SeekOrigin.Begin);
+            shaderStream.BaseStream.Read(shaderBuffer, 0, (int)ptr.length);
             var memstream = new MemoryStream(shaderBuffer);
+            var shadstream = new StreamHelper(memstream, StreamHelper.Endianness.Big);
             var igshader = new IGFile(memstream);
-            var shadstream = new LunaStream(memstream, memstream);
 
             var metadataSection = igshader.QuerySection(ShaderMetadata.ID);
             shadstream.Seek(metadataSection.offset);
@@ -347,20 +350,20 @@ public class LunaLoader : IDisposable
             if (sref.albedoID != 0 && Textures.ContainsKey(sref.albedoID))
             {
                 shader.Albedo = Textures[sref.albedoID];
-                shader.Albedo.name = shadstream.ReadString((int)sref.albedoNamePointer, false);
+                shader.Albedo.name = shadstream.ReadString((uint)sref.albedoNamePointer);
             }
             if (sref.normalID != 0 && Textures.ContainsKey(sref.normalID))
             {
                 shader.Normal = Textures[sref.normalID];
-                shader.Normal.name = shadstream.ReadString((int)sref.normalNamePointer, false);
+                shader.Normal.name = shadstream.ReadString((uint)sref.normalNamePointer);
             }
             if (sref.expensiveID != 0 && Textures.ContainsKey(sref.expensiveID))
             {
                 shader.Expensive = Textures[sref.expensiveID];
-                shader.Expensive.name = shadstream.ReadString((int)sref.expensiveNamePointer, false);
+                shader.Expensive.name = shadstream.ReadString((uint)sref.expensiveNamePointer);
             }
 
-            shader.name = shadstream.ReadString((int)sref.namePointer, false);
+            shader.name = shadstream.ReadString((uint)sref.namePointer);
 
             Shaders.Add(shader.TUID, shader);
 
@@ -378,7 +381,7 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var mainstream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
+        var mainstream = main.sh;
 
         var shaderMetadataSec = main.QuerySection(ShaderMetadata.ID);
 
@@ -436,7 +439,7 @@ public class LunaLoader : IDisposable
         // Read Mobys Pointers
 
         IGFile.SectionHeader mobyptrSection = assetlookup.QuerySection(NewMoby.PointerID);
-        var assetlookupStream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
+        var assetlookupStream = assetlookup.sh;
         assetlookupStream.Seek(mobyptrSection.offset);
         MobyPointers = ArrayPool<AssetPointer>.Shared.Rent((int)mobyptrSection.count);
         var loadState = new LoadingProgress("Reading moby pointers...", mobyptrSection.count, 0);
@@ -445,7 +448,7 @@ public class LunaLoader : IDisposable
         {
             MobyPointers[i] = new AssetPointer(assetlookupStream);
             loadState.SetProgress(i + 1);
-            assetlookupStream.JumpRead((int)AssetPointer.Size);
+            assetlookupStream.BaseStream.Position += AssetPointer.Size;
         }
 
 
@@ -455,17 +458,18 @@ public class LunaLoader : IDisposable
         loadState.SetStatus("Reading mobys...");
         loadState.SetProgress(0);
         loadState.SetTotal(mobyptrSection.count);
-        var mobysDatStream = new LunaStream(mobyRaw, mobyRaw);
+        var mobysDatStream = new StreamHelper(mobyRaw, StreamHelper.Endianness.Big);
         for (uint i = 0; i < MobyPointers.Length; i++)
         {
             var offset = MobyPointers[i].offset;
             var rentedBuffer = ArrayPool<byte>.Shared.Rent((int)MobyPointers[i].length);
-            mobysDatStream.ReadExactly(rentedBuffer, (int)offset, rentedBuffer.Length);
+            mobysDatStream.BaseStream.Seek(offset, SeekOrigin.Begin);
+            mobysDatStream.BaseStream.Read(rentedBuffer, 0, rentedBuffer.Length);
             var memstream = new MemoryStream(rentedBuffer);
-            var mobyStream = new LunaStream(memstream, memstream);
+            var mobyStream = new StreamHelper(memstream, StreamHelper.Endianness.Big);
 
             var moby = new Moby(mobyStream);
-            var igMoby = new IGFile(mobyStream);
+            var igMoby = new IGFile(mobyStream.BaseStream);
 
             var indxSection = igMoby.QuerySection(0xE100);
             var vertSection = igMoby.QuerySection(0xE200);
@@ -513,7 +517,7 @@ public class LunaLoader : IDisposable
 
             Mobys.Add(moby.TUID, moby);
             loadState.SetProgress(i + 1);
-            LunaLog.LogDebug($"({mobysDatStream.Position:X}) Read Moby data {moby.TUID:X}");
+            LunaLog.LogDebug($"({mobysDatStream.Offset:X}) Read Moby data {moby.TUID:X}");
         }
         loadingTracker.LoadProgresses.Remove(loadState);
     }
@@ -541,7 +545,7 @@ public class LunaLoader : IDisposable
 
         var mobySection = main.QuerySection(OldMoby.ID);
 
-        var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
+        var mainStream = main.sh;
 
 
         var loadState = new LoadingProgress("Loading mobys...", mobySection.count);
@@ -554,28 +558,28 @@ public class LunaLoader : IDisposable
             var bangleLoading = new LoadingProgress("Loading bangles...", moby.BanglesCount);
             loadingTracker.LoadProgresses.Add(bangleLoading);
 
-            LunaStream vertFile;
-            LunaStream indFile;
+            StreamHelper vertFile;
+            StreamHelper indFile;
             if ((moby.VerticesOffset & 0x80000000) != 0)
             {
-                vertFile = new LunaStream(vertIGFile.sh.BaseStream, vertIGFile.sh.BaseStream);
+                vertFile = vertIGFile.sh;
                 vertFile.Seek(vertIGFile.QuerySection(VertexFormat0.OldID).offset);
             }
             else
             {
-                vertFile = new LunaStream(texturesRaw, texturesRaw);
+                vertFile = new StreamHelper(texturesRaw, StreamHelper.Endianness.Big);
                 vertFile.Seek(0);
             }
             vertFile.Seek(moby.VerticesOffset & ~0x80000000, SeekOrigin.Current);
 
             if ((moby.IndicesOffset & 0x80000000) != 0)
             {
-                indFile = new LunaStream(vertIGFile.sh.BaseStream, vertIGFile.sh.BaseStream);
+                indFile = vertIGFile.sh;
                 indFile.Seek(vertIGFile.QuerySection(0x9100).offset);
             }
             else
             {
-                indFile = new LunaStream(texturesRaw, texturesRaw);
+                indFile = new StreamHelper(texturesRaw, StreamHelper.Endianness.Big);
                 indFile.Seek(0);
             }
             indFile.Seek(moby.IndicesOffset & ~0x80000000, SeekOrigin.Current);
@@ -604,15 +608,15 @@ public class LunaLoader : IDisposable
             var lastMesh = moby.Bangles.Last(b => b.meshesCount > 0).meshes[^1];
             var vertBufferSize = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
             var vertBuffer = new byte[vertBufferSize];
-            vertFile.ReadExactly(vertBuffer);
+            vertFile.BaseStream.Read(vertBuffer, 0, vertBuffer.Length);
             var vertMemStream = new MemoryStream(vertBuffer);
-            var vertexStream = new LunaStream(vertMemStream, vertMemStream);
+            var vertexStream = new StreamHelper(vertMemStream, StreamHelper.Endianness.Big);
 
             var indBufferSize = lastMesh.indicesOffset + lastMesh.indicesCount * sizeof(ushort);
             var indBuffer = new byte[indBufferSize];
-            indFile.ReadExactly(indBuffer);
+            indFile.BaseStream.Read(indBuffer, 0, indBuffer.Length);
             var indMemStream = new MemoryStream(indBuffer);
-            var indexStream = new LunaStream(indMemStream, indMemStream);
+            var indexStream = new StreamHelper(indMemStream, StreamHelper.Endianness.Big);
 
             for (int j = 0; j < moby.BanglesCount; j++)
             {
@@ -645,7 +649,7 @@ public class LunaLoader : IDisposable
             Mobys.Add(moby.TUID, moby);
 
             loadState.SetProgress(i + 1);
-            LunaLog.LogDebug($"(o:{mainStream.Position:X}) Read moby {moby.TUID:X}");
+            LunaLog.LogDebug($"(o:{mainStream.Offset:X}) Read moby {moby.TUID:X}");
         }
 
         loadingTracker.LoadProgresses.Remove(loadState);
@@ -671,7 +675,7 @@ public class LunaLoader : IDisposable
         // Read pointers
 
         var tiePtrSection = assetlookup.QuerySection(TieMetadata.PointerID);
-        var alStream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
+        var alStream = assetlookup.sh;
         TiePointers = ArrayPool<AssetPointer>.Shared.Rent((int)tiePtrSection.count);
         var loadState = new LoadingProgress("Loading ties pointers...", tiePtrSection.count);
         loadingTracker.LoadProgresses.Add(loadState);
@@ -679,7 +683,7 @@ public class LunaLoader : IDisposable
         for (uint i = 0; i < tiePtrSection.count; i++)
         {
             TiePointers[i] = new AssetPointer(alStream);
-            alStream.JumpRead((int)AssetPointer.Size);
+            alStream.BaseStream.Position += AssetPointer.Size;
             loadState.SetProgress(i + 1);
         }
 
@@ -692,12 +696,13 @@ public class LunaLoader : IDisposable
         {
             ref var tiePtr = ref TiePointers[i];
             var buffer = ArrayPool<byte>.Shared.Rent((int)tiePtr.length);
-            tieFileStream.ReadExactly(buffer, (int)tiePtr.offset, buffer.Length);
+            tieFileStream.Seek(tiePtr.offset, SeekOrigin.Begin);
+            tieFileStream.Read(buffer, 0, buffer.Length);
             var memstream = new MemoryStream(buffer);
-            var tieStream = new LunaStream(memstream, memstream);
+            var tieStream = new StreamHelper(memstream, StreamHelper.Endianness.Big);
 
             var tie = new Tie(tieStream);
-            var igTie = new IGFile(tieStream);
+            var igTie = new IGFile(tieStream.BaseStream);
 
             Ties.Add(tie.TUID, tie);
 
@@ -747,9 +752,9 @@ public class LunaLoader : IDisposable
         }
 
         var tieSection = main.QuerySection(TieMetadata.ID);
-        var mainStream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
+        var mainStream = main.sh;
 
-        var vertStream = new LunaStream(vertIGFile.sh.BaseStream, vertIGFile.sh.BaseStream);
+        var vertStream = vertIGFile.sh;
         var vertSection = vertIGFile.QuerySection(0x9000);
         var indxSection = vertIGFile.QuerySection(TieVertIndex.OldID);
 
@@ -800,7 +805,7 @@ public class LunaLoader : IDisposable
 
         // Read TempZones pointers
 
-        var alStream = new LunaStream(assetlookup.sh.BaseStream, assetlookup.sh.BaseStream);
+        var alStream = assetlookup.sh;
         var zoneSection = assetlookup.QuerySection(Zone.PointerID);
         ZonePointers = ArrayPool<AssetPointer>.Shared.Rent((int)zoneSection.length / 0x10);
         var loadState = new LoadingProgress("Loading Zone pointers...", (uint)ZonePointers.Length);
@@ -822,9 +827,10 @@ public class LunaLoader : IDisposable
         {
             ref var pointer = ref ZonePointers[i];
             var buffer = new byte[pointer.length];
-            zonesFileStream.ReadExactly(buffer, (int)pointer.offset, (int)pointer.length);
+            zonesFileStream.Seek(pointer.offset, SeekOrigin.Begin);
+            zonesFileStream.Read(buffer, 0, (int)pointer.length);
             var memStream = new MemoryStream(buffer);
-            var zoneStream = new LunaStream(memStream, memStream);
+            var zoneStream = new StreamHelper(memStream, StreamHelper.Endianness.Big);
 
             var zone = new Zone(zoneStream);
             TempZones.Add(zone.TUID, zone);
@@ -854,7 +860,7 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var mstream = new LunaStream(main.sh.BaseStream, main.sh.BaseStream);
+        var mstream = main.sh;
         var zoneSection = main.QuerySection(Zone.OldID);
         var zone = new Zone(mstream);
         TempZones.Add(0, zone);
@@ -891,8 +897,8 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var main = new LunaStream(mainIG.sh.BaseStream, mainIG.sh.BaseStream);
-        var vertexStream = new LunaStream(vertices.sh.BaseStream, vertices.sh.BaseStream);
+        var main = mainIG.sh;
+        var vertexStream = vertices.sh;
 
         var artZone = TempZones[0];
 
@@ -961,15 +967,15 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var gameplay = new LunaStream(iggp.sh.BaseStream, iggp.sh.BaseStream);
+        var gameplay = iggp.sh;
 
         //gameplay.dat is a weird file in this version of the engine, the count field of section headers is the length and length field of section headers is 0
 
-        var stringTableSec = iggp.QuerySection(Region.GameplayStringTableNewID);
+        var stringTableSec = iggp.QuerySection(LibLunacy.Objects.Region.GameplayStringTableNewID);
         gameplay.Seek(stringTableSec.offset + stringTableSec.count - 0x10);
-        var regionCount = gameplay.ReadUInt32(0x00);
-        var regionNameTableOffset = gameplay.ReadUInt32(0x04);
-        Regions = ArrayPool<Region>.Shared.Rent((int)regionCount);
+        var regionCount = gameplay.ReadUInt32();
+        var regionNameTableOffset = gameplay.ReadUInt32();
+        Regions = ArrayPool<LibLunacy.Objects.Region>.Shared.Rent((int)regionCount);
         var regionNames = new List<string>();
 
         var loadState = new LoadingProgress("Reading region lookup table...", regionCount);
@@ -977,8 +983,8 @@ public class LunaLoader : IDisposable
         for (uint i = 0; i < regionCount; i++)
         {
             gameplay.Seek(regionNameTableOffset + sizeof(uint) * i);
-            var regionNameOffset = gameplay.ReadUInt32(0x00);
-            var regionName = gameplay.ReadString((int)regionNameOffset, false);
+            var regionNameOffset = gameplay.ReadUInt32();
+            var regionName = gameplay.ReadString(regionNameOffset);
             regionNames.Add(regionName);
             LunaLog.LogDebug($"Discovered region {regionName}");
             loadState.SetProgress(i + 1);
@@ -1000,14 +1006,14 @@ public class LunaLoader : IDisposable
                 continue;
             }
 
-            var prius = new LunaStream(igprius.sh.BaseStream, igprius.sh.BaseStream);
-            var regStream = new LunaStream(igregion.sh.BaseStream, igregion.sh.BaseStream);
+            var prius = igprius.sh;
+            var regStream = igregion.sh;
 
-            var region = new Region(prius, regStream, regionName);
+            var region = new LibLunacy.Objects.Region(prius, regStream, regionName);
 
             var mobyInstSection = igprius.QuerySection(MobyInstanceNew.ID);
             var mobyMetaSection = igprius.QuerySection(InstanceMetadata.MobyInstMetadataID);
-            var mobyTuidListSec = igregion.QuerySection(Region.MobyTuidsListID);
+            var mobyTuidListSec = igregion.QuerySection(LibLunacy.Objects.Region.MobyTuidsListID);
 
             var mobyInstLoading = new LoadingProgress("Loading moby instances...", mobyInstSection.count);
             loadingTracker.LoadProgresses.Add(mobyInstLoading);
@@ -1017,9 +1023,9 @@ public class LunaLoader : IDisposable
                 var mobyInst = new MobyInstanceNew(prius);
                 prius.Seek(mobyMetaSection.offset + InstanceMetadata.Size * i);
                 var mobyInstMeta = new InstanceMetadata(prius);
-                var mobyName = prius.ReadString((int)mobyInstMeta.namePointer, false);
+                var mobyName = prius.ReadString((uint)mobyInstMeta.namePointer);
                 regStream.Seek(mobyTuidListSec.offset + sizeof(ulong) * mobyInst.mobyIndex);
-                var mobyRefTuid = regStream.ReadUInt64(0x00);
+                var mobyRefTuid = regStream.ReadUInt64();
 
                 if (Mobys.Count < 1)
                 {
@@ -1045,7 +1051,12 @@ public class LunaLoader : IDisposable
             for (uint i = 0; i < volMetaSec.count; i++)
             {
                 prius.Seek(volTransformSec.offset + 0x40 * i); // 0x40 is the size of a matrix 4x4.
-                var transform = prius.ReadMat4(0x00);
+                var matrixFloats = new float[16];
+                for (int j = 0; j < 16; j++)
+                {
+                    matrixFloats[j] = prius.ReadSingle();
+                }
+                var transform = new Mat4(matrixFloats);
                 prius.Seek(volMetaSec.offset + InstanceMetadata.Size * i);
                 var volume = new Volume(prius, transform);
                 region.Volumes.Add(volume.TUID, volume);
@@ -1054,16 +1065,16 @@ public class LunaLoader : IDisposable
             }
             loadingTracker.LoadProgresses.Remove(volumesLoading);
 
-            var zoneNamesSec = igregion.QuerySection(Region.ZoneNamePointerID);
-            var zoneTUIDsSec = igregion.QuerySection(Region.ZoneTUIDsID);
+            var zoneNamesSec = igregion.QuerySection(LibLunacy.Objects.Region.ZoneNamePointerID);
+            var zoneTUIDsSec = igregion.QuerySection(LibLunacy.Objects.Region.ZoneTUIDsID);
 
             var zonesRefreshLoading = new LoadingProgress("Refreshing zones...", zoneNamesSec.count);
             for (uint i = 0; i < zoneNamesSec.count; i++)
             {
                 //regStream.Seek(zoneNamesSec.offset + sizeof(uint) * i);
-                //var Name = regStream.ReadString((int)regStream.ReadUInt32(0), false);
+                //var Name = regStream.ReadString(regStream.ReadUInt32());
                 regStream.Seek(zoneTUIDsSec.offset + sizeof(ulong) * i);
-                var zoneTuid = regStream.ReadUInt64(0);
+                var zoneTuid = regStream.ReadUInt64();
                 var zone = TempZones[zoneTuid];
 
                 region.Zones.Add(zone.TUID, zone);
@@ -1086,8 +1097,8 @@ public class LunaLoader : IDisposable
             throw e;
         }
 
-        var gpstream = new LunaStream(iggp.sh.BaseStream, iggp.sh.BaseStream);
-        var region = new Region(gpstream);
+        var gpstream = iggp.sh;
+        var region = new LibLunacy.Objects.Region(gpstream);
 
         var mobyInstSec = iggp.QuerySection(MobyInstanceOld.ID);
 
@@ -1136,7 +1147,7 @@ public class LunaLoader : IDisposable
             // Dispose mobyinstances and volumeinstances
         }
 
-        ArrayPool<Region>.Shared.Return(Regions);
+        ArrayPool<LibLunacy.Objects.Region>.Shared.Return(Regions);
 
         GC.SuppressFinalize(this);
     }

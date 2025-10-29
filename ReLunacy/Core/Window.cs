@@ -18,7 +18,6 @@ using Bliss.CSharp.Windowing;
 using Bliss.CSharp.Windowing.Events;
 using ImGuiNET;
 using LibLunacy;
-using LibLunacy.Legacy;
 using LibLunacy.Numerics;
 using LibLunacy.Shaders;
 using MiniAudioEx;
@@ -357,6 +356,8 @@ public class LunaWindow : Disposable
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
             ViewMenuDraw.ShowConsoleFrame();
+            ImGui.Separator();
+            ViewMenuDraw.ShowPSArcExplorer();
             ImGui.EndMenu();
         }
 

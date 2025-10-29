@@ -9,12 +9,25 @@ using System.Runtime.Intrinsics.X86;
 
 namespace LibLunacy.Numerics;
 
+[FileStructure(0x40)]
 public record struct Mat4
 {
-    public float X1, Y1, Z1, W1;
-    public float X2, Y2, Z2, W2;
-    public float X3, Y3, Z3, W3;
-    public float X4, Y4, Z4, W4;
+    [FileOffset(0x00)] public float X1;
+    [FileOffset(0x04)] public float Y1;
+    [FileOffset(0x08)] public float Z1;
+    [FileOffset(0x0C)] public float W1;
+    [FileOffset(0x10)] public float X2;
+    [FileOffset(0x14)] public float Y2;
+    [FileOffset(0x18)] public float Z2;
+    [FileOffset(0x1C)] public float W2;
+    [FileOffset(0x20)] public float X3;
+    [FileOffset(0x24)] public float Y3;
+    [FileOffset(0x28)] public float Z3;
+    [FileOffset(0x2C)] public float W3;
+    [FileOffset(0x30)] public float X4;
+    [FileOffset(0x34)] public float Y4;
+    [FileOffset(0x38)] public float Z4;
+    [FileOffset(0x3C)] public float W4;
 
     public static readonly Mat4 Identity = new(
         1, 0, 0, 0,
@@ -728,11 +741,11 @@ public record struct Mat4
         Mat4.Decompose(this, out translation, out rotation, out scale);
     }
 
-    public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
+    public readonly void ToBytes(in Span<byte> buffer, Legacy.StreamHelper.Endianness endianness = Legacy.StreamHelper.Endianness.Big)
     {
         for(int i = 0; i < 16; i++)
         {
-            if (endianness == LunaStream.Endianness.Big)
+            if (endianness == Legacy.StreamHelper.Endianness.Big)
                 BinaryPrimitives.WriteSingleBigEndian(buffer[(i * sizeof(float))..], this[i]);
             else
                 BinaryPrimitives.WriteSingleLittleEndian(buffer[(i * sizeof(float))..], this[i]);

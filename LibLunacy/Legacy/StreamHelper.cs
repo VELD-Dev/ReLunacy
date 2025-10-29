@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Buffers.Binary;
+using LibLunacy.Numerics;
 
 namespace LibLunacy.Legacy
 {
@@ -309,6 +311,164 @@ namespace LibLunacy.Legacy
             }
 
             return bytesRead;
+        }
+
+        // Write methods with endianness support
+
+        public void WriteUInt16(ushort value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(ushort)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteUInt16BigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteUInt16LittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteInt16(short value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(short)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteInt16BigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteInt16LittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteUInt32(uint value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(uint)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteUInt32BigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteUInt32LittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteInt32(int value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(int)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteInt32BigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteInt32LittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteUInt64(ulong value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(ulong)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteUInt64BigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteUInt64LittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteInt64(long value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(long)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteInt64BigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteInt64LittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteHalf(Half value)
+        {
+            Span<byte> buffer = stackalloc byte[2];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteHalfBigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteHalfLittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteSingle(float value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(float)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteSingleBigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteSingleLittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteDouble(double value)
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(double)];
+
+            if (_endianness == Endianness.Big)
+                BinaryPrimitives.WriteDoubleBigEndian(buffer, value);
+            else
+                BinaryPrimitives.WriteDoubleLittleEndian(buffer, value);
+
+            BaseStream.Write(buffer);
+        }
+
+        public void WriteVec2(Vec2 value)
+        {
+            WriteSingle(value.X);
+            WriteSingle(value.Y);
+        }
+
+        public void WriteVec3(Vec3 value)
+        {
+            WriteSingle(value.X);
+            WriteSingle(value.Y);
+            WriteSingle(value.Z);
+        }
+
+        public void WriteVec4(Vec4 value)
+        {
+            WriteSingle(value.X);
+            WriteSingle(value.Y);
+            WriteSingle(value.Z);
+            WriteSingle(value.W);
+        }
+
+        public void WriteMat4(Mat4 value)
+        {
+            WriteVec4(value.Row0);
+            WriteVec4(value.Row1);
+            WriteVec4(value.Row2);
+            WriteVec4(value.Row3);
+        }
+
+        public void WriteString(string value, bool nullTerminated = true)
+        {
+            var bytes = Encoding.ASCII.GetBytes(value);
+            BaseStream.Write(bytes, 0, bytes.Length);
+
+            if (nullTerminated)
+                BaseStream.WriteByte(0);
+        }
+
+        public void WriteBytes(byte[] value)
+        {
+            BaseStream.Write(value, 0, value.Length);
+        }
+
+        public void WriteBytes(ReadOnlySpan<byte> value)
+        {
+            BaseStream.Write(value);
         }
     }
 }

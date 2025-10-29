@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,11 +16,11 @@ public record struct AssetPointer : ILunaObject, ILunaSerializable
     public uint offset;
     public uint length;
 
-    public AssetPointer(LunaStream stream)
+    public AssetPointer(StreamHelper sh)
     {
-        TUID =      stream.ReadUInt64(0x00);
-        offset =    stream.ReadUInt32(0x08);
-        length =    stream.ReadUInt32(0x0C);
+        TUID =      sh.ReadUInt64(0x00);
+        offset =    sh.ReadUInt32(0x08);
+        length =    sh.ReadUInt32(0x0C);
     }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)

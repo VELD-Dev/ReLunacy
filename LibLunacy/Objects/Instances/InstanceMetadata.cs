@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,12 +19,12 @@ namespace LibLunacy.Objects.Instances
         public ushort group;
         public ushort Unk1;
 
-        public InstanceMetadata(LunaStream stream)
+        public InstanceMetadata(StreamHelper sh)
         {
-            TUID = stream.ReadUInt64(0x00);
-            namePointer = stream.ReadUInt32(0x08);
-            group = stream.ReadUInt16(0x0C);
-            Unk1 = stream.ReadUInt16(0x0E);
+            TUID = sh.ReadUInt64(0x00);
+            namePointer = sh.ReadUInt32(0x08);
+            group = sh.ReadUInt16(0x0C);
+            Unk1 = sh.ReadUInt16(0x0E);
         }
 
         public byte[] ToBytes(bool isOld, params object[]? additionalParams)

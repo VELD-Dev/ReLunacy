@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Meshes;
 using LibLunacy.Numerics;
 using LibLunacy.Shaders;
@@ -11,8 +12,8 @@ public class Moby : IDisposable
 {
     public IMoby MobyObj { get; private set; }
 
-    public LunaStream mobyStream;
-    public LunaStream verticesStream;
+    public StreamHelper mobyStream;
+    public StreamHelper verticesStream;
     public ulong TUID => MobyObj.TUID;
     public bool IsOld => MobyObj is OldMoby;
     public Vec4 BoundingSphere => MobyObj is OldMoby om ? om.boundingSphere : ((NewMoby)MobyObj).boundingSphere;
@@ -27,11 +28,11 @@ public class Moby : IDisposable
     public MobyBangle[] Bangles => MobyObj.Bangles;
     public ulong[]? ShaderTUIDs;
 
-    public Moby(LunaStream stream, int index = 0) // Index only for old mobys
+    public Moby(StreamHelper sh, int index = 0) // Index only for old mobys
     {
-        mobyStream = stream;
+        mobyStream = sh;
 
-        var igFile = new IGFile(mobyStream);
+        var igFile = new IGFile(mobyStream.BaseStream);
         IGFile.SectionHeader section = igFile.QuerySection(OldMoby.ID); // Old and new mobys have the same section ID
         if (section.length == 0x100)
             mobyStream.Seek(section.offset);
@@ -46,7 +47,11 @@ public class Moby : IDisposable
 
             ShaderTUIDs = ArrayPool<ulong>.Shared.Rent((int)shaderReferencesSec.count);
 
-            for (int i = 0; i < shaderReferencesSec.count; i++) ShaderTUIDs[i] = stream.ReadUInt64((int)shaderReferencesSec.offset + sizeof(ulong) * i, false);
+            for (int i = 0; i < shaderReferencesSec.count; i++)
+            {
+                sh.Seek((long)(shaderReferencesSec.offset + (ulong)sizeof(ulong) * (ulong)i));
+                ShaderTUIDs[i] = sh.ReadUInt64();
+            }
         }
     }
 
@@ -54,11 +59,11 @@ public class Moby : IDisposable
     {
         if(isOld)
         {
-            MobyObj = new OldMoby(mobyStream, index);
+            MobyObj = OldMoby.Read(mobyStream, index);
         }
         else
         {
-            MobyObj = new NewMoby(mobyStream);
+            MobyObj = NewMoby.Read(mobyStream);
         }
     }
 

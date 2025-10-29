@@ -1,4 +1,5 @@
-﻿using LibLunacy.Numerics;
+﻿using LibLunacy.Legacy;
+using LibLunacy.Numerics;
 using LibLunacy.Objects.Instances;
 
 namespace LibLunacy.Objects
@@ -13,10 +14,10 @@ namespace LibLunacy.Objects
         public Quat rotation;
         public Vec3 scale;
 
-        public Volume(LunaStream stream, Mat4 transform)
+        public Volume(StreamHelper sh, Mat4 transform)
         {
-            metadata = new InstanceMetadata(stream);
-            name = stream.ReadString((int)metadata.namePointer, false);
+            metadata = new InstanceMetadata(sh);
+            name = sh.ReadString((uint)metadata.namePointer);
             Mat4.Decompose(transform, out scale, out rotation, out position);
         }
     }

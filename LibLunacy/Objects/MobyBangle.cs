@@ -1,34 +1,35 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Meshes;
 using System.Buffers;
 using System.Buffers.Binary;
 
 namespace LibLunacy.Objects;
 
+[FileStructure(0x08)]
 public record struct MobyBangle : ILunaSerializable
 {
     public const uint Size = 0x08;
 
-    public uint meshesPointer;
-    public uint meshesCount;
+    [FileOffset(0x00)] public uint meshesPointer;
+    [FileOffset(0x04)] public uint meshesCount;
 
     public MobyMesh[] meshes;
 
-    public MobyBangle(LunaStream stream)
+    public static MobyBangle Read(StreamHelper sh)
     {
-        meshesPointer = stream.ReadUInt32(0x00);
-        meshesCount =   stream.ReadUInt32(0x04);
-        
-        meshes = new MobyMesh[meshesCount];
+        var bangle = FileUtils.ReadStructure<MobyBangle>(sh);
+        bangle.meshes = new MobyMesh[bangle.meshesCount];
+        return bangle;
     }
 
-    public void ReadMeshes(LunaStream stream)
+    public void ReadMeshes(StreamHelper sh)
     {
         for (int i = 0; i < meshesCount; i++)
         {
-            meshes[i] = new MobyMesh(stream);
-            stream.JumpRead((int)MobyMesh.Size);
-            stream.JumpRead((int)MobyMesh.Size);
+            meshes[i] = MobyMesh.Read(sh);
+            sh.BaseStream.Position += MobyMesh.Size;
+            sh.BaseStream.Position += MobyMesh.Size;
         }
     }
 

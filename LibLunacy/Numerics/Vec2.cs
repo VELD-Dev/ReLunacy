@@ -6,9 +6,11 @@ using System.Reflection.Metadata.Ecma335;
 
 namespace LibLunacy.Numerics;
 
+[FileStructure(0x08)]
 public record struct Vec2
 {
-    public float X, Y;
+    [FileOffset(0x00)] public float X;
+    [FileOffset(0x04)] public float Y;
 
     public static readonly Vec2 Zero = new(0, 0);
     public static readonly Vec2 One = new(1, 1);
@@ -103,9 +105,9 @@ public record struct Vec2
         res = a.X * b.X - a.Y * b.Y;
     }
 
-    public readonly void ToBytes(in Span<byte> buffer, LunaStream.Endianness endianness = LunaStream.Endianness.Big)
+    public readonly void ToBytes(in Span<byte> buffer, Legacy.StreamHelper.Endianness endianness = Legacy.StreamHelper.Endianness.Big)
     {
-        if(endianness == LunaStream.Endianness.Big)
+        if(endianness == Legacy.StreamHelper.Endianness.Big)
         {
             BinaryPrimitives.WriteSingleBigEndian(buffer[0..], X);
             BinaryPrimitives.WriteSingleBigEndian(buffer[sizeof(float)..], Y);

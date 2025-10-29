@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Objects;
 using System;
 using System.Buffers;
@@ -45,36 +46,36 @@ namespace LibLunacy.Textures
             }
         }
 
-        public Texture(LunaStream stream, bool old = false)
+        public Texture(StreamHelper sh, bool old = false)
         {
             isOld = old;
 
             if(isOld)
             {
-                id = (ulong)stream.Position;
-                textureMetadata = new TextureMetadataOld(stream);
+                id = (ulong)sh.Offset;
+                textureMetadata = TextureMetadataOld.Read(sh);
                 // Highmips must be defined from the Loader for better performances (otherwise it must go through all the highmips and all...
                 Width = textureMetadata.Width;
                 Height = textureMetadata.Height;
             }
             else
             {
-                textureMetadata = new TextureMetadataNew(stream);
+                textureMetadata = TextureMetadataNew.Read(sh);
             }
         }
 
-        public void ReadHighmipsPtr(LunaStream stream)
+        public void ReadHighmipsPtr(StreamHelper sh)
         {
-            highmipsRef = new AssetPointer(stream);
+            highmipsRef = new AssetPointer(sh);
             id = highmipsRef.Value.TUID;
         }
 
         /// <summary>
         /// In new engine, stream must be highmips stream.
         /// </summary>
-        /// <param Name="stream"></param>
+        /// <param Name="sh"></param>
         /// <exception cref="InvalidOperationException"></exception>
-        public void ReadTexture(LunaStream stream)
+        public void ReadTexture(StreamHelper sh)
         {
             int offset;
             if (isOld)
@@ -89,7 +90,7 @@ namespace LibLunacy.Textures
                 }
                 else
                 {
-                    Console.WriteLine($"TextureMetadata offset: {((TextureMetadataOld)textureMetadata).offset:X}/{stream.Length:X}");
+                    Console.WriteLine($"TextureMetadata offset: {((TextureMetadataOld)textureMetadata).offset:X}/{sh.BaseStream.Length:X}");
                     offset = (int)((TextureMetadataOld)textureMetadata).offset;
                 }
                 data = new byte[HighmipSize];
@@ -108,23 +109,23 @@ namespace LibLunacy.Textures
                 data = new byte[hmref.length];
             }
 
-            if(offset > stream.Length || offset < 0)
-                throw new IndexOutOfRangeException($"Offset is out of bounds: {offset}/{stream.Length}");
+            if(offset > sh.BaseStream.Length || offset < 0)
+                throw new IndexOutOfRangeException($"Offset is out of bounds: {offset}/{sh.BaseStream.Length}");
 
             Console.WriteLine($"Offset: 0x{offset:X}");
             if (TexFormat > TextureFormat.A8R8G8B8)
             {
-                stream.Seek(offset);
-                stream.Read(data);
+                sh.Seek(offset);
+                sh.Read(data);
             }
             else
             {
-                stream.Seek(offset);
-                Unswizzle(stream);
+                sh.Seek(offset);
+                Unswizzle(sh);
             }
         }
 
-        public void Unswizzle(LunaStream stream)
+        public void Unswizzle(StreamHelper sh)
         {
             Console.WriteLine($"Unswizzling texture {id} with format {TexFormat}");
             if ((int)TexFormat > (int)TextureFormat.A8R8G8B8) throw new InvalidOperationException("DXT formats aren't swizzled.");
@@ -140,7 +141,7 @@ namespace LibLunacy.Textures
             for(int i = 0; i < Width * Height; i++)
             {
                 var index = MortonSwizzle(i, (int)Width, (int)Height);
-                stream.Read(pixel);
+                sh.Read(pixel);
                 //if (TexFormat == TextureFormat.A8R8G8B8) pixel.Reverse(); // ABGR -> RGBA
                 pixel.CopyTo(data.AsSpan(pixelSize * i));
             }

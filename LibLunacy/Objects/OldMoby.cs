@@ -1,62 +1,47 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Numerics;
 using System.Buffers;
 
 namespace LibLunacy.Objects;
 
+[FileStructure(0xC0)]
 public record struct OldMoby : IMoby
 {
     public const uint ID = 0xD100;
     public const uint Size = 0xC0;
 
-    public Vec4 boundingSphere;
-    public ushort Unk1;
-    public ushort Unk2;
-    public ushort bonesCount;
-    public ushort Unk3;
-    public ushort bangleCount;
-    public ushort mobyId;
-    public ushort Null1;
-    public byte UnkBool;  // Bool ?
-    public byte Null2;
-    public uint skeletonPointer;
-    public uint UnkPointer1;
-    public uint banglesPointer;
-    public uint UnkPointer2;
-    public uint Null3;
-    public uint indicesOffset;
-    public int verticesOffset;
-    public float scale;
-    public byte[] Unk5;
+    [FileOffset(0x00)] public Vec4 boundingSphere;
+    [FileOffset(0x10)] public ushort Unk1;
+    [FileOffset(0x12)] public ushort Unk2;
+    [FileOffset(0x14)] public ushort bonesCount;
+    [FileOffset(0x16)] public ushort Unk3;
+    [FileOffset(0x18)] public ushort bangleCount;
+    [FileOffset(0x1A)] public ushort mobyId;
+    [FileOffset(0x1C)] public ushort Null1;
+    [FileOffset(0x1E)] public byte UnkBool;  // Bool ?
+    [FileOffset(0x1F)] public byte Null2;
+    [FileOffset(0x20)] public uint skeletonPointer;
+    [FileOffset(0x24)] public uint UnkPointer1;
+    [FileOffset(0x28)] public uint banglesPointer;
+    [FileOffset(0x2C)] public uint UnkPointer2;
+    [FileOffset(0x30)] public uint Null3;
+    [FileOffset(0x34)] public uint indicesOffset;
+    [FileOffset(0x38)] public int verticesOffset;
+    [FileOffset(0x3C)] public float scale;
+    [FileOffset(0x40)] [Reference(0x80)] public byte[] Unk5;
 
-    public ulong TUID { get; init; }
+    private ulong _tuid;
+    public ulong TUID { readonly get => _tuid; init => _tuid = value; }
 
     public MobyBangle[] Bangles { get; set; }
 
-    public OldMoby(LunaStream stream, int index)
+    public static OldMoby Read(StreamHelper sh, int index)
     {
-        TUID = (ulong)index;
-        boundingSphere = stream.ReadVec4(0x00);
-        Unk1 = stream.ReadUInt16(0x10);
-        Unk2 = stream.ReadUInt16(0x12);
-        bonesCount = stream.ReadUInt16(0x14);
-        Unk3 = stream.ReadUInt16(0x16);
-        bangleCount = stream.ReadUInt16(0x18);
-        mobyId = stream.ReadUInt16(0x1A);
-        Null1 = stream.ReadUInt16(0x1C);
-        UnkBool = stream.Peek(0x1E, 1)[0];
-        Null2 = stream.Peek(0x1F, 1)[0];
-        skeletonPointer = stream.ReadUInt32(0x20);
-        UnkPointer1 = stream.ReadUInt32(0x24);
-        banglesPointer = stream.ReadUInt32(0x28);
-        UnkPointer2 = stream.ReadUInt32(0x2C);
-        Null3 = stream.ReadUInt32(0x30);
-        indicesOffset = stream.ReadUInt32(0x34);
-        verticesOffset = stream.ReadInt32(0x38);
-        scale = stream.ReadSingle(0x3C);
-        Unk5 = stream.Peek(0x40, 32 * 0x4);
-
-        Bangles = new MobyBangle[bangleCount];
+        var moby = FileUtils.ReadStructure<OldMoby>(sh);
+        moby._tuid = (ulong)index;
+        moby.Bangles = new MobyBangle[moby.bangleCount];
+        return moby;
     }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)

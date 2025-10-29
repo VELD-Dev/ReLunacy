@@ -1,4 +1,5 @@
-﻿using LibLunacy.Objects.Instances;
+﻿using LibLunacy.Legacy;
+using LibLunacy.Objects.Instances;
 
 namespace LibLunacy.Objects
 {
@@ -15,17 +16,17 @@ namespace LibLunacy.Objects
         public Dictionary<ulong, Volume> Volumes = new();
         public bool isOld;
 
-        public LunaStream regionStream;
-        public LunaStream? priusStream;
+        public StreamHelper regionStream;
+        public StreamHelper? priusStream;
 
-        public Region(LunaStream stream)
+        public Region(StreamHelper stream)
         {
             isOld = true;
             regionStream = stream;
             name = "default";
         }
 
-        public Region(LunaStream prius, LunaStream region, string regionName)
+        public Region(StreamHelper prius, StreamHelper region, string regionName)
         {
             isOld = false;
             priusStream = prius;

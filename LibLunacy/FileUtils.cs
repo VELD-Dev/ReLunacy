@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Numerics;
 using LibLunacy.Legacy;
+using LibLunacy.Numerics;
 
 namespace LibLunacy
 {
@@ -72,7 +73,7 @@ namespace LibLunacy
 				if(fields[i].IsStatic) continue;
 				FileOffset offset = fields[i].GetCustomAttribute<FileOffset>();
 				if(offset == null) continue;
-				
+
 				object field;
 
 				sh.Seek(initialOffset + offset.Offset);
@@ -91,19 +92,35 @@ namespace LibLunacy
 				else if(fields[i].FieldType == typeof(ulong))                field = sh.ReadUInt64();
 				else if(fields[i].FieldType == typeof(float))                field = sh.ReadSingle();
 				else if(fields[i].FieldType == typeof(string))               field = sh.ReadString();
+				else if(fields[i].FieldType == typeof(byte))                 field = sh.ReadByte();
+				else if(fields[i].FieldType == typeof(int))                  field = sh.ReadInt32();
+				else if(fields[i].FieldType == typeof(short))                field = sh.ReadInt16();
+				else if(fields[i].FieldType == typeof(long))                 field = sh.ReadInt64();
+				else if(fields[i].FieldType == typeof(double))               field = sh.ReadDouble();
+				else if(fields[i].FieldType == typeof(Half))                 field = sh.ReadHalf();
+				// System.Numerics types
 				else if(fields[i].FieldType == typeof(Vector3))              field = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
-				else if (fields[i].FieldType == typeof(Vector4))			 field = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());	
+				else if (fields[i].FieldType == typeof(Vector4))			 field = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
 				else if(fields[i].FieldType == typeof(Matrix4x4))            field = new Matrix4x4(
 					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
 					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
 					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
 					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle()
 					);
-				else if(fields[i].FieldType == typeof(int))                  field = sh.ReadInt32();
-				else if(fields[i].FieldType == typeof(short))                field = sh.ReadInt16();
-				else if(fields[i].FieldType == typeof(long))                 field = sh.ReadInt64();
-				else if(fields[i].FieldType == typeof(double))               field = sh.ReadDouble();
+				// LibLunacy.Numerics types
+				else if(fields[i].FieldType == typeof(Vec2))                 field = new Vec2(sh.ReadSingle(), sh.ReadSingle());
+				else if(fields[i].FieldType == typeof(Vec3))                 field = new Vec3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+				else if(fields[i].FieldType == typeof(Vec4))                 field = new Vec4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+				else if(fields[i].FieldType == typeof(Mat4))                 field = new Mat4(new float[16]{
+					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
+					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
+					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
+					sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle()
+					});
+				else if(fields[i].FieldType == typeof(Quat))                 field = new Quat(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+				// Nested structs
 				else if(fields[i].FieldType.IsValueType)                     field = sh.ReadStruct(fields[i].FieldType);
+				// Arrays (handled later)
 				else if(fields[i].FieldType.IsArray)
 				{
 					arrays.Add(fields[i]);
@@ -111,23 +128,41 @@ namespace LibLunacy
 				}
 				else
 				{
-					throw new Exception("unimplemented type");
+					throw new Exception($"FileUtils.ReadStructure: Unimplemented type {fields[i].FieldType}");
 				}
 
 				fields[i].SetValue(tstructure, field);
 			}
 
+			// Handle arrays (byte[], etc.)
 			for(int i = 0; i < arrays.Count; i++)
 			{
 				FileOffset offset = arrays[i].GetCustomAttribute<FileOffset>();
 				sh.Seek(initialOffset + offset.Offset);
 
 				Reference reference = arrays[i].GetCustomAttribute<Reference>();
+
+				object field;
+
+				// Handle byte arrays specially (inline data, not pointers)
+				if(arrays[i].FieldType == typeof(byte[]))
+				{
+					if(reference == null)
+					{
+						throw new Exception("FileUtils.ReadStructure: byte[] fields must have [Reference(count)] attribute");
+					}
+					uint count = reference.GetArrayCount(tstructure);
+					field = sh.ReadFromOffset((int)count, (uint)(initialOffset + offset.Offset));
+					arrays[i].SetValue(tstructure, field);
+					continue;
+				}
+
+				// Handle pointer-based arrays (other types)
 				uint referenceOffset = sh.ReadUInt32();
 				if(referenceOffset == 0) continue;
 				sh.Seek(referenceOffset);
 
-				object field = FileUtils.ReadStructureArray(arrays[i].FieldType.GetElementType(), sh, reference.GetArrayCount(tstructure));
+				field = FileUtils.ReadStructureArray(arrays[i].FieldType.GetElementType(), sh, reference.GetArrayCount(tstructure));
 				arrays[i].SetValue(tstructure, field);
 			}
 
@@ -135,10 +170,12 @@ namespace LibLunacy
 
 			return (T)tstructure;
 		}
+
 		public static object ReadStructureArray(Type t, StreamHelper sh, uint count)
 		{
 			return typeof(FileUtils).GetMethod("ReadStructureArray", new Type[2]{typeof(StreamHelper), typeof(uint)}).MakeGenericMethod(t).Invoke(null, new object[2]{sh, count});
 		}
+
 		public static T[] ReadStructureArray<T>(StreamHelper sh, uint count) where T : struct
 		{
 			T[] items = new T[count];

@@ -1,4 +1,5 @@
 ﻿using LibLunacy.Interfaces;
+using LibLunacy.Legacy;
 using LibLunacy.Meshes;
 using LibLunacy.Vertices;
 using System.Buffers;
@@ -9,7 +10,7 @@ namespace LibLunacy.Objects
     {
         public UFragMetadata metadata;
         public UFragVertex[] vertices;
-        public LunaStream zoneStream;
+        public StreamHelper zoneStream;
         public bool isOld;
 
         public float[] vpos { get; set; }
@@ -22,11 +23,11 @@ namespace LibLunacy.Objects
 
         public uint[] vertToBonemap { get; set; }
 
-        public UFrag(LunaStream zstream, bool old)
+        public UFrag(StreamHelper sh, bool old)
         {
-            metadata = new UFragMetadata(zstream, old);
+            metadata = new UFragMetadata(sh, old);
             isOld = old;
-            zoneStream = zstream;
+            zoneStream = sh;
             vertices = ArrayPool<UFragVertex>.Shared.Rent(metadata.vertexCount);
             indices = ArrayPool<uint>.Shared.Rent(metadata.indexCount);
         }
@@ -36,7 +37,7 @@ namespace LibLunacy.Objects
             for (int i = 0; i < metadata.vertexCount; i++)
             {
                 vertices[i] = new(zoneStream);
-                zoneStream.JumpRead((int)UFragVertex.Size);
+                zoneStream.BaseStream.Position += UFragVertex.Size;
             }
 
             vpos = new float[vertices.Length * 3];
@@ -55,8 +56,8 @@ namespace LibLunacy.Objects
         {
             for(int i = 0; i < metadata.indexCount; i++)
             {
-                indices[i] = zoneStream.ReadUInt16(0);
-                zoneStream.JumpRead(sizeof(ushort));
+                indices[i] = zoneStream.ReadUInt16();
+                zoneStream.BaseStream.Position += sizeof(ushort);
             }
         }
 

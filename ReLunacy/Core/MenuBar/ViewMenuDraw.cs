@@ -124,4 +124,20 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new LogsFrame());
         }
     }
+
+    internal static void ShowPSArcExplorer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();
+        if (!ImGui.MenuItem("PSArc Explorer", "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+        {
+            LunaWindow.Instance.TryCloseFirstFrame<PSArcExplorer>();
+        }
+        else
+        {
+            LunaWindow.Instance.AddFrame(new PSArcExplorer());
+        }
+    }
 }
