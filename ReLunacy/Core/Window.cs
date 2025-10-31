@@ -1,10 +1,8 @@
 ﻿using Bliss.CSharp;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Fonts;
-using Bliss.CSharp.Graphics.Rendering.Batches.Primitives;
-using Bliss.CSharp.Graphics.Rendering.Batches.Sprites;
-using Bliss.CSharp.Graphics.Rendering.Passes;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Contexts;
@@ -53,7 +51,7 @@ public class LunaWindow : Disposable
     private readonly double fixedUpdateTimeStep;
     private double fixedUpdateTimer;
     private long frameCount;
-    public FullScreenRenderPass FullScreenRenderPass { get; private set; }
+    public FullScreenRenderer FullScreenRenderer { get; private set; }
     public RenderTexture2D FullScreenTexture { get; private set; }
     public ImGuiController imGuiController;
     private Texture2D logoTexture;
@@ -174,7 +172,7 @@ public class LunaWindow : Disposable
 
     protected virtual void Init()
     {
-        FullScreenRenderPass = new FullScreenRenderPass(GraphicsDevice);
+        FullScreenRenderer = new FullScreenRenderer(GraphicsDevice);
         FullScreenTexture = new RenderTexture2D(GraphicsDevice, (uint)MainWindow.GetWidth(), (uint)MainWindow.GetHeight(), (TextureSampleCount)EditorSettings.MSAA_Level);
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
@@ -203,7 +201,7 @@ public class LunaWindow : Disposable
         fileManager.LoadFolder(path);
 
         LunaLog.LogDebug("Starting AssetLoader threaded task.");
-        var alTask = Task.Run(() => Loader = new LunaLoader(loadingFrame, fileManager));
+        var alTask = Task.Run(() => Loader = new LunaLoader(loadingFrame, fileManager, new() { LoadTextures = true }));
         LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
         await alTask;
         loadingFrame.UpdateProgress(0, new(1, 1));
@@ -459,7 +457,7 @@ public class LunaWindow : Disposable
         commandList.SetFramebuffer(graphicsDevice.SwapchainFramebuffer);
         commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
 
-        FullScreenRenderPass.Draw(commandList, FullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
+        FullScreenRenderer.Draw(commandList, FullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
 
         commandList.End();
 

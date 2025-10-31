@@ -2,6 +2,7 @@
 using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
 using LibLunacy.Objects;
@@ -18,8 +19,6 @@ namespace ReLunacy.Core.EntityManagement;
 public class EntityVolume : Entity
 {
     public readonly Volume BaseVolume;
-
-    public override Transform Transform { get; protected set; }
 
     public override Vector4 BoundingSphere { get; set; } = Vector4.Zero;
     public BoundingBox boundingBox;
@@ -39,7 +38,7 @@ public class EntityVolume : Entity
         boundingBox = new(-(volume.scale / 2f), (volume.scale / 2f));
     }
 
-    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender || !EntityManager.Singleton.renderVolumes)
             return;

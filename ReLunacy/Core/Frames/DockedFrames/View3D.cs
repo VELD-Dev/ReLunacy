@@ -1,6 +1,7 @@
 ﻿using Bliss.CSharp;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Keyboards;
@@ -36,9 +37,9 @@ public class View3D : DockedFrame
     private readonly CommandList commandList;
     private bool invalidate = true;
 
+    private readonly ForwardRenderer renderer;
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
-
     private ImmediateRenderer immediateRenderer;
     public Rectangle FrameContentRegion { get; private set; }
     public Vector2 FramePos { get; private set; }
@@ -61,6 +62,7 @@ public class View3D : DockedFrame
             Program.Settings.RenderDistance
         );
 
+        renderer = new ForwardRenderer(gd);
         graphicsDevice = gd;
         commandList = graphicsDevice.ResourceFactory.CreateCommandList();
         immediateRenderer = new ImmediateRenderer(gd);
@@ -82,7 +84,8 @@ public class View3D : DockedFrame
         Camera.Begin();
         Camera.Update(deltaTime);
 
-        EntityManager.Singleton.Draw(renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
+        EntityManager.Singleton.Draw(renderer, renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
+        renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
 
         Camera.End();
 

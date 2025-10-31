@@ -1,6 +1,7 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
-using LibLunacy.Objects;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
+using LibLunacy.Experimental.Assets.Levels;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
@@ -45,40 +46,37 @@ public class EntityRegion : IDisposable
 
     public EntityRegion(Region region, AssetManager assetManager, LunaLoader loader, GraphicsDevice gd)
     {
-        RegionName = region.name;
+        RegionName = region.Name ?? "UnnamedRegion";
 
         MobyInstances = new EntityCluster([], assetManager, loader);
         foreach(var minst in region.MobyInstances)
         {
-            MobyInstances.Add(minst.Value);
+            MobyInstances.Add(minst);
         }
 
+        // Volumes are not yet implemented in experimental system
         Volumes = new EntityCluster([], assetManager, loader);
-        foreach(var volume in region.Volumes)
-        {
-            Volumes.Add(volume.Value, gd);
-        }
 
         foreach(var zone in region.Zones)
         {
-            Zones.Add(new EntityZone(zone.Value, gd, assetManager, loader));
+            Zones.Add(new EntityZone(zone, gd, assetManager, loader));
         }
     }
 
-    public void Draw(OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(ForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender)
             return;
 
         if(EntityManager.Singleton.renderMobys)
-            MobyInstances.Draw(od, cl, camera, immediateRenderer);
+            MobyInstances.Draw(renderer, od, cl, camera, immediateRenderer);
 
         if (EntityManager.Singleton.renderVolumes)
-            Volumes.Draw(od, cl, camera, immediateRenderer);
+            Volumes.Draw(renderer, od, cl, camera, immediateRenderer);
 
         foreach(var z in Zones)
         {
-            z.Draw(od, cl, camera, immediateRenderer);
+            z.Draw(renderer, od, cl, camera, immediateRenderer);
         }
     }
 

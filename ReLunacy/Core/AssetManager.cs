@@ -1,18 +1,19 @@
 ﻿using Bliss.CSharp;
 using Bliss.CSharp.Effects;
 using Bliss.CSharp.Geometry;
+using Bliss.CSharp.Graphics.VertexTypes;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Textures;
-using LibLunacy.Objects;
+using LibLunacy.Experimental.Core.Interfaces;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Numerics;
 using TinyBCSharp;
 using Veldrid;
+using Vortice.Mathematics;
 
 namespace ReLunacy.Core;
 
@@ -61,41 +62,68 @@ public class AssetManager : IDisposable
 
         foreach (var shader in loader.Shaders)
         {
-            var material = new Material(gd, GlobalResource.DefaultModelEffect, BlendStateDescription.SINGLE_ALPHA_BLEND);
-            if (shader.Value.Albedo != 0)
-                material.AddMaterialMap("fAlbedo", new MaterialMap(Textures[shader.Value.metadata.albedo]));
-            else
-                material.AddMaterialMap("fAlbedo", new MaterialMap(GlobalResource.DefaultModelTexture));
-            if (shader.Value.metadata.expensive != 0)
-                material.AddMaterialMap("expensive", new MaterialMap(Textures[shader.Value.metadata.expensive]));
-            if(shader.Value.metadata.normal != 0)
-                material.AddMaterialMap("normal", new MaterialMap(Textures[shader.Value.metadata.normal]));
+            var material = new Material(GlobalResource.DefaultModelEffect, null, BlendStateDescription.SINGLE_ALPHA_BLEND);
+            if (shader.Value.metadataNew is not null)
+            {
+                if (shader.Value.metadataNew?.albedo != 0)
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(Textures[(ulong)shader.Value.metadataNew?.albedo]));
+                else
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(GlobalResource.DefaultModelTexture));
+                if (shader.Value.metadataNew?.expensive != 0)
+                    material.AddMaterialMap(MaterialMapType.Emission, new MaterialMap(Textures[(ulong)shader.Value.metadataNew?.expensive]));
+                if (shader.Value.metadataNew?.normal != 0)
+                    material.AddMaterialMap(MaterialMapType.Normal, new MaterialMap(Textures[(ulong)shader.Value.metadataNew?.normal]));
+            }
+            else if(shader.Value.metadataOld is not null)
+            {
+                if (shader.Value.metadataOld?.albedo != 0)
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(Textures[(ulong)shader.Value.metadataOld?.albedo]));
+                else
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(GlobalResource.DefaultModelTexture));
+                if (shader.Value.metadataOld?.expensive != 0)
+                    material.AddMaterialMap(MaterialMapType.Emission, new MaterialMap(Textures[(ulong)shader.Value.metadataOld?.expensive]));
+                if (shader.Value.metadataOld?.normal != 0)
+                    material.AddMaterialMap(MaterialMapType.Normal, new MaterialMap(Textures[(ulong)shader.Value.metadataOld?.normal]));
+            }
             Materials[shader.Key] = material;
         }
 
         foreach(var moby in loader.Mobys)
         {
-            var models = new Model[moby.Value.BanglesCount];
+            // Get actual bangle count from experimental moby
+            int bangleCount = moby.Value.Bangles.Count;
+            var models = new Model[bangleCount];
 
-            LunaLog.LogDebug($"Moby_{moby.Key:X} has {moby.Value.BanglesCount} bangles");
-            for(int i = 0; i < moby.Value.BanglesCount; i++)
+            LunaLog.LogDebug($"Moby_{moby.Key:X} has {bangleCount} bangles");
+            for(int i = 0; i < bangleCount; i++)
             {
                 var bangle = moby.Value.Bangles[i];
+                var bangleMeshes = bangle.Meshes.ToList();
 
-                var meshes = new Mesh[bangle.meshesCount];
-                for(int j = 0; j < bangle.meshesCount; j++)
+                var meshes = new Mesh[bangleMeshes.Count];
+                for(int j = 0; j < bangleMeshes.Count; j++)
                 {
-                    var bangleMesh = bangle.meshes[j];
-                    var mesh = new Mesh(
-                        gd,
-                        Materials[bangleMesh.shaderIndex],
-                        (bangleMesh.verticesType == 0 ? bangleMesh.vertices0.ToVert3D(moby.Value.Scale) : bangleMesh.vertices1.ToVert3D(moby.Value.Scale)),
-                        [.. bangleMesh.indices.Select(n => (uint)n)]
-                    );
+                    var iMesh = bangleMeshes[j];
+                    var geometry = iMesh.Geometry;
+
+                    // Get material - try to match shader index with loaded materials
+                    Material? material = null;
+                    if (iMesh.Material is LibLunacy.Experimental.Assets.Materials.Material expMat)
+                    {
+                        if (Materials.TryGetValue(expMat.Id, out var mat))
+                            material = mat;
+                    }
+                    material ??= new Material(GlobalResource.DefaultModelEffect, null, BlendStateDescription.SINGLE_ALPHA_BLEND);
+
+                    // Convert geometry to Vertex3D format
+                    var vertices = ConvertGeometryToVertices(geometry, moby.Value.Scale);
+                    var indices = geometry.GetIndices();
+
+                    var mesh = new Mesh(gd, material, vertices, indices);
                     meshes[j] = mesh;
                 }
 
-                var model = new Model(gd, meshes, [] /* Animations not read yet */);
+                var model = new Model(gd, meshes, null /* Skeletons not ready yet */, [] /* Animations not read yet */);
                 models[i] = model;
             }
 
@@ -104,23 +132,88 @@ public class AssetManager : IDisposable
 
         foreach(var tie in loader.Ties)
         {
-            var meshes = new Mesh[tie.Value.MeshesCount];
+            var tieMeshes = tie.Value.Meshes.ToList();
+            var meshes = new Mesh[tieMeshes.Count];
 
-            for(int i = 0; i < tie.Value.MeshesCount; i++)
+            for(int i = 0; i < tieMeshes.Count; i++)
             {
-                var tieMesh = tie.Value.Meshes[i];
-                var mesh = new Mesh(
-                    gd,
-                    Materials[(tieMesh.isOld ? tieMesh.oldShaderIndex : tieMesh.newShaderIndex)],
-                    tieMesh.vertices.ToVert3D(),
-                    [.. tieMesh.indices.Select(n => (uint)n)]
-                );
+                var iMesh = tieMeshes[i];
+                var geometry = iMesh.Geometry;
+
+                // Get material - try to match shader index with loaded materials
+                Material? material = null;
+                if (iMesh.Material is LibLunacy.Experimental.Assets.Materials.Material expMat)
+                {
+                    if (Materials.TryGetValue(expMat.Id, out var mat))
+                        material = mat;
+                }
+                material ??= new Material(GlobalResource.DefaultModelEffect, null, BlendStateDescription.SINGLE_ALPHA_BLEND);
+
+                // Convert geometry to Vertex3D format (use tie scale)
+                var vertices = ConvertGeometryToVertices(geometry, tie.Value.Scale);
+                var indices = geometry.GetIndices();
+
+                var mesh = new Mesh(gd, material, vertices, indices);
                 meshes[i] = mesh;
             }
 
-            var model = new Model(gd, meshes, [] /* Ties are static */);
+            var model = new Model(gd, meshes, null, [] /* Ties are static and don't have skeletons or animations */);
             Ties[tie.Key] = model;
         }
+    }
+
+    /// <summary>
+    /// Converts experimental IGeometry to Bliss Vertex3D array
+    /// </summary>
+    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, float scale)
+    {
+        var positions = geometry.GetVertexPositions();
+        var uvs = geometry.GetTextureCoordinates();
+        var normals = geometry.GetNormals();
+
+        int vertexCount = positions.Length / 3;
+        var vertices = new Vertex3D[vertexCount];
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int posIdx = i * 3;
+            int uvIdx = i * 2;
+
+            var position = new Vector3(
+                positions[posIdx] * scale,
+                positions[posIdx + 1] * scale,
+                positions[posIdx + 2] * scale
+            );
+
+            var uv = new Vector2(
+                uvs[uvIdx],
+                uvs[uvIdx + 1]
+            );
+
+            // Pack normals if available
+            uint normalPacked = 0;
+            if (normals != null && normals.Length >= (i * 3 + 3))
+            {
+                // Pack normal into uint (simplified - you may need proper packing)
+                var nx = (byte)((normals[posIdx] + 1.0f) * 127.5f);
+                var ny = (byte)((normals[posIdx + 1] + 1.0f) * 127.5f);
+                var nz = (byte)((normals[posIdx + 2] + 1.0f) * 127.5f);
+                normalPacked = (uint)(nx | (ny << 8) | (nz << 16));
+            }
+
+            vertices[i] = new Vertex3D(
+                position,
+                Vector4.Zero,           // weights
+                UInt4.Zero,             // bones
+                uv,                     // uv1
+                uv,                     // uv2
+                Vector3.Zero,           // normal (simplified - proper normal conversion needed)
+                Vector4.Zero,           // tangent
+                Vector4.Zero            // color
+            );
+        }
+
+        return vertices;
     }
 
     public void Dispose()

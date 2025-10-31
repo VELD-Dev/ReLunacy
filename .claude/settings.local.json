@@ -5,7 +5,8 @@
       "Bash(dotnet build:*)",
       "Bash(find:*)",
       "Bash(Select-String -Pattern \"Error\\(s\\)|Avertissement\\(s\\)|ÉCHEC|Build succeeded\")",
-      "Bash(Select-Object -First 5)"
+      "Bash(Select-Object -First 5)",
+      "Bash(dotnet clean:*)"
     ],
     "deny": [],
     "ask": []

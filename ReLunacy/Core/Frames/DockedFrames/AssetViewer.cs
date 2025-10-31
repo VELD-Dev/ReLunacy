@@ -2,10 +2,12 @@
 using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Textures;
 using ImGuiNET;
-using LibLunacy.Objects;
+using LibLunacy.Experimental.Core.Interfaces;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System;
@@ -22,12 +24,12 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 public record struct MobyAsset
 {
-    public MobyAsset(Model[] mobyModel, Moby moby)
+    public MobyAsset(Model[] mobyModel, IMoby moby)
     {
         Moby = moby;
         Model = mobyModel;
         RenderModelMap = new bool[Model.Length];
-        MobyName = moby.TUID.ToString("X");
+        MobyName = moby.Id.ToString("X");
         for(int i = 0; i < Model.Length; i++)
         {
             var bangle = Model[i];
@@ -39,7 +41,7 @@ public record struct MobyAsset
 
     public Model[] Model;
     public bool[] RenderModelMap;
-    public Moby Moby;
+    public IMoby Moby;
     public string MobyName;
     public uint verticesCount;
 }
@@ -58,11 +60,33 @@ public class AssetViewer : DockedFrame
     private readonly GraphicsDevice graphicsDevice;
     private readonly RenderTexture2D renderTexture;
     private readonly ImmediateRenderer immediateRenderer;
+    private readonly ForwardRenderer renderer;
     public readonly CommandList commandList;
     public readonly Cam3D Camera;
 
+    private List<Renderable> cachedRenderables = [];
     public List<MobyAsset> mobyAssets = [];
+    private bool isDirty = true;
+    public bool IsDirty
+    {
+        get => isDirty;
+        set
+        {
+            isDirty = value;
+        }
+    }
     public MobyAsset? selectedMobyAsset;
+    public MobyAsset? SelectedMobyAsset
+    {
+        get => selectedMobyAsset;
+        set
+        {
+            selectedMobyAsset = value;
+            // Set ties to null when changing to a moby (TODO)
+            IsDirty = true;
+        }
+    }
+
 
     public AssetViewer(GraphicsDevice gd)
     {
@@ -82,6 +106,7 @@ public class AssetViewer : DockedFrame
             100f  // Far plane is near to keep it simple
         );
         renderTexture = new(gd, 300, 300, (TextureSampleCount)Program.Settings.MSAA_Level);
+        renderer = new ForwardRenderer(gd);
     }
 
     public void TransmitAssets(AssetManager assetManager, LunaLoader loader)
@@ -151,11 +176,20 @@ public class AssetViewer : DockedFrame
                 immediateRenderer.DrawCube(commandList, renderTexture.Framebuffer.OutputDescription, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }, Vector3.One, Bliss.CSharp.Colors.Color.DarkGray);
             else
             {
-                for (int i = 0; i < selectedMobyAsset.Value.Model.Length; i++) {
-                    var model = selectedMobyAsset.Value.Model[i];
-                    if (selectedMobyAsset.Value.RenderModelMap[i])
-                        model.Draw(commandList, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }, renderTexture.Framebuffer.OutputDescription);
+                if(IsDirty)
+                {
+                    cachedRenderables.Clear();
+                    foreach (var model in selectedMobyAsset.Value.Model)
+                        foreach (var mesh in model.Meshes)
+                            cachedRenderables.Add(new Renderable(mesh, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }));
+
+                    IsDirty = false;
                 }
+
+               
+                foreach(var renderable in cachedRenderables)
+                    renderer.DrawRenderable(renderable);
+                renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
             }
 
             Camera.End();

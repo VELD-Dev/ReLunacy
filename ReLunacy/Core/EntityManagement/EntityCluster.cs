@@ -1,7 +1,7 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
-using LibLunacy.Objects;
-using LibLunacy.Objects.Instances;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
+using LibLunacy.Experimental.Core.Interfaces;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
@@ -38,25 +38,20 @@ public class EntityCluster : IDisposable
         Entities.Add(entity);
     }
 
-    public void Add(MobyInstance mobyInstance)
+    // Experimental system support
+    public void Add(IPlacedInstance<IMoby> mobyInstance)
     {
         TotalEntities++;
         Entities.Add(new EntityMoby(mobyInstance, AssetManager));
     }
 
-    public void Add(Volume volume, GraphicsDevice gd)
+    public void Add(IPlacedInstance<ITie> tieInstance)
     {
         TotalEntities++;
-        Entities.Add(new EntityVolume(volume, gd));
+        Entities.Add(new EntityTie(tieInstance, AssetManager));
     }
 
-    public void Add(TieInstance tieInstance)
-    {
-        TotalEntities++;
-        Entities.Add(new EntityTie(tieInstance, AssetManager, Loader));
-    }
-
-    public void Add(UFrag ufrag, GraphicsDevice gd)
+    public void Add(IUFrag ufrag, GraphicsDevice gd)
     {
         TotalEntities++;
         Entities.Add(new EntityUFrag(gd, ufrag, AssetManager));
@@ -73,14 +68,14 @@ public class EntityCluster : IDisposable
         return true;
     }
 
-    public void Draw(OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(ForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender)
             return;
 
         foreach(var e in Entities)
         {
-            e.Draw(od, cl, camera, immediateRenderer);
+            e.Draw(renderer, od, cl, camera, immediateRenderer);
         }
     }
 

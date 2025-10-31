@@ -1,6 +1,6 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
-using LibLunacy.Objects;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
@@ -99,10 +99,10 @@ public class EntityManager : IDisposable
         initialized = true;
     }
 
-    public void Draw(OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(ForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         foreach (EntityRegion region in Regions)
-            region.Draw(od, cl, camera, immediateRenderer);
+            region.Draw(renderer, od, cl, camera, immediateRenderer);
     }
 
     public void Dispose()

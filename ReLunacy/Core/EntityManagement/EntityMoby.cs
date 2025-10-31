@@ -4,6 +4,7 @@ using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
+using LibLunacy.Experimental.Core.Interfaces;
 using LibLunacy.Objects;
 using LibLunacy.Objects.Instances;
 using LibLunacy.Shaders;
@@ -12,43 +13,46 @@ using System.Numerics;
 using Veldrid;
 
 using Shader = LibLunacy.Shaders.Shader;
+using Model = Bliss.CSharp.Geometry.Model;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 
 namespace ReLunacy.Core.EntityManagement;
 
 public class EntityMoby : Entity
 {
-    public readonly Moby BaseMoby;
-    public override Transform Transform { get; protected set; }
+    public readonly IMoby BaseMoby;
     public override string Name { get; protected set; }
     public Model[] Models { get; private set; }
 
     public override Vector4 BoundingSphere { get; set; }
 
-    public EntityMoby(MobyInstance mobyInstance, AssetManager assetManager) : base()
+    public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager) : base()
     {
-        BaseMoby = mobyInstance.Moby;
+        BaseMoby = mobyInstance.Asset;
         var rotationQuat = Quaternion.CreateFromYawPitchRoll(
-            mobyInstance.instanceData.Rotation.X,
-            mobyInstance.instanceData.Rotation.Y,
-            mobyInstance.instanceData.Rotation.Z
+            mobyInstance.Rotation.X,
+            mobyInstance.Rotation.Y,
+            mobyInstance.Rotation.Z
         );
         Transform = new Transform()
         {
-            Translation = mobyInstance.instanceData.Position,
+            Translation = mobyInstance.Position,
             Rotation = rotationQuat,
-            Scale = new(mobyInstance.instanceData.Scale)
+            Scale = new(mobyInstance.Scale)
         };
 
-        BoundingSphere = new(BaseMoby.BoundingSphere.XYZ + mobyInstance.instanceData.Position, BaseMoby.BoundingSphere.W);
+        var (center, radius) = BaseMoby.GetBoundingSphere();
+        BoundingSphere = new(center + mobyInstance.Position, radius);
 
-        Name = mobyInstance.name != string.Empty ? mobyInstance.name.Split('/')[^1] : $"Moby_{BaseMoby.TUID:X}_{(mobyInstance.metadata is not null ? mobyInstance.metadata?.group : ID)}";
+        Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";
 
-        if (!assetManager.Mobys.ContainsKey(mobyInstance.TUID))
+        if (!assetManager.Mobys.ContainsKey(BaseMoby.Id))
             return;
-        Models = assetManager.Mobys[mobyInstance.TUID];
+        Models = assetManager.Mobys[BaseMoby.Id];
     }
 
-    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if(!allowRender || !EntityManager.Singleton.renderMobys)
             return;
@@ -62,9 +66,21 @@ public class EntityMoby : Entity
         if (EntityManager.Singleton.renderBoundingSpheres)
             DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
-        foreach (Model model in Models)
+        if (IsDirty)
         {
-            model.Draw(commandList, Transform, outputDescription, null, null, new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, true, true));
+            cachedRenderables.Clear();
+            foreach (Model model in Models)
+            {
+                cachedRenderables.Clear();
+                foreach (var mesh in model.Meshes)
+                    cachedRenderables.Add(new Renderable(mesh, Transform));
+            }
+            IsDirty = false;
+        }
+
+        foreach (var renderable in cachedRenderables)
+        {
+            renderer.DrawRenderable(renderable);
         }
 
         EntitiesRenderedThisFrame++;

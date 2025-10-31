@@ -1,10 +1,11 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
-using LibLunacy.Objects;
-using LibLunacy.Objects.Instances;
+using LibLunacy.Experimental.Core.Interfaces;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
@@ -18,32 +19,39 @@ namespace ReLunacy.Core.EntityManagement;
 
 public class EntityTie : Entity
 {
-    public readonly Tie BaseTie;
+    public readonly ITie BaseTie;
 
-    public override Transform Transform { get => throw new NotImplementedException(); protected set => throw new NotImplementedException(); }
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
     public Model Model { get; private set; }
 
-    public EntityTie(TieInstance tieInstance, AssetManager assetManager, LunaLoader loader): base()
+    public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager): base()
     {
-        BaseTie = loader.Ties[tieInstance.tieIndex];
-        Transform = new()
+        BaseTie = tieInstance.Asset;
+        var rotationQuat = Quaternion.CreateFromYawPitchRoll(
+            tieInstance.Rotation.X,
+            tieInstance.Rotation.Y,
+            tieInstance.Rotation.Z
+        );
+        Transform = new Transform()
         {
-            Translation = tieInstance.transform.ExtractTranslation(),
-            Rotation = tieInstance.transform.ExtractRotation(),
-            Scale = tieInstance.transform.ExtractScale()
+            Translation = tieInstance.Position,
+            Rotation = rotationQuat,
+            Scale = new(tieInstance.Scale)
         };
 
-        BoundingSphere = tieInstance.boundingSphere;
+        var (center, radius) = BaseTie.GetBoundingSphere();
+        BoundingSphere = new(center + tieInstance.Position, radius);
 
-        Name = BaseTie.Name != string.Empty ? $"{BaseTie.Name.Split('/')[^1]}_{ID}" : $"Tie_{BaseTie.TUID:X}_{ID}";
+        Name = !string.IsNullOrEmpty(BaseTie.Name) ? $"{BaseTie.Name.Split('/')[^1]}_{ID}" : $"Tie_{BaseTie.Id:X}_{ID}";
 
-        Model = assetManager.Ties[tieInstance.tieIndex];
+        if (!assetManager.Ties.ContainsKey(BaseTie.Id))
+            return;
+        Model = assetManager.Ties[BaseTie.Id];
     }
 
-    public override void Draw(OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender || !EntityManager.Singleton.renderTies)
             return;
@@ -54,7 +62,16 @@ public class EntityTie : Entity
         if (EntityManager.Singleton.renderBoundingSpheres)
             DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
-        Model.Draw(commandList, Transform, outputDescription);
+        if(IsDirty)
+        {
+            cachedRenderables.Clear();
+            foreach (var mesh in Model.Meshes)
+            {
+                cachedRenderables.Add(new Renderable(mesh, Transform));
+            }
+            IsDirty = false;
+        }
+
         EntitiesRenderedThisFrame++;
     }
 }

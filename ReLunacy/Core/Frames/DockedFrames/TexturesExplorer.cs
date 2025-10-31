@@ -62,22 +62,25 @@ public class TexturesExplorer : DockedFrame
         if (ImGui.BeginChild("texture_gridview", new (ImGui.GetContentRegionAvail().X / 2, ImGui.GetContentRegionAvail().Y), ImGuiChildFlags.Borders))
         {
             var columns = (int)ImGui.GetContentRegionAvail().X / 128;
-            ImGui.Columns(columns, "texture_grid", false);
-            for(int i = 0; i < textureObjects.Count; i++)
+            if(columns >= 1)
             {
-                var texobj = textureObjects[i];
-                if (i > 0 && i % columns == 0) ImGui.Spacing();
-
-                ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
-                if (ImGui.IsItemClicked())
+                ImGui.Columns(columns, "texture_grid", false);
+                for (int i = 0; i < textureObjects.Count; i++)
                 {
-                    selectedTexture = i;
-                    selectedTexturePtr = texobj.TexturePtr;
+                    var texobj = textureObjects[i];
+                    if (i > 0 && i % columns == 0) ImGui.Spacing();
+
+                    ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
+                    if (ImGui.IsItemClicked())
+                    {
+                        selectedTexture = i;
+                        selectedTexturePtr = texobj.TexturePtr;
+                    }
+                    ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
+
+
+                    ImGui.NextColumn();
                 }
-                ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
-
-
-                ImGui.NextColumn();
             }
         }
         ImGui.EndChild();

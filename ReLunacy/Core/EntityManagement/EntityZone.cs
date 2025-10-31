@@ -1,6 +1,7 @@
 ﻿using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
-using LibLunacy.Objects;
+using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
+using LibLunacy.Experimental.Core.Interfaces;
 using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
@@ -24,37 +25,37 @@ public class EntityZone : IDisposable
     public string ZoneName = string.Empty;
     public ulong ZoneTUID = 0;
 
-    public EntityZone(Zone zone, GraphicsDevice gd, AssetManager assetManager, LunaLoader loader)
+    public EntityZone(IZone zone, GraphicsDevice gd, AssetManager assetManager, LunaLoader loader)
     {
-        ZoneName = zone.Name;
-        ZoneTUID = zone.TUID;
+        ZoneName = zone.Name ?? "UnnamedZone";
+        ZoneTUID = zone.Id;
 
         TieInstances = new EntityCluster([], assetManager, loader);
-        foreach(var tieInstance in zone.tieInstances)
+        foreach(var tieInstance in zone.TieInstances)
         {
             TieInstances.Add(tieInstance);
         }
 
         UFrags = new EntityCluster([], assetManager, loader);
-        foreach(var ufrag in zone.ufrags)
+        foreach(var ufrag in zone.UFrags)
         {
             UFrags.Add(ufrag, gd);
         }
     }
 
-    public void Draw(OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(ForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender)
             return;
 
         if(EntityManager.Singleton.renderTies)
         {
-            TieInstances.Draw(od, cl, camera, immediateRenderer);
+            TieInstances.Draw(renderer, od, cl, camera, immediateRenderer);
         }
 
         if(EntityManager.Singleton.renderUFrags)
         {
-            UFrags.Draw(od, cl, camera, immediateRenderer);
+            UFrags.Draw(renderer, od, cl, camera, immediateRenderer);
         }
     }
 

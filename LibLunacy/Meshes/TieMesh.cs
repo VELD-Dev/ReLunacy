@@ -15,17 +15,17 @@ namespace LibLunacy.Meshes;
 
 public record struct TieMesh : ILunaSerializable, IMesh
 {
-    // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banlesOffset all the time, so yeah no precise section somehow
+    // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banglesOffset all the time, so yeah no precise section somehow
     public const uint Size = 0x40;
     public bool isOld;
 
-    public uint indicesIndex;
-    public ushort verticesIndex;
-    public ushort Unk1;
-    public ushort verticesCount;
-    public ulong Unk2;
-    public ushort indicesCount;
-    public byte[] Unk3;
+    [FileOffset(0x00)] public uint indicesIndex;
+    [FileOffset(0x34)] public ushort verticesIndex;
+    [FileOffset(0x36)] public ushort Unk1;
+    [FileOffset(0x38)] public ushort verticesCount;
+    [FileOffset(0x3A)] public ulong Unk2;
+    [FileOffset(0x42)] public ushort indicesCount;
+    [FileOffset(0x44)] public byte[] Unk3;
     public ushort oldShaderIndex;
     public byte newShaderIndex;
     public byte[] Unk4;

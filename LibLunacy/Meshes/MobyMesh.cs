@@ -28,9 +28,17 @@ public record struct MobyMesh : ILunaSerializable, IMesh
     [FileOffset(0x0F)] public byte Unk1;
     [FileOffset(0x10)] public ushort Unk2;
     [FileOffset(0x12)] public ushort indicesCount;
-    [FileOffset(0x14)] [Reference(0x0C)] public byte[] Unk3;
+    [FileOffset(0x14)] public uint Unk3;
+    [FileOffset(0x18)] public uint Unk4;
+    [FileOffset(0x1C)] public uint Unk5;
     [FileOffset(0x20)] public uint boneMapOffset;
-    [FileOffset(0x24)] [Reference(0x1C)] public byte[] Unk4;
+    [FileOffset(0x24)] public uint Unk6;
+    [FileOffset(0x28)] public uint Unk7;
+    [FileOffset(0x2C)] public uint Unk8;
+    [FileOffset(0x30)] public uint Unk9;
+    [FileOffset(0x34)] public uint Unk10;
+    [FileOffset(0x38)] public uint Unk11;
+    [FileOffset(0x3C)] public uint Unk12;
 
     public VertexFormat0[] vertices0;
     public VertexFormat1[] vertices1;
@@ -194,9 +202,17 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         MemoryMarshal.Write(span[offset..], ref Unk1);                                          offset += sizeof(byte);
         BinaryPrimitives.WriteUInt16BigEndian(span[offset..], Unk2);                            offset += sizeof(ushort);
         BinaryPrimitives.WriteUInt16BigEndian(span[offset..], indicesCount);                    offset += sizeof(ushort);
-        Unk3.CopyTo(span[offset..]);                                                            offset += Unk3.Length;
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk3);                            offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk4);                            offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk5);                            offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], boneMapOffset);                   offset += sizeof(uint);
-        Unk4.CopyTo(span[offset..]);                                                            offset += Unk4.Length;
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk6);                            offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk7);                            offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk8);                            offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk9);                            offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk10);                           offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk11);                           offset += sizeof(uint);
+        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], Unk12);                           offset += sizeof(uint);
         if(rented.Length != Size)
         {
             throw new InvalidOperationException($"[WONKY_CONVERT_ERR] Data have been lost while turning a {nameof(MobyMesh)} into an array of bytes: Sizes does not match (0x{rented.Length:X}/0x{Size:X})");
