@@ -19,7 +19,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
     public const uint Size = 0x40;
 
     [FileOffset(0x00)] public uint indicesOffset;
-    [FileOffset(0x04)] public uint verticesOffset;
+    [FileOffset(0x04), Reference("VerticesCount")] public uint verticesOffset;
     [FileOffset(0x08)] public ushort shaderIndex;
     [FileOffset(0x0A)] public ushort verticesCount;
     [FileOffset(0x0C)] public byte boneMapIndicesCount;
@@ -39,6 +39,8 @@ public record struct MobyMesh : ILunaSerializable, IMesh
     [FileOffset(0x34)] public uint Unk10;
     [FileOffset(0x38)] public uint Unk11;
     [FileOffset(0x3C)] public uint Unk12;
+
+    public ushort VerticesCount => verticesCount;
 
     public VertexFormat0[] vertices0;
     public VertexFormat1[] vertices1;

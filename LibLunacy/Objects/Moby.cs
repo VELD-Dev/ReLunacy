@@ -22,7 +22,7 @@ public class Moby : IDisposable
     public uint BanglesCount => MobyObj is OldMoby om ? om.bangleCount : ((NewMoby)MobyObj).bangleCount1;
     public uint SkeletonPointer => MobyObj is OldMoby om ? om.skeletonPointer : ((NewMoby)MobyObj).skeletonPointer;
     public uint TransformPointer => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).skeletonPointer;
-    public int VerticesOffset => MobyObj is OldMoby om ? om.verticesOffset : int.MinValue;
+    public uint VerticesOffset => MobyObj is OldMoby om ? om.verticesOffset : uint.MinValue;
     public uint IndicesOffset => MobyObj is OldMoby om ? om.indicesOffset : uint.MinValue;
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
     public MobyBangle[] Bangles => MobyObj.Bangles;

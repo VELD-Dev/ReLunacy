@@ -27,7 +27,7 @@ public record struct OldMoby : IMoby
     [FileOffset(0x2C)] public uint UnkPointer2;
     [FileOffset(0x30)] public uint Null3;
     [FileOffset(0x34)] public uint indicesOffset;
-    [FileOffset(0x38)] public int verticesOffset;
+    [FileOffset(0x38)] public uint verticesOffset;
     [FileOffset(0x3C)] public float scale;
     [FileOffset(0x40)] [Reference(0x80)] public byte[] Unk5;
 

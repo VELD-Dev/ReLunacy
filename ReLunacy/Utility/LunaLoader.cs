@@ -207,13 +207,16 @@ public class LunaLoader : IDisposable
         var loadState = new LoadingProgress("Loading textures...", textureMetaSec.count);
         loadingTracker.LoadProgresses.Add(loadState);
 
+        alstream.Seek(highmipsPtrSec.offset);
+        var highmipsPtrs = FileUtils.ReadStructureArray<AssetPointer>(alstream, highmipsPtrSec.length / 0x10);
+
         for (uint i = 0; i < textureMetaSec.count; i++)
         {
             alstream.Seek(textureMetaSec.offset + TextureMetadataNew.Size * i);
-            var tex = new Texture(alstream);
-
-            alstream.Seek(highmipsPtrSec.offset + AssetPointer.Size * i);
-            tex.ReadHighmipsPtr(alstream);
+            var tex = new Texture(alstream)
+            {
+                highmipsRef = highmipsPtrs[i]
+            };
             Textures.Add(tex.id, tex);
 
             tex.ReadTexture(hmstream);

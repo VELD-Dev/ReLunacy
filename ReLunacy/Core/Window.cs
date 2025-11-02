@@ -201,7 +201,7 @@ public class LunaWindow : Disposable
         fileManager.LoadFolder(path);
 
         LunaLog.LogDebug("Starting AssetLoader threaded task.");
-        var alTask = Task.Run(() => Loader = new LunaLoader(loadingFrame, fileManager, new() { LoadTextures = true }));
+        var alTask = Task.Run(() => Loader = new LunaLoader(loadingFrame, fileManager, LunaLoader.LoadingSettings.Default));
         LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
         await alTask;
         loadingFrame.UpdateProgress(0, new(1, 1));
