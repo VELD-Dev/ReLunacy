@@ -28,6 +28,7 @@ public record struct MobyBangle : ILunaSerializable
         for (int i = 0; i < meshesCount; i++)
         {
             meshes[i] = MobyMesh.Read(sh);
+            Console.WriteLine($"Reading MobyMesh at offset: {sh.Offset}");
             sh.BaseStream.Position += MobyMesh.Size;
             sh.BaseStream.Position += MobyMesh.Size;
         }
