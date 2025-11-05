@@ -43,12 +43,12 @@ public record struct NewMoby : IMoby
     [FileOffset(0xB8)] public uint namePointer;
     [FileOffset(0xBC)] [Reference(0x44)] public byte[] Unk12;
 
-    public MobyBangle[] Bangles { get; set; }
+    public MobyBangle[] bangles { get; set; }
 
     public static NewMoby Read(StreamHelper sh)
     {
         var moby = FileUtils.ReadStructure<NewMoby>(sh);
-        moby.Bangles = ArrayPool<MobyBangle>.Shared.Rent(moby.bangleCount1);
+        moby.bangles = ArrayPool<MobyBangle>.Shared.Rent(moby.bangleCount1);
         return moby;
     }
 

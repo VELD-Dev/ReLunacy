@@ -23,18 +23,21 @@ public record struct OldMoby : IMoby
     [FileOffset(0x1F)] public byte Null2;
     [FileOffset(0x20)] public uint skeletonPointer;
     [FileOffset(0x24)] public uint UnkPointer1;
+    [FileOffset(0x28), Reference(nameof(BanglesCount))] public MobyBangle[] Bangles;
     [FileOffset(0x28)] public uint banglesPointer;
     [FileOffset(0x2C)] public uint UnkPointer2;
     [FileOffset(0x30)] public uint Null3;
     [FileOffset(0x34)] public uint indicesOffset;
     [FileOffset(0x38)] public uint verticesOffset;
     [FileOffset(0x3C)] public float scale;
-    [FileOffset(0x40)] [Reference(0x80)] public byte[] Unk5;
+    //[FileOffset(0x40)] [Reference(0x80)] public byte[] Unk5;
 
     private ulong _tuid;
     public ulong TUID { readonly get => _tuid; init => _tuid = value; }
 
-    public MobyBangle[] Bangles { get; set; }
+    public readonly uint BanglesCount => bangleCount;
+
+    public MobyBangle[] bangles { readonly get => Bangles; set => Bangles = value; }
 
     public static OldMoby Read(StreamHelper sh, int index)
     {
@@ -43,6 +46,13 @@ public record struct OldMoby : IMoby
         moby.Bangles = new MobyBangle[moby.bangleCount];
         return moby;
     }
+
+    /// <summary>
+    /// Sets the TUID of the moby.<br/>
+    /// Since mobys don't have TUID on old engine, we store the index.
+    /// </summary>
+    /// <param name="index">Index of the moby in the Mobys section.</param>
+    public void SetIndex(ulong index) => _tuid = index;
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)
     {

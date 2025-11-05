@@ -42,11 +42,11 @@ public sealed class MobyReader
         IGFile main = _fileManager.igfiles["main.dat"];
         IGFile.SectionHeader mobySection = main.QuerySection(0xD100);
 
-        for (int i = 0; i < mobySection.count; i++)
+        for (uint i = 0; i < mobySection.count; i++)
         {
-            var legacyMoby = new LibLunacy.Objects.Moby(main.sh, i);
-            var expMoby = ConvertMoby(legacyMoby, (ulong)i);
-            mobys.Add((ulong)i, expMoby);
+            var legacyMoby = new Objects.Moby(main.sh, i);
+            var expMoby = ConvertMoby(legacyMoby, i);
+            mobys.Add(i, expMoby);
         }
 
         return mobys;
@@ -148,7 +148,6 @@ public sealed class MobyReader
         for (uint i = 0; i < moby.BanglesCount; i++)
         {
             ref MobyBangle bangle = ref moby.Bangles[i];
-            moby.mobyStream.Seek(bangle.meshesPointer);
             bangle.ReadMeshes(moby.mobyStream);
         }
 

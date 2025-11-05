@@ -11,10 +11,10 @@ public record struct MobyBangle : ILunaSerializable
 {
     public const uint Size = 0x08;
 
-    [FileOffset(0x00)] public uint meshesPointer;
+    [FileOffset(0x00), Reference(nameof(MeshesCount))] public MobyMesh[] meshes;
     [FileOffset(0x04)] public uint meshesCount;
 
-    public MobyMesh[] meshes;
+    public readonly uint MeshesCount => meshesCount;
 
     public static MobyBangle Read(StreamHelper sh)
     {
@@ -40,7 +40,7 @@ public record struct MobyBangle : ILunaSerializable
         var span = rented.AsSpan(0, (int)Size);
 
         var offset = 0;
-        BinaryPrimitives.WriteUInt32BigEndian(span[offset..], meshesPointer);   offset += sizeof(uint);
+        /*BinaryPrimitives.WriteUInt32BigEndian(span[offset..], meshesPointer);*/   offset += sizeof(uint);
         BinaryPrimitives.WriteUInt32BigEndian(span[offset..], meshesCount);     offset += sizeof(uint);
 
         if (rented.Length != Size)

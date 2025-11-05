@@ -70,12 +70,12 @@ namespace LibLunacy
             progress.X = 0;
             progress.Y = mobySection.count;
 
-            for (int i = 0; i < mobySection.count; i++)
+            for (uint i = 0; i < mobySection.count; i++)
             {
                 var moby = new Moby(main.sh, i);
                 mobys.Add((ulong)i, moby);
                 disposables.Add(moby);
-                progress.X = i + 1;
+                progress.X = (uint)(i + 1);
             }
         }
 

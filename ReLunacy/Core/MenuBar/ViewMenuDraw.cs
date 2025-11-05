@@ -3,7 +3,6 @@ using ReLunacy.Core;
 using ReLunacy.Core.EntityManagement;
 using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Utility.Localization;
-using Windows.ApplicationModel.Background;
 
 namespace ReLunacy.MenuBar;
 
