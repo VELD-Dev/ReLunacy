@@ -9,6 +9,6 @@ namespace LibLunacy.Interfaces;
 
 public interface IMoby : ILunaObject, ILunaSerializable
 {
-    public MobyBangle[] Bangles { get; set; }
+    public MobyBangle[] bangles { get; set; }
     // public MobyBone[] Bones { get; set; }
 }

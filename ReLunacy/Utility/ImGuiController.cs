@@ -312,7 +312,7 @@ public class ImGuiController : IDisposable
             return;
 
         // build up a map of raylib keys to ImGuiKeys
-        //_keyMap[KeyboardKey.Apostrophe] = ImGuiKey.Apostrophe;
+        //_keyMap[KeyboardKey.Apostrophe] = ImGuiKey.Apostrophe
         KeyMap[KeyboardKey.Comma] = ImGuiKey.Comma;
         KeyMap[KeyboardKey.Minus] = ImGuiKey.Minus;
         KeyMap[KeyboardKey.Period] = ImGuiKey.Period;
