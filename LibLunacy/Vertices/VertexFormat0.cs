@@ -20,15 +20,14 @@ public record struct VertexFormat0
 
     public VertexFormat0(StreamHelper sh)
     {
-        position.Item1 =    sh.ReadInt16((uint)0x00);
-        position.Item2 =    sh.ReadInt16((uint)0x02);
-        position.Item3 =    sh.ReadInt16((uint)0x04);
-        boneIndex =         sh.ReadInt16((uint)0x06);
-        sh.Seek(0x08);
+        position.Item1 =    sh.ReadInt16();
+        position.Item2 =    sh.ReadInt16();
+        position.Item3 =    sh.ReadInt16();
+        boneIndex =         sh.ReadInt16();
         UVs.Item1 =         sh.ReadHalf();
         UVs.Item2 =         sh.ReadHalf();
-        normal =            sh.ReadUInt32(0x0C);
-        tangent =           sh.ReadUInt32(0x10);
+        normal =            sh.ReadUInt32();
+        tangent =           sh.ReadUInt32();
     }
 
     public readonly override string ToString()

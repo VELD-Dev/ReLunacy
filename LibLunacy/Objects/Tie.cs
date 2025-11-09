@@ -12,20 +12,22 @@ namespace LibLunacy.Objects
         public readonly TieMetadataOld? metadataOld;
         public readonly TieMetadataNew? metadataNew;
         public readonly StreamHelper tieStream;
+        public readonly IGFile verticesFile;
+        public readonly StreamHelper verticesBuffer;
+        public readonly StreamHelper indicesBuffer;
         public bool isOld;
 
         public ulong TUID => isOld ? metadataOld!.Value.TUID : metadataNew!.Value.TUID;
         public Vec3 Scale => isOld ? metadataOld!.Value.scale : metadataNew!.Value.scale;
-        public uint MeshesOffset => isOld ? metadataOld!.Value.meshesOffset : metadataNew!.Value.meshesOffset;
         public byte MeshesCount => isOld ? metadataOld!.Value.meshesCount : metadataNew!.Value.meshesCount;
         public TieMesh[] Meshes => isOld ? metadataOld!.Value.meshes : metadataNew!.Value.meshes;
         public string Name { get; private set; } = string.Empty;
 
         public ulong[]? ShaderTUIDs;
 
-        public Tie(StreamHelper sh, bool old = false, uint index = 0)
+        public Tie(IGFile file, FileManager fm, bool old = false, uint index = 0)
         {
-            tieStream = sh;
+            tieStream = file.sh;
             isOld = old;
             var igFile = new IGFile(tieStream.BaseStream);
             var section = igFile.QuerySection(TieMetadataOld.ID);
@@ -34,10 +36,38 @@ namespace LibLunacy.Objects
             if (old)
             {
                 metadataOld = TieMetadataOld.Read(tieStream, index);
+                verticesFile = fm.igfiles["vertices.dat"];
+                var vertSec = verticesFile.QuerySection(VertexFormat0.OldID);
+                var data = new byte[metadataOld.Value.verticesBufferSize];
+                verticesFile.sh.Seek(vertSec.offset + metadataOld.Value.verticesBufferStart);
+                verticesFile.sh.Read(data);
+                verticesBuffer = new StreamHelper(new MemoryStream(data));
+
+                var lastmesh = metadataOld.Value.meshes[^1];
+                var indSec = verticesFile.QuerySection(TieVertIndex.OldID);
+                var length = lastmesh.indicesIndex * sizeof(ushort) + lastmesh.indicesCount * sizeof(ushort);
+                verticesFile.sh.Seek(indSec.offset + lastmesh.indicesIndex * sizeof(ushort));
+                var inddata = new byte[length];
+                verticesFile.sh.Read(inddata);
+                indicesBuffer = new StreamHelper(new MemoryStream(inddata));
             }
             else
             {
                 metadataNew = TieMetadataNew.Read(tieStream);
+                verticesFile = file;
+                var vertSec = verticesFile.QuerySection(VertexFormat0.ID);
+                var data = new byte[metadataNew.Value.verticesBufferSize];
+                verticesFile.sh.Seek(vertSec.offset + metadataNew.Value.verticesBufferStart);
+                verticesFile.sh.Read(data);
+                verticesBuffer = new StreamHelper(new MemoryStream(data));
+
+                var indSec = verticesFile.QuerySection(TieVertIndex.ID);
+                var lastmesh = metadataNew.Value.meshes[^1];
+                var length = lastmesh.indicesIndex * sizeof(ushort) + lastmesh.indicesCount * sizeof(ushort);
+                verticesFile.sh.Seek(indSec.offset + lastmesh.indicesIndex * sizeof(ushort));
+                var inddata = new byte[length];
+                verticesFile.sh.Read(inddata);
+                indicesBuffer = new StreamHelper(new MemoryStream(inddata));
             }
 
             if(!isOld)
@@ -48,8 +78,8 @@ namespace LibLunacy.Objects
 
                 for (int i = 0; i < shaderTuidSections.count; i++)
                 {
-                    sh.Seek((long)(shaderTuidSections.offset + (ulong)sizeof(ulong) * (ulong)i));
-                    ShaderTUIDs[i] = sh.ReadUInt64();
+                    file.sh.Seek((long)(shaderTuidSections.offset + (ulong)sizeof(ulong) * (ulong)i));
+                    ShaderTUIDs[i] = file.sh.ReadUInt64();
                 }
 
                 Name = tieStream.ReadString((uint)metadataNew!.Value.nameOffset);

@@ -14,6 +14,7 @@ using System.Numerics;
 using TinyBCSharp;
 using Veldrid;
 using Vortice.Mathematics;
+using WinRT;
 
 namespace ReLunacy.Core;
 
@@ -62,13 +63,24 @@ public class AssetManager : IDisposable
 
         foreach (var shader in loader.Shaders)
         {
-            var material = new Material(GlobalResource.DefaultModelEffect, null, BlendStateDescription.SINGLE_ALPHA_BLEND);
+            var material = new Material(
+                GlobalResource.DefaultModelEffect,
+                RasterizerStateDescription.CULL_NONE,
+                BlendStateDescription.SINGLE_ALPHA_BLEND,
+                shader.Value.RenderingMode == LibLunacy.Shaders.RenderingMode.AlphaBlend
+                    ? Bliss.CSharp.Graphics.Rendering.RenderMode.Translucent
+                    : Bliss.CSharp.Graphics.Rendering.RenderMode.Cutout
+            );
+
             if (shader.Value.metadataNew is not null)
             {
                 if (shader.Value.metadataNew?.albedo != 0)
-                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(Textures[(ulong)shader.Value.metadataNew?.albedo]));
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(Textures[(ulong)shader.Value.metadataNew?.albedo]!, color: Bliss.CSharp.Colors.Color.White));
                 else
-                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(GlobalResource.DefaultModelTexture));
+                {
+                    LunaLog.LogWarn($"Missing texture for material {shader.Key}: {shader.Value.metadataNew?.albedo}");
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(GlobalResource.DefaultModelTexture, color: Bliss.CSharp.Colors.Color.White));
+                }
                 if (shader.Value.metadataNew?.expensive != 0)
                     material.AddMaterialMap(MaterialMapType.Emission, new MaterialMap(Textures[(ulong)shader.Value.metadataNew?.expensive]));
                 if (shader.Value.metadataNew?.normal != 0)
@@ -77,9 +89,12 @@ public class AssetManager : IDisposable
             else if(shader.Value.metadataOld is not null)
             {
                 if (shader.Value.metadataOld?.albedo != 0)
-                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(Textures[(ulong)shader.Value.metadataOld?.albedo]));
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(Textures[(ulong)shader.Value.metadataOld?.albedo]!, color: Bliss.CSharp.Colors.Color.White));
                 else
-                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(GlobalResource.DefaultModelTexture));
+                {
+                    LunaLog.LogWarn($"Missing texture for material {shader.Key}: {shader.Value.metadataOld?.albedo}");
+                    material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(GlobalResource.DefaultModelTexture, color: Bliss.CSharp.Colors.Color.White));
+                }
                 if (shader.Value.metadataOld?.expensive != 0)
                     material.AddMaterialMap(MaterialMapType.Emission, new MaterialMap(Textures[(ulong)shader.Value.metadataOld?.expensive]));
                 if (shader.Value.metadataOld?.normal != 0)

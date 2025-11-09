@@ -41,11 +41,11 @@ public sealed class TieReader
     {
         var ties = new Dictionary<ulong, Assets.Ties.Tie>();
         IGFile main = _fileManager.igfiles["main.dat"];
-        IGFile.SectionHeader tieSection = main.QuerySection(0x3400);
+        IGFile.SectionHeader tieSection = main.QuerySection(TieMetadataOld.ID);
 
         for (uint i = 0; i < tieSection.count; i++)
         {
-            var legacyTie = new LibLunacy.Objects.Tie(main.sh, old: true, index: i);
+            var legacyTie = new LibLunacy.Objects.Tie(main, _fileManager ,old: true, index: i);
             var expTie = ConvertTie(legacyTie);
             ties.Add(legacyTie.TUID, expTie);
         }
@@ -77,7 +77,7 @@ public sealed class TieReader
             MemoryStream tiems = new MemoryStream(tiedat);
             StreamHelper streamHelper = new StreamHelper(tiems, StreamHelper.Endianness.Big);
 
-            var legacyTie = new LibLunacy.Objects.Tie(streamHelper, old: false);
+            var legacyTie = new LibLunacy.Objects.Tie(new IGFile(tiems), _fileManager, old: false);
             var expTie = ConvertTie(legacyTie);
             ties.Add(legacyTie.TUID, expTie);
 
@@ -129,31 +129,19 @@ public sealed class TieReader
     {
         IGFile tieIGFile = new IGFile(tie.tieStream.BaseStream);
 
-        // Read meshes headers
-        tie.tieStream.Seek(tie.MeshesOffset);
-        for (byte i = 0; i < tie.MeshesCount; i++)
-        {
-            tie.Meshes[i] = new TieMesh(tie.tieStream, tie.isOld);
-            tie.tieStream.BaseStream.Position += TieMesh.Size;
-        }
-
         // Read vertices
-        IGFile.SectionHeader verticesSection = tieIGFile.QuerySection(tie.isOld ? VertexFormat0.OldID : VertexFormat0.ID);
-        tie.tieStream.Seek(verticesSection.offset);
-
         for (byte i = 0; i < tie.MeshesCount; i++)
         {
             ref TieMesh mesh = ref tie.Meshes[i];
-            mesh.ReadVerticesBuffer(tie.tieStream);
+            tie.verticesBuffer.Seek(mesh.verticesIndex * VertexFormat0.Size);
+            mesh.ReadVerticesBuffer(tie.verticesBuffer);
         }
 
         // Read indices - use TieVertIndex
-        IGFile.SectionHeader indicesSection = tieIGFile.QuerySection(tie.isOld ? TieVertIndex.OldID : TieVertIndex.ID);
-        tie.tieStream.Seek(indicesSection.offset);
-
         for (byte i = 0; i < tie.MeshesCount; i++)
         {
             ref TieMesh mesh = ref tie.Meshes[i];
+            tie.indicesBuffer.Seek(mesh.indicesIndex * sizeof(ushort));
             mesh.ReadIndicesBuffer(tie.tieStream);
         }
     }

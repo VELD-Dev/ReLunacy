@@ -30,7 +30,12 @@ public class LunaLoader : IDisposable
 
         public readonly static LoadingSettings Default = new()
         {
-            LoadRegions = true
+            LoadRegions = true,
+            LoadMobys = true,
+            LoadShaders = true,
+            LoadTies = true,
+            LoadTextures = true,
+            LoadZones = true
         };
 
         public bool LoadMobys

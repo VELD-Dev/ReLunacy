@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 
 namespace LibLunacy.Meshes;
 
+[FileStructure(0x40)]
 public record struct TieMesh : ILunaSerializable, IMesh
 {
     // This one got no section PointerID as it's TieMetadata offset + TieMetadata.banglesOffset all the time, so yeah no precise section somehow
@@ -25,10 +26,8 @@ public record struct TieMesh : ILunaSerializable, IMesh
     [FileOffset(0x38)] public ushort verticesCount;
     [FileOffset(0x3A)] public ulong Unk2;
     [FileOffset(0x42)] public ushort indicesCount;
-    [FileOffset(0x44)] public byte[] Unk3;
-    public ushort oldShaderIndex;
-    public byte newShaderIndex;
-    public byte[] Unk4;
+    [FileOffset(0x28)] public ushort oldShaderIndex;
+    [FileOffset(0x2A)] public byte newShaderIndex;
 
     public VertexFormat0[] vertices;
     public ushort[] indices;
@@ -62,60 +61,44 @@ public record struct TieMesh : ILunaSerializable, IMesh
         }
     }
 
-    readonly uint[] IMesh.indices => indices.Cast<uint>().ToArray();
+    readonly uint[] IMesh.indices => [.. indices.Cast<uint>()];
 
-    public readonly uint[] boneWeight => Array.Empty<uint>();
+    public readonly uint[] boneWeight => [];
 
-    public readonly uint[] vertToBonemap => Array.Empty<uint>();
+    public readonly uint[] vertToBonemap => [];
 
     // public ref Shader shader;
 
-
-    public TieMesh(StreamHelper sh, bool isOld)
+    private void InitArrays()
     {
-        this.isOld = isOld;
-        indicesIndex =      sh.ReadUInt32((uint)0x00);
-        verticesIndex =     sh.ReadUInt16(0x04);
-        Unk1 =              sh.ReadUInt16(0x06);
-        verticesCount =     sh.ReadUInt16(0x08);
-        sh.Seek(0x0A);
-        Unk2 =              sh.ReadUInt64();
-        indicesCount =      sh.ReadUInt16(0x12);
-
-        if(isOld)
+        if(vertices is null)
         {
-            Unk3 = sh.ReadFromOffset(0x14, 0x14);
-            oldShaderIndex = sh.ReadUInt16(0x28);
-            newShaderIndex = 0;
-            Unk4 = sh.ReadFromOffset((int)Size - 0x2A, 0x2A);
-        }
-        else
-        {
-            Unk3 = sh.ReadFromOffset(0x16, 0x14);
-            oldShaderIndex = 0;
-            newShaderIndex = sh.ReadFromOffset(1, 0x2A)[0];
-            Unk4 = sh.ReadFromOffset((int)Size - 0x2B, 0x2B);
+            vertices = new VertexFormat0[verticesCount];
         }
 
-        vertices = ArrayPool<VertexFormat0>.Shared.Rent(verticesCount);
-        indices = ArrayPool<ushort>.Shared.Rent(indicesCount);
+        if(indices is null)
+        {
+            indices = new ushort[indicesCount];
+        }
     }
 
-    public readonly void ReadVerticesBuffer(StreamHelper sh)
+    public void ReadVerticesBuffer(StreamHelper sh)
     {
+        InitArrays();
+
         for(int i = 0; i < verticesCount; i++)
         {
             vertices[i] = new VertexFormat0(sh);
-            sh.BaseStream.Position += VertexFormat0.Size;
         }
     }
 
-    public readonly void ReadIndicesBuffer(StreamHelper sh)
+    public void ReadIndicesBuffer(StreamHelper sh)
     {
+        InitArrays();
+
         for(int i = 0; i < indicesCount; i++)
         {
             indices[i] = sh.ReadUInt16();
-            sh.BaseStream.Position += 0x02;
         }
     }
 
@@ -139,6 +122,8 @@ public record struct TieMesh : ILunaSerializable, IMesh
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams)
     {
+        throw new NotImplementedException();
+        /*
         var rented = ArrayPool<byte>.Shared.Rent((int)Size);
         var span = rented.AsSpan(0, (int)Size);
 
@@ -165,5 +150,6 @@ public record struct TieMesh : ILunaSerializable, IMesh
             throw new InvalidOperationException($"Data have been lost while turning {nameof(TieMesh)} into an array of bytes: Size does not match (0x{rented.Length:X}/0x{Size:X})");
         }
         return rented;
+        */
     }
 }

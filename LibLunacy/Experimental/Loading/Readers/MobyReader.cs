@@ -44,7 +44,7 @@ public sealed class MobyReader
 
         for (int i = 0; i < mobySection.count; i++)
         {
-            var legacyMoby = new LibLunacy.Objects.Moby(main.sh, i);
+            var legacyMoby = new LibLunacy.Objects.Moby(main.sh, _fileManager, i);
             var expMoby = ConvertMoby(legacyMoby, (ulong)i);
             mobys.Add((ulong)i, expMoby);
         }
@@ -76,7 +76,7 @@ public sealed class MobyReader
             MemoryStream mobyms = new MemoryStream(mobydat);
             StreamHelper streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);
 
-            var legacyMoby = new LibLunacy.Objects.Moby(streamHelper);
+            var legacyMoby = new LibLunacy.Objects.Moby(streamHelper, _fileManager);
             var expMoby = ConvertMoby(legacyMoby, mobyPtrs[i].TUID);
             mobys.Add(mobyPtrs[i].TUID, expMoby);
 
@@ -93,13 +93,16 @@ public sealed class MobyReader
     private Assets.Mobys.Moby ConvertMoby(LibLunacy.Objects.Moby legacyMoby, ulong tuid)
     {
         // Read bangles
-        ReadMobyBangles(legacyMoby);
+        ReadMobyBanglesMeshes(legacyMoby);
 
         // Convert bangles
         var bangles = new List<Bangle>();
         for (int i = 0; i < legacyMoby.BanglesCount; i++)
         {
             var legacyBangle = legacyMoby.Bangles[i];
+            if (legacyBangle.meshes == null || legacyBangle.meshesCount == 0)
+                continue;
+
             var meshes = new List<IMesh>();
 
             for (int j = 0; j < legacyBangle.meshes.Length; j++)
@@ -134,43 +137,29 @@ public sealed class MobyReader
     /// <summary>
     /// Reads bangle data for a moby (meshes, vertices, indices)
     /// </summary>
-    private void ReadMobyBangles(LibLunacy.Objects.Moby moby)
+    private void ReadMobyBanglesMeshes(LibLunacy.Objects.Moby moby)
     {
-        // Read bangles header
-        moby.mobyStream.Seek(moby.BanglesPointer);
-        for (uint i = 0; i < moby.BanglesCount; i++)
-        {
-            moby.Bangles[i] = MobyBangle.Read(moby.mobyStream);
-            moby.mobyStream.BaseStream.Position += MobyBangle.Size;
-        }
-
-        // Read meshes for each bangle
-        for (uint i = 0; i < moby.BanglesCount; i++)
-        {
-            ref MobyBangle bangle = ref moby.Bangles[i];
-            moby.mobyStream.Seek(bangle.meshesPointer);
-            bangle.ReadMeshes(moby.mobyStream);
-        }
-
         // Read vertices for each mesh (using direct offsets from each mesh)
+        moby.verticesStream.Seek(0);
         for (uint i = 0; i < moby.BanglesCount; i++)
         {
-            for (int j = 0; j < moby.Bangles[i].meshes.Length; j++)
+            for (int j = 0; j < moby.Bangles[i].meshesCount; j++)
             {
                 ref MobyMesh mesh = ref moby.Bangles[i].meshes[j];
-                moby.mobyStream.Seek(mesh.verticesOffset);
-                mesh.ReadVerticesBuffer(moby.mobyStream);
+                moby.verticesStream.Seek(mesh.verticesOffset);  // This is not required anymore as the VerticesStream already only has the vertexBuffer !
+                mesh.ReadVerticesBuffer(moby.verticesStream);
             }
         }
 
         // Read indices for each mesh (using direct offsets from each mesh)
+        moby.indicesStream.Seek(0);
         for (uint i = 0; i < moby.BanglesCount; i++)
         {
-            for (int j = 0; j < moby.Bangles[i].meshes.Length; j++)
+            for (int j = 0; j < moby.Bangles[i].meshesCount; j++)
             {
                 ref MobyMesh mesh = ref moby.Bangles[i].meshes[j];
-                moby.mobyStream.Seek(mesh.indicesOffset);
-                mesh.ReadIndicesBuffer(moby.mobyStream);
+                moby.indicesStream.Seek(mesh.indicesOffset * sizeof(ushort));  // Same than for Vertices !
+                mesh.ReadIndicesBuffer(moby.indicesStream);
             }
         }
     }

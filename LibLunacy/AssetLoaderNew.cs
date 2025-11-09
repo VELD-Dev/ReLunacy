@@ -72,7 +72,7 @@ namespace LibLunacy
 
             for (int i = 0; i < mobySection.count; i++)
             {
-                var moby = new Moby(main.sh, i);
+                var moby = new Moby(main.sh, fm, i);
                 mobys.Add((ulong)i, moby);
                 disposables.Add(moby);
                 progress.X = i + 1;
@@ -110,7 +110,7 @@ namespace LibLunacy
                 disposables.Add(mobyms);
                 disposables.Add(streamHelper);
 
-                Moby moby = new Moby(streamHelper);
+                Moby moby = new Moby(streamHelper, fm);
                 mobys.Add(mobyPtrs[i].TUID, moby);
                 disposables.Add(moby);
                 progress.X = i + 1;
@@ -132,7 +132,7 @@ namespace LibLunacy
 
             for (int i = 0; i < tieSection.count; i++)
             {
-                var tie = new Tie(main.sh, old: true, index: (uint)i);
+                var tie = new Tie(main, fm, old: true, index: (uint)i);
                 ties.Add(tie.TUID, tie);
                 disposables.Add(tie);
                 progress.X = i + 1;
@@ -170,7 +170,7 @@ namespace LibLunacy
                 disposables.Add(tiems);
                 disposables.Add(streamHelper);
 
-                Tie tie = new Tie(streamHelper, old: false);
+                Tie tie = new Tie(new IGFile(tiems), fm, old: false);
                 ties.Add(tiePtrs[i].TUID, tie);
                 disposables.Add(tie);
                 progress.X = i + 1;

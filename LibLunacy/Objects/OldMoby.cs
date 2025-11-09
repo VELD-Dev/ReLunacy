@@ -23,24 +23,26 @@ public record struct OldMoby : IMoby
     [FileOffset(0x1F)] public byte Null2;
     [FileOffset(0x20)] public uint skeletonPointer;
     [FileOffset(0x24)] public uint UnkPointer1;
-    [FileOffset(0x28)] public uint banglesPointer;
+    [FileOffset(0x28), Reference(nameof(BangleCount))] public MobyBangle[] mobyBangles;
+    //[FileOffset(0x28)] public uint banglesPointer;
     [FileOffset(0x2C)] public uint UnkPointer2;
     [FileOffset(0x30)] public uint Null3;
     [FileOffset(0x34)] public uint indicesOffset;
     [FileOffset(0x38)] public uint verticesOffset;
     [FileOffset(0x3C)] public float scale;
-    [FileOffset(0x40)] [Reference(0x80)] public byte[] Unk5;
+    //[FileOffset(0x40)] public byte[] Unk5;
+
+    public readonly uint BangleCount => bangleCount;
 
     private ulong _tuid;
     public ulong TUID { readonly get => _tuid; init => _tuid = value; }
 
-    public MobyBangle[] Bangles { get; set; }
+    public MobyBangle[] Bangles { readonly get => mobyBangles; set => mobyBangles = value; }
 
     public static OldMoby Read(StreamHelper sh, int index)
     {
         var moby = FileUtils.ReadStructure<OldMoby>(sh);
         moby._tuid = (ulong)index;
-        moby.Bangles = new MobyBangle[moby.bangleCount];
         return moby;
     }
 

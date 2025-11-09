@@ -50,7 +50,7 @@ public abstract class Entity : IDisposable
     }
     public abstract Vector4 BoundingSphere { get; set; }
     public abstract string Name { get; protected set; }
-    private bool isDirty = false;
+    private bool isDirty = true;
     public bool IsDirty
     {
         get => isDirty;

@@ -49,6 +49,7 @@ public class EntityRegion : IDisposable
         RegionName = region.Name ?? "UnnamedRegion";
 
         MobyInstances = new EntityCluster([], assetManager, loader);
+        LunaLog.LogInfo($"Region {region.Id} has {region.MobyInstances.Count} moby instances");
         foreach(var minst in region.MobyInstances)
         {
             MobyInstances.Add(minst);
@@ -56,8 +57,11 @@ public class EntityRegion : IDisposable
 
         // Volumes are not yet implemented in experimental system
         Volumes = new EntityCluster([], assetManager, loader);
+        LunaLog.LogInfo($"Region {region.Id} has {region.Volumes.Count} volumes");
 
-        foreach(var zone in region.Zones)
+
+        LunaLog.LogInfo($"Region {region.Id} has {region.Zones.Count} zones");
+        foreach (var zone in region.Zones)
         {
             Zones.Add(new EntityZone(zone, gd, assetManager, loader));
         }

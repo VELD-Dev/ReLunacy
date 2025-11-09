@@ -1,10 +1,12 @@
-﻿using Bliss.CSharp.Camera.Dim3;
+﻿using Bliss.CSharp;
+using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 using Bliss.CSharp.Interact;
+using Bliss.CSharp.Materials;
 using Bliss.CSharp.Textures;
 using ImGuiNET;
 using LibLunacy.Experimental.Core.Interfaces;
@@ -63,6 +65,7 @@ public class AssetViewer : DockedFrame
     private readonly ForwardRenderer renderer;
     public readonly CommandList commandList;
     public readonly Cam3D Camera;
+    Renderable cubeRenderable;
 
     private List<Renderable> cachedRenderables = [];
     public List<MobyAsset> mobyAssets = [];
@@ -75,7 +78,7 @@ public class AssetViewer : DockedFrame
             isDirty = value;
         }
     }
-    public MobyAsset? selectedMobyAsset;
+    private MobyAsset? selectedMobyAsset;
     public MobyAsset? SelectedMobyAsset
     {
         get => selectedMobyAsset;
@@ -141,7 +144,7 @@ public class AssetViewer : DockedFrame
                             if (!ImGui.Button($"Moby_{moby.MobyName}"))
                                 continue;
 
-                            selectedMobyAsset = moby;
+                            SelectedMobyAsset = moby;
                         }
                     }
                     ImGui.EndChild();
@@ -173,10 +176,40 @@ public class AssetViewer : DockedFrame
             Camera.Begin();
 
             if (selectedMobyAsset == null)
-                immediateRenderer.DrawCube(commandList, renderTexture.Framebuffer.OutputDescription, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }, Vector3.One, Bliss.CSharp.Colors.Color.DarkGray);
+            {
+                if (IsDirty || cubeRenderable is null)
+                {
+
+                    var cube = Mesh.GenCube(graphicsDevice, 1, 1, 1);
+                    cube.Material = new Material(GlobalResource.DefaultModelEffect);
+
+                    cube.Material.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap()
+                    {
+                        Texture = GlobalResource.DefaultModelTexture,
+                        Color = Bliss.CSharp.Colors.Color.White
+                    });
+
+                    cubeRenderable = new Renderable(cube, new Bliss.CSharp.Transformations.Transform() {
+                        Rotation = Quaternion.Identity,
+                        Scale = Vector3.One,
+                        Translation = Vector3.Zero
+                    });
+
+                }
+                renderer.DrawRenderable(cubeRenderable);
+                renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
+
+                /*
+                immediateRenderer.DrawCube(commandList, renderTexture.Framebuffer.OutputDescription, new Bliss.CSharp.Transformations.Transform() {
+                    Rotation = Quaternion.Identity,
+                    Scale = Vector3.One,
+                    Translation = Vector3.Zero 
+                }, Vector3.One, Bliss.CSharp.Colors.Color.DarkGray);
+                */
+            }
             else
             {
-                if(IsDirty)
+                if (IsDirty)
                 {
                     cachedRenderables.Clear();
                     foreach (var model in selectedMobyAsset.Value.Model)
@@ -184,10 +217,11 @@ public class AssetViewer : DockedFrame
                             cachedRenderables.Add(new Renderable(mesh, new Bliss.CSharp.Transformations.Transform() { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }));
 
                     IsDirty = false;
+                    LunaLog.LogDebug($"Updated {cachedRenderables.Count} renderables (1st mesh has {cachedRenderables[0].Mesh.VertexCount} vertices)");
                 }
 
-               
-                foreach(var renderable in cachedRenderables)
+
+                foreach (var renderable in cachedRenderables)
                     renderer.DrawRenderable(renderable);
                 renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
             }
@@ -205,7 +239,7 @@ public class AssetViewer : DockedFrame
         }
         ImGui.EndChild();
 
-        ImGui.Text($"{RenderFrameSize.Width}x{RenderFrameSize.Height}");
+        ImGui.Text($"{RenderFrameSize.Width}x{RenderFrameSize.Height} - Distance to origin: {Camera.Position.Length()}m");
         ImGui.Separator();
         ImGui.Text("Asset");
 

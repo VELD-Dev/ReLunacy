@@ -14,11 +14,12 @@ public class Moby : IDisposable
 
     public StreamHelper mobyStream;
     public StreamHelper verticesStream;
+    public StreamHelper indicesStream;
     public ulong TUID => MobyObj.TUID;
     public bool IsOld => MobyObj is OldMoby;
     public Vec4 BoundingSphere => MobyObj is OldMoby om ? om.boundingSphere : ((NewMoby)MobyObj).boundingSphere;
     public float Scale => MobyObj is OldMoby om ? om.scale : ((NewMoby)MobyObj).scale;
-    public uint BanglesPointer => MobyObj is OldMoby om ? om.banglesPointer : ((NewMoby)MobyObj).banglesPointer;
+    public uint BanglesPointer => MobyObj is OldMoby ? 0 : ((NewMoby)MobyObj).banglesPointer;
     public uint BanglesCount => MobyObj is OldMoby om ? om.bangleCount : ((NewMoby)MobyObj).bangleCount1;
     public uint SkeletonPointer => MobyObj is OldMoby om ? om.skeletonPointer : ((NewMoby)MobyObj).skeletonPointer;
     public uint TransformPointer => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).skeletonPointer;
@@ -28,7 +29,7 @@ public class Moby : IDisposable
     public MobyBangle[] Bangles => MobyObj.Bangles;
     public ulong[]? ShaderTUIDs;
 
-    public Moby(StreamHelper sh, int index = 0) // Index only for old mobys
+    public Moby(StreamHelper sh, FileManager fm, int index = 0) // Index only for old mobys
     {
         mobyStream = sh;
 
@@ -49,8 +50,60 @@ public class Moby : IDisposable
 
             for (int i = 0; i < shaderReferencesSec.count; i++)
             {
-                sh.Seek((long)(shaderReferencesSec.offset + (ulong)sizeof(ulong) * (ulong)i));
+                sh.Seek((long)(shaderReferencesSec.offset + sizeof(ulong) * (ulong)i));
                 ShaderTUIDs[i] = sh.ReadUInt64();
+            }
+        }
+        else
+        {
+            if (MobyObj is not OldMoby omoby)
+                return;
+
+            if((omoby.verticesOffset & 0x80000000) != 0)
+            {
+                var vertigfile = fm.igfiles["vertices.dat"];
+                var vertSec = vertigfile.QuerySection(0x9000);
+                vertigfile.sh.Seek(vertSec.offset + omoby.verticesOffset & ~0x80000000);
+                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
+                // Could use marshalling for vertices size but i'll do it this way instead, it's safer
+                verticesStream = new StreamHelper(new MemoryStream(vertigfile.sh.ReadBytes(length)), StreamHelper.Endianness.Big);
+            }
+            else
+            {
+                if(!fm.rawfiles.TryGetValue("textures.dat", out var txstream))
+                    throw new FileNotFoundException("File is missing.", "textures.dat");    
+
+                omoby.verticesOffset &= ~0x80000000;
+                txstream.Seek(omoby.verticesOffset, SeekOrigin.Begin);
+                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
+                byte[] verticesData = new byte[length];
+                txstream.Read(verticesData, 0, (int)length);
+                verticesStream = new StreamHelper(new MemoryStream(verticesData), StreamHelper.Endianness.Big);
+            }
+
+            if((omoby.indicesOffset & 0x80000000) != 0)
+            {
+                var indigfile = fm.igfiles["vertices.dat"];
+                var indSec = indigfile.QuerySection(0x9100);
+                indigfile.sh.Seek(indSec.offset + (omoby.indicesOffset & ~0x80000000));
+                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
+                indicesStream = new StreamHelper(new MemoryStream(indigfile.sh.ReadBytes(length)), StreamHelper.Endianness.Big);
+            }
+            else
+            {
+                if (!fm.rawfiles.TryGetValue("textures.dat", out var txstream))
+                    throw new FileNotFoundException("File is missing.", "textures.dat");
+
+                omoby.indicesOffset &= ~0x80000000;
+                txstream.Seek(omoby.indicesOffset, SeekOrigin.Begin);
+                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
+                byte[] indexData = new byte[length];
+                txstream.Read(indexData, 0, (int)length);
+                indicesStream = new StreamHelper(new MemoryStream(indexData), StreamHelper.Endianness.Big);
             }
         }
     }
@@ -82,6 +135,9 @@ public class Moby : IDisposable
             ArrayPool<MobyMesh>.Shared.Return(MobyObj.Bangles[i].meshes);
         }
         ArrayPool<MobyBangle>.Shared.Return(MobyObj.Bangles);
+
+        verticesStream.Close();
+        indicesStream.Close();
 
         mobyStream.Close();
         GC.SuppressFinalize(this);

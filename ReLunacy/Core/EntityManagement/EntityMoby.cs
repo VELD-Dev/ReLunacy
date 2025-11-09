@@ -47,9 +47,9 @@ public class EntityMoby : Entity
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";
 
-        if (!assetManager.Mobys.ContainsKey(BaseMoby.Id))
+        if (!assetManager.Mobys.TryGetValue(BaseMoby.Id, out Model[]? value))
             return;
-        Models = assetManager.Mobys[BaseMoby.Id];
+        Models = value;
     }
 
     public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)

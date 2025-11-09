@@ -1,4 +1,5 @@
-﻿using LibLunacy.Interfaces;
+﻿using LibLunacy.Experimental.Assets.Geometry;
+using LibLunacy.Interfaces;
 using LibLunacy.Legacy;
 using LibLunacy.Shaders;
 using LibLunacy.Vertices;
@@ -97,9 +98,9 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         }
     }
 
-    readonly uint[] IMesh.indices => indices.Select(e => (uint)e).ToArray();
-    public readonly uint[] boneWeight => Array.Empty<uint>();
-    public readonly uint[] vertToBonemap => Array.Empty<uint>();
+    readonly uint[] IMesh.indices => [.. indices.Select(e => (uint)e)];
+    public readonly uint[] boneWeight => [];
+    public readonly uint[] vertToBonemap => [];
 
     // public ref Shader shader;
 
@@ -110,50 +111,54 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         // Note: indicesOffset is stored divided by sizeof(ushort) in the file
         mesh.indicesOffset *= sizeof(ushort);
 
-        if (mesh.verticesType == 0)
-        {
-            mesh.vertices0 = ArrayPool<VertexFormat0>.Shared.Rent(mesh.verticesCount);
-            mesh.vertices1 = Array.Empty<VertexFormat1>();
-        }
-        else if (mesh.verticesType == 1)
-        {
-            mesh.vertices0 = Array.Empty<VertexFormat0>();
-            mesh.vertices1 = ArrayPool<VertexFormat1>.Shared.Rent(mesh.verticesCount);
-        }
-        else
-        {
-            mesh.vertices0 = Array.Empty<VertexFormat0>();
-            mesh.vertices1 = Array.Empty<VertexFormat1>();
-        }
-
-        mesh.indices = ArrayPool<ushort>.Shared.Rent(mesh.indicesCount);
         return mesh;
     }
 
-    public readonly void ReadVerticesBuffer(StreamHelper sh)
+    private void InitArrays()
     {
+        if (verticesType == 0)
+        {
+            vertices0 ??= new VertexFormat0[verticesCount];
+            vertices1 ??= [];
+        }
+        else if (verticesType == 1)
+        {
+            vertices0 ??= [];
+            vertices1 ??= new VertexFormat1[verticesCount];
+        }
+        else
+        {
+            vertices0 ??= [];
+            vertices1 ??= [];
+        }
+
+        indices = new ushort[indicesCount];
+    }
+
+    public void ReadVerticesBuffer(StreamHelper sh)
+    {
+        InitArrays();
+
         for(int i = 0; i < verticesCount; i++)
         {
             if (verticesType == 0)
             {
                 var vert = new VertexFormat0(sh);
                 vertices0[i] = vert;
-                sh.BaseStream.Position += VertexFormat0.Size;
             } else if (verticesType == 1)
             {
                 var vert = new VertexFormat1(sh);
                 vertices1[i] = vert;
-                sh.BaseStream.Position += VertexFormat1.Size;
             }
         }
     }
 
-    public readonly void ReadIndicesBuffer(StreamHelper sh)
+    public void ReadIndicesBuffer(StreamHelper sh)
     {
+        InitArrays();
         for(int i = 0; i < indicesCount; i++)
         {
             indices[i] = sh.ReadUInt16();
-            sh.BaseStream.Position += sizeof(ushort);
         }
     }
 

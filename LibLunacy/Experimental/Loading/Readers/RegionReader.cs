@@ -41,7 +41,7 @@ public sealed class RegionReader
 
     private Assets.Levels.Region ReadRegionOld()
     {
-        IGFile main = _fileManager.igfiles["main.dat"];
+        IGFile main = _fileManager.igfiles["gameplay.dat"];
 
         // Read moby instances
         var mobyInstances = ReadMobyInstancesOld(main);
@@ -124,6 +124,8 @@ public sealed class RegionReader
     {
         var mobyInstances = new List<IPlacedInstance<IMoby>>();
         var mobyInstanceSection = main.QuerySection(MobyInstanceOld.ID);
+
+        Console.WriteLine($"Moby Instance Section: Offset={mobyInstanceSection.offset}, Count={mobyInstanceSection.count}");
 
         if (mobyInstanceSection.count == 0)
             return mobyInstances;
