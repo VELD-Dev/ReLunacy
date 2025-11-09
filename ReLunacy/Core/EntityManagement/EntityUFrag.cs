@@ -44,7 +44,7 @@ public class EntityUFrag : Entity
             if (assetManager.Materials.TryGetValue(expMat.Id, out var mat))
                 material = mat;
         }
-        material ??= new Material(GlobalResource.DefaultModelEffect, null, BlendStateDescription.SINGLE_ALPHA_BLEND);
+        material ??= new Material(GlobalResource.DefaultModelEffect, RasterizerStateDescription.CULL_NONE, BlendStateDescription.SINGLE_ALPHA_BLEND, Bliss.CSharp.Graphics.Rendering.RenderMode.Cutout);
 
         UFragMesh = new Mesh(gd, material, vertices, indices);
 
@@ -117,6 +117,11 @@ public class EntityUFrag : Entity
             cachedRenderables.Clear();
             cachedRenderables.Add(new Renderable(UFragMesh, Transform));
             IsDirty = false;
+        }
+
+        foreach (var renderable in cachedRenderables)
+        {
+            renderer.DrawRenderable(renderable);
         }
 
         EntitiesRenderedThisFrame++;
