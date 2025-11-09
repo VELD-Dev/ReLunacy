@@ -44,6 +44,7 @@ public sealed class ZoneReader
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         IGFile main = _fileManager.igfiles["main.dat"];
 
+        Console.WriteLine("Loading old zone...");
         var legacyZone = new LibLunacy.Objects.Zone(main.sh, old: true);
         var expZone = ConvertZone(legacyZone, 0);
         zones.Add(0, expZone);

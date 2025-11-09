@@ -100,6 +100,7 @@ public class Overlay
                     ImGui.Text($"{LM.Get("GUI_Overlay_VramUsage")}: {PerformanceProfiler.Singleton.VRAMUsage / 1_000_000f:N2}MB");
                     ImGui.Text($"{LM.Get("GUI_Overlay_Shaders")}: {ShaderManager.Shaders.Count:N0}");
                     ImGui.Text($"{LM.Get("GUI_Overlay_Threads")}: {PerformanceProfiler.Singleton.Threads:N0}");
+                    ImGui.Text($"{LM.Get("GUI_Overlay_RenderedThisFrame")}: {Entity.EntitiesRenderedThisFrame}");
                 }
                 ImGui.EndGroup();
             }

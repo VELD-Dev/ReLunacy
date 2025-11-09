@@ -26,7 +26,7 @@ public class Moby : IDisposable
     public uint VerticesOffset => MobyObj is OldMoby om ? om.verticesOffset : uint.MinValue;
     public uint IndicesOffset => MobyObj is OldMoby om ? om.indicesOffset : uint.MinValue;
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
-    public MobyBangle[] Bangles => MobyObj.Bangles;
+    public MobyBangle[] Bangles => MobyObj.bangles;
     public ulong[]? ShaderTUIDs;
 
     public Moby(StreamHelper sh, FileManager fm, int index = 0) // Index only for old mobys
@@ -64,7 +64,7 @@ public class Moby : IDisposable
                 var vertigfile = fm.igfiles["vertices.dat"];
                 var vertSec = vertigfile.QuerySection(0x9000);
                 vertigfile.sh.Seek(vertSec.offset + omoby.verticesOffset & ~0x80000000);
-                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
                 // Could use marshalling for vertices size but i'll do it this way instead, it's safer
                 verticesStream = new StreamHelper(new MemoryStream(vertigfile.sh.ReadBytes(length)), StreamHelper.Endianness.Big);
@@ -76,7 +76,7 @@ public class Moby : IDisposable
 
                 omoby.verticesOffset &= ~0x80000000;
                 txstream.Seek(omoby.verticesOffset, SeekOrigin.Begin);
-                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
                 byte[] verticesData = new byte[length];
                 txstream.Read(verticesData, 0, (int)length);
@@ -88,7 +88,7 @@ public class Moby : IDisposable
                 var indigfile = fm.igfiles["vertices.dat"];
                 var indSec = indigfile.QuerySection(0x9100);
                 indigfile.sh.Seek(indSec.offset + (omoby.indicesOffset & ~0x80000000));
-                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
                 indicesStream = new StreamHelper(new MemoryStream(indigfile.sh.ReadBytes(length)), StreamHelper.Endianness.Big);
             }
@@ -99,7 +99,7 @@ public class Moby : IDisposable
 
                 omoby.indicesOffset &= ~0x80000000;
                 txstream.Seek(omoby.indicesOffset, SeekOrigin.Begin);
-                var lastMesh = omoby.Bangles[^1].meshes[^1];
+                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
                 byte[] indexData = new byte[length];
                 txstream.Read(indexData, 0, (int)length);
@@ -124,17 +124,17 @@ public class Moby : IDisposable
 
     public void Dispose()
     {
-        for(int i = 0; i < MobyObj.Bangles.Length; i++)
+        for(int i = 0; i < MobyObj.bangles.Length; i++)
         {
-            for(int j = 0; j < MobyObj.Bangles[i].meshes.Length; j++)
+            for(int j = 0; j < MobyObj.bangles[i].meshes.Length; j++)
             {
-                ref var mesh = ref MobyObj.Bangles[i].meshes[j];
+                ref var mesh = ref MobyObj.bangles[i].meshes[j];
                 if (mesh.verticesType == 0) ArrayPool<VertexFormat0>.Shared.Return(mesh.vertices0);
                 if (mesh.verticesType == 1) ArrayPool<VertexFormat1>.Shared.Return(mesh.vertices1);
             }
-            ArrayPool<MobyMesh>.Shared.Return(MobyObj.Bangles[i].meshes);
+            ArrayPool<MobyMesh>.Shared.Return(MobyObj.bangles[i].meshes);
         }
-        ArrayPool<MobyBangle>.Shared.Return(MobyObj.Bangles);
+        ArrayPool<MobyBangle>.Shared.Return(MobyObj.bangles);
 
         verticesStream.Close();
         indicesStream.Close();

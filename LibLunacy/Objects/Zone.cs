@@ -55,7 +55,7 @@ namespace LibLunacy.Objects
             ufragSection = zoneIGFile.QuerySection(UFragMetadata.ID);
             ufragShdrSection = zoneIGFile.QuerySection(0x71A0);
 
-            tieInstances = ArrayPool<TieInstance>.Shared.Rent((int)tieInstanceSection.count);
+            tieInstances = new TieInstance[tieInstanceSection.count];
             ufrags = new UFrag[ufragSection.count];
         }
 

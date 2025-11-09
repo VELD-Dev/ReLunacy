@@ -180,9 +180,9 @@ public sealed class TieReader
         // Create geometry
         var geometry = new GeometryData(
             id: 0, // No specific ID for mesh geometry
-            positions: positions.ToArray(),
-            uvs: uvs.ToArray(),
-            indices: indices.ToArray()
+            positions: [.. positions],
+            uvs: [.. uvs],
+            indices: [.. indices]
         );
 
         // Get material (using shader ID if available)

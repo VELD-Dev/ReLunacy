@@ -82,6 +82,7 @@ public sealed class LevelReader
 
             progressCallback?.Invoke("Loading Region...", 0.8f);
             _region = _regionReader.ReadRegion();
+            _region.Zones = [.. _zones.Values];
         }
 
         progressCallback?.Invoke("Complete!", 1.0f);

@@ -31,7 +31,7 @@ public sealed class Region : IRegion
     /// New Engine: Contains zone references
     /// Old Engine: Empty array
     /// </summary>
-    public IReadOnlyList<IZone> Zones { get; init; }
+    public IReadOnlyList<IZone> Zones { get; set; }
 
     /// <summary>
     /// Moby instances placed in this region

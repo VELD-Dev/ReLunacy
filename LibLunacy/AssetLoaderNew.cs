@@ -72,7 +72,7 @@ namespace LibLunacy
 
             for (uint i = 0; i < mobySection.count; i++)
             {
-                var moby = new Moby(main.sh, fm, i);
+                var moby = new Moby(main.sh, fm, (int)i);
                 mobys.Add((ulong)i, moby);
                 disposables.Add(moby);
                 progress.X = (uint)(i + 1);

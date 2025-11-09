@@ -6,6 +6,7 @@ using ReLunacy.Utility;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using Veldrid;
@@ -31,6 +32,7 @@ public class EntityZone : IDisposable
         ZoneTUID = zone.Id;
 
         TieInstances = new EntityCluster([], assetManager, loader);
+        LunaLog.LogInfo($"{zone.TieInstances.Count} tie instances !");
         foreach(var tieInstance in zone.TieInstances)
         {
             TieInstances.Add(tieInstance);

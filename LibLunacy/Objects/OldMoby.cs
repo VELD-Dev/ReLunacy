@@ -37,7 +37,7 @@ public record struct OldMoby : IMoby
     private ulong _tuid;
     public ulong TUID { readonly get => _tuid; init => _tuid = value; }
 
-    public MobyBangle[] Bangles { readonly get => mobyBangles; set => mobyBangles = value; }
+    public MobyBangle[] bangles { readonly get => mobyBangles; set => mobyBangles = value; }
 
     public static OldMoby Read(StreamHelper sh, int index)
     {

@@ -14,6 +14,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using Veldrid;
+using Vortice.Mathematics;
 
 namespace ReLunacy.Core.EntityManagement;
 
@@ -53,6 +54,7 @@ public class EntityTie : Entity
 
     public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
+        //immediateRenderer.DrawSphere(commandList, outputDescription, Transform, 1f, 4, 4, Bliss.CSharp.Colors.Color.Cyan);
         if (!allowRender || !EntityManager.Singleton.renderTies)
             return;
 
@@ -70,6 +72,11 @@ public class EntityTie : Entity
                 cachedRenderables.Add(new Renderable(mesh, Transform));
             }
             IsDirty = false;
+        }
+
+        foreach(var renderable in cachedRenderables)
+        {
+            renderer.DrawRenderable(renderable);
         }
 
         EntitiesRenderedThisFrame++;

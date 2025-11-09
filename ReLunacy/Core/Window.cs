@@ -135,6 +135,7 @@ public class LunaWindow : Disposable
             if (GetTargetFPS() != 0 && Time.Timer.Elapsed.TotalSeconds < fixedFrameRate)
                 continue;
 
+            //Entity.EntitiesRenderedThisFrame = 0;
             Time.Update();
 
             MainWindow.PumpEvents();

@@ -14,7 +14,6 @@ using System.Numerics;
 using TinyBCSharp;
 using Veldrid;
 using Vortice.Mathematics;
-using WinRT;
 
 namespace ReLunacy.Core;
 
