@@ -3,7 +3,6 @@ using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 using Bliss.CSharp.Graphics.VertexTypes;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
@@ -101,7 +100,7 @@ public class EntityUFrag : Entity
         return vertices;
     }
 
-    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender || !EntityManager.Singleton.renderUFrags)
             return;

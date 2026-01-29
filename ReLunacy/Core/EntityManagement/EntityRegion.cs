@@ -67,7 +67,7 @@ public class EntityRegion : IDisposable
         }
     }
 
-    public void Draw(ForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(BasicForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender)
             return;

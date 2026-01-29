@@ -236,8 +236,7 @@ public class Window : GameWindow
 
 		if(CursorGrabbed)
 		{
-			OpenTK.Mathematics.Vector2i a = new();
-			freecamLocal += MouseState.Delta.Yx * sensitivity;
+			freecamLocal += (Vec2)MouseState.Delta.Yx * sensitivity;
 
 			freecamLocal.X = MathHelper.Clamp(freecamLocal.X, -MathHelper.PiOver2 + 0.0001f, MathHelper.PiOver2 - 0.0001f);
 

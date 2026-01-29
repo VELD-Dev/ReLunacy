@@ -37,7 +37,7 @@ public class View3D : DockedFrame
     private readonly CommandList commandList;
     private bool invalidate = true;
 
-    private readonly ForwardRenderer renderer;
+    private readonly BasicForwardRenderer renderer;
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
     private ImmediateRenderer immediateRenderer;
@@ -62,12 +62,12 @@ public class View3D : DockedFrame
             Program.Settings.RenderDistance
         );
 
-        renderer = new ForwardRenderer(gd);
+        renderer = new BasicForwardRenderer(gd);
         graphicsDevice = gd;
         commandList = graphicsDevice.ResourceFactory.CreateCommandList();
         immediateRenderer = new ImmediateRenderer(gd);
 
-        renderTexture = new(gd, 300u, 300u, (TextureSampleCount)Program.Settings.MSAA_Level);
+        renderTexture = new(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
 
     }
 

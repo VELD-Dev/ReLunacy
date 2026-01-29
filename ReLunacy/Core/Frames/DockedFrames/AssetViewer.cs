@@ -4,7 +4,6 @@ using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Textures;
@@ -62,7 +61,7 @@ public class AssetViewer : DockedFrame
     private readonly GraphicsDevice graphicsDevice;
     private readonly RenderTexture2D renderTexture;
     private readonly ImmediateRenderer immediateRenderer;
-    private readonly ForwardRenderer renderer;
+    private readonly BasicForwardRenderer renderer;
     public readonly CommandList commandList;
     public readonly Cam3D Camera;
     Renderable cubeRenderable;
@@ -108,8 +107,8 @@ public class AssetViewer : DockedFrame
             0.001f,
             100f  // Far plane is near to keep it simple
         );
-        renderTexture = new(gd, 300, 300, (TextureSampleCount)Program.Settings.MSAA_Level);
-        renderer = new ForwardRenderer(gd);
+        renderTexture = new(gd, 300, 300, true, (TextureSampleCount)Program.Settings.MSAA_Level);
+        renderer = new BasicForwardRenderer(gd);
     }
 
     public void TransmitAssets(AssetManager assetManager, LunaLoader loader)

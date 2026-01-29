@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Veldrid;
+using Veldrid.SPIRV;
 
 namespace ReLunacy.Core;
 
@@ -34,7 +35,7 @@ public static class ShaderManager
         byte[] vertSource = File.ReadAllBytes(Path.Combine(Program.EditorPath, vertShaderPath));
         byte[] fragSource = File.ReadAllBytes(Path.Combine(Program.EditorPath, fragShaderPath));
 
-        var effect = new Effect(gd, Vertex3D.VertexLayout, vertSource, fragSource);
+        var effect = new Effect(gd, Vertex3D.VertexLayout, vertSource, fragSource, new CrossCompileOptions());
         Shaders.Add(name, effect);
 
         return effect;

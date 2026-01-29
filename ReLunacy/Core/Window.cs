@@ -33,6 +33,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using MiniAudioEx.Core.StandardAPI;
 using Veldrid;
 using Veldrid.OpenGL;
 
@@ -53,6 +54,7 @@ public class LunaWindow : Disposable
     private long frameCount;
     public FullScreenRenderer FullScreenRenderer { get; private set; }
     public RenderTexture2D FullScreenTexture { get; private set; }
+    public Texture2D FinalFullScreenTexture { get; private set; }
     public ImGuiController imGuiController;
     private Texture2D logoTexture;
 
@@ -174,7 +176,9 @@ public class LunaWindow : Disposable
     protected virtual void Init()
     {
         FullScreenRenderer = new FullScreenRenderer(GraphicsDevice);
-        FullScreenTexture = new RenderTexture2D(GraphicsDevice, (uint)MainWindow.GetWidth(), (uint)MainWindow.GetHeight(), (TextureSampleCount)EditorSettings.MSAA_Level);
+        var (width, height) = (MainWindow.GetWidth(), MainWindow.GetHeight());
+        FullScreenTexture = new RenderTexture2D(GraphicsDevice, (uint)width, (uint)height, false, (TextureSampleCount)EditorSettings.MSAA_Level);
+        FinalFullScreenTexture = new Texture2D(GraphicsDevice, new Image(width, height), false);
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
         LM.Initialize();
@@ -449,19 +453,23 @@ public class LunaWindow : Disposable
 
         // Draw ScreenPass
         commandList.Begin();
-
-        if(FullScreenTexture.SampleCount != TextureSampleCount.Count1)
+        
+        if (FullScreenTexture.SampleCount != TextureSampleCount.Count1)
         {
-            commandList.ResolveTexture(FullScreenTexture.ColorTexture, FullScreenTexture.DestinationTexture);
+            commandList.ResolveTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
+        }
+        else
+        {
+            commandList.CopyTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
         }
 
         commandList.SetFramebuffer(graphicsDevice.SwapchainFramebuffer);
         commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
-
-        FullScreenRenderer.Draw(commandList, FullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
+        
+        FullScreenRenderer.Draw(commandList, FinalFullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
 
         commandList.End();
-
+        graphicsDevice.WaitForIdle();
         graphicsDevice.SubmitCommands(commandList);
         graphicsDevice.SwapBuffers();
     }
@@ -471,11 +479,13 @@ public class LunaWindow : Disposable
 
     }
 
-    public void OnResize(Rectangle newSize)
+    void OnResize(Rectangle newSize)
     {
         imGuiController.Resize(newSize.Width, newSize.Height);
         GraphicsDevice.MainSwapchain.Resize((uint)newSize.Width, (uint)newSize.Height);
         FullScreenTexture.Resize((uint)newSize.Width, (uint)newSize.Height);
+        FinalFullScreenTexture.Dispose();
+        FinalFullScreenTexture = new Texture2D(GraphicsDevice, new Image(newSize.Width, newSize.Height), false);
     }
 
     public int GetTargetFPS() => (int)(1.0 / fixedUpdateTimeStep);

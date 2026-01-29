@@ -2,7 +2,6 @@
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Transformations;
 using LibLunacy.Experimental.Core.Interfaces;
@@ -52,7 +51,7 @@ public class EntityTie : Entity
         Model = assetManager.Ties[BaseTie.Id];
     }
 
-    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         //immediateRenderer.DrawSphere(commandList, outputDescription, Transform, 1f, 4, 4, Bliss.CSharp.Colors.Color.Cyan);
         if (!allowRender || !EntityManager.Singleton.renderTies)

@@ -6,6 +6,7 @@ using Bliss.CSharp.Interact.Keyboards;
 using Bliss.CSharp.Interact.Mice;
 using ImGuiNET;
 using Veldrid;
+using Veldrid.SPIRV;
 
 namespace ReLunacy.Utility;
 
@@ -117,10 +118,12 @@ public class ImGuiController : IDisposable
             new VertexElementDescription("in_color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4Norm)
         );
 
-        _effect = new Effect(_graphicsDevice, vertexLayoutDescription,
-            "Shaders/ImGui/default.vert",
-            "Shaders/ImGui/default.frag"
-        );
+        var shaderDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Shaders",
+            "ImGui");
+        byte[] imguiVertData = File.ReadAllBytes(Path.Combine(shaderDir, "default.vert"));
+        byte[] imguiFragData = File.ReadAllBytes(Path.Combine(shaderDir, "default.frag"));
+        
+        _effect = new Effect(_graphicsDevice, vertexLayoutDescription, imguiVertData, imguiFragData, new CrossCompileOptions());
 
         _layout = factory.CreateResourceLayout(new ResourceLayoutDescription(
             new ResourceLayoutElementDescription("ProjectionMatrixBuffer", ResourceKind.UniformBuffer, ShaderStages.Vertex),

@@ -38,7 +38,7 @@ public class EntityVolume : Entity
         boundingBox = new(-(volume.scale / 2f), (volume.scale / 2f));
     }
 
-    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender || !EntityManager.Singleton.renderVolumes)
             return;

@@ -15,7 +15,6 @@ using Veldrid;
 using Shader = LibLunacy.Shaders.Shader;
 using Model = Bliss.CSharp.Geometry.Model;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward.Renderables;
 
 namespace ReLunacy.Core.EntityManagement;
 
@@ -52,7 +51,7 @@ public class EntityMoby : Entity
         Models = value;
     }
 
-    public override void Draw(ForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if(!allowRender || !EntityManager.Singleton.renderMobys)
             return;
