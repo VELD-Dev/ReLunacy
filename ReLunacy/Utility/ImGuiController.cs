@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using Bliss.CSharp.Effects;
 using Bliss.CSharp.Interact;
@@ -426,6 +426,10 @@ public class ImGuiController : IDisposable
     {
         var io = ImGui.GetIO();
 
+        // Ensure text input is enabled so GetTypedText() works
+        if (!Input.IsTextInputActive())
+            Input.EnableTextInput();
+
         var mousePosition = Input.GetMousePosition();
         io.AddMousePosEvent(mousePosition.X, mousePosition.Y);
         io.AddMouseButtonEvent(0, Input.IsMouseButtonDown(MouseButton.Left));
@@ -440,35 +444,31 @@ public class ImGuiController : IDisposable
             foreach (char ch in inputText)
                 io.AddInputCharacter(ch);
 
-        var ctrlDown = Input.IsKeyDown(KeyboardKey.ControlLeft);
+        var ctrlDown = Input.IsKeyDown(KeyboardKey.ControlLeft) || Input.IsKeyDown(KeyboardKey.ControlRight);
         if (ctrlDown != _lastControlPressed)
             io.AddKeyEvent(ImGuiKey.ModCtrl, ctrlDown);
         _lastControlPressed = ctrlDown;
 
-        var shiftDown = Input.IsKeyDown(KeyboardKey.ShiftLeft);
+        var shiftDown = Input.IsKeyDown(KeyboardKey.ShiftLeft) || Input.IsKeyDown(KeyboardKey.ShiftRight);
         if (shiftDown != _lastShiftPressed)
             io.AddKeyEvent(ImGuiKey.ModShift, shiftDown);
         _lastShiftPressed = shiftDown;
 
-        var altDown = Input.IsKeyDown(KeyboardKey.AltLeft);
+        var altDown = Input.IsKeyDown(KeyboardKey.AltLeft) || Input.IsKeyDown(KeyboardKey.AltRight);
         if (altDown != _lastAltPressed)
             io.AddKeyEvent(ImGuiKey.ModAlt, altDown);
         _lastAltPressed = altDown;
 
-        var superDown = Input.IsKeyDown(KeyboardKey.WinLeft);
+        var superDown = Input.IsKeyDown(KeyboardKey.WinLeft) || Input.IsKeyDown(KeyboardKey.WinRight);
         if (superDown != _lastSuperPressed)
             io.AddKeyEvent(ImGuiKey.ModSuper, superDown);
         _lastSuperPressed = superDown;
 
         foreach (var (key, imGuiKey) in KeyMap)
         {
-            if (Input.IsKeyDown(key))
+            if (Input.IsKeyPressed(key))
                 io.AddKeyEvent(imGuiKey, true);
-        }
-
-        foreach (var (key, imGuiKey) in KeyMap)
-        {
-            if (Input.IsKeyReleased(key))
+            else if (Input.IsKeyReleased(key))
                 io.AddKeyEvent(imGuiKey, false);
         }
     }
