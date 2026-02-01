@@ -36,10 +36,10 @@ public class AssetManager : IDisposable
             switch(texture.Value.TexFormat)
             {
                 case LibLunacy.Textures.TextureFormat.R5G6B5:
-                    realData = texture.Value.data; //TextureUtils.RGB565ToRGBA8888(texture.Value.data, width, height);
+                    realData = TextureUtils.RGB565ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.A8R8G8B8:
-                    realData = texture.Value.data; //TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
+                    realData = TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT1:
                     realData = BC1Decoder.Decode(width, height, texture.Value.data);
@@ -56,6 +56,7 @@ public class AssetManager : IDisposable
                     continue;
             }
 
+            LunaLog.LogInfo($"Texture {texture.Value.id:X}: {texture.Value.TexFormat} {width}x{height}: {width * height}/{realData.Length}");
             var image = new Image(width, height, realData);
             Textures[texture.Key] = new Texture2D(gd, image, true);
         }

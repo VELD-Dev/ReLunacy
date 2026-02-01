@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp;
+using Bliss.CSharp;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Fonts;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
@@ -147,7 +147,6 @@ public class LunaWindow : Disposable
             AudioContext.Update();
             imGuiController.Update((float)Time.Delta);
             Update(Time.Delta);
-            AfterUpdate();
 
             fixedUpdateTimer += Time.Delta;
             while(fixedUpdateTimer >= fixedUpdateTimeStep)
@@ -157,6 +156,7 @@ public class LunaWindow : Disposable
             }
 
             Draw(graphicsDevice, CommandList);
+            AfterUpdate();
             Input.End();
         }
 

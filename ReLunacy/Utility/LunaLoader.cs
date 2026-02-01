@@ -33,7 +33,7 @@ public class LunaLoader : IDisposable
 
         public bool LoadMobys
         {
-            get => field;
+            get;
             set
             {
                 field = value;
@@ -46,7 +46,7 @@ public class LunaLoader : IDisposable
         } = false;
         public bool LoadTies
         {
-            get => field;
+            get;
             set
             {
                 field = value;
@@ -59,7 +59,7 @@ public class LunaLoader : IDisposable
         } = false;
         public bool LoadZones
         {
-            get => field;
+            get;
             set
             {
                 field = value;
@@ -71,7 +71,7 @@ public class LunaLoader : IDisposable
         } = false;
         public bool LoadRegions
         {
-            get => field;
+            get;
             set
             {
                 field = value;
@@ -116,8 +116,8 @@ public class LunaLoader : IDisposable
         this.fileManager = fileManager;
 
         var globalLoadingMax = 3; // Textures, Shaders, Level
-        var loadingState = new LoadingProgress("Loading level...", (uint)globalLoadingMax);
-        loadingTracker.LoadProgresses.Add(loadingState);
+        var loadingState = new LoadingProgress("Loading level...", (uint)globalLoadingMax, true);
+        loadingTracker.AddProgress(loadingState);
 
         // Load textures and shaders (still using legacy system)
         if(loadSettings.LoadTextures)
@@ -148,11 +148,11 @@ public class LunaLoader : IDisposable
             {
                 if (currentProgress != null)
                 {
-                    loadingTracker.LoadProgresses.Remove(currentProgress);
+                    loadingTracker.RemoveProgress(currentProgress);
                 }
 
-                currentProgress = new LoadingProgress(status, 100);
-                loadingTracker.LoadProgresses.Add(currentProgress);
+                currentProgress = new LoadingProgress(status, 100, true);
+                loadingTracker.AddProgress(currentProgress);
             }
 
             currentProgress.SetProgress((uint)(progress * 100));
@@ -160,7 +160,7 @@ public class LunaLoader : IDisposable
 
         if (currentProgress != null)
         {
-            loadingTracker.LoadProgresses.Remove(currentProgress);
+            loadingTracker.RemoveProgress(currentProgress);
             currentProgress = null;
         }
     }
@@ -202,8 +202,8 @@ public class LunaLoader : IDisposable
         var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
         var textureMetaSec = assetlookup.QuerySection(TextureMetadataNew.ID);
 
-        var loadState = new LoadingProgress("Loading textures...", textureMetaSec.count);
-        loadingTracker.LoadProgresses.Add(loadState);
+        var loadState = new LoadingProgress("Loading textures...", textureMetaSec.count, false);
+        loadingTracker.AddProgress(loadState);
 
         alstream.Seek(highmipsPtrSec.offset);
         var highmipsPtrs = FileUtils.ReadStructureArray<AssetPointer>(alstream, highmipsPtrSec.length / 0x10);
@@ -220,7 +220,7 @@ public class LunaLoader : IDisposable
             tex.ReadTexture(hmstream);
             loadState.SetProgress(i + 1);
         }
-        loadingTracker.LoadProgresses.Remove(loadState);
+        loadingTracker.RemoveProgress(loadState);
     }
 
     public void LoadTexturesOld()
@@ -249,8 +249,8 @@ public class LunaLoader : IDisposable
         var textureMetadataSection = main.QuerySection(TextureMetadataOld.ID);
         var texstreamRefSection = main.QuerySection(TexstreamReference.ID);
 
-        var loadState = new LoadingProgress("Loading textures metadata...", textureMetadataSection.count);
-        loadingTracker.LoadProgresses.Add(loadState);
+        var loadState = new LoadingProgress("Loading textures metadata...", textureMetadataSection.count, false);
+        loadingTracker.AddProgress(loadState);
         for (uint i = 0; i < textureMetadataSection.count; i++)
         {
             mainStream.Seek(textureMetadataSection.offset + TextureMetadataOld.Size * i);
@@ -293,10 +293,12 @@ public class LunaLoader : IDisposable
         for (uint i = 0; i < Textures.Count; i++)
         {
             var tex = Textures.Values.ToArray()[i];
+            LunaLog.LogDebug(
+                $"Loading texture {tex.id}: T={tex.TexFormat} MM={tex.MipmapCounts} W={tex.Width} H={tex.Height} O={(tex.highmipsMetadatasOld.Count > 0 ? tex.highmipsMetadatasOld[0].offset : ((TextureMetadataOld)tex.textureMetadata).offset):X}");
             tex.ReadTexture(streamToRead);
             loadState.SetProgress(i + 1);
         }
-        loadingTracker.LoadProgresses.Remove(loadState);
+        loadingTracker.RemoveProgress(loadState);
     }
     #endregion
 
@@ -323,8 +325,8 @@ public class LunaLoader : IDisposable
 
         var shaderPointers = new AssetPointer[shaderPtrSec.count];
 
-        var loadState = new LoadingProgress("Loading shader pointers...", shaderPtrSec.count);
-        loadingTracker.LoadProgresses.Add(loadState);
+        var loadState = new LoadingProgress("Loading shader pointers...", shaderPtrSec.count, false);
+        loadingTracker.AddProgress(loadState);
         for (uint i = 0; i < shaderPtrSec.count; i++)
         {
             alstream.Seek(shaderPtrSec.offset + AssetPointer.Size * i);
@@ -382,7 +384,7 @@ public class LunaLoader : IDisposable
 
             loadState.SetProgress(i + 1);
         }
-        loadingTracker.LoadProgresses.Remove(loadState);
+        loadingTracker.RemoveProgress(loadState);
     }
 
     public void LoadShadersOld()
@@ -398,8 +400,8 @@ public class LunaLoader : IDisposable
 
         var shaderMetadataSec = main.QuerySection(ShaderMetadataOld.ID); // Old and new section IDs are the same
 
-        var loadState = new LoadingProgress("Loading shaders...", shaderMetadataSec.count);
-        loadingTracker.LoadProgresses.Add(loadState);
+        var loadState = new LoadingProgress("Loading shaders...", shaderMetadataSec.count, false);
+        loadingTracker.AddProgress(loadState);
         for (uint i = 0; i < shaderMetadataSec.count; i++)
         {
             mainstream.Seek(shaderMetadataSec.offset + ShaderMetadataOld.Size * i);  // Shader metadata size is the same for old and new
@@ -429,7 +431,7 @@ public class LunaLoader : IDisposable
             loadState.SetProgress(i + 1);
         }
 
-        loadingTracker.LoadProgresses.Remove(loadState);
+        loadingTracker.RemoveProgress(loadState);
     }
     #endregion
 

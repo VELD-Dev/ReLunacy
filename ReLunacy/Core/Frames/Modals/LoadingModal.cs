@@ -1,4 +1,4 @@
-﻿using ImGuiNET;
+using ImGuiNET;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System;
@@ -14,34 +14,50 @@ public class LoadingModal : Modal
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
 
-    public List<LoadingProgress> LoadProgresses { get; set; }
+    private readonly Lock _progressLock = new();
+    private readonly List<LoadingProgress> _loadProgresses;
     public readonly DateTime LoadStart = DateTime.Now;
     public DateTime LoadEnd;
 
-    public bool loadingFinished = false;
+    public volatile bool loadingFinished = false;
 
     public LoadingModal(string loadingString, uint max) : base()
     {
         FrameName = LM.Get("GUI_Frame_LoadingModal");
-        LoadProgresses = [new(loadingString, max)];
+        _loadProgresses = [new(loadingString, max, true)];
     }
 
     public LoadingModal(List<LoadingProgress> loadingTasks) : base()
     {
         FrameName = LM.Get("GUI_Frame_LoadingModal");
-        LoadProgresses = [.. loadingTasks];
+        _loadProgresses = [.. loadingTasks];
+    }
+
+    public void AddProgress(LoadingProgress progress)
+    {
+        lock (_progressLock)
+            _loadProgresses.Add(progress);
+    }
+
+    public void RemoveProgress(LoadingProgress progress)
+    {
+        lock (_progressLock)
+            _loadProgresses.Remove(progress);
     }
 
     protected override void Render(double deltaTime)
     {
-        var snapshot = LoadProgresses.ToList();
+        List<LoadingProgress> snapshot;
+        lock (_progressLock)
+            snapshot = _loadProgresses.ToList();
+
         foreach (var load in snapshot)
         {
             if (load is null)
                 break;
             ImGui.BeginGroup();
             ImGui.Text(load.status);
-            ImGui.ProgressBar(load.Progress, new(400, 20), $"{load.current:N0}/{load.max:N0}");
+            ImGui.ProgressBar(load.Progress, new(400, 20), load.isPercentage ? $"{load.GetPercents():N1}%" : $"{load.current:N0}/{load.max:N0}");
             ImGui.EndGroup();
             ImGui.Spacing();
         }
@@ -65,13 +81,16 @@ public class LoadingModal : Modal
 
     public void UpdateProgress(int index, Vector2 newProgress, string? newText = null)
     {
-        var originalProg = LoadProgresses[index];
-        if (newText is not null)
+        lock (_progressLock)
         {
-            originalProg.status = newText;
+            var originalProg = _loadProgresses[index];
+            if (newText is not null)
+            {
+                originalProg.status = newText;
+            }
+            originalProg.current = (uint)newProgress.X;
+            originalProg.max = (uint)newProgress.Y;
+            _loadProgresses[index] = originalProg;
         }
-        originalProg.current = (uint)newProgress.X;
-        originalProg.max = (uint)newProgress.Y;
-        LoadProgresses[index] = originalProg;
     }
 }

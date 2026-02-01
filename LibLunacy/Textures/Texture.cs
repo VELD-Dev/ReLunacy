@@ -83,7 +83,7 @@ namespace LibLunacy.Textures
                 if ((highmipsMetadatasOld?.Count ?? 0) > 0)
                 {
                     var texstreamRef = highmipsMetadatasOld[0];
-                    Console.WriteLine($"texstreamRef offset: {texstreamRef.offset:X}");
+                    Console.WriteLine($"texstreamRef offset: {texstreamRef.offset:X}/{sh.BaseStream.Length:X}");
                     offset = (int)texstreamRef.offset;
                     Width *= 2;
                     Height *= 2;
@@ -110,7 +110,7 @@ namespace LibLunacy.Textures
             }
 
             if(offset > sh.BaseStream.Length || offset < 0)
-                throw new IndexOutOfRangeException($"Offset is out of bounds: {offset}/{sh.BaseStream.Length}");
+                throw new IndexOutOfRangeException($"Offset is out of bounds: {offset:X}/{sh.BaseStream.Length:X}");
 
             Console.WriteLine($"Offset: 0x{offset:X}");
             if (TexFormat > TextureFormat.A8R8G8B8)

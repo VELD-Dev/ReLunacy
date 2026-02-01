@@ -12,21 +12,25 @@ public class LoadingProgress
     public uint current;
     public uint max;
     public float Progress => current / (float)max;
+    public bool isPercentage = false;
 
-    public LoadingProgress(string status, uint max)
+    public LoadingProgress(string status, uint max, bool percentage)
     {
         this.status = status;
         this.max = max;
+        isPercentage = percentage;
         current = 0;
     }
 
-    public LoadingProgress(string status, uint max, uint current)
+    public LoadingProgress(string status, uint max, uint current, bool percentage)
     {
         this.status = status;
         this.max = max;
         this.current = current;
+        isPercentage = percentage;
     }
 
+    public float GetPercents() => (float)current / (float)max;
     public void SetStatus(string newStatus) => status = newStatus;
     public void SetProgress(uint prog) => current = prog;
     public void SetTotal(uint total)
