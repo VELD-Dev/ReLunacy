@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp.Camera.Dim3;
+using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
@@ -29,10 +29,11 @@ public class EntityTie : Entity
     public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager): base()
     {
         BaseTie = tieInstance.Asset;
+        const float Deg2Rad = MathF.PI / 180f;
         var rotationQuat = Quaternion.CreateFromYawPitchRoll(
-            tieInstance.Rotation.X,
-            tieInstance.Rotation.Y,
-            tieInstance.Rotation.Z
+            tieInstance.Rotation.X * Deg2Rad,
+            tieInstance.Rotation.Y * Deg2Rad,
+            tieInstance.Rotation.Z * Deg2Rad
         );
         Transform = new Transform()
         {

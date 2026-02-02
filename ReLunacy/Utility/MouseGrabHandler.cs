@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp.Interact;
+using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Mice;
 using System;
 using System.Collections.Generic;
@@ -20,11 +20,10 @@ public class MouseGrabHandler
     public bool TryGrabMouse(bool allowNewGrab)
     {
         bool isDown = Input.IsMouseButtonDown(mouseButton);
-        bool wasDown = Input.IsMouseButtonReleased(mouseButton);
 
         if (!isDown)
         {
-            if (wasDown && isGrabbed)
+            if (isGrabbed)
             {
                 isGrabbed = false;
                 Input.DisableRelativeMouseMode();
@@ -34,7 +33,7 @@ public class MouseGrabHandler
             return false;
         }
 
-        if (!wasDown)
+        if (!isGrabbed)
         {
             if (!allowNewGrab)
                 return false;

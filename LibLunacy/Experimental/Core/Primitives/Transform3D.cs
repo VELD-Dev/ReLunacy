@@ -8,7 +8,7 @@ namespace LibLunacy.Experimental.Core.Primitives;
 public readonly struct Transform3D
 {
     public Vector3 Position { get; init; }
-    public Vector3 Rotation { get; init; }  // Euler angles in radians
+    public Vector3 Rotation { get; init; }  // Euler angles in degrees
     public float Scale { get; init; }
 
     public Transform3D(Vector3 position, Vector3 rotation, float scale = 1.0f)
@@ -23,11 +23,12 @@ public readonly struct Transform3D
     /// </summary>
     public Matrix4x4 ToMatrix()
     {
-        // Create rotation matrix from Euler angles
+        // Create rotation matrix from Euler angles (stored in degrees)
+        const float Deg2Rad = MathF.PI / 180f;
         var rotationMatrix = Matrix4x4.CreateFromYawPitchRoll(
-            Rotation.Y,  // Yaw
-            Rotation.X,  // Pitch
-            Rotation.Z   // Roll
+            Rotation.X * Deg2Rad,
+            Rotation.Y * Deg2Rad,
+            Rotation.Z * Deg2Rad
         );
 
         // Combine scale, rotation, and translation

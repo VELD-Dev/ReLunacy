@@ -19,7 +19,7 @@ public interface IPlacedInstance<out TAsset> where TAsset : IAsset
     Vector3 Position { get; }
 
     /// <summary>
-    /// World rotation (Euler angles in radians)
+    /// World rotation (Euler angles in degrees)
     /// </summary>
     Vector3 Rotation { get; }
 

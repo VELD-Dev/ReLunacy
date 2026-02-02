@@ -284,7 +284,7 @@ public sealed class RegionReader
     {
         var pos = new Vector3(position.X, position.Y, position.Z);
 
-        // Rotation is Euler angles in radians
+        // Rotation is Euler angles in degrees
         var rot = new Vector3(rotation.X, rotation.Y, rotation.Z);
 
         return new Transform3D(pos, rot, scale);

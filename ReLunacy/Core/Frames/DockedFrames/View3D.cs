@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp;
+using Bliss.CSharp;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
@@ -255,7 +255,6 @@ public class View3D : DockedFrame
         if (rmbghandler.TryGrabMouse(allowGrab))
         {
             io.ConfigFlags |= ImGuiConfigFlags.NoMouse;
-            Input.SetMousePosition(rmbghandler.GrabPosition);
         }
         else
         {

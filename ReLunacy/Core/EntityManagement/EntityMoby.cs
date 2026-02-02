@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp.Camera.Dim3;
+using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
@@ -29,10 +29,11 @@ public class EntityMoby : Entity
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager) : base()
     {
         BaseMoby = mobyInstance.Asset;
+        const float Deg2Rad = MathF.PI / 180f;
         var rotationQuat = Quaternion.CreateFromYawPitchRoll(
-            mobyInstance.Rotation.X,
-            mobyInstance.Rotation.Y,
-            mobyInstance.Rotation.Z
+            mobyInstance.Rotation.X * Deg2Rad,
+            mobyInstance.Rotation.Y * Deg2Rad,
+            mobyInstance.Rotation.Z * Deg2Rad
         );
         Transform = new Transform()
         {
