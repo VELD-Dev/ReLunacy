@@ -15,6 +15,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 namespace ReLunacy.Core.EntityManagement;
@@ -27,6 +28,19 @@ public enum EntityType
     Shrub,
     Volume,
     Foliage,
+}
+
+public readonly struct MaterialOverrideState
+{
+    public readonly Material Material;
+    public readonly Effect Effect;
+    public readonly List<float> Parameters;
+    public MaterialOverrideState(Material material, Effect effect, List<float> parameters)
+    {
+        Material = material;
+        Effect = effect;
+        Parameters = parameters;
+    }
 }
 
 public abstract class Entity : IDisposable
@@ -66,6 +80,7 @@ public abstract class Entity : IDisposable
     }
 
     public abstract void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer);
+    public abstract void DrawPicking(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer, Effect pickingEffect, uint objectId, List<MaterialOverrideState> restoreList);
 
     public virtual void DrawBoundingSphere(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
     {

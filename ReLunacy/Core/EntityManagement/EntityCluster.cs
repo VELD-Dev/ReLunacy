@@ -9,6 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 namespace ReLunacy.Core.EntityManagement;
@@ -76,6 +77,25 @@ public class EntityCluster : IDisposable
         foreach(var e in Entities)
         {
             e.Draw(renderer, od, cl, camera, immediateRenderer);
+        }
+    }
+    
+    public void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription od,
+        CommandList cl,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        List<MaterialOverrideState> restoreList)
+    {
+        if (!allowRender)
+            return;
+
+        foreach(var e in Entities)
+        {
+            uint objectId = (uint)(e.ID + 1);
+            e.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, objectId, restoreList);
         }
     }
 

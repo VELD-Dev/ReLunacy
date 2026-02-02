@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 namespace ReLunacy.Core.EntityManagement;
@@ -103,6 +104,38 @@ public class EntityManager : IDisposable
     {
         foreach (EntityRegion region in Regions)
             region.Draw(renderer, od, cl, camera, immediateRenderer);
+    }
+    
+    public void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription od,
+        CommandList cl,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        List<MaterialOverrideState> restoreList)
+    {
+        foreach (EntityRegion region in Regions)
+            region.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, restoreList);
+    }
+
+    public bool TryGetEntity(int id, out Entity? entity)
+    {
+        entity = null;
+
+        foreach (var region in Regions)
+        {
+            if (region.MobyInstances.TryGetEntity(id, out entity)) return true;
+            if (region.Volumes.TryGetEntity(id, out entity)) return true;
+
+            foreach (var zone in region.Zones)
+            {
+                if (zone.TieInstances.TryGetEntity(id, out entity)) return true;
+                if (zone.UFrags.TryGetEntity(id, out entity)) return true;
+            }
+        }
+
+        return false;
     }
 
     public void Dispose()

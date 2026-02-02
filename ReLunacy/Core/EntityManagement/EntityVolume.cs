@@ -12,6 +12,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 namespace ReLunacy.Core.EntityManagement;
@@ -49,5 +50,19 @@ public class EntityVolume : Entity
         immediateRenderer.DrawCubeWires(commandList, outputDescription, Transform, BaseVolume.scale, (selected ? Color.White : Color.DarkYellow));
         EntitiesRenderedThisFrame++;
         //Cube.Draw(commandList, Transform, outputDescription);
+    }
+    
+    public override void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription outputDescription,
+        CommandList commandList,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        uint objectId,
+        List<MaterialOverrideState> restoreList)
+    {
+        // Volumes are drawn with ImmediateRenderer wireframes; no picking pass yet.
+        // TODO: add a solid mesh representation for picking.
     }
 }

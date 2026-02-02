@@ -39,7 +39,7 @@ public class AssetManager : IDisposable
                     realData = TextureUtils.RGB565ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.A8R8G8B8:
-                    realData = TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
+                    realData = texture.Value.data; //TextureUtils.ARGB8888ToRGBA8888(texture.Value.data, width, height);
                     break;
                 case LibLunacy.Textures.TextureFormat.DXT1:
                     realData = BC1Decoder.Decode(width, height, texture.Value.data);

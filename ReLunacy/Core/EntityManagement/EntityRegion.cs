@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 namespace ReLunacy.Core.EntityManagement;
@@ -84,6 +85,30 @@ public class EntityRegion : IDisposable
         }
     }
 
+    public void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription od,
+        CommandList cl,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        List<MaterialOverrideState> restoreList)
+    {
+        if (!allowRender)
+            return;
+
+        if(EntityManager.Singleton.renderMobys)
+            MobyInstances.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, restoreList);
+
+        if (EntityManager.Singleton.renderVolumes)
+            Volumes.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, restoreList);
+
+        foreach(var z in Zones)
+        {
+            z.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, restoreList);
+        }
+    }
+    
     public void Dispose()
     {
         MobyInstances.Dispose();

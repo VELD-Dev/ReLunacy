@@ -23,6 +23,8 @@ public static class ShaderManager
         LoadShader(gd, "composite", "Shaders/stdv.glsl", "Shaders/compositef.glsl");
         LoadShader(gd, "transparent", "Shaders/stdv.glsl", "Shaders/transparentf.glsl");
         LoadShader(gd, "volume", "Shaders/stdv.glsl", "Shaders/volumef.glsl");
+        LoadShader(gd, "picking_u32", "Shaders/stdv.glsl", "Shaders/pickingf_u32.glsl");
+        LoadShader(gd, "picking_rgba", "Shaders/stdv.glsl", "Shaders/pickingf_rgba.glsl");
 
         LunaLog.LogInfo("Loaded default shaders !");
     }

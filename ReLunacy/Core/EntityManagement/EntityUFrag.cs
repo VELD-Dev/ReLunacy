@@ -14,6 +14,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 using Vortice.Mathematics;
 
@@ -124,6 +125,39 @@ public class EntityUFrag : Entity
         }
 
         EntitiesRenderedThisFrame++;
+    }
+    
+    public override void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription outputDescription,
+        CommandList commandList,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        uint objectId,
+        List<MaterialOverrideState> restoreList)
+    {
+        if (!allowRender || !EntityManager.Singleton.renderUFrags)
+            return;
+
+        if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
+            return;
+
+        if(IsDirty)
+        {
+            cachedRenderables.Clear();
+            cachedRenderables.Add(new Renderable(UFragMesh, Transform));
+            IsDirty = false;
+        }
+
+        foreach (var renderable in cachedRenderables)
+        {
+            var mat = renderable.Mesh.Material;
+            restoreList.Add(new MaterialOverrideState(mat, mat.Effect, mat.Parameters));
+            mat.Effect = pickingEffect;
+            mat.Parameters = [objectId, 0f, 0f, 0f];
+            renderer.DrawRenderable(renderable);
+        }
     }
 
     public override void Dispose()

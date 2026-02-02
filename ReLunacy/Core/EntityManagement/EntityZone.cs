@@ -9,6 +9,7 @@ using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 namespace ReLunacy.Core.EntityManagement;
@@ -58,6 +59,29 @@ public class EntityZone : IDisposable
         if(EntityManager.Singleton.renderUFrags)
         {
             UFrags.Draw(renderer, od, cl, camera, immediateRenderer);
+        }
+    }
+    
+    public void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription od,
+        CommandList cl,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        List<MaterialOverrideState> restoreList)
+    {
+        if (!allowRender)
+            return;
+
+        if(EntityManager.Singleton.renderTies)
+        {
+            TieInstances.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, restoreList);
+        }
+
+        if(EntityManager.Singleton.renderUFrags)
+        {
+            UFrags.DrawPicking(renderer, od, cl, camera, immediateRenderer, pickingEffect, restoreList);
         }
     }
 

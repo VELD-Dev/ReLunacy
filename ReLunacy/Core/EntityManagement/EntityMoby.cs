@@ -10,6 +10,7 @@ using LibLunacy.Objects.Instances;
 using LibLunacy.Shaders;
 using ReLunacy.Utility;
 using System.Numerics;
+using Bliss.CSharp.Effects;
 using Veldrid;
 
 using Shader = LibLunacy.Shaders.Shader;
@@ -84,5 +85,46 @@ public class EntityMoby : Entity
         }
 
         EntitiesRenderedThisFrame++;
+    }
+    
+    public override void DrawPicking(
+        BasicForwardRenderer renderer,
+        OutputDescription outputDescription,
+        CommandList commandList,
+        Cam3D camera,
+        ImmediateRenderer immediateRenderer,
+        Effect pickingEffect,
+        uint objectId,
+        List<MaterialOverrideState> restoreList)
+    {
+        if(!allowRender || !EntityManager.Singleton.renderMobys)
+            return;
+
+        if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
+            return;
+
+        if (Models is null)
+            return;
+
+        if (IsDirty)
+        {
+            cachedRenderables.Clear();
+            foreach (Model model in Models)
+            {
+                cachedRenderables.Clear();
+                foreach (var mesh in model.Meshes)
+                    cachedRenderables.Add(new Renderable(mesh, Transform));
+            }
+            IsDirty = false;
+        }
+
+        foreach (var renderable in cachedRenderables)
+        {
+            var mat = renderable.Mesh.Material;
+            restoreList.Add(new MaterialOverrideState(mat, mat.Effect, mat.Parameters));
+            mat.Effect = pickingEffect;
+            mat.Parameters = [objectId, 0f, 0f, 0f];
+            renderer.DrawRenderable(renderable);
+        }
     }
 }

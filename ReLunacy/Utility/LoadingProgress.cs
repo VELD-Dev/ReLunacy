@@ -30,7 +30,7 @@ public class LoadingProgress
         isPercentage = percentage;
     }
 
-    public float GetPercents() => (float)current / (float)max;
+    public float GetPercents() => ((float)current / (float)max) * 100;
     public void SetStatus(string newStatus) => status = newStatus;
     public void SetProgress(uint prog) => current = prog;
     public void SetTotal(uint total)
