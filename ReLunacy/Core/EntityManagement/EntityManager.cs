@@ -112,7 +112,8 @@ public class EntityManager : IDisposable
         CommandList cl,
         Cam3D camera,
         ImmediateRenderer immediateRenderer,
-        Effect pickingEffect,
+        Effect
+            pickingEffect,
         List<MaterialOverrideState> restoreList)
     {
         foreach (EntityRegion region in Regions)

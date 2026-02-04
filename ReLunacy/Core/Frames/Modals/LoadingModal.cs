@@ -1,4 +1,4 @@
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System;
@@ -75,7 +75,7 @@ public class LoadingModal : Modal
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.Appearing, new(0.5f, 0.5f));
+        ImGui.SetNextWindowPos(ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f, ImGuiCond.Appearing, new(0.5f, 0.5f));
         base.RenderAsWindow(deltaTime);
     }
 

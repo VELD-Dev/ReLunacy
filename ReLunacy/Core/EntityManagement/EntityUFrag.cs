@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp;
+using Bliss.CSharp;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
@@ -112,6 +112,9 @@ public class EntityUFrag : Entity
         if (EntityManager.Singleton.renderBoundingSpheres)
             DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
+        if (selected)
+            DrawSelectionHighlight(outputDescription, commandList, immediateRenderer);
+
         if(IsDirty)
         {
             cachedRenderables.Clear();
@@ -150,14 +153,10 @@ public class EntityUFrag : Entity
             IsDirty = false;
         }
 
-        foreach (var renderable in cachedRenderables)
-        {
-            var mat = renderable.Mesh.Material;
-            restoreList.Add(new MaterialOverrideState(mat, mat.Effect, mat.Parameters));
-            mat.Effect = pickingEffect;
-            mat.Parameters = [objectId, 0f, 0f, 0f];
-            renderer.DrawRenderable(renderable);
-        }
+        var pickingMaterial = new Material(pickingEffect);
+        pickingMaterial.Parameters = [objectId, 0f, 0f, 0f];
+
+        renderer.DrawRenderable(new Renderable(UFragMesh, Transform, pickingMaterial));
     }
 
     public override void Dispose()

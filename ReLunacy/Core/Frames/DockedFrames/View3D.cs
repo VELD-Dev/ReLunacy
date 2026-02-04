@@ -1,5 +1,6 @@
 using Bliss.CSharp;
 using Bliss.CSharp.Camera.Dim3;
+using Bliss.CSharp.Effects;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Images;
@@ -7,22 +8,19 @@ using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Keyboards;
 using Bliss.CSharp.Interact.Mice;
 using Bliss.CSharp.Textures;
-using ImGuiNET;
+using Bliss.CSharp.Transformations;
+using Hexa.NET.ImGui;
 using LibLunacy.Numerics;
 using ReLunacy.Core.EntityManagement;
+using ReLunacy.Core.Gizmo;
+using ReLunacy.Core.Picking;
+using ReLunacy.Core.Selection;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Drawing;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
+using SysDrawing = System.Drawing;
 using Veldrid;
-using Veldrid.OpenGLBindings;
-using Vortice.Direct3D11;
 using Vortice.Mathematics;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
@@ -30,22 +28,27 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 public class View3D : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().GetWorkCenter();
+    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f;
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
     private readonly GraphicsDevice graphicsDevice;
     private readonly CommandList commandList;
+    private readonly CommandList pickingCommandList;
     private bool invalidate = true;
 
     private readonly BasicForwardRenderer renderer;
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
     private ImmediateRenderer immediateRenderer;
-    public Rectangle FrameContentRegion { get; private set; }
+    public SysDrawing.Rectangle FrameContentRegion { get; private set; }
     public Vector2 FramePos { get; private set; }
     public Vector2 MousePos { get; private set; }
 
     public MouseGrabHandler rmbghandler { get; } = new() { mouseButton = MouseButton.Right };
+
+    private PickingRenderTarget? pickingTarget;
+    private bool pendingPick = false;
+    private Vector2 pendingPickPos;
 
     public View3D(GraphicsDevice gd) : base()
     {
@@ -55,7 +58,7 @@ public class View3D : DockedFrame
             Vector3.UnitZ,
             300f / 300f,
             Vector3.UnitY,
-            ProjectionType.Perspective, 
+            ProjectionType.Perspective,
             CameraMode.Custom,
             Program.Settings.CamFOV,
             0.01f,
@@ -65,10 +68,11 @@ public class View3D : DockedFrame
         renderer = new BasicForwardRenderer(gd);
         graphicsDevice = gd;
         commandList = graphicsDevice.ResourceFactory.CreateCommandList();
+        pickingCommandList = graphicsDevice.ResourceFactory.CreateCommandList();
         immediateRenderer = new ImmediateRenderer(gd);
 
         renderTexture = new(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
-
+        pickingTarget = new PickingRenderTarget(gd, 300u, 300u);
     }
 
     protected override void Render(double deltaTime)
@@ -91,12 +95,123 @@ public class View3D : DockedFrame
 
         commandList.End();
         graphicsDevice.SubmitCommands(commandList);
-        ImGui.Image(
-            LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
-            new(renderTexture.Width, renderTexture.Height),
-            Vector2.UnitX,
-            Vector2.UnitY
-        );
+
+        Vector2 imagePos = ImGui.GetCursorScreenPos();
+
+        unsafe
+        {
+            ImGui.Image(
+                new ImTextureRef(null, new ImTextureID(LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture))),
+                new(renderTexture.Width, renderTexture.Height),
+                Vector2.UnitX,
+                Vector2.UnitY
+            );
+        }
+
+        RenderGizmo(imagePos, new Vector2(renderTexture.Width, renderTexture.Height));
+
+        if (pendingPick)
+        {
+            pendingPick = false;
+            ExecutePickingPass();
+        }
+    }
+
+    private void RenderGizmo(Vector2 viewportPos, Vector2 viewportSize)
+    {
+        var selectedEntity = SelectionManager.Singleton.SelectedEntity;
+        if (selectedEntity == null) return;
+
+        GizmoManager.BeginFrame();
+
+        Matrix4x4 worldMatrix = Matrix4x4.CreateScale(selectedEntity.Transform.Scale)
+            * Matrix4x4.CreateFromQuaternion(selectedEntity.Transform.Rotation)
+            * Matrix4x4.CreateTranslation(selectedEntity.Transform.Translation);
+
+        Matrix4x4 viewMatrix = Camera.GetView();
+        Matrix4x4 projMatrix = Camera.GetProjection();
+
+        if (GizmoManager.Manipulate(ref worldMatrix, viewMatrix, projMatrix, viewportPos, viewportSize))
+        {
+            if (Matrix4x4.Decompose(worldMatrix, out Vector3 scale, out Quaternion rotation, out Vector3 translation))
+            {
+                selectedEntity.Transform = new Transform
+                {
+                    Translation = translation,
+                    Rotation = rotation,
+                    Scale = scale
+                };
+                selectedEntity.IsDirty = true;
+                InvalidateView();
+            }
+        }
+    }
+
+    private void ExecutePickingPass()
+    {
+        LunaLog.LogDebug("ExecutePickingPass: starting");
+        if (pickingTarget == null) { LunaLog.LogDebug("ExecutePickingPass: pickingTarget is null"); return; }
+        if (!ShaderManager.Shaders.TryGetValue("picking_rgba", out Effect? pickingEffect)) { LunaLog.LogDebug("ExecutePickingPass: picking_rgba shader not found"); return; }
+
+        LunaLog.LogDebug("ExecutePickingPass: beginning command list");
+        pickingCommandList.Begin();
+        pickingCommandList.SetFramebuffer(pickingTarget.Framebuffer);
+        pickingCommandList.ClearColorTarget(0, new RgbaFloat(0, 0, 0, 0));
+        pickingCommandList.ClearDepthStencil(1.0f);
+
+        Camera.Begin();
+
+        // No restoreList needed - DrawPicking now creates fresh materials per entity
+        var restoreList = new List<MaterialOverrideState>();
+
+        EntityManager.Singleton.DrawPicking(
+            renderer,
+            pickingTarget.OutputDescription,
+            pickingCommandList,
+            Camera,
+            immediateRenderer,
+            pickingEffect,
+            restoreList);
+
+        LunaLog.LogDebug("ExecutePickingPass: calling renderer.Draw");
+        renderer.Draw(pickingCommandList, pickingTarget.OutputDescription);
+        LunaLog.LogDebug("ExecutePickingPass: renderer.Draw completed");
+
+        Camera.End();
+
+        int pickX = (int)pendingPickPos.X;
+        int pickY = (int)(pickingTarget.Height - pendingPickPos.Y);
+
+        if (pickX < 0 || pickY < 0 || pickX >= (int)pickingTarget.Width || pickY >= (int)pickingTarget.Height)
+        {
+            LunaLog.LogDebug($"ExecutePickingPass: invalid pick coordinates ({pickX}, {pickY}), aborting");
+            pickingCommandList.End();
+            graphicsDevice.SubmitCommands(pickingCommandList);
+            return;
+        }
+
+        LunaLog.LogDebug($"ExecutePickingPass: calling ReadPixel at ({pickX}, {pickY})");
+        uint pickedId = pickingTarget.ReadPixel(pickingCommandList, pickX, pickY);
+        LunaLog.LogDebug($"ExecutePickingPass: picked ID = {pickedId}");
+
+        if (pickedId == 0)
+        {
+            SelectionManager.Singleton.Deselect();
+        }
+        else
+        {
+            int entityId = (int)pickedId - 1;
+            if (EntityManager.Singleton.TryGetEntity(entityId, out Entity? entity))
+            {
+                SelectionManager.Singleton.Select(entity);
+                LunaLog.LogDebug($"Selected entity: {entity?.Name} (ID: {entityId})");
+            }
+            else
+            {
+                LunaLog.LogDebug($"Could not find entity with ID {entityId}");
+                SelectionManager.Singleton.Deselect();
+            }
+        }
     }
 
     public override void RenderAsWindow(double deltaTime)
@@ -124,53 +239,34 @@ public class View3D : DockedFrame
     private void Tick(double deltaTime)
     {
         Vector2 wcravail = ImGui.GetContentRegionAvail();
-        int width  = (int)wcravail.X,
+        int width = (int)wcravail.X,
             height = (int)wcravail.Y;
 
         var windowMousePos = Input.GetMousePosition();
 
-        FrameContentRegion = new(0, 0, width, height);
+        FrameContentRegion = new SysDrawing.Rectangle(0, 0, width, height);
         FramePos = ImGui.GetWindowPos();
         MousePos = windowMousePos - (FramePos + FrameContentRegion.GetOriginF());
 
-        Point absMousePos = new((int)windowMousePos.X, (int)windowMousePos.Y);
+        SysDrawing.Point absMousePos = new((int)windowMousePos.X, (int)windowMousePos.Y);
         bool isHoveringWnd = ImGui.IsWindowHovered();
         bool isMouseInCntReg = FrameContentRegion.Contains(absMousePos);
         bool isRotating = CheckRotationInput(deltaTime, isHoveringWnd);
+
+        if (isHoveringWnd && isMouseInCntReg && !GizmoManager.IsUsing)
+        {
+            if (Input.IsMouseButtonPressed(MouseButton.Left))
+            {
+                pendingPick = true;
+                pendingPickPos = MousePos;
+            }
+        }
 
         if (!isRotating && !(isHoveringWnd && isMouseInCntReg))
             return;
 
         CheckMovementInput(deltaTime);
         HandleShortcuts();
-
-        /*
-        if (CheckLMBClick() && FrameContentRegion.Contains(new Point((int)MousePos.X, (int)MousePos.Y)))
-        {
-            var ray = renderPayload.camera.CreateRay(MousePos, FrameContentRegion.GetSizeF());
-            if (HandleLeftMouseDown(ray))
-            {
-                LunaLog.LogDebug("Left mouse button handled.");
-            }
-        }
-        */
-    }
-
-    private bool HandleLeftMouseDown(Vec3 mouseRay)
-    {
-        if (!Input.IsMouseButtonDown(MouseButton.Left))
-            return false;
-
-        if (renderTexture == null) return false;
-
-        Entity? obj = null;
-
-        // LEGACY
-        //Renderer.ExposeFramebuffer(() => { obj = GetObjectAtScreenPosition(MousePos); });
-
-        //HandleSelect(obj);
-
-        return false; // Temp
     }
 
     public void SelectedObjectsOnCollectionChange(object? sender, NotifyCollectionChangedEventArgs e)
@@ -181,6 +277,7 @@ public class View3D : DockedFrame
     protected void OnResize()
     {
         renderTexture.Resize((uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height);
+        pickingTarget?.Resize((uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height);
         Camera.Resize((uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height);
     }
 
@@ -196,57 +293,20 @@ public class View3D : DockedFrame
 
     public void HandleShortcuts()
     {
-        var modifierCtrl = Input.IsKeyDown(KeyboardKey.ControlLeft);
-        var modifierShift = Input.IsKeyDown(KeyboardKey.ShiftLeft);
+        if (Input.IsKeyPressed(KeyboardKey.Number1))
+            GizmoManager.SetOperation(GizmoOperation.Translate);
 
-        //if (Input.IsKeyPressed(KeyboardKey.Escape)) SelectedEntity = null;
-    }
+        if (Input.IsKeyPressed(KeyboardKey.Number2))
+            GizmoManager.SetOperation(GizmoOperation.Rotate);
 
-    public bool HandleSelect(Entity? obj, bool externalCaller = false, bool pointCameraAtObject = false)
-    {
-        if (Input.IsMouseButtonReleased(MouseButton.Left) && !externalCaller)
-            return false;
+        if (Input.IsKeyPressed(KeyboardKey.Number3))
+            GizmoManager.SetOperation(GizmoOperation.Scale);
 
-        bool isMultiSelect = Input.IsKeyDown(KeyboardKey.ControlLeft);
+        if (Input.IsKeyPressed(KeyboardKey.X))
+            GizmoManager.ToggleSpace();
 
-        /*
-        if (obj == null)
-        {
-            if (!isMultiSelect)
-                selectedEntities.Clear();
-            return false;
-        }
-
-        if (isMultiSelect)
-        {
-            selectedEntities.Toggle(obj);
-        }
-        else
-        {
-            selectedEntities.ToggleOne(obj);
-        }
-        */
-
-        return true;
-    }
-
-    public Entity? GetObjectAtScreenPosition(Vec2 pos)
-    {
-        /*
-        uint hit = 0;
-        GL.ReadBuffer(ReadBufferMode.ColorAttachment1);
-        GL.ReadPixels((int)pos.X, FrameContentRegion.Height - (int)pos.Y, 1, 1, PixelFormat.RedInteger, PixelType.Int, ref hit);
-
-        if (hit == 0) return null;
-
-        var filter = EntityManager.Singleton.GetAllEntities().Find(e => e.InternalID == hit);
-        if (filter == null)
-        {
-            LunaLog.LogInfo($"Did not find any object with ID {hit}. This should not happen.");
-        }
-        */
-
-        return null;
+        if (Input.IsKeyPressed(KeyboardKey.Escape))
+            SelectionManager.Singleton.Deselect();
     }
 
     private bool CheckRotationInput(double deltaTime, bool allowGrab)

@@ -14,7 +14,7 @@ using Bliss.CSharp.Textures.Cubemaps;
 using Bliss.CSharp.Transformations;
 using Bliss.CSharp.Windowing;
 using Bliss.CSharp.Windowing.Events;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using LibLunacy;
 using LibLunacy.Numerics;
 using LibLunacy.Shaders;
@@ -183,7 +183,7 @@ public class LunaWindow : Disposable
 
         LM.Initialize();
 
-        ShaderManager.LoadDefaultShaders(GraphicsDevice);
+        ShaderManager.LoadDefaultShaders(GraphicsDevice);                                                                                                                                                                                                                                                                                                                                                                                                                       
 
         // Update Checker
 

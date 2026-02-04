@@ -1,4 +1,4 @@
-﻿using Bliss.CSharp.Camera.Dim3;
+using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Colors;
 using Bliss.CSharp.Geometry;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
@@ -55,7 +55,7 @@ public abstract class Entity : IDisposable
     public Transform Transform
     {
         get => transform;
-        protected set
+        set
         {
             transform = value;
             IsDirty = true;
@@ -85,6 +85,11 @@ public abstract class Entity : IDisposable
     public virtual void DrawBoundingSphere(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
     {
         immediateRenderer.DrawSphereWires(commandList, outputDescription, new Transform() { Translation = BoundingSphere.GetXYZ() }, BoundingSphere.W, 8, 8, Color.Cyan);
+    }
+
+    public virtual void DrawSelectionHighlight(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
+    {
+        immediateRenderer.DrawSphereWires(commandList, outputDescription, new Transform() { Translation = BoundingSphere.GetXYZ() }, BoundingSphere.W, 16, 16, Color.Yellow);
     }
 
     public virtual void Dispose() {}

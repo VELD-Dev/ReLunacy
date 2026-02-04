@@ -1,4 +1,4 @@
-﻿using ImGuiNET;
+﻿using Hexa.NET.ImGui;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,12 +24,12 @@ public static class ImGuiPlus
 
     public static void RequiredMarker()
     {
-        ImGui.TextColored(new(228f / 255f, 48f / 255f, 48f / 255, 1), ['*']);
+        ImGui.TextColored(new(228f / 255f, 48f / 255f, 48f / 255, 1), "*");
     }
 
     public static void RequiredMarker(string text, ImGuiHoveredFlags flags = ImGuiHoveredFlags.DelayShort)
     {
-        ImGui.TextColored(new(228f / 255f, 48f / 255f, 48 / 255f, 1), ['*']);
+        ImGui.TextColored(new(228f / 255f, 48f / 255f, 48 / 255f, 1), "*");
         if (ImGui.IsItemHovered(flags) && ImGui.BeginTooltip())
         {
             ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35f);
@@ -83,7 +83,7 @@ public static class ImGuiPlus
         return ImGui.Button(label);
     }
 
-    public static void CenteredImage(nint texture_id, Vector2 size, float pivot = 0.5f)
+    public static void CenteredImage(ImTextureID texture_id, Vector2 size, float pivot = 0.5f)
     {
         ImGuiStylePtr style = ImGui.GetStyle();
 
@@ -96,7 +96,7 @@ public static class ImGuiPlus
         {
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
         }
-        ImGui.Image(texture_id, size);
+        unsafe { ImGui.Image(new ImTextureRef(null, texture_id), size); }
     }
 
     public static void CenteredText(string label, float pivot = 0.5f)

@@ -1,4 +1,4 @@
-﻿using ImGuiNET;
+﻿using Hexa.NET.ImGui;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System;
@@ -32,7 +32,7 @@ internal class EditorSettingsFrame : Frame
 
     protected override void Render(double deltaTime)
     {
-        ImGui.BeginChild("settings_child", new(0, 450));
+        ImGui.BeginChild("settings_child", new(0, 450), ImGuiChildFlags.None);
 
         if (ImGui.BeginTabBar("settings_tab"))
         {
@@ -131,7 +131,7 @@ internal class EditorSettingsFrame : Frame
     public override void RenderAsWindow(double deltaTime)
     {
         ImGui.SetNextWindowSize(new(800, 600));
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetWorkCenter(), ImGuiCond.Once, new(0.5f));
+        ImGui.SetNextWindowPos(ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f, ImGuiCond.Once, new(0.5f));
         base.RenderAsWindow(deltaTime);
     }
 }

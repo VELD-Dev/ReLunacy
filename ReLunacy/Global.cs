@@ -20,7 +20,7 @@ global using LibLunacy;
 global using LibLunacy.Experimental;
 global using LibLunacy.Numerics;
 
-global using ImGuiNET;
+global using Hexa.NET.ImGui;
 
 global using ReLunacy;
 global using ReLunacy.Core;

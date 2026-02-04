@@ -4,7 +4,7 @@ using Bliss.CSharp.Effects;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Keyboards;
 using Bliss.CSharp.Interact.Mice;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using Veldrid;
 using Veldrid.SPIRV;
 
@@ -31,14 +31,14 @@ public class ImGuiController : IDisposable
     private DeviceBuffer _vertexBuffer = null!;
     private DeviceBuffer _indexBuffer = null!;
     private DeviceBuffer _projMatrixBuffer = null!;
-    private Texture _fontTexture = null!;
-    private TextureView _fontTextureView = null!;
+    private Texture? _fontTexture;
+    private TextureView? _fontTextureView;
     private Effect _effect = null!;
     private ResourceLayout _layout = null!;
     private ResourceLayout _textureLayout = null!;
     private Pipeline _pipeline = null!;
     private ResourceSet _mainResourceSet = null!;
-    private ResourceSet _fontTextureResourceSet = null!;
+    private ResourceSet? _fontTextureResourceSet;
 
     private const nint FontAtlasId = 1;
 
@@ -73,12 +73,21 @@ public class ImGuiController : IDisposable
 
         ImGui.CreateContext();
         var io = ImGui.GetIO();
-        io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset;
+        io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset | ImGuiBackendFlags.RendererHasTextures;
         io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard |
                           ImGuiConfigFlags.DockingEnable;
-        io.Fonts.Flags |= ImFontAtlasFlags.NoBakedLines;
 
-        CreateDeviceResources(graphicsDevice, outputDescription);
+        // Request RGBA32 format for the font texture and add default font
+        unsafe
+        {
+            io.Fonts.TexDesiredFormat = ImTextureFormat.Rgba32;
+            io.Fonts.AddFontDefault();
+        }
+
+        // Create pipeline resources
+        CreatePipelineResources(graphicsDevice, outputDescription);
+
+        // Initialize per-frame data and start first frame
         SetPerFrameImGuiData(1f / 60f);
         ImGui.NewFrame();
         _frameBegun = true;
@@ -90,7 +99,7 @@ public class ImGuiController : IDisposable
         _windowHeight = height;
     }
 
-    private void CreateDeviceResources(GraphicsDevice gd, OutputDescription outputDescription)
+    private void CreatePipelineResources(GraphicsDevice gd, OutputDescription outputDescription)
     {
         _graphicsDevice = gd;
         var factory = gd.ResourceFactory;
@@ -104,8 +113,6 @@ public class ImGuiController : IDisposable
             BufferUsage.IndexBuffer | BufferUsage.Dynamic)
         );
         _indexBuffer.Name = "ImGui.NET Index Buffer";
-
-        RecreateFontDeviceTexture(gd);
 
         _projMatrixBuffer = factory.CreateBuffer(new BufferDescription(64,
             BufferUsage.UniformBuffer | BufferUsage.Dynamic)
@@ -122,7 +129,7 @@ public class ImGuiController : IDisposable
             "ImGui");
         byte[] imguiVertData = File.ReadAllBytes(Path.Combine(shaderDir, "default.vert"));
         byte[] imguiFragData = File.ReadAllBytes(Path.Combine(shaderDir, "default.frag"));
-        
+
         _effect = new Effect(_graphicsDevice, vertexLayoutDescription, imguiVertData, imguiFragData, new CrossCompileOptions());
 
         _layout = factory.CreateResourceLayout(new ResourceLayoutDescription(
@@ -147,15 +154,10 @@ public class ImGuiController : IDisposable
             ResourceBindingModel.Default
         );
 
-
         _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
 
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(
             _layout, _projMatrixBuffer, gd.PointSampler
-        ));
-
-        _fontTextureResourceSet = factory.CreateResourceSet(new ResourceSetDescription(
-            _textureLayout, _fontTextureView
         ));
     }
 
@@ -219,52 +221,6 @@ public class ImGuiController : IDisposable
     }
 
     /// <summary>
-    /// Recreates the device Texture used to render text.
-    /// </summary>
-    public void RecreateFontDeviceTexture(GraphicsDevice gd)
-    {
-        var io = ImGui.GetIO();
-
-        // Build
-        io.Fonts.GetTexDataAsRGBA32(
-            out nint pixels,
-            out var width, out var height,
-            out var bytesPerPixel
-        );
-
-        // Store our identifier
-        io.Fonts.SetTexID(FontAtlasId);
-
-        _fontTexture = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
-            (uint)width,
-            (uint)height,
-            1,
-            1,
-            PixelFormat.R8G8B8A8UNorm,
-            TextureUsage.Sampled)
-        );
-
-        _fontTexture.Name = "ImGui.NET Font Texture";
-        gd.UpdateTexture(
-            _fontTexture,
-            pixels,
-            (uint)(bytesPerPixel * width * height),
-            0,
-            0,
-            0,
-            (uint)width,
-            (uint)height,
-            1,
-            0,
-            0
-        );
-
-        _fontTextureView = gd.ResourceFactory.CreateTextureView(_fontTexture);
-
-        io.Fonts.ClearTexData();
-    }
-
-    /// <summary>
     /// Renders the ImGui draw list data.
     /// This method requires a <see cref="GraphicsDevice"/> because it may create new DeviceBuffers if the size of vertex
     /// or index data has increased beyond the capacity of the existing buffers.
@@ -276,7 +232,211 @@ public class ImGuiController : IDisposable
 
         _frameBegun = false;
         ImGui.Render();
-        RenderImDrawData(ImGui.GetDrawData(), gd, cl);
+        var drawData = ImGui.GetDrawData();
+
+        // Process any pending texture operations (ImGui 1.92+ dynamic texture management)
+        UpdateTextures(gd, drawData);
+
+        RenderImDrawData(drawData, gd, cl);
+    }
+
+    /// <summary>
+    /// Process texture creation/update/destruction requests from ImGui.
+    /// Called before rendering to ensure all textures are ready.
+    /// </summary>
+    private unsafe void UpdateTextures(GraphicsDevice gd, ImDrawDataPtr drawData)
+    {
+        // Process textures from draw data (ImGui 1.92+ pattern)
+        var textures = drawData.Textures;
+        int count = textures.Size;
+        if (count == 0)
+            return;
+
+        for (int i = 0; i < count; i++)
+        {
+            var tex = textures[i];
+            if (tex.Status != ImTextureStatus.Ok)
+            {
+                UpdateTexture(gd, tex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handle individual texture creation, update, or destruction.
+    /// </summary>
+    private unsafe void UpdateTexture(GraphicsDevice gd, ImTextureDataPtr tex)
+    {
+        if (tex.Status == ImTextureStatus.WantCreate)
+        {
+            // Create new texture
+            int width = tex.Width;
+            int height = tex.Height;
+            int bpp = tex.BytesPerPixel;
+            byte* pixels = tex.Pixels;
+            var format = tex.Format;
+
+            // Debug: count non-transparent pixels
+            int nonTransparent = 0;
+            if (format == ImTextureFormat.Alpha8)
+            {
+                for (int i = 0; i < width * height; i++)
+                    if (pixels[i] > 0) nonTransparent++;
+            }
+            else
+            {
+                for (int i = 0; i < width * height; i++)
+                    if (pixels[i * bpp + 3] > 0) nonTransparent++;
+            }
+            File.AppendAllText("imgui_debug.txt", $"\nTexture WantCreate: {width}x{height}, format={format}, bpp={bpp}, nonTransparent={nonTransparent}/{width*height}");
+
+            // Create the GPU texture
+            var texture = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
+                (uint)width,
+                (uint)height,
+                1,
+                1,
+                PixelFormat.R8G8B8A8UNorm,
+                TextureUsage.Sampled)
+            );
+            texture.Name = "ImGui Dynamic Texture";
+
+            if (format == ImTextureFormat.Alpha8)
+            {
+                // Convert Alpha8 to RGBA32
+                byte[] rgbaPixels = new byte[width * height * 4];
+                for (int j = 0; j < width * height; j++)
+                {
+                    rgbaPixels[j * 4 + 0] = 255; // R
+                    rgbaPixels[j * 4 + 1] = 255; // G
+                    rgbaPixels[j * 4 + 2] = 255; // B
+                    rgbaPixels[j * 4 + 3] = pixels[j]; // A
+                }
+                fixed (byte* rgbaPtr = rgbaPixels)
+                {
+                    gd.UpdateTexture(
+                        texture,
+                        (nint)rgbaPtr,
+                        (uint)(4 * width * height),
+                        0, 0, 0,
+                        (uint)width, (uint)height, 1,
+                        0, 0
+                    );
+                }
+            }
+            else
+            {
+                // Already RGBA32, use directly
+                gd.UpdateTexture(
+                    texture,
+                    (nint)pixels,
+                    (uint)(bpp * width * height),
+                    0, 0, 0,
+                    (uint)width, (uint)height, 1,
+                    0, 0
+                );
+            }
+
+            // Create texture view and resource set
+            var textureView = gd.ResourceFactory.CreateTextureView(texture);
+            var resourceSet = gd.ResourceFactory.CreateResourceSet(new ResourceSetDescription(
+                _textureLayout, textureView
+            ));
+
+            // Store references for later use and disposal
+            nint bindingId = GetNextImGuiBindingId();
+            var rsi = new ResourceSetInfo(bindingId, resourceSet);
+            _viewsById[bindingId] = rsi;
+            _ownedResources.Add(texture);
+            _ownedResources.Add(textureView);
+            _ownedResources.Add(resourceSet);
+
+            // Check if this is the font atlas texture
+            if (_fontTexture == null)
+            {
+                // First texture created is the font atlas
+                _fontTexture = texture;
+                _fontTextureView = textureView;
+                _fontTextureResourceSet = resourceSet;
+                tex.SetTexID(new ImTextureID(FontAtlasId));
+
+                File.AppendAllText("imgui_debug.txt", $"\nFont texture created successfully");
+            }
+            else
+            {
+                tex.SetTexID(new ImTextureID(bindingId));
+            }
+
+            tex.Status = ImTextureStatus.Ok;
+
+            File.AppendAllText("imgui_debug.txt", $"\nFont resource set created successfully");
+        }
+        else if (tex.Status == ImTextureStatus.WantUpdates)
+        {
+            // Handle texture updates (for dynamic glyph loading)
+            // Get the texture associated with this ImTextureID
+            nint texId = (nint)tex.TexID.Handle;
+
+            // For now, recreate the entire texture on update
+            // A more efficient implementation would use UpdateTexture with sub-regions
+            int width = tex.Width;
+            int height = tex.Height;
+            int bpp = tex.BytesPerPixel;
+            byte* pixels = tex.Pixels;
+            var format = tex.Format;
+
+            Texture? targetTexture = null;
+            if (texId == FontAtlasId)
+            {
+                targetTexture = _fontTexture;
+            }
+
+            if (targetTexture != null)
+            {
+                if (format == ImTextureFormat.Alpha8)
+                {
+                    byte[] rgbaPixels = new byte[width * height * 4];
+                    for (int j = 0; j < width * height; j++)
+                    {
+                        rgbaPixels[j * 4 + 0] = 255;
+                        rgbaPixels[j * 4 + 1] = 255;
+                        rgbaPixels[j * 4 + 2] = 255;
+                        rgbaPixels[j * 4 + 3] = pixels[j];
+                    }
+                    fixed (byte* rgbaPtr = rgbaPixels)
+                    {
+                        gd.UpdateTexture(
+                            targetTexture,
+                            (nint)rgbaPtr,
+                            (uint)(4 * width * height),
+                            0, 0, 0,
+                            (uint)width, (uint)height, 1,
+                            0, 0
+                        );
+                    }
+                }
+                else
+                {
+                    gd.UpdateTexture(
+                        targetTexture,
+                        (nint)pixels,
+                        (uint)(bpp * width * height),
+                        0, 0, 0,
+                        (uint)width, (uint)height, 1,
+                        0, 0
+                    );
+                }
+            }
+
+            tex.Status = ImTextureStatus.Ok;
+        }
+        else if (tex.Status == ImTextureStatus.WantDestroy)
+        {
+            // Mark texture as destroyed
+            // Actual cleanup will happen during disposal
+            tex.SetTexID(new ImTextureID(0));
+            tex.Status = ImTextureStatus.Destroyed;
+        }
     }
 
     /// <summary>
@@ -314,24 +474,21 @@ public class ImGuiController : IDisposable
         if (KeyMap.Count > 0)
             return;
 
-        // build up a map of raylib keys to ImGuiKeys
-        //_keyMap[KeyboardKey.Apostrophe] = ImGuiKey.Apostrophe
         KeyMap[KeyboardKey.Comma] = ImGuiKey.Comma;
         KeyMap[KeyboardKey.Minus] = ImGuiKey.Minus;
         KeyMap[KeyboardKey.Period] = ImGuiKey.Period;
         KeyMap[KeyboardKey.Slash] = ImGuiKey.Slash;
-        KeyMap[KeyboardKey.Number0] = ImGuiKey._0;
-        KeyMap[KeyboardKey.Number1] = ImGuiKey._1;
-        KeyMap[KeyboardKey.Number2] = ImGuiKey._2;
-        KeyMap[KeyboardKey.Number3] = ImGuiKey._3;
-        KeyMap[KeyboardKey.Number4] = ImGuiKey._4;
-        KeyMap[KeyboardKey.Number5] = ImGuiKey._5;
-        KeyMap[KeyboardKey.Number6] = ImGuiKey._6;
-        KeyMap[KeyboardKey.Number7] = ImGuiKey._7;
-        KeyMap[KeyboardKey.Number8] = ImGuiKey._8;
-        KeyMap[KeyboardKey.Number9] = ImGuiKey._9;
+        KeyMap[KeyboardKey.Number0] = ImGuiKey.Key0;
+        KeyMap[KeyboardKey.Number1] = ImGuiKey.Key1;
+        KeyMap[KeyboardKey.Number2] = ImGuiKey.Key2;
+        KeyMap[KeyboardKey.Number3] = ImGuiKey.Key3;
+        KeyMap[KeyboardKey.Number4] = ImGuiKey.Key4;
+        KeyMap[KeyboardKey.Number5] = ImGuiKey.Key5;
+        KeyMap[KeyboardKey.Number6] = ImGuiKey.Key6;
+        KeyMap[KeyboardKey.Number7] = ImGuiKey.Key7;
+        KeyMap[KeyboardKey.Number8] = ImGuiKey.Key8;
+        KeyMap[KeyboardKey.Number9] = ImGuiKey.Key9;
         KeyMap[KeyboardKey.Semicolon] = ImGuiKey.Semicolon;
-        //_keyMap[KeyboardKey.Equal] = ImGuiKey.Equal;
         KeyMap[KeyboardKey.A] = ImGuiKey.A;
         KeyMap[KeyboardKey.B] = ImGuiKey.B;
         KeyMap[KeyboardKey.C] = ImGuiKey.C;
@@ -419,7 +576,6 @@ public class ImGuiController : IDisposable
         KeyMap[KeyboardKey.KeypadMinus] = ImGuiKey.KeypadSubtract;
         KeyMap[KeyboardKey.KeypadPlus] = ImGuiKey.KeypadAdd;
         KeyMap[KeyboardKey.KeypadEnter] = ImGuiKey.KeypadEnter;
-        //_keyMap[KeyboardKey.keypadEqual] = ImGuiKey.KeypadEqual;
     }
 
     private void UpdateImGuiInput()
@@ -473,7 +629,7 @@ public class ImGuiController : IDisposable
         }
     }
 
-    private void RenderImDrawData(ImDrawDataPtr drawData, GraphicsDevice gd, CommandList cl)
+    private unsafe void RenderImDrawData(ImDrawDataPtr drawData, GraphicsDevice gd, CommandList cl)
     {
         uint vertexOffsetInVertices = 0;
         uint indexOffsetInElements = 0;
@@ -503,19 +659,19 @@ public class ImGuiController : IDisposable
 
         for (var i = 0; i < drawData.CmdListsCount; i++)
         {
-            var cmdList = drawData.CmdLists[i];
+            ImDrawListPtr cmdList = drawData.CmdLists[i];
 
             cl.UpdateBuffer(
                 _vertexBuffer,
                 vertexOffsetInVertices * (uint)Unsafe.SizeOf<ImDrawVert>(),
-                cmdList.VtxBuffer.Data,
+                (nint)cmdList.VtxBuffer.Data,
                 (uint)(cmdList.VtxBuffer.Size * Unsafe.SizeOf<ImDrawVert>())
             );
 
             cl.UpdateBuffer(
                 _indexBuffer,
                 indexOffsetInElements * sizeof(ushort),
-                cmdList.IdxBuffer.Data,
+                (nint)cmdList.IdxBuffer.Data,
                 (uint)(cmdList.IdxBuffer.Size * sizeof(ushort))
             );
 
@@ -548,33 +704,38 @@ public class ImGuiController : IDisposable
         var idxOffset = 0;
         for (var n = 0; n < drawData.CmdListsCount; n++)
         {
-            var cmdList = drawData.CmdLists[n];
+            ImDrawListPtr cmdList = drawData.CmdLists[n];
             for (var cmdI = 0; cmdI < cmdList.CmdBuffer.Size; cmdI++)
             {
-                var imDrawCmdPtr = cmdList.CmdBuffer[cmdI];
-                if (imDrawCmdPtr.UserCallback != nint.Zero)
+                ImDrawCmd imDrawCmd = cmdList.CmdBuffer[cmdI];
+                if (imDrawCmd.UserCallback != null)
                     throw new Exception();
 
-                if (imDrawCmdPtr.TextureId != nint.Zero)
+                ImTextureID texId = imDrawCmd.TexRef.GetTexID();
+                nint textureId = (nint)texId.Handle;
+                if (textureId != 0)
                 {
-                    cl.SetGraphicsResourceSet(1,
-                        imDrawCmdPtr.TextureId == FontAtlasId
-                            ? _fontTextureResourceSet
-                            : GetImageResourceSet(imDrawCmdPtr.TextureId)
-                    );
+                    ResourceSet? resourceSet = null;
+                    if (textureId == FontAtlasId)
+                        resourceSet = _fontTextureResourceSet;
+                    else
+                        resourceSet = GetImageResourceSet(textureId);
+
+                    if (resourceSet != null)
+                        cl.SetGraphicsResourceSet(1, resourceSet);
                 }
 
                 cl.SetScissorRect(
                     0,
-                    (uint)imDrawCmdPtr.ClipRect.X,
-                    (uint)imDrawCmdPtr.ClipRect.Y,
-                    (uint)(imDrawCmdPtr.ClipRect.Z - imDrawCmdPtr.ClipRect.X),
-                    (uint)(imDrawCmdPtr.ClipRect.W - imDrawCmdPtr.ClipRect.Y)
+                    (uint)imDrawCmd.ClipRect.X,
+                    (uint)imDrawCmd.ClipRect.Y,
+                    (uint)(imDrawCmd.ClipRect.Z - imDrawCmd.ClipRect.X),
+                    (uint)(imDrawCmd.ClipRect.W - imDrawCmd.ClipRect.Y)
                 );
 
-                cl.DrawIndexed(imDrawCmdPtr.ElemCount, 1,
-                    imDrawCmdPtr.IdxOffset + (uint)idxOffset,
-                    (int)imDrawCmdPtr.VtxOffset + vtxOffset, 0
+                cl.DrawIndexed(imDrawCmd.ElemCount, 1,
+                    imDrawCmd.IdxOffset + (uint)idxOffset,
+                    (int)imDrawCmd.VtxOffset + vtxOffset, 0
                 );
             }
             vtxOffset += cmdList.VtxBuffer.Size;
@@ -590,14 +751,13 @@ public class ImGuiController : IDisposable
         _vertexBuffer.Dispose();
         _indexBuffer.Dispose();
         _projMatrixBuffer.Dispose();
-        _fontTexture.Dispose();
-        _fontTextureView.Dispose();
         _effect.Dispose();
         _layout.Dispose();
         _textureLayout.Dispose();
         _pipeline.Dispose();
         _mainResourceSet.Dispose();
 
+        // Font textures are now managed in _ownedResources
         foreach (var resource in _ownedResources)
             resource?.Dispose();
 

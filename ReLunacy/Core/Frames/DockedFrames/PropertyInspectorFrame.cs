@@ -1,15 +1,12 @@
-﻿using ImGuiNET;
+using Bliss.CSharp.Transformations;
+using Hexa.NET.ImGui;
 using LibLunacy.Numerics;
 using ReLunacy.Core.EntityManagement;
+using ReLunacy.Core.Gizmo;
+using ReLunacy.Core.Selection;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
-using Vortice.Mathematics;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -19,36 +16,73 @@ public class PropertyInspectorFrame : DockedFrame
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkSize;
     protected override ImGuiWindowFlags WindowFlags { get; set; }
 
-    private System.Numerics.Vector3 selectedPosition;
-    private System.Numerics.Vector3 selectedAngle;
-    private System.Numerics.Vector3 selectedScale;
-    private System.Numerics.Vector3 selectedBSphere;
+    private Vector3 selectedPosition;
+    private Vector3 selectedAngle;
+    private Vector3 selectedScale;
+    private Vector3 selectedBSphere;
+    private float selectedBSphereRadius;
 
-    private bool selectionChangeHandled = false;
-
-    public Entity? SelectedEntity
-    {
-        get
-        {
-            if (!LunaWindow.Instance.IsAnyFrameOpened<View3D>())
-                return null;
-            return null; //LunaWindow.Instance.GetFirstFrame<View3D>().SelectedEntity;
-        }
-    }
+    public Entity? SelectedEntity => SelectionManager.Singleton.SelectedEntity;
 
     public PropertyInspectorFrame() : base()
     {
         FrameName = LM.Get("GUI_Frame_InstanceInspector");
+        SelectionManager.Singleton.SelectionChanged += OnSelectionChanged;
+    }
 
-        if (LunaWindow.Instance.IsAnyFrameOpened<View3D>())
+    private void OnSelectionChanged(Entity? oldEntity, Entity? newEntity)
+    {
+        if (newEntity is null)
         {
-            var v3d = LunaWindow.Instance.GetFirstFrame<View3D>();
-            //v3d.SelectedEntityChanged += UpdateEntity;
-            selectionChangeHandled = true;
+            selectedAngle = Vector3.Zero;
+            selectedBSphere = Vector3.Zero;
+            selectedBSphereRadius = 0f;
+            selectedPosition = Vector3.Zero;
+            selectedScale = Vector3.One;
+            return;
         }
 
-        LunaWindow.Instance.OnFrameAdded += CheckIfNewFrameIsV3D;
-        LunaWindow.Instance.OnFrameRemoved += CheckIfRemFrameIsV3D;
+        selectedPosition = newEntity.Transform.Translation;
+        selectedAngle = QuaternionToEulerDegrees(newEntity.Transform.Rotation);
+        selectedScale = newEntity.Transform.Scale;
+        selectedBSphere = newEntity.BoundingSphere.GetXYZ();
+        selectedBSphereRadius = newEntity.BoundingSphere.W;
+    }
+
+    private static Vector3 QuaternionToEulerDegrees(Quaternion q)
+    {
+        Vector3 euler = ToEulerAngles(q);
+        return euler * (180f / MathF.PI);
+    }
+
+    private static Vector3 ToEulerAngles(Quaternion q)
+    {
+        Vector3 angles;
+
+        // Roll (x-axis rotation)
+        float sinr_cosp = 2 * (q.W * q.X + q.Y * q.Z);
+        float cosr_cosp = 1 - 2 * (q.X * q.X + q.Y * q.Y);
+        angles.X = MathF.Atan2(sinr_cosp, cosr_cosp);
+
+        // Pitch (y-axis rotation)
+        float sinp = 2 * (q.W * q.Y - q.Z * q.X);
+        if (MathF.Abs(sinp) >= 1)
+            angles.Y = MathF.CopySign(MathF.PI / 2, sinp);
+        else
+            angles.Y = MathF.Asin(sinp);
+
+        // Yaw (z-axis rotation)
+        float siny_cosp = 2 * (q.W * q.Z + q.X * q.Y);
+        float cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z);
+        angles.Z = MathF.Atan2(siny_cosp, cosy_cosp);
+
+        return angles;
+    }
+
+    private static Quaternion EulerDegreesToQuaternion(Vector3 euler)
+    {
+        Vector3 radians = euler * (MathF.PI / 180f);
+        return Quaternion.CreateFromYawPitchRoll(radians.Y, radians.X, radians.Z);
     }
 
     protected override void Render(double deltaTime)
@@ -56,72 +90,73 @@ public class PropertyInspectorFrame : DockedFrame
         if (SelectedEntity == null)
         {
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_WaitingForSelection"));
+            RenderGizmoControls();
             return;
         }
-        else
+
+        ImGui.BeginGroup();
+
+        ImGui.Text($"Name: {SelectedEntity.Name}");
+        ImGui.Text($"ID: {SelectedEntity.ID}");
+
+        ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_TransformCategory"));
+
+        bool transformChanged = false;
+
+        if (ImGui.DragFloat3(LM.Get("GUI_Frame_InstanceInspector_Position"), ref selectedPosition, 0.1f))
         {
-            /*
-            ImGui.BeginGroup();
+            transformChanged = true;
+        }
 
-            ImGui.BeginGroup();
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_InstanceName"));
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_InstanceType"));
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_Vertices"));
-            ImGui.EndGroup();
-            ImGui.SameLine();
-            ImGui.BeginGroup();
-            ImGui.Text(SelectedEntity.name.Split('/')[^1]);
-            ImGui.SameLine();
-            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice"));
-            ImGui.Text(SelectedEntity.EntityType.ToString());
-            ImGui.Text(SelectedEntity.Model.StaticVerticesCount.ToString());
-            ImGui.EndGroup();
+        if (ImGui.DragFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, 1f))
+        {
+            transformChanged = true;
+        }
 
-            ImGui.BeginGroup();
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_ObjectPath"));
-            ImGui.EndGroup();
-            ImGui.SameLine();
-            ImGui.BeginGroup();
-            ImGui.TextWrapped(SelectedEntity.name);
-            ImGui.EndGroup();
+        if (ImGui.DragFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, 0.01f))
+        {
+            transformChanged = true;
+        }
 
-            ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_TransformCategory"));
-
-            if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Position"), ref selectedPosition, "%.3fm"))
+        if (transformChanged)
+        {
+            SelectedEntity.Transform = new Transform
             {
-                SelectedEntity.Transform.Position = selectedPosition;
-            }
-            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, "%.1f°"))
-            {
-                SelectedEntity.Transform.EulerRotation = selectedAngle * (MathF.PI / 180f);
-            }
-            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
-            if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
-            {
-                SelectedEntity.Transform.Scale = selectedScale;
-            }
-            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
+                Translation = selectedPosition,
+                Rotation = EulerDegreesToQuaternion(selectedAngle),
+                Scale = selectedScale
+            };
+            SelectedEntity.IsDirty = true;
+        }
 
-            ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
+        ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
 
-            if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_BoundingSpherePos"), ref selectedBSphere, "%.3fm", ImGuiInputTextFlags.ReadOnly))
-            {
-                SelectedEntity.boundingSphere.XYZ = selectedBSphere;
-            }
-            ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_BoundingSphereSize"), ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
+        ImGui.InputFloat3("Bounding Sphere", ref selectedBSphere, "%.3f", ImGuiInputTextFlags.ReadOnly);
+        ImGui.InputFloat("Sphere Radius", ref selectedBSphereRadius, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
 
-            ImGui.Separator();
+        ImGui.Separator();
 
-            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_ViewToEntity")))
-            {
-                Camera.Main.transform.Position = -(SelectedEntity.Transform.Position + (Camera.Main.transform.Forward * 10f));
-            }
-            ImGui.SameLine();
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_DistanceViewEntity", SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position)));
+        RenderGizmoControls();
 
-            ImGui.EndGroup();
-            */
+        ImGui.EndGroup();
+    }
+
+    private void RenderGizmoControls()
+    {
+        ImGui.SeparatorText("Gizmo");
+
+        string[] operations = ["Translate (1)", "Rotate (2)", "Scale (3)"];
+        int currentOp = (int)GizmoManager.CurrentOperation;
+        if (ImGui.Combo("Operation", ref currentOp, operations, operations.Length))
+        {
+            GizmoManager.SetOperation((GizmoOperation)currentOp);
+        }
+
+        string[] spaces = ["Local", "World"];
+        int currentSpace = (int)GizmoManager.CurrentSpace;
+        if (ImGui.Combo("Space (X)", ref currentSpace, spaces, spaces.Length))
+        {
+            GizmoManager.SetSpace((GizmoSpace)currentSpace);
         }
     }
 
@@ -130,51 +165,5 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.SetNextWindowPos(new(200, 400), ImGuiCond.Once);
         ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new(0.5f));
         base.RenderAsWindow(deltaTime);
-    }
-
-    private void CheckIfNewFrameIsV3D(Frame frame)
-    {
-        /*
-        if (!selectionChangeHandled)
-            if (frame is View3D v3d)
-                v3d.SelectedEntityChanged += UpdateEntity;
-        */
-    }
-
-    private void CheckIfRemFrameIsV3D(Frame frame)
-    {
-        if (selectionChangeHandled)
-        {
-            if (frame is View3D v3d)
-            {
-                // v3d.SelectedEntityChanged -= UpdateEntity;
-                selectionChangeHandled = false;
-            }
-        }
-
-        if (frame is PropertyInspectorFrame self)
-        {
-            LunaWindow.Instance.OnFrameAdded -= CheckIfNewFrameIsV3D;
-            LunaWindow.Instance.OnFrameRemoved -= CheckIfRemFrameIsV3D;
-        }
-    }
-
-    private void UpdateEntity(Entity? newSelection)
-    {
-        if (SelectedEntity is null)
-        {
-            selectedAngle = Vec3.Zero;
-            selectedBSphere = Vec3.Zero;
-            selectedPosition = Vec3.Zero;
-            selectedScale = Vec3.Zero;
-            return;
-        }
-
-        selectedPosition = SelectedEntity.Transform.Translation;
-        selectedAngle = SelectedEntity.Transform.Rotation.ToEuler() * (180f / MathF.PI);
-        selectedScale = SelectedEntity.Transform.Scale;
-        selectedBSphere = SelectedEntity.BoundingSphere.GetXYZ();
-
-        LunaLog.LogDebug($"Moving entity.");
     }
 }

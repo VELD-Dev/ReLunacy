@@ -67,6 +67,9 @@ public class EntityMoby : Entity
         if (EntityManager.Singleton.renderBoundingSpheres)
             DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
+        if (selected)
+            DrawSelectionHighlight(outputDescription, commandList, immediateRenderer);
+
         if (IsDirty)
         {
             cachedRenderables.Clear();
@@ -106,25 +109,16 @@ public class EntityMoby : Entity
         if (Models is null)
             return;
 
-        if (IsDirty)
-        {
-            cachedRenderables.Clear();
-            foreach (Model model in Models)
-            {
-                cachedRenderables.Clear();
-                foreach (var mesh in model.Meshes)
-                    cachedRenderables.Add(new Renderable(mesh, Transform));
-            }
-            IsDirty = false;
-        }
+        // Create a fresh picking material per entity to avoid modifying existing materials
+        var pickingMaterial = new Material(pickingEffect);
+        pickingMaterial.Parameters = [objectId, 0f, 0f, 0f];
 
-        foreach (var renderable in cachedRenderables)
+        foreach (Model model in Models)
         {
-            var mat = renderable.Mesh.Material;
-            restoreList.Add(new MaterialOverrideState(mat, mat.Effect, mat.Parameters));
-            mat.Effect = pickingEffect;
-            mat.Parameters = [objectId, 0f, 0f, 0f];
-            renderer.DrawRenderable(renderable);
+            foreach (var mesh in model.Meshes)
+            {
+                renderer.DrawRenderable(new Renderable(mesh, Transform, pickingMaterial));
+            }
         }
     }
 }

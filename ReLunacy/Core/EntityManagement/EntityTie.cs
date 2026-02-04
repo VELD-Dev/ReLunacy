@@ -65,6 +65,9 @@ public class EntityTie : Entity
         if (EntityManager.Singleton.renderBoundingSpheres)
             DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
 
+        if (selected)
+            DrawSelectionHighlight(outputDescription, commandList, immediateRenderer);
+
         if(IsDirty)
         {
             cachedRenderables.Clear();
@@ -109,13 +112,12 @@ public class EntityTie : Entity
             IsDirty = false;
         }
 
-        foreach(var renderable in cachedRenderables)
+        var pickingMaterial = new Material(pickingEffect);
+        pickingMaterial.Parameters = [objectId, 0f, 0f, 0f];
+
+        foreach (var mesh in Model.Meshes)
         {
-            var mat = renderable.Mesh.Material;
-            restoreList.Add(new MaterialOverrideState(mat, mat.Effect, mat.Parameters));
-            mat.Effect = pickingEffect;
-            mat.Parameters = [objectId, 0f, 0f, 0f];
-            renderer.DrawRenderable(renderable);
+            renderer.DrawRenderable(new Renderable(mesh, Transform, pickingMaterial));
         }
     }
 }
