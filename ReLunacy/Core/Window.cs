@@ -185,6 +185,7 @@ public class LunaWindow : Disposable
         ShaderManager.LoadDefaultShaders(GraphicsDevice);
 
         // Update Checker
+        UpdateChecker.CheckUpdates();
 
         AddFrame(new View3D(GraphicsDevice));
         AddFrame(new PropertyInspectorFrame());
