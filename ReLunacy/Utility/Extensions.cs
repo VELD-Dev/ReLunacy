@@ -89,6 +89,8 @@ public static class Extensions
 
     public static Vector3 GetXYZ(this Vector4 vec4) => new(vec4.X, vec4.Y, vec4.Z);
 
+    public static Quaternion QuaternionFromEuler(this Vector3 vec3) => Quaternion.CreateFromYawPitchRoll(vec3.X, vec3.Y, vec3.Z);
+
     /// <summary>
     /// Stringifies efficiently any <see cref="IEnumerable{T}"/> using a defined key, separated by a char or a string and a defined amount of times.
     /// </summary>

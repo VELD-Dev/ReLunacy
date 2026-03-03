@@ -63,6 +63,39 @@ public abstract class Entity : IDisposable
     }
     public void SetTransform(Transform value) => Transform = value;
 
+    public void SetRotation(Quaternion value)
+    {
+        transform.Rotation =  value;
+        IsDirty = true;
+    }
+
+    public void SetTranslation(Vector3 value)
+    {
+        transform.Translation = value;
+        IsDirty = true;
+    }
+    
+    public void SetScale(Vector3 value) 
+    {
+        transform.Scale = value;
+        IsDirty = true;
+    }
+
+    public void SetBoundingSphere(Vector4 bsphere)
+    {
+        BoundingSphere = bsphere;
+    }
+    
+    public void SetBoundingSpherePosition(Vector3 position)
+    {
+        BoundingSphere = new Vector4(position, BoundingSphere.W);
+    }
+    
+    public void SetBoundingSphereRadius(float radius) 
+    {
+        BoundingSphere = new Vector4(BoundingSphere.GetXYZ(), radius);
+    }
+
     public abstract Vector4 BoundingSphere { get; set; }
     public abstract string Name { get; protected set; }
     private bool isDirty = true;

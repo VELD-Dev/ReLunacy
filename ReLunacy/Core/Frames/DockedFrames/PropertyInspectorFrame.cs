@@ -1,4 +1,4 @@
-
+﻿
 using LibLunacy.Numerics;
 using ReLunacy.Core.EntityManagement;
 using ReLunacy.Utility;
@@ -9,7 +9,10 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using Bliss.CSharp.Transformations;
+using ReLunacy.Core.Selection;
 using Vortice.Mathematics;
+using ReLunacy.Utility;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -23,18 +26,11 @@ public class PropertyInspectorFrame : DockedFrame
     private System.Numerics.Vector3 selectedAngle;
     private System.Numerics.Vector3 selectedScale;
     private System.Numerics.Vector3 selectedBSphere;
-
+    private float selectedBSphereRadius;
+    
     private bool selectionChangeHandled = false;
 
-    public Entity? SelectedEntity
-    {
-        get
-        {
-            if (!LunaWindow.Instance.IsAnyFrameOpened<View3D>())
-                return null;
-            return null; //LunaWindow.Instance.GetFirstFrame<View3D>().SelectedEntity;
-        }
-    }
+    public Entity? SelectedEntity => SelectionManager.Singleton.SelectedEntity;
 
     public PropertyInspectorFrame() : base()
     {
@@ -42,13 +38,9 @@ public class PropertyInspectorFrame : DockedFrame
 
         if (LunaWindow.Instance.IsAnyFrameOpened<View3D>())
         {
-            var v3d = LunaWindow.Instance.GetFirstFrame<View3D>();
-            //v3d.SelectedEntityChanged += UpdateEntity;
+            SelectionManager.Singleton.SelectionChanged += UpdateEntity;
             selectionChangeHandled = true;
         }
-
-        LunaWindow.Instance.OnFrameAdded += CheckIfNewFrameIsV3D;
-        LunaWindow.Instance.OnFrameRemoved += CheckIfRemFrameIsV3D;
     }
 
     protected override void Render(double deltaTime)
@@ -60,7 +52,8 @@ public class PropertyInspectorFrame : DockedFrame
         }
         else
         {
-            /*
+            var v3d = LunaWindow.Instance.GetFirstFrame<View3D>();
+            
             ImGui.BeginGroup();
 
             ImGui.BeginGroup();
@@ -70,11 +63,11 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
-            ImGui.Text(SelectedEntity.name.Split('/')[^1]);
+            ImGui.Text(SelectedEntity.Name.Split('/')[^1]);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice"));
-            ImGui.Text(SelectedEntity.EntityType.ToString());
-            ImGui.Text(SelectedEntity.Model.StaticVerticesCount.ToString());
+            ImGui.Text(SelectedEntity.GetType().Name);
+            ImGui.Text("unsupported");
             ImGui.EndGroup();
 
             ImGui.BeginGroup();
@@ -82,46 +75,50 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
-            ImGui.TextWrapped(SelectedEntity.name);
+            ImGui.TextWrapped(SelectedEntity.Name);
             ImGui.EndGroup();
 
             ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_TransformCategory"));
 
             if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Position"), ref selectedPosition, "%.3fm"))
             {
-                SelectedEntity.Transform.Position = selectedPosition;
+                SelectedEntity.SetTranslation(selectedPosition);
             }
-            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
             if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, "%.1f°"))
             {
-                SelectedEntity.Transform.EulerRotation = selectedAngle * (MathF.PI / 180f);
+                SelectedEntity.SetRotation(
+                    (SelectedEntity.Transform.Rotation.ToEuler() + selectedAngle * (MathF.PI / 180f))
+                    .QuaternionFromEuler());
             }
-            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
             if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
             {
-                SelectedEntity.Transform.Scale = selectedScale;
+                SelectedEntity.SetScale(selectedScale);
             }
-            //if (ImGui.IsItemDeactivatedAfterEdit()) UpdateEntity();
 
             ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
 
             if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_BoundingSpherePos"), ref selectedBSphere, "%.3fm", ImGuiInputTextFlags.ReadOnly))
             {
-                SelectedEntity.boundingSphere.XYZ = selectedBSphere;
+                SelectedEntity.SetBoundingSpherePosition(selectedBSphere);
             }
-            ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_BoundingSphereSize"), ref SelectedEntity.boundingSphere.W, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly);
+            if(ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_BoundingSphereSize"), ref selectedBSphereRadius, 0, 0, "%.3f", ImGuiInputTextFlags.ReadOnly)) 
+            {
+                SelectedEntity.SetBoundingSphereRadius(selectedBSphereRadius);
+            }
 
             ImGui.Separator();
 
-            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_ViewToEntity")))
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_ViewToEntity")) && v3d != null)
             {
-                Camera.Main.transform.Position = -(SelectedEntity.Transform.Position + (Camera.Main.transform.Forward * 10f));
+                v3d.Camera.Position = -(SelectedEntity.Transform.Translation + (v3d.Camera.GetForward() * 10));
             }
             ImGui.SameLine();
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_DistanceViewEntity", SelectedEntity.Transform.Position.DistanceFrom(-Camera.Main.transform.Position)));
+            if (v3d != null)
+            {
+                ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_DistanceViewEntity", SelectedEntity.Transform.Translation.DistanceFrom(-v3d.Camera.Position)));
+            }
 
             ImGui.EndGroup();
-            */
         }
     }
 
@@ -132,34 +129,7 @@ public class PropertyInspectorFrame : DockedFrame
         base.RenderAsWindow(deltaTime);
     }
 
-    private void CheckIfNewFrameIsV3D(Frame frame)
-    {
-        /*
-        if (!selectionChangeHandled)
-            if (frame is View3D v3d)
-                v3d.SelectedEntityChanged += UpdateEntity;
-        */
-    }
-
-    private void CheckIfRemFrameIsV3D(Frame frame)
-    {
-        if (selectionChangeHandled)
-        {
-            if (frame is View3D v3d)
-            {
-                // v3d.SelectedEntityChanged -= UpdateEntity;
-                selectionChangeHandled = false;
-            }
-        }
-
-        if (frame is PropertyInspectorFrame self)
-        {
-            LunaWindow.Instance.OnFrameAdded -= CheckIfNewFrameIsV3D;
-            LunaWindow.Instance.OnFrameRemoved -= CheckIfRemFrameIsV3D;
-        }
-    }
-
-    private void UpdateEntity(Entity? newSelection)
+    private void UpdateEntity(Entity? oldSelection, Entity? newSelection)
     {
         if (SelectedEntity is null)
         {
@@ -175,6 +145,6 @@ public class PropertyInspectorFrame : DockedFrame
         selectedScale = SelectedEntity.Transform.Scale;
         selectedBSphere = SelectedEntity.BoundingSphere.GetXYZ();
 
-        LunaLog.LogDebug($"Moving entity.");
+        LunaLog.LogDebug($"Moving entity {SelectedEntity.Name}.");
     }
 }

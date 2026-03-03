@@ -66,9 +66,9 @@ internal class EditorSettingsFrame : Frame
                 ImGui.BeginGroup();
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_GizmosSize"), ref Program.Settings.ToolsGizmoSize, ImGuiSliderFlags.AlwaysClamp);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_GizmoSnapEnabled"), ref Program.Settings.GizmoSnapEnabled);
-                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, "%.3fm");
-                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, "%.3f°");
-                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapScale"), ref Program.Settings.GizmoSnapScale);
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, 0.1f, 1.0f, "%.3fm");
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, 1.0f, 15.0f, "%.3f°");
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapScale"), ref Program.Settings.GizmoSnapScale, 0.05f, 0.25f, "%.3f");
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }

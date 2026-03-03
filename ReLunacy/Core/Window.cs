@@ -33,6 +33,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using MiniAudioEx.Core.StandardAPI;
+using ReLunacy.Core.Selection;
 using Veldrid;
 using Veldrid.OpenGL;
 
@@ -253,6 +254,8 @@ public class LunaWindow : Disposable
 
         if (IsAnyFrameOpened<AssetViewer>())
             Task.Run(() => GetFirstFrame<AssetViewer>().TransmitAssets(AssetManager, Loader));
+
+        SelectionManager.Singleton.Select(EntityManager.Singleton.Regions[0].MobyInstances.Entities[0]);
 
         if (loadModal is null)
             return;

@@ -23,13 +23,16 @@ public class SelectionManager
 
             _selectedEntity = value;
 
-            if (value != null)
-                value.selected = true;
+            value?.selected = true;
 
             SelectionChanged?.Invoke(oldEntity, value);
+            LunaLog.LogDebug($"Selection changed: {value?.Name ?? "none"}");
         }
     }
 
+    /// <summary>
+    /// Entity1: Old entity; Entity2: New entity
+    /// </summary>
     public event Action<Entity?, Entity?>? SelectionChanged;
 
     private SelectionManager() { }

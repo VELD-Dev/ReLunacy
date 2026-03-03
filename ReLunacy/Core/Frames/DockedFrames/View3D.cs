@@ -19,6 +19,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using ReLunacy.Core.Selection;
 using Veldrid;
 using Veldrid.OpenGLBindings;
 using Vortice.Direct3D11;
@@ -46,21 +47,11 @@ public class View3D : DockedFrame
 
     public MouseGrabHandler rmbghandler { get; } = new() { mouseButton = MouseButton.Right };
 
-    private Entity? _selectedEntity;
     public Entity? SelectedEntity
     {
-        get => _selectedEntity;
-        set
-        {
-            if (_selectedEntity != value)
-            {
-                _selectedEntity = value;
-                SelectedEntityChanged?.Invoke(_selectedEntity);
-                InvalidateView();
-            }
-        }
+        get => SelectionManager.Singleton.SelectedEntity;
+        set => SelectionManager.Singleton.Select(value);
     }
-    public event Action<Entity?>? SelectedEntityChanged;
 
     public GizmoController GizmoController { get; } = new();
 
@@ -108,6 +99,7 @@ public class View3D : DockedFrame
 
         commandList.End();
         graphicsDevice.SubmitCommands(commandList);
+
         var viewportPos = ImGui.GetCursorScreenPos();
         ImGui.Image(
             LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
@@ -161,8 +153,16 @@ public class View3D : DockedFrame
         if (!isRotating && !(isHoveringWnd && isMouseInCntReg))
             return;
 
-        CheckMovementInput(deltaTime);
         HandleShortcuts();
+
+        if (isRotating)
+        {
+            CheckMovementInput(deltaTime);
+        }
+        else
+        {
+            HandleGizmoShortcuts();
+        }
 
         /*
         if (CheckLMBClick() && FrameContentRegion.Contains(new Point((int)MousePos.X, (int)MousePos.Y)))
@@ -216,21 +216,21 @@ public class View3D : DockedFrame
 
     public void HandleShortcuts()
     {
-        var modifierCtrl = Input.IsKeyDown(KeyboardKey.ControlLeft);
-        var modifierShift = Input.IsKeyDown(KeyboardKey.ShiftLeft);
-
         if (Input.IsKeyPressed(KeyboardKey.Escape)) SelectedEntity = null;
+    }
 
-        // Gizmo tool shortcuts (only when not using camera)
-        if (!Input.IsMouseButtonDown(MouseButton.Right))
-        {
-            if (Input.IsKeyPressed(KeyboardKey.W))
-                GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
-            if (Input.IsKeyPressed(KeyboardKey.E))
-                GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
-            if (Input.IsKeyPressed(KeyboardKey.R))
-                GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
-        }
+    /// <summary>
+    /// Gizmo tool shortcuts — called only when NOT in camera movement mode.
+    /// Separated from HandleShortcuts to avoid W/E/R conflicting with WASD movement.
+    /// </summary>
+    public void HandleGizmoShortcuts()
+    {
+        if (Input.IsKeyPressed(KeyboardKey.W))
+            GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
+        if (Input.IsKeyPressed(KeyboardKey.E))
+            GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
+        if (Input.IsKeyPressed(KeyboardKey.R))
+            GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
     }
 
     public bool HandleSelect(Entity? obj, bool externalCaller = false, bool pointCameraAtObject = false)
