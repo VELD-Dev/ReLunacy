@@ -1,4 +1,4 @@
-﻿using Hexa.NET.ImGui;
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -83,7 +83,7 @@ public static class ImGuiPlus
         return ImGui.Button(label);
     }
 
-    public static void CenteredImage(ImTextureID texture_id, Vector2 size, float pivot = 0.5f)
+    public static void CenteredImage(ImTextureRef texture_id, Vector2 size, float pivot = 0.5f)
     {
         ImGuiStylePtr style = ImGui.GetStyle();
 
@@ -96,7 +96,7 @@ public static class ImGuiPlus
         {
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
         }
-        unsafe { ImGui.Image(new ImTextureRef(null, texture_id), size); }
+        ImGui.Image(texture_id, size);
     }
 
     public static void CenteredText(string label, float pivot = 0.5f)

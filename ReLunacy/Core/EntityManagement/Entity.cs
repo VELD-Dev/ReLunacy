@@ -61,6 +61,8 @@ public abstract class Entity : IDisposable
             IsDirty = true;
         }
     }
+    public void SetTransform(Transform value) => Transform = value;
+
     public abstract Vector4 BoundingSphere { get; set; }
     public abstract string Name { get; protected set; }
     private bool isDirty = true;

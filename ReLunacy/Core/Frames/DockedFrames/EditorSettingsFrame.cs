@@ -1,4 +1,4 @@
-﻿using Hexa.NET.ImGui;
+﻿
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System;
@@ -57,6 +57,18 @@ internal class EditorSettingsFrame : Frame
                 {
                     ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));
                 }
+                ImGui.EndGroup();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EditorSettings_ToolsSettings")))
+            {
+                ImGui.BeginGroup();
+                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_GizmosSize"), ref Program.Settings.ToolsGizmoSize, ImGuiSliderFlags.AlwaysClamp);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_GizmoSnapEnabled"), ref Program.Settings.GizmoSnapEnabled);
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, "%.3fm");
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, "%.3f°");
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapScale"), ref Program.Settings.GizmoSnapScale);
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }
@@ -131,7 +143,7 @@ internal class EditorSettingsFrame : Frame
     public override void RenderAsWindow(double deltaTime)
     {
         ImGui.SetNextWindowSize(new(800, 600));
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f, ImGuiCond.Once, new(0.5f));
+        ImGui.SetNextWindowPos(ImGui.GetWorkCenter(ImGui.GetMainViewport()), ImGuiCond.Once, new(0.5f));
         base.RenderAsWindow(deltaTime);
     }
 }

@@ -1,7 +1,8 @@
-﻿using Hexa.NET.ImGui;
+
 using ReLunacy.Core;
 using ReLunacy.Core.EntityManagement;
 using ReLunacy.Core.Frames.DockedFrames;
+using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.MenuBar;
@@ -121,6 +122,24 @@ internal static class ViewMenuDraw
         else
         {
             LunaWindow.Instance.AddFrame(new LogsFrame());
+        }
+    }
+
+    internal static void LayoutPresets()
+    {
+        if (ImGui.BeginMenu("Layout"))
+        {
+            uint dockspaceId = ImGui.GetID("dockspace");
+            var frameNames = LunaWindow.Instance.openFrames.Select(f => f.FrameName).ToList();
+
+            if (ImGui.MenuItem("Default"))
+                DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
+            if (ImGui.MenuItem("Compact"))
+                DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Compact, frameNames);
+            if (ImGui.MenuItem("Wide"))
+                DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Wide, frameNames);
+
+            ImGui.EndMenu();
         }
     }
 

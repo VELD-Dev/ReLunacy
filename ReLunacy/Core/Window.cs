@@ -14,7 +14,6 @@ using Bliss.CSharp.Textures.Cubemaps;
 using Bliss.CSharp.Transformations;
 using Bliss.CSharp.Windowing;
 using Bliss.CSharp.Windowing.Events;
-using Hexa.NET.ImGui;
 using LibLunacy;
 using LibLunacy.Numerics;
 using LibLunacy.Shaders;
@@ -183,7 +182,7 @@ public class LunaWindow : Disposable
 
         LM.Initialize();
 
-        ShaderManager.LoadDefaultShaders(GraphicsDevice);                                                                                                                                                                                                                                                                                                                                                                                                                       
+        ShaderManager.LoadDefaultShaders(GraphicsDevice);
 
         // Update Checker
 
@@ -317,6 +316,10 @@ public class LunaWindow : Disposable
 
         uint dockspaceId = ImGui.GetID("dockspace");
         ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);
+
+        var frameNames = openFrames.Select(f => f.FrameName).ToList();
+        DockspaceLayoutManager.TryApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
+
         return dockspaceOpen;
     }
 
@@ -361,6 +364,8 @@ public class LunaWindow : Disposable
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();
             ViewMenuDraw.ShowPSArcExplorer();
+            ImGui.Separator();
+            ViewMenuDraw.LayoutPresets();
             ImGui.EndMenu();
         }
 

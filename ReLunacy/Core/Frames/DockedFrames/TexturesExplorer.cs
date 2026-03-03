@@ -1,6 +1,5 @@
 ﻿using Bliss.CSharp.Images;
 using Bliss.CSharp.Textures;
-using Hexa.NET.ImGui;
 using LibLunacy.Textures;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -20,13 +19,13 @@ public record struct TextureObject
     public readonly string? TextureName => Texture.name;
     public readonly Texture Texture;
     public readonly Texture2D BlissTexture;
-    public readonly nint TexturePtr;
+    public readonly ImTextureRef TexturePtr;
 }
 
 public class TexturesExplorer : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f;
+    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
     private string inputText = "";
@@ -35,7 +34,7 @@ public class TexturesExplorer : DockedFrame
     private List<TextureObject> textureObjects = [];
 
     private int selectedTexture = -1;
-    private nint selectedTexturePtr = nint.Zero;
+    private ImTextureRef selectedTexturePtr;
 
     public TexturesExplorer() : base()
     {
@@ -70,7 +69,7 @@ public class TexturesExplorer : DockedFrame
                     var texobj = textureObjects[i];
                     if (i > 0 && i % columns == 0) ImGui.Spacing();
 
-                    unsafe { ImGui.Image(new ImTextureRef(null, new ImTextureID(texobj.TexturePtr)), new(128, 128), Vector2.UnitY, Vector2.UnitX); }
+                    ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
                     if (ImGui.IsItemClicked())
                     {
                         selectedTexture = i;
@@ -91,7 +90,7 @@ public class TexturesExplorer : DockedFrame
             {
                 var selection = textureObjects[selectedTexture];
 
-                unsafe { ImGui.Image(new ImTextureRef(null, new ImTextureID(selectedTexturePtr)), new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX); }
+                ImGui.Image(selectedTexturePtr, new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX);
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_SelectColorChannel"));
                 ImGui.SameLine();
                 // Optimizations will be done by making copies of these channels only when the texture is selected.

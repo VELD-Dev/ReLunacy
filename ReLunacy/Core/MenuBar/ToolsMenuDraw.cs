@@ -1,4 +1,4 @@
-﻿using Hexa.NET.ImGui;
+using Hexa.NET.ImGuizmo;
 using ReLunacy.Core;
 using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Utility;
@@ -8,34 +8,49 @@ namespace ReLunacy.MenuBar;
 
 internal static class ToolsMenuDraw
 {
+    private static View3D? GetView3D()
+    {
+        if (!LunaWindow.Instance.IsAnyFrameOpened<View3D>()) return null;
+        return LunaWindow.Instance.GetFirstFrame<View3D>();
+    }
+
     internal static void TranslationTool()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Translation"), "Soon™", false, false)) return;
+        var view = GetView3D();
+        bool isActive = view?.GizmoController.CurrentOperation == ImGuizmoOperation.Translate;
+        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Translation"), "W", isActive, true)) return;
 
-        LunaLog.LogInfo("Switching to translation tool");
+        if (view != null)
+            view.GizmoController.CurrentOperation = ImGuizmoOperation.Translate;
     }
 
     internal static void RotationTool()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Rotation"), "Soon™", false, false)) return;
+        var view = GetView3D();
+        bool isActive = view?.GizmoController.CurrentOperation == ImGuizmoOperation.Rotate;
+        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Rotation"), "E", isActive, true)) return;
 
-        LunaLog.LogInfo("Switching to rotation tool");
+        if (view != null)
+            view.GizmoController.CurrentOperation = ImGuizmoOperation.Rotate;
     }
 
     internal static void ScaleTool()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Scale"), "Soon™", false, false)) return;
+        var view = GetView3D();
+        bool isActive = view?.GizmoController.CurrentOperation == ImGuizmoOperation.Scale;
+        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Scale"), "R", isActive, true)) return;
 
-        LunaLog.LogInfo("Switching to scale tool");
+        if (view != null)
+            view.GizmoController.CurrentOperation = ImGuizmoOperation.Scale;
     }
 
     internal static void DeselectObject()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_DeselectObjects"), "ESC.", false, true)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_DeselectObjects"), "ESC", false, true)) return;
 
-        if (!LunaWindow.Instance.IsAnyFrameOpened<View3D>()) return;
-
-        //LunaWindow.Instance.GetFirstFrame<View3D>().SelectedEntity = null;
+        var view = GetView3D();
+        if (view != null)
+            view.SelectedEntity = null;
 
         LunaLog.LogInfo("Deselecting all objects");
     }

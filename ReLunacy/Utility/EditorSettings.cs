@@ -34,6 +34,10 @@ public class EditorSettings
     public Vector2 OverlayPadding;
     public int OverlayPos;
     public float ToolsGizmoSize;
+    public bool GizmoSnapEnabled;
+    public float GizmoSnapTranslation;
+    public float GizmoSnapRotation;
+    public float GizmoSnapScale;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders;
     public bool LegacyRenderingMode;
@@ -70,6 +74,10 @@ public class EditorSettings
         OverlayPadding = new(10f, 10f);
         OverlayPos = 0;
         ToolsGizmoSize = 0.06f;
+        GizmoSnapEnabled = false;
+        GizmoSnapTranslation = 1.0f;
+        GizmoSnapRotation = 15.0f;
+        GizmoSnapScale = 0.25f;
         LegacyRenderingMode = false;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;

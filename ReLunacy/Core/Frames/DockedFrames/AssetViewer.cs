@@ -7,7 +7,6 @@ using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Textures;
-using Hexa.NET.ImGui;
 using LibLunacy.Experimental.Core.Interfaces;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -50,7 +49,7 @@ public record struct MobyAsset
 public class AssetViewer : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f;
+    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
     public Rectangle RenderFrameSize { get; private set; }
@@ -229,15 +228,12 @@ public class AssetViewer : DockedFrame
 
             commandList.End();
             graphicsDevice.SubmitCommands(commandList);
-            unsafe
-            {
-                ImGui.Image(
-                    new ImTextureRef(null, new ImTextureID(LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture))),
-                    RenderFrameSize.GetSizeF(),
-                    Vector2.UnitX,
-                    Vector2.UnitY
-                );
-            }
+            ImGui.Image(
+                LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
+                RenderFrameSize.GetSizeF(),
+                Vector2.UnitX,
+                Vector2.UnitY
+            );
         }
         ImGui.EndChild();
 

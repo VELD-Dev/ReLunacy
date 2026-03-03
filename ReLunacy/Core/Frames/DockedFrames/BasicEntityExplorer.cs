@@ -1,4 +1,4 @@
-﻿using Hexa.NET.ImGui;
+
 using LibLunacy.Numerics;
 using ReLunacy.Core.EntityManagement;
 using ReLunacy.Utility.Localization;
@@ -15,7 +15,7 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 internal class BasicEntityExplorer : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f;
+    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
     private enum Tabs

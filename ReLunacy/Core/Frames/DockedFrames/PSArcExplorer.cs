@@ -1,5 +1,4 @@
 using Bliss.CSharp.Interact;
-using Hexa.NET.ImGui;
 using LibreFios;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -38,7 +37,7 @@ public class PSArcExplorer : DockedFrame
     }
 
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f;
+    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoScrollbar;
 
     private PSARC? currentArchive;

@@ -1,4 +1,4 @@
-﻿using Hexa.NET.ImGui;
+
 using LibLunacy.Numerics;
 using ReLunacy.Core.EntityManagement;
 using ReLunacy.Core.Frames.DockedFrames;
@@ -62,7 +62,7 @@ public class Overlay
         }
         else if (Location == 4)
         {
-            ImGui.SetNextWindowPos(useView ? view.FrameContentRegion.GetCenterF() : viewport.WorkPos + ImGui.GetMainViewport().WorkSize * 0.5f, ImGuiCond.Always, new(0.5f, 0.5f));
+            ImGui.SetNextWindowPos(useView ? view.FrameContentRegion.GetCenterF() : ImGui.GetWorkCenter(viewport), ImGuiCond.Always, new Vector2(0.5f, 0.5f));
             flags |= ImGuiWindowFlags.NoMove;
         }
 
