@@ -76,6 +76,27 @@ public class ImGuiController : IDisposable
                           ImGuiConfigFlags.DockingEnable;
         io.Fonts.Flags |= ImFontAtlasFlags.NoBakedLines;
 
+        unsafe
+        {
+            io.Fonts.AddFontDefault();
+            var fontAwesomePath = Path.Combine(
+                Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!,
+                "Assets", "Fonts", "fa-solid-900.ttf");
+            if (File.Exists(fontAwesomePath))
+            {
+                var config = ImGui.ImFontConfig();
+                config.MergeMode = true;
+                config.PixelSnapH = true;
+                config.GlyphMinAdvanceX = 13f;
+                ushort[] ranges = [0xf000, 0xf9ff, 0];
+                fixed (ushort* rangesPtr = ranges)
+                {
+                    io.Fonts.AddFontFromFileTTF(fontAwesomePath, 13f, config);
+                }
+                config.Destroy();
+            }
+        }
+
         CreateDeviceResources(graphicsDevice, outputDescription);
         SetPerFrameImGuiData(1f / 60f);
         ImGui.NewFrame();

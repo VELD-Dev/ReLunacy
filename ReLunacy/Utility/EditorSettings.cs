@@ -6,6 +6,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using Veldrid;
 using Vortice.Mathematics;
 
 [JsonObject]
@@ -20,6 +21,7 @@ public class EditorSettings
     public bool FrustrumCulling;
     public uint MSAA_Level; // 0 = no MSAA, 1 = 2x, 2 = 4x, 3 = 8x
     public bool VSync;
+    public GraphicsBackend GraphicsBackend;
     public int TargetFPS;
     public double FrametimeCap;
     public string Language;
@@ -59,6 +61,7 @@ public class EditorSettings
         CamSensivity = 1f;
         FrustrumCulling = true;
         VSync = false;
+        GraphicsBackend = GraphicsBackend.Vulkan;
         TargetFPS = 60;
         FrametimeCap = 1.0 / 60.0;
         MSAA_Level = 0; // 0 = no MSAA, 1 = 2x, 2 = 4x, 3 = 8x
