@@ -68,6 +68,9 @@ public class EntityTie : Entity
         if (selected)
             DrawSelectionHighlight(outputDescription, commandList, immediateRenderer);
 
+        if (Model is null)
+            return;
+
         if(IsDirty)
         {
             cachedRenderables.Clear();
@@ -85,7 +88,7 @@ public class EntityTie : Entity
 
         EntitiesRenderedThisFrame++;
     }
-    
+
     public override void DrawPicking(
         BasicForwardRenderer renderer,
         OutputDescription outputDescription,
@@ -100,6 +103,9 @@ public class EntityTie : Entity
             return;
 
         if (Program.Settings.FrustrumCulling && !camera.GetFrustum().ContainsSphere(BoundingSphere.GetXYZ(), BoundingSphere.W))
+            return;
+
+        if (Model is null)
             return;
 
         if(IsDirty)

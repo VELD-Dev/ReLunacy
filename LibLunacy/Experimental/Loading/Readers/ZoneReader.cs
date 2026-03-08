@@ -204,7 +204,6 @@ public sealed class ZoneReader
         for (int i = 0; i < tieInstanceSection.count; i++)
         {
             legacyZone.tieInstances[i] = TieInstance.Read(legacyZone.zoneStream);
-            legacyZone.zoneStream.BaseStream.Position += TieInstance.Size;
         }
 
         // Get Tie TUID lookup if new engine
@@ -272,10 +271,32 @@ public sealed class ZoneReader
         var scaleZ = MathF.Sqrt(matrix.Z1 * matrix.Z1 + matrix.Z2 * matrix.Z2 + matrix.Z3 * matrix.Z3);
         var avgScale = (scaleX + scaleY + scaleZ) / 3.0f;
 
-        // For rotation, we'd need to extract Euler angles from the rotation matrix
-        // For now, use zero rotation as placeholder
-        // TODO: Proper matrix decomposition to extract rotation Euler angles
-        var rotation = Vector3.Zero;
+        // Extract rotation by removing scale from basis vectors
+        var invSx = scaleX > 0 ? 1.0f / scaleX : 0f;
+        var invSy = scaleY > 0 ? 1.0f / scaleY : 0f;
+        var invSz = scaleZ > 0 ? 1.0f / scaleZ : 0f;
+
+        // Rotation matrix (columns normalized)
+        float m11 = matrix.X1 * invSx, m12 = matrix.Y1 * invSy, m13 = matrix.Z1 * invSz;
+        float m21 = matrix.X2 * invSx, m22 = matrix.Y2 * invSy, m23 = matrix.Z2 * invSz;
+        float m31 = matrix.X3 * invSx, m32 = matrix.Y3 * invSy, m33 = matrix.Z3 * invSz;
+
+        // Extract Euler angles (YXZ order) in degrees
+        float rotX = MathF.Asin(-Math.Clamp(m23, -1f, 1f));
+        float rotY, rotZ;
+        if (MathF.Abs(m23) < 0.9999f)
+        {
+            rotY = MathF.Atan2(m13, m33);
+            rotZ = MathF.Atan2(m21, m22);
+        }
+        else
+        {
+            rotY = MathF.Atan2(-m31, m11);
+            rotZ = 0f;
+        }
+
+        const float Rad2Deg = 180f / MathF.PI;
+        var rotation = new Vector3(rotX * Rad2Deg, rotY * Rad2Deg, rotZ * Rad2Deg);
 
         return new Transform3D(position, rotation, avgScale);
     }

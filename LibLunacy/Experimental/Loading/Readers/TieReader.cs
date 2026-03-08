@@ -46,8 +46,11 @@ public sealed class TieReader
         for (uint i = 0; i < tieSection.count; i++)
         {
             var legacyTie = new LibLunacy.Objects.Tie(main, _fileManager ,old: true, index: i);
-            var expTie = ConvertTie(legacyTie);
-            ties.Add(legacyTie.TUID, expTie);
+            // Old engine: TieInstance.tieIndex stores file offsets, not sequential indices.
+            // Use offset-based keys to match (same as legacy CTie).
+            ulong key = tieSection.offset + i * TieMetadataOld.Size;
+            var expTie = ConvertTie(legacyTie, key);
+            ties.Add(key, expTie);
         }
 
         return ties;
@@ -78,7 +81,7 @@ public sealed class TieReader
             StreamHelper streamHelper = new StreamHelper(tiems, StreamHelper.Endianness.Big);
 
             var legacyTie = new LibLunacy.Objects.Tie(new IGFile(tiems), _fileManager, old: false);
-            var expTie = ConvertTie(legacyTie);
+            var expTie = ConvertTie(legacyTie, legacyTie.TUID);
             ties.Add(legacyTie.TUID, expTie);
 
             tiems.Dispose();
@@ -91,33 +94,30 @@ public sealed class TieReader
     /// <summary>
     /// Converts legacy Tie to experimental Tie
     /// </summary>
-    private Assets.Ties.Tie ConvertTie(LibLunacy.Objects.Tie legacyTie)
+    private Assets.Ties.Tie ConvertTie(LibLunacy.Objects.Tie legacyTie, ulong id)
     {
         // Read tie meshes
         ReadTieMeshes(legacyTie);
 
-        // Convert meshes
+        // Convert meshes (apply per-axis scale during conversion)
+        var scaleVec = legacyTie.Scale;
         var meshes = new List<IMesh>();
         for (int i = 0; i < legacyTie.MeshesCount; i++)
         {
             var legacyMesh = legacyTie.Meshes[i];
-            var mesh = ConvertTieMesh(legacyMesh);
+            var mesh = ConvertTieMesh(legacyMesh, scaleVec);
             meshes.Add(mesh);
         }
-
-        // Calculate average scale from Vec3
-        var scaleVec = legacyTie.Scale;
-        float avgScale = (scaleVec.X + scaleVec.Y + scaleVec.Z) / 3.0f;
 
         // Get name: prefer debug name, then legacy name, then fallback
         var debugName = _debugReader.GetTiePrototypeName(legacyTie.TUID);
         var name = debugName ??
-                   (!string.IsNullOrEmpty(legacyTie.Name) ? legacyTie.Name : $"Tie_{legacyTie.TUID:X}");
+                   (!string.IsNullOrEmpty(legacyTie.Name) ? legacyTie.Name : $"Tie_{id:X}");
 
         return new Assets.Ties.Tie(
-            id: legacyTie.TUID,
+            id: id,
             meshes: meshes,
-            scale: avgScale,
+            scale: 1.0f, // Per-axis scale already applied during mesh conversion
             name: name
         );
     }
@@ -142,16 +142,16 @@ public sealed class TieReader
         {
             ref TieMesh mesh = ref tie.Meshes[i];
             tie.indicesBuffer.Seek(mesh.indicesIndex * sizeof(ushort));
-            mesh.ReadIndicesBuffer(tie.tieStream);
+            mesh.ReadIndicesBuffer(tie.indicesBuffer);
         }
     }
 
     /// <summary>
     /// Converts a TieMesh to experimental Mesh
     /// </summary>
-    private IMesh ConvertTieMesh(TieMesh legacyMesh)
+    private IMesh ConvertTieMesh(TieMesh legacyMesh, LibLunacy.Numerics.Vec3 scale)
     {
-        // Extract vertex data
+        // Extract vertex data with per-axis scale applied
         var positions = new List<float>();
         var uvs = new List<float>();
         var indices = new List<uint>();
@@ -160,9 +160,9 @@ public sealed class TieReader
         {
             foreach (var vertex in legacyMesh.vertices.Take(legacyMesh.verticesCount))
             {
-                positions.Add(vertex.position.Item1);
-                positions.Add(vertex.position.Item2);
-                positions.Add(vertex.position.Item3);
+                positions.Add(vertex.position.Item1 * scale.X);
+                positions.Add(vertex.position.Item2 * scale.Y);
+                positions.Add(vertex.position.Item3 * scale.Z);
                 uvs.Add((float)vertex.UVs.Item1);
                 uvs.Add((float)vertex.UVs.Item2);
             }

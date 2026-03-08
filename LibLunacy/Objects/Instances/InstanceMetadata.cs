@@ -21,10 +21,12 @@ namespace LibLunacy.Objects.Instances
 
         public InstanceMetadata(StreamHelper sh)
         {
-            TUID = sh.ReadUInt64(0x00);
-            namePointer = sh.ReadUInt32(0x08);
-            group = sh.ReadUInt16(0x0C);
-            Unk1 = sh.ReadUInt16(0x0E);
+            var baseOffset = (uint)sh.BaseStream.Position;
+            TUID = sh.ReadUInt64();
+            namePointer = sh.ReadUInt32(baseOffset + 0x08);
+            group = sh.ReadUInt16(baseOffset + 0x0C);
+            Unk1 = sh.ReadUInt16(baseOffset + 0x0E);
+            sh.BaseStream.Position = baseOffset + Size;
         }
 
         public byte[] ToBytes(bool isOld, params object[]? additionalParams)

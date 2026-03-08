@@ -43,11 +43,15 @@ namespace LibLunacy.Objects
                 verticesFile.sh.Read(data);
                 verticesBuffer = new StreamHelper(new MemoryStream(data));
 
-                var lastmesh = metadataOld.Value.meshes[^1];
                 var indSec = verticesFile.QuerySection(TieVertIndex.OldID);
-                var length = lastmesh.indicesIndex * sizeof(ushort) + lastmesh.indicesCount * sizeof(ushort);
-                verticesFile.sh.Seek(indSec.offset + lastmesh.indicesIndex * sizeof(ushort));
-                var inddata = new byte[length];
+                uint maxIndEnd = 0;
+                foreach (var m in metadataOld.Value.meshes)
+                {
+                    uint end = (m.indicesIndex + m.indicesCount) * sizeof(ushort);
+                    if (end > maxIndEnd) maxIndEnd = end;
+                }
+                verticesFile.sh.Seek(indSec.offset);
+                var inddata = new byte[maxIndEnd];
                 verticesFile.sh.Read(inddata);
                 indicesBuffer = new StreamHelper(new MemoryStream(inddata));
             }
@@ -62,10 +66,14 @@ namespace LibLunacy.Objects
                 verticesBuffer = new StreamHelper(new MemoryStream(data));
 
                 var indSec = verticesFile.QuerySection(TieVertIndex.ID);
-                var lastmesh = metadataNew.Value.meshes[^1];
-                var length = lastmesh.indicesIndex * sizeof(ushort) + lastmesh.indicesCount * sizeof(ushort);
-                verticesFile.sh.Seek(indSec.offset + lastmesh.indicesIndex * sizeof(ushort));
-                var inddata = new byte[length];
+                uint maxIndEnd = 0;
+                foreach (var m in metadataNew.Value.meshes)
+                {
+                    uint end = (m.indicesIndex + m.indicesCount) * sizeof(ushort);
+                    if (end > maxIndEnd) maxIndEnd = end;
+                }
+                verticesFile.sh.Seek(indSec.offset);
+                var inddata = new byte[maxIndEnd];
                 verticesFile.sh.Read(inddata);
                 indicesBuffer = new StreamHelper(new MemoryStream(inddata));
             }

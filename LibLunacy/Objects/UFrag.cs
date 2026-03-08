@@ -57,7 +57,6 @@ namespace LibLunacy.Objects
             for(int i = 0; i < metadata.indexCount; i++)
             {
                 indices[i] = zoneStream.ReadUInt16();
-                zoneStream.BaseStream.Position += sizeof(ushort);
             }
         }
 

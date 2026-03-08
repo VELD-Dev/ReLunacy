@@ -55,18 +55,18 @@ public record struct MobyMesh : ILunaSerializable, IMesh
             {
                 for(int i = 0; i < vertices0.Length; i++)
                 {
-                    vp[i + 0] = vertices0[i].position.Item1;
-                    vp[i + 1] = vertices0[i].position.Item2;
-                    vp[i + 2] = vertices0[i].position.Item3;
+                    vp[i * 3 + 0] = vertices0[i].position.Item1;
+                    vp[i * 3 + 1] = vertices0[i].position.Item2;
+                    vp[i * 3 + 2] = vertices0[i].position.Item3;
                 }
             }
             else
             {
                 for(int i = 0; i < vertices1.Length; i++)
                 {
-                    vp[i + 0] = vertices1[i].position.Item1;
-                    vp[i + 1] = vertices1[i].position.Item2;
-                    vp[i + 2] = vertices1[i].position.Item3;
+                    vp[i * 3 + 0] = vertices1[i].position.Item1;
+                    vp[i * 3 + 1] = vertices1[i].position.Item2;
+                    vp[i * 3 + 2] = vertices1[i].position.Item3;
                 }
             }
             return vp;
@@ -102,17 +102,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
     public readonly uint[] boneWeight => [];
     public readonly uint[] vertToBonemap => [];
 
-    // public ref Shader shader;
-
-    public static MobyMesh Read(StreamHelper sh)
-    {
-        var mesh = FileUtils.ReadStructure<MobyMesh>(sh);
-
-        // Note: indicesOffset is stored divided by sizeof(ushort) in the file
-        mesh.indicesOffset *= sizeof(ushort);
-
-        return mesh;
-    }
+    // public ref Shader shader;    
 
     private void InitArrays()
     {

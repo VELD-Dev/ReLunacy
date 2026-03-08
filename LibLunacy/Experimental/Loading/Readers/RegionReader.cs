@@ -134,7 +134,6 @@ public sealed class RegionReader
         for (int i = 0; i < mobyInstanceSection.count; i++)
         {
             var legacyInstance = MobyInstanceOld.Read(main.sh);
-            main.sh.BaseStream.Position += MobyInstanceOld.Size;
 
             // Resolve moby reference by index
             if (_mobys.TryGetValue(legacyInstance.mobyIndex, out var moby))
@@ -196,8 +195,6 @@ public sealed class RegionReader
                     metadatas[i] = metadatas[i] with { };
                     region.sh.BaseStream.Position = currentPos;
                 }
-
-                region.sh.BaseStream.Position += InstanceMetadata.Size;
             }
         }
 
@@ -206,7 +203,6 @@ public sealed class RegionReader
         for (int i = 0; i < mobyInstanceSection.count; i++)
         {
             var legacyInstance = MobyInstanceNew.Read(region.sh);
-            region.sh.BaseStream.Position += MobyInstanceNew.Size;
 
             // Resolve moby reference through TUID lookup
             IMoby? moby = null;

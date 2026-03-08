@@ -75,7 +75,6 @@ public class EntityMoby : Entity
             cachedRenderables.Clear();
             foreach (Model model in Models)
             {
-                cachedRenderables.Clear();
                 foreach (var mesh in model.Meshes)
                     cachedRenderables.Add(new Renderable(mesh, Transform));
             }

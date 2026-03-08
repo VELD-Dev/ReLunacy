@@ -63,7 +63,7 @@ public class Moby : IDisposable
             {
                 var vertigfile = fm.igfiles["vertices.dat"];
                 var vertSec = vertigfile.QuerySection(0x9000);
-                vertigfile.sh.Seek(vertSec.offset + omoby.verticesOffset & ~0x80000000);
+                vertigfile.sh.Seek(vertSec.offset + (omoby.verticesOffset & ~0x80000000));
                 var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
                 // Could use marshalling for vertices size but i'll do it this way instead, it's safer
