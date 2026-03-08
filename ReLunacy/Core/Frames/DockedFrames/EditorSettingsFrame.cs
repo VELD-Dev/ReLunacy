@@ -1,13 +1,5 @@
-﻿
-using ReLunacy.Utility;
-using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Veldrid;
-using Veldrid.OpenGLBindings;
+using Color = Bliss.CSharp.Colors.Color;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -39,6 +31,22 @@ internal class EditorSettingsFrame : Frame
             if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EditorSettings_VisualSettings")))
             {
                 ImGui.BeginGroup();
+                if (ImGui.BeginCombo(LM.Get("GUI_Frame_EditorSettings_GraphicsBackend"), Program.Settings.GraphicsBackend.ToString()))
+                {
+                    foreach (var backend in Enum.GetValues<GraphicsBackend>())
+                    {
+                        if (ImGui.Selectable($"\t {backend}", backend == Program.Settings.GraphicsBackend))
+                        {
+                            Program.Settings.GraphicsBackend = (GraphicsBackend)backend;
+                        }
+                        if (backend == GraphicsBackend.Vulkan)
+                        {
+                            var itemMin = ImGui.GetItemRectMin();
+                            ImGui.GetWindowDrawList().AddText(itemMin, ImGui.ColorConvertFloat4ToU32(Color.Yellow.ToRgbaFloatVec4()), "\uf005");
+                        }
+                    }
+                    ImGui.EndCombo();
+                }
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_FarClipDist"), ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.InputInt(LM.Get("GUI_Frame_EditorSettings_MaxFramerate"), ref Program.Settings.TargetFPS);
                 ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1);

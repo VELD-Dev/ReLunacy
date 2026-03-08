@@ -20,6 +20,7 @@
     "GUI_Frame_EditorSettings_GizmoSnapScale": "Scale Snap",
     "GUI_Frame_EditorSettings_GizmoSnapTranslation": "Translation Snap",
     "GUI_Frame_EditorSettings_GizmosSize": "Gizmos Size",
+    "GUI_Frame_EditorSettings_GraphicsBackend": "Graphic Backend",
     "GUI_Frame_EditorSettings_Language": "Language",
     "GUI_Frame_EditorSettings_MSAALevel": "MSAA level",
     "GUI_Frame_EditorSettings_MaxFramerate": "Max Framerate",

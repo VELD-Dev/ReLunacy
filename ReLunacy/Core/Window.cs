@@ -98,7 +98,7 @@ public class LunaWindow : Disposable
             ProgramInfo.DisplayName,
             WindowState.Resizable,
             options,
-            Window.GetPlatformDefaultBackend(),
+            EditorSettings.GraphicsBackend,
             out GraphicsDevice graphicsDevice
         );
         MainWindow.Resized += () => OnResize(new(MainWindow.GetX(), MainWindow.GetY(), MainWindow.GetWidth(), MainWindow.GetHeight()));
@@ -499,7 +499,12 @@ public class LunaWindow : Disposable
 
     public int GetTargetFPS() => (int)(1.0 / fixedUpdateTimeStep);
 
-    public void SetTargetFPS(int fps) => fixedFrameRate = 1.0 / fps;
+    public void SetTargetFPS(int fps)
+    {
+        if (fps == 0)
+            fixedFrameRate = double.MaxValue;
+        fixedFrameRate = 1.0 / fps;
+    }
 
     protected override void Dispose(bool disposing)
     {
