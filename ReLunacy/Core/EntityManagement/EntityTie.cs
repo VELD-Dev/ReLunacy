@@ -38,13 +38,13 @@ public class EntityTie : Entity
         );
         Transform = new Transform()
         {
-            Translation = tieInstance.Position,
+            Translation = tieInstance.Position * Extensions.YardToMeter,
             Rotation = rotationQuat,
-            Scale = new(tieInstance.Scale)
+            Scale = new(tieInstance.Scale * Extensions.YardToMeter)
         };
 
         var (center, radius) = BaseTie.GetBoundingSphere();
-        BoundingSphere = new(center + tieInstance.Position, radius);
+        BoundingSphere = new(center + tieInstance.Position * Extensions.YardToMeter, radius * Extensions.YardToMeter);
 
         Name = !string.IsNullOrEmpty(BaseTie.Name) ? $"{BaseTie.Name.Split('/')[^1]}_{ID}" : $"Tie_{BaseTie.Id:X}_{ID}";
 

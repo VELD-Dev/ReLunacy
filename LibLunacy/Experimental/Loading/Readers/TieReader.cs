@@ -6,7 +6,6 @@ using LibLunacy.Legacy;
 using LibLunacy.Meshes;
 using LibLunacy.Objects;
 using LibLunacy.Vertices;
-using TieVertIndex = LibLunacy.Vertices.TieVertIndex;
 
 namespace LibLunacy.Experimental.Loading.Readers;
 
@@ -43,9 +42,11 @@ public sealed class TieReader
         IGFile main = _fileManager.igfiles["main.dat"];
         IGFile.SectionHeader tieSection = main.QuerySection(TieMetadataOld.ID);
 
+        main.sh.Seek(tieSection.offset, SeekOrigin.Begin);
         for (uint i = 0; i < tieSection.count; i++)
         {
             var legacyTie = new LibLunacy.Objects.Tie(main, _fileManager ,old: true, index: i);
+ 
             // Old engine: TieInstance.tieIndex stores file offsets, not sequential indices.
             // Use offset-based keys to match (same as legacy CTie).
             ulong key = tieSection.offset + i * TieMetadataOld.Size;

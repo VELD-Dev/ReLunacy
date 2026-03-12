@@ -4,7 +4,6 @@ using LibLunacy.Experimental.Assets.Levels;
 using LibLunacy.Experimental.Assets.Terrain;
 using LibLunacy.Experimental.Assets.Ties;
 using LibLunacy.Experimental.Core.Interfaces;
-using LibLunacy.Experimental.Core.Primitives;
 using LibLunacy.Legacy;
 using LibLunacy.Objects;
 using LibLunacy.Objects.Instances;
@@ -248,8 +247,9 @@ public sealed class ZoneReader
 
             if (tie != null)
             {
-                var transform = ConvertTransform(legacyInstance.transform);
-                var placedInstance = new PlacedInstance<ITie>(tie, transform, (ulong)i, 0, "");
+                // Pass the raw matrix directly to avoid lossy decompose-recompose
+                Matrix4x4 rawMatrix = legacyInstance.transform;
+                var placedInstance = new PlacedInstance<ITie>(tie, rawMatrix, (ulong)i, 0, "");
                 tieInstances.Add(placedInstance);
             }
         }
@@ -257,47 +257,4 @@ public sealed class ZoneReader
         return tieInstances;
     }
 
-    /// <summary>
-    /// Converts Mat4 transform to Transform3D
-    /// </summary>
-    private Transform3D ConvertTransform(Numerics.Mat4 matrix)
-    {
-        // Extract position from translation column (column 4)
-        var position = new Vector3(matrix.W1, matrix.W2, matrix.W3);
-
-        // Extract scale from matrix basis vectors (columns 1-3)
-        var scaleX = MathF.Sqrt(matrix.X1 * matrix.X1 + matrix.X2 * matrix.X2 + matrix.X3 * matrix.X3);
-        var scaleY = MathF.Sqrt(matrix.Y1 * matrix.Y1 + matrix.Y2 * matrix.Y2 + matrix.Y3 * matrix.Y3);
-        var scaleZ = MathF.Sqrt(matrix.Z1 * matrix.Z1 + matrix.Z2 * matrix.Z2 + matrix.Z3 * matrix.Z3);
-        var avgScale = (scaleX + scaleY + scaleZ) / 3.0f;
-
-        // Extract rotation by removing scale from basis vectors
-        var invSx = scaleX > 0 ? 1.0f / scaleX : 0f;
-        var invSy = scaleY > 0 ? 1.0f / scaleY : 0f;
-        var invSz = scaleZ > 0 ? 1.0f / scaleZ : 0f;
-
-        // Rotation matrix (columns normalized)
-        float m11 = matrix.X1 * invSx, m12 = matrix.Y1 * invSy, m13 = matrix.Z1 * invSz;
-        float m21 = matrix.X2 * invSx, m22 = matrix.Y2 * invSy, m23 = matrix.Z2 * invSz;
-        float m31 = matrix.X3 * invSx, m32 = matrix.Y3 * invSy, m33 = matrix.Z3 * invSz;
-
-        // Extract Euler angles (YXZ order) in degrees
-        float rotX = MathF.Asin(-Math.Clamp(m23, -1f, 1f));
-        float rotY, rotZ;
-        if (MathF.Abs(m23) < 0.9999f)
-        {
-            rotY = MathF.Atan2(m13, m33);
-            rotZ = MathF.Atan2(m21, m22);
-        }
-        else
-        {
-            rotY = MathF.Atan2(-m31, m11);
-            rotZ = 0f;
-        }
-
-        const float Rad2Deg = 180f / MathF.PI;
-        var rotation = new Vector3(rotX * Rad2Deg, rotY * Rad2Deg, rotZ * Rad2Deg);
-
-        return new Transform3D(position, rotation, avgScale);
-    }
 }
