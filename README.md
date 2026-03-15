@@ -16,7 +16,7 @@
     <a href="#building">Building</a> •
     <a href="#running">Running</a> •
     <a href="#notes">Notes</a> •
-    <a href="./LICENSE">License</a> •
+    <a href="#license">License</a> •
     <a href="#credits">Credits</a>
     <!--<a href="#technology">Technology</a> •
     <a href="CONTRIBUTING.md">Contributing</a>-->
@@ -122,6 +122,12 @@ Controls:
 
 * Including the `texstream.dat` file in the same place as `main.dat` will improve texture resolution (found in `level_textures.psarc`)
 * Including the `debug.dat` file for a level in the same place as `main.dat` will include asset and instance names
+
+## License
+This project is using different licenses for its components.
+- **ReLunacy** is licensed as Copyleft **GPL-v3.0**. [See LICENSE-RELUNACY](./LICENSE-RELUNACY)
+- **LunaLib** is licensed as **MIT**. [See LICENSE-LUNALIB](./LICENSE-LUNALIB)
+- **Lunacy** is licensed as **ALL RIGHTS RESERVED** (belonging to NefariousTechSupport) accordingly to the original repository (no license)
 
 ## Credits
 
