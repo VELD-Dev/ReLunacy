@@ -1,4 +1,3 @@
-
 using ReLunacy.Core;
 using ReLunacy.Core.Frames;
 
@@ -8,9 +7,9 @@ internal static class DebugMenuDraw
 {
     internal static void Menu()
     {
-        if(!Program.Settings.DebugMode) return;
+        if (!Program.Settings.DebugMode) return;
 
-        if(ImGui.BeginMenu("Debug"))
+        if (ImGui.BeginMenu("Debug"))
         {
             Items();
             ImGui.EndMenu();
@@ -19,7 +18,7 @@ internal static class DebugMenuDraw
 
     private static void Items()
     {
-        if(ImGui.MenuItem("Debug frame"))
+        if (ImGui.MenuItem("Debug frame"))
         {
             LunaWindow.Instance.AddFrame(new DebugDemoFrame());
         }

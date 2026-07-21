@@ -1,5 +1,7 @@
-using Veldrid;
-using Color = Bliss.CSharp.Colors.Color;
+using System.Numerics;
+using ReLunacy.Utility;
+using ReLunacy.Utility.Localization;
+using Veldrith;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -7,24 +9,24 @@ internal class EditorSettingsFrame : Frame
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize;
 
-    private string[] AAoptions = ["Disabled", "x2", "x4", "x8", "x16", "x32"];
-    private string[] Languages;
-    private int selectedLanguage = 0;
-    private int currLanguage = 0;
-    public int currentMsaa = 0;
-    private int maxMsaa = 6;
+    private readonly string[] AAoptions = ["Disabled", "x2", "x4", "x8", "x16", "x32"];
+    private readonly string[] Languages;
+    private int selectedLanguage;
+    private int currLanguage;
+    public int currentMsaa;
+    private readonly int maxMsaa;
     public int currentLogLevel = (int)Program.Settings.LogLevel;
 
-    public EditorSettingsFrame() : base()
+    public EditorSettingsFrame()
     {
         FrameName = LM.Get("GUI_Frame_EditorSettings");
-        maxMsaa = (int)LunaWindow.Instance.GraphicsDevice.GetSampleCountLimit(Veldrid.PixelFormat.R8G8B8A8SInt, false);
+        maxMsaa = (int)LunaWindow.Instance.GraphicsDevice.GetSampleCountLimit(PixelFormat.R8G8B8A8SInt, false);
         Languages = [.. LM.Languages.Select(l => l.Value.LangName)];
     }
 
     protected override void Render(double deltaTime)
     {
-        ImGui.BeginChild("settings_child", new(0, 450), ImGuiChildFlags.None);
+        ImGui.BeginChild("settings_child", new Vector2(0, 450), ImGuiChildFlags.None);
 
         if (ImGui.BeginTabBar("settings_tab"))
         {
@@ -36,14 +38,7 @@ internal class EditorSettingsFrame : Frame
                     foreach (var backend in Enum.GetValues<GraphicsBackend>())
                     {
                         if (ImGui.Selectable($"\t {backend}", backend == Program.Settings.GraphicsBackend))
-                        {
-                            Program.Settings.GraphicsBackend = (GraphicsBackend)backend;
-                        }
-                        if (backend == GraphicsBackend.Vulkan)
-                        {
-                            var itemMin = ImGui.GetItemRectMin();
-                            ImGui.GetWindowDrawList().AddText(itemMin, ImGui.ColorConvertFloat4ToU32(Color.Yellow.ToRgbaFloatVec4()), "\uf005");
-                        }
+                            Program.Settings.GraphicsBackend = backend;
                     }
                     ImGui.EndCombo();
                 }
@@ -54,9 +49,6 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
-                    if (LM.Languages.Values.ElementAt(selectedLanguage) == null)
-                        selectedLanguage = currLanguage;
-
                     currLanguage = selectedLanguage;
                     string langCode = LM.Languages.Values.ElementAt(selectedLanguage).LangCode;
                     LM.TrySetLanguage(langCode);
@@ -72,7 +64,7 @@ internal class EditorSettingsFrame : Frame
             if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EditorSettings_ToolsSettings")))
             {
                 ImGui.BeginGroup();
-                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_GizmosSize"), ref Program.Settings.ToolsGizmoSize, ImGuiSliderFlags.AlwaysClamp);
+                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_GizmosSize"), ref Program.Settings.ToolsGizmoSize, 0, 0, 0, "%.3f", ImGuiSliderFlags.AlwaysClamp);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_GizmoSnapEnabled"), ref Program.Settings.GizmoSnapEnabled);
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, 0.1f, 1.0f, "%.3fm");
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, 1.0f, 15.0f, "%.3f°");
@@ -130,7 +122,6 @@ internal class EditorSettingsFrame : Frame
         if (ImGui.Button(LM.Get("GUI_Frame_EditorSettings_SaveApply")))
         {
             LunaWindow.Instance.SetTargetFPS(Program.Settings.TargetFPS);
-            //Program.Settings.FrametimeCap = 
             Program.Settings.LogLevel = (LunaLog.LogLevel)currentLogLevel;
             Program.Settings.SaveSettingsToFile();
         }
@@ -150,8 +141,8 @@ internal class EditorSettingsFrame : Frame
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowSize(new(800, 600));
-        ImGui.SetNextWindowPos(ImGui.GetWorkCenter(ImGui.GetMainViewport()), ImGuiCond.Once, new(0.5f));
+        ImGui.SetNextWindowSize(new Vector2(800, 600));
+        ImGui.SetNextWindowPos(ImGui.GetWorkCenter(ImGui.GetMainViewport()), ImGuiCond.Once, new Vector2(0.5f));
         base.RenderAsWindow(deltaTime);
     }
 }

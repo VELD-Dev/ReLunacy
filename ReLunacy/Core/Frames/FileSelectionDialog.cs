@@ -1,12 +1,7 @@
-﻿using Bliss.CSharp.Interact;
+using Bliss.CSharp.Interact;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ReLunacy.Core.Frames;
 
@@ -14,12 +9,12 @@ internal class FileSelectionDialog : Frame
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoDocking | ImGuiWindowFlags.NoCollapse;
 
-    public FileSelectionDialog() : base()
+    public string levelPath = "";
+
+    public FileSelectionDialog()
     {
         FrameName = LM.Get("GUI_Frame_LevelSelection");
     }
-
-    public string levelPath = "";
 
     protected override void Render(double deltaTime)
     {
@@ -28,14 +23,18 @@ internal class FileSelectionDialog : Frame
         ImGui.SameLine();
         ImGui.InputTextWithHint("##", "C:\\NPEA00088\\packed\\levels\\metropolis\\main.dat", ref levelPath, 256);
         ImGui.SameLine();
-        ImGui.Button("...");
+        if (ImGui.Button("..."))
+        {
+            var result = NativeFileDialogSharp.Dialog.FileOpen();
+            if (result.IsOk) levelPath = result.Path;
+        }
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Frame_OpenLevel_PasteClipboard")))
         {
             try
             {
-                if (Input.GetClipboardText() != null)
-                    levelPath = Input.GetClipboardText();
+                var clipboard = Input.GetClipboardText();
+                if (clipboard != null) levelPath = clipboard;
             }
             catch (Exception e)
             {
@@ -43,21 +42,20 @@ internal class FileSelectionDialog : Frame
             }
         }
 
-
         if (ImGui.Button(LM.Get("GUI_Common_CancelWord"))) isOpen = false;
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Common_LoadWord")))
         {
             if (levelPath == "")
             {
-                Console.WriteLine("Level Path is empty!");
+                LunaLog.LogWarn("Level Path is empty!");
             }
             else
             {
                 Program.ProvidedPath = levelPath;
                 var lm = new LoadingModal(LM.Get("GUI_LoadLevelModal_Title"), 1);
-                LunaWindow.Instance.AddFrame(lm);
-                Task.Run(() => LunaWindow.Instance.LoadLevelDataAsync(levelPath, lm));
+                Core.LunaWindow.Instance.AddFrame(lm);
+                Core.LunaWindow.Instance.LoadLevelDataAsync(levelPath, lm);
                 isOpen = false;
             }
         }

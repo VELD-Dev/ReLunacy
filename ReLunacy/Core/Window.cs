@@ -1,73 +1,77 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using Bliss.CSharp;
-using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Fonts;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Contexts;
-using Bliss.CSharp.Interact.Gamepads;
-using Bliss.CSharp.Interact.Keyboards;
-using Bliss.CSharp.Logging;
 using Bliss.CSharp.Textures;
-using Bliss.CSharp.Textures.Cubemaps;
-using Bliss.CSharp.Transformations;
 using Bliss.CSharp.Windowing;
-using Bliss.CSharp.Windowing.Events;
-using LibLunacy;
-using LibLunacy.Numerics;
-using LibLunacy.Shaders;
-using MiniAudioEx;
-using ReLunacy.Core.EntityManagement;
 using ReLunacy.Core.Frames;
 using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Core.Frames.Modals;
+using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Loading.IO;
+using ReLunacy.Engine.Loading.Readers;
+using ReLunacy.Engine.Rendering;
+using ReLunacy.Engine.Scene;
 using ReLunacy.MenuBar;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
-using MiniAudioEx.Core.StandardAPI;
-using ReLunacy.Core.Selection;
-using Veldrid;
-using Veldrid.OpenGL;
+using Veldrith;
 
 namespace ReLunacy.Core;
 
 public class LunaWindow : Disposable
 {
-    [NotNull] public static LunaWindow Instance { get; private set; }
+    [NotNull] public static LunaWindow? Instance { get; private set; }
     public EditorSettings EditorSettings => Program.Settings;
     public ResourcesManager Resources => Program.Resources;
 
-    [NotNull] public IWindow MainWindow { get; private set; }
-    [NotNull] public GraphicsDevice GraphicsDevice { get; private set; }
-    [NotNull] public CommandList CommandList { get; private set; }
+    [NotNull] public IWindow? MainWindow { get; private set; }
+    [NotNull] public GraphicsDevice? GraphicsDevice { get; private set; }
+    [NotNull] public CommandList? CommandList { get; private set; }
     private double fixedFrameRate;
-    private readonly double fixedUpdateTimeStep;
+    private double fixedUpdateTimeStep;
     private double fixedUpdateTimer;
-    private long frameCount;
-    public FullScreenRenderer FullScreenRenderer { get; private set; }
-    public RenderTexture2D FullScreenTexture { get; private set; }
-    public Texture2D FinalFullScreenTexture { get; private set; }
-    public ImGuiController imGuiController;
-    private Texture2D logoTexture;
+    public FullScreenRenderer FullScreenRenderer { get; private set; } = null!;
+    public RenderTexture2D FullScreenTexture { get; private set; } = null!;
+    public Texture2D FinalFullScreenTexture { get; private set; } = null!;
+    public ImGuiController imGuiController = null!;
 
     public List<Frame> openFrames = [];
 
-    public FileManager fileManager { get; private set; }
-    public AssetManager AssetManager { get; private set; }
-    public LunaLoader Loader { get; private set; }
-    private bool doLoadEntities = false;
+    public FileManager? fileManager { get; private set; }
+    public AssetManager? AssetManager { get; private set; }
+    public LevelData? Level { get; private set; }
+    private bool doLoadEntities;
 
-    public event Action<Frame> OnFrameAdded;
-    public event Action<Frame> OnFrameRemoved;
-    public event Action<AssetManager, LunaLoader> OnLoadingFinished;
+    /// <summary>Background export tasks (see AssetViewer) can only touch <see cref="openFrames"/>
+    /// from the main thread, same rule as the rest of this class — so completions are queued here
+    /// (ConcurrentQueue needs no external locking) and drained on the main thread each frame by
+    /// <see cref="DoExportCompletionsCheck"/>.</summary>
+    private readonly ConcurrentQueue<ExportCompletion> pendingExportCompletions = new();
+
+    public readonly record struct ExportCompletion(LoadingModal ProgressModal, bool Success, string Message, string Directory);
+
+    public void QueueExportCompletion(ExportCompletion completion) => pendingExportCompletions.Enqueue(completion);
+
+    private void DoExportCompletionsCheck()
+    {
+        while (pendingExportCompletions.TryDequeue(out var completion))
+        {
+            completion.ProgressModal.loadingFinished = true;
+            completion.ProgressModal.LoadEnd = DateTime.Now;
+            completion.ProgressModal.isOpen = false;
+
+            AddFrame(new ExportResultModal(completion.Success, completion.Message, completion.Directory));
+        }
+    }
+
+    public event Action<Frame>? OnFrameAdded;
+    public event Action<Frame>? OnFrameRemoved;
 
     public LunaWindow()
     {
@@ -92,43 +96,24 @@ public class LunaWindow : Disposable
         };
 
         MainWindow = Window.CreateWindow(
-            WindowType.Sdl3,
-            1280,
-            720,
-            ProgramInfo.DisplayName,
-            WindowState.Resizable,
-            options,
-            EditorSettings.GraphicsBackend,
-            out GraphicsDevice graphicsDevice
-        );
-        MainWindow.Resized += () => OnResize(new(MainWindow.GetX(), MainWindow.GetY(), MainWindow.GetWidth(), MainWindow.GetHeight()));
+            WindowType.Sdl3, 1280, 720, ProgramInfo.DisplayName, WindowState.Resizable, options,
+            EditorSettings.GraphicsBackend, out GraphicsDevice graphicsDevice);
+        MainWindow.Resized += () => OnResize(MainWindow.GetWidth(), MainWindow.GetHeight());
         GraphicsDevice = graphicsDevice;
 
         var wndIcon = Resources.GetWindowIcon();
-        if(wndIcon != null)
-        {
-            LunaLog.LogInfo("Setting window icon.");
-            MainWindow.SetIcon(wndIcon);
-        }
+        if (wndIcon != null) MainWindow.SetIcon(wndIcon);
 
         Time.Init();
-
         SetTargetFPS(EditorSettings.TargetFPS);
 
         CommandList = graphicsDevice.ResourceFactory.CreateCommandList();
 
         GlobalResource.Init(graphicsDevice);
 
-        if(MainWindow is Sdl3Window)
-        {
-            Input.Init(new Sdl3InputContext(MainWindow));
-        }
-        else
-        {
+        if (MainWindow is not Sdl3Window)
             throw new NotSupportedException("Unsupported window type for input context.");
-        }
-
-        AudioContext.Initialize(44100, 2);
+        Input.Init(new Sdl3InputContext(MainWindow));
 
         Init();
 
@@ -137,19 +122,15 @@ public class LunaWindow : Disposable
             if (GetTargetFPS() != 0 && Time.Timer.Elapsed.TotalSeconds < fixedFrameRate)
                 continue;
 
-            //Entity.EntitiesRenderedThisFrame = 0;
             Time.Update();
-
             MainWindow.PumpEvents();
-
             Input.Begin();
 
-            AudioContext.Update();
             imGuiController.Update((float)Time.Delta);
             Update(Time.Delta);
 
             fixedUpdateTimer += Time.Delta;
-            while(fixedUpdateTimer >= fixedUpdateTimeStep)
+            while (fixedUpdateTimer >= fixedUpdateTimeStep)
             {
                 FixedUpdate();
                 fixedUpdateTimer -= fixedUpdateTimeStep;
@@ -166,7 +147,7 @@ public class LunaWindow : Disposable
 
     public async void PeriodicalSave()
     {
-        while(MainWindow.Exists)
+        while (MainWindow.Exists)
         {
             LM.SaveLanguages();
             await Task.Delay(30 * 1000);
@@ -183,11 +164,6 @@ public class LunaWindow : Disposable
 
         LM.Initialize();
 
-        ShaderManager.LoadDefaultShaders(GraphicsDevice);
-
-        // Update Checker
-        UpdateChecker.CheckUpdates();
-
         AddFrame(new View3D(GraphicsDevice));
         AddFrame(new PropertyInspectorFrame());
         AddFrame(new BasicEntityExplorer());
@@ -195,47 +171,83 @@ public class LunaWindow : Disposable
         PeriodicalSave();
     }
 
-    public async void LoadLevelDataAsync(string path, LoadingModal loadingFrame)
+    /// <summary>
+    /// User-picked debug.dat, set via the "Load a debug.dat" tab — takes priority over whatever
+    /// auto-detection would otherwise find, and survives across a reload of the same level so the
+    /// tab can be used after the fact to fix a level that loaded without one.
+    /// </summary>
+    public string? PendingExternalDebugDatPath { get; set; }
+
+    public async void LoadLevelDataAsync(string path, LoadingModal? loadingFrame = null, string? debugDatPath = null)
     {
         TryWipeLevel();
-        //AddFrame(loadingFrame);
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
         Program.ProvidedPath = path;
 
-        fileManager = new();
-        LunaLog.LogDebug("Starting FileManager threaded task.");
-        fileManager.LoadFolder(path);
+        await Task.Run(() =>
+        {
+            fileManager = new FileManager();
+            if (path.EndsWith(".psarc", StringComparison.OrdinalIgnoreCase))
+                fileManager.LoadFromPsarcFile(path);
+            else
+                fileManager.LoadFolder(path);
 
-        LunaLog.LogDebug("Starting AssetLoader threaded task.");
-        var alTask = Task.Run(() => Loader = new LunaLoader(loadingFrame, fileManager, LunaLoader.LoadingSettings.Default));
-        LunaLog.LogDebug("Awaiting for AssetLoader to finish its work...");
-        await alTask;
-        loadingFrame.UpdateProgress(0, new(1, 1));
+            // Old engine only: debug.dat almost never ships alongside main.dat/the level's own
+            // .psarc — try, in priority order, whatever the user explicitly picked, then whatever
+            // the caller already resolved (GameBrowserFrame via GameLibraryScanner), then fall
+            // back to deriving it from the path directly (for callers, like the manual "Open
+            // level" dialog, that never went through the scanner at all).
+            if (fileManager.isOld && fileManager.igfiles.GetValueOrDefault("debug.dat") is null)
+            {
+                string? resolvedDebugDat = PendingExternalDebugDatPath ?? debugDatPath ?? Engine.Games.GameLibraryScanner.TryResolveDebugDatPath(path);
+                if (resolvedDebugDat != null)
+                    fileManager.LoadExternalDebugDat(resolvedDebugDat);
+            }
+
+            var levelReader = new LevelReader(fileManager);
+            Level = levelReader.LoadLevel((status, progress) =>
+                loadingFrame?.UpdateProgress(0, new LoadingProgress(status, 100, true) { current = (uint)(progress * 100) }));
+        });
+
         doLoadEntities = true;
         LunaLog.LogDebug("Level loaded.");
-        //Thread.Sleep(100);
-        //loadingFrame.isOpen = false;
     }
 
+    /// <summary>Applies a user-picked debug.dat to the currently loaded level by reloading it —
+    /// the reload runs every name through the exact same DebugReader path a normal load does,
+    /// rather than trying to retroactively patch names onto already-built entities.</summary>
+    public void LoadExternalDebugDatAndReload(string debugDatPath, LoadingModal? loadingFrame = null)
+    {
+        PendingExternalDebugDatPath = debugDatPath;
+        if (!string.IsNullOrEmpty(Program.ProvidedPath))
+            LoadLevelDataAsync(Program.ProvidedPath, loadingFrame);
+    }
+
+    /// <summary>
+    /// Disposes the currently loaded level (EntityManager's GPU meshes, AssetManager's built
+    /// models/textures, FileManager's open file handles) and notifies every open frame that
+    /// implements <see cref="ILevelListener"/> beforehand, so nothing is left holding a reference
+    /// to an object that's about to be destroyed — most importantly the current selection, which
+    /// otherwise leaves View3D pointing a disposed mesh at the GPU the very next frame.
+    /// </summary>
     public void TryWipeLevel()
     {
-        if (Program.ProvidedPath == string.Empty || Program.ProvidedPath == null)
-            return;
+        if (string.IsNullOrEmpty(Program.ProvidedPath)) return;
+        if (AssetManager is null || Level is null || fileManager is null) return;
 
-        if (AssetManager is null || Loader is null || EntityManager.Singleton is null || fileManager is null)
-            return;
+        foreach (var listener in openFrames.OfType<ILevelListener>())
+            listener.OnLevelUnloading();
+
+        SelectionManager.Singleton.Deselect();
 
         EntityManager.Singleton.Dispose();
         AssetManager.Dispose();
-        Loader?.Dispose();
-        Loader = null;
+        fileManager.Dispose();
+
+        Level = null;
         fileManager = null;
         AssetManager = null;
         Program.ProvidedPath = string.Empty;
-        /*
-        if (IsAnyFrameOpened<BasicEntityExplorer>())
-            GetFirstFrame<BasicEntityExplorer>().Wipe();
-        */
     }
 
     private void DoLoadEntitiesCheck()
@@ -243,25 +255,26 @@ public class LunaWindow : Disposable
         if (!doLoadEntities) return;
         doLoadEntities = false;
 
-        AssetManager = new AssetManager(Loader, GraphicsDevice);
+        if (Level is null) return;
 
-        EntityManager.Singleton.LoadRegions(Loader, AssetManager, GraphicsDevice);
-        if (IsAnyFrameOpened<BasicEntityExplorer>())
-            GetFirstFrame<BasicEntityExplorer>();//.SetEntities(EntityManager.Singleton.GetAllEntities());
+        AssetManager = new AssetManager(Level, GraphicsDevice);
+        EntityManager.Singleton.LoadRegion(Level.Region, AssetManager, GraphicsDevice);
+
+        foreach (var listener in openFrames.OfType<ILevelListener>())
+            listener.OnLevelLoaded();
+
         var loadModal = GetFirstFrame<LoadingModal>();
-        if (IsAnyFrameOpened<TexturesExplorer>())
-            Task.Run(() => GetFirstFrame<TexturesExplorer>().TransmitTextures(AssetManager, Loader));
 
-        if (IsAnyFrameOpened<AssetViewer>())
-            Task.Run(() => GetFirstFrame<AssetViewer>().TransmitAssets(AssetManager, Loader));
+        var region = EntityManager.Singleton.Regions.FirstOrDefault();
+        var firstMoby = region?.MobyInstances.Entities.FirstOrDefault();
+        if (firstMoby != null)
+            SelectionManager.Singleton.Select(firstMoby);
 
-        SelectionManager.Singleton.Select(EntityManager.Singleton.Regions[0].MobyInstances.Entities[0]);
-
-        if (loadModal is null)
-            return;
+        if (loadModal is null) return;
         loadModal.loadingFinished = true;
         loadModal.LoadEnd = DateTime.Now;
     }
+
 
     public static void SetDefaultStyleVar()
     {
@@ -271,8 +284,8 @@ public class LunaWindow : Disposable
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 2.5f);
         ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 2.5f);
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 2.5f);
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vec2(5, 5));
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vec2(5, 5));
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(5, 5));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(5, 5));
     }
 
     private void RenderUI(double deltaTime)
@@ -280,9 +293,9 @@ public class LunaWindow : Disposable
         RenderMenuBar();
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vec2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vec2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vector2.Zero);
 
         RenderDockSpace();
 
@@ -294,7 +307,6 @@ public class LunaWindow : Disposable
         }
         ImGui.PopStyleVar(11);
 
-        // Dockspace end
         ImGui.End();
     }
 
@@ -319,7 +331,7 @@ public class LunaWindow : Disposable
         ImGui.PopStyleVar(2);
 
         uint dockspaceId = ImGui.GetID("dockspace");
-        ImGui.DockSpace(dockspaceId, new Vec2(0, 0), dockspaceFlags);
+        ImGui.DockSpace(dockspaceId, Vector2.Zero, dockspaceFlags);
 
         var frameNames = openFrames.Select(f => f.FrameName).ToList();
         DockspaceLayoutManager.TryApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
@@ -327,15 +339,14 @@ public class LunaWindow : Disposable
         return dockspaceOpen;
     }
 
-
     private void RenderMenuBar()
     {
-        if (!ImGui.BeginMainMenuBar())
-            return;
+        if (!ImGui.BeginMainMenuBar()) return;
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
         {
             FileMenuDraw.OpenLevelMenuItem();
+            FileMenuDraw.OpenGameBrowserMenuItem();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }
@@ -401,28 +412,19 @@ public class LunaWindow : Disposable
         OnFrameAdded?.Invoke(frame);
     }
 
-    public bool IsAnyFrameOpened<T>() where T : Frame
-    {
-        return openFrames.Any(f => f.GetType() == typeof(T));
-    }
+    public bool IsAnyFrameOpened<T>() where T : Frame => openFrames.Any(f => f.GetType() == typeof(T));
 
     public void TryCloseFirstFrame<T>() where T : Frame
     {
-        if (IsAnyFrameOpened<T>())
-        {
-            var frameToClose = GetFirstFrame<T>();
-            frameToClose.isOpen = false;
-            OnFrameRemoved?.Invoke(frameToClose);
-        }
+        if (!IsAnyFrameOpened<T>()) return;
+        var frameToClose = GetFirstFrame<T>()!;
+        frameToClose.isOpen = false;
+        OnFrameRemoved?.Invoke(frameToClose);
     }
 
-    public T? GetFirstFrame<T>() where T : Frame
-    {
-        if (!IsAnyFrameOpened<T>()) return null;
-        return openFrames.First(f => f.GetType() == typeof(T)) as T;
-    }
+    public T? GetFirstFrame<T>() where T : Frame => IsAnyFrameOpened<T>() ? openFrames.First(f => f.GetType() == typeof(T)) as T : null;
 
-    static bool FrameMustClose(Frame frame) => !frame.isOpen;
+    private static bool FrameMustClose(Frame frame) => !frame.isOpen;
 
     protected virtual void Update(double deltaTime)
     {
@@ -430,10 +432,8 @@ public class LunaWindow : Disposable
 
         openFrames.RemoveAll(FrameMustClose);
 
-        if(Overlay.showOverlay)
-        {
+        if (Overlay.showOverlay)
             Overlay.DrawOverlay(Overlay.showOverlay);
-        }
 
         RenderUI(deltaTime);
     }
@@ -441,12 +441,10 @@ public class LunaWindow : Disposable
     protected virtual void AfterUpdate()
     {
         DoLoadEntitiesCheck();
+        DoExportCompletionsCheck();
     }
 
-    protected virtual void FixedUpdate()
-    {
-        // Handle quick actions !!   
-    }
+    protected virtual void FixedUpdate() { }
 
     protected virtual void Draw(GraphicsDevice graphicsDevice, CommandList commandList)
     {
@@ -460,21 +458,16 @@ public class LunaWindow : Disposable
         commandList.End();
         graphicsDevice.SubmitCommands(commandList);
 
-        // Draw ScreenPass
         commandList.Begin();
-        
+
         if (FullScreenTexture.SampleCount != TextureSampleCount.Count1)
-        {
             commandList.ResolveTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
-        }
         else
-        {
             commandList.CopyTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
-        }
 
         commandList.SetFramebuffer(graphicsDevice.SwapchainFramebuffer);
         commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
-        
+
         FullScreenRenderer.Draw(commandList, FinalFullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
 
         commandList.End();
@@ -483,34 +476,28 @@ public class LunaWindow : Disposable
         graphicsDevice.SwapBuffers();
     }
 
-    protected virtual void OnClose()
-    {
+    protected virtual void OnClose() { }
 
-    }
-
-    void OnResize(Rectangle newSize)
+    private void OnResize(int width, int height)
     {
-        imGuiController.Resize(newSize.Width, newSize.Height);
-        GraphicsDevice.MainSwapchain.Resize((uint)newSize.Width, (uint)newSize.Height);
-        FullScreenTexture.Resize((uint)newSize.Width, (uint)newSize.Height);
+        imGuiController.Resize(width, height);
+        GraphicsDevice.MainSwapchain.Resize((uint)width, (uint)height);
+        FullScreenTexture.Resize((uint)width, (uint)height);
         FinalFullScreenTexture.Dispose();
-        FinalFullScreenTexture = new Texture2D(GraphicsDevice, new Image(newSize.Width, newSize.Height), false);
+        FinalFullScreenTexture = new Texture2D(GraphicsDevice, new Image(width, height), false);
     }
 
     public int GetTargetFPS() => (int)(1.0 / fixedUpdateTimeStep);
 
     public void SetTargetFPS(int fps)
     {
-        if (fps == 0)
-            fixedFrameRate = double.MaxValue;
-        fixedFrameRate = 1.0 / fps;
+        fixedFrameRate = fps == 0 ? double.MaxValue : 1.0 / fps;
     }
 
     protected override void Dispose(bool disposing)
     {
-        if(disposing)
+        if (disposing)
         {
-            AudioContext.Deinitialize();
             GlobalResource.Destroy();
             Input.Destroy();
             MainWindow.Dispose();

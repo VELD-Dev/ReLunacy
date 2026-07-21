@@ -1,68 +1,30 @@
-﻿using ReLunacy.Core;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using ReLunacy.Core;
 
 namespace ReLunacy.Utility;
 
-
 public class PerformanceProfiler
 {
-    private static Lazy<PerformanceProfiler> lazy = new(() => new PerformanceProfiler());
+    private static readonly Lazy<PerformanceProfiler> lazy = new(() => new PerformanceProfiler());
     public static PerformanceProfiler Singleton => lazy.Value;
 
     public float Framerate { get; private set; }
-    public float FramerateAvg
-    {
-        get
-        {
-            if (framerateSamples.Count < 2) return float.NaN;
-            int sampleSize = Program.Settings.ProfilerFrameSampleSize - 1;
-            sampleSize = Math.Clamp(sampleSize, 1, framerateSamples.Count - 1);
-            return framerateSamples[0..sampleSize].Average();
-        }
-    }
-    public float FramerateMin
-    {
-        get
-        {
-            if (framerateSamples.Count < 2) return float.NaN;
-            int sampleSize = Program.Settings.ProfilerFrameSampleSize - 1;
-            sampleSize = Math.Clamp(sampleSize, 1, framerateSamples.Count - 1);
-            return framerateSamples[0..sampleSize].Min();
-        }
-    }
-    public float FramerateMax
-    {
-        get
-        {
-            if (framerateSamples.Count < 2) return float.NaN;
-            int sampleSize = Program.Settings.ProfilerFrameSampleSize - 1;
-            sampleSize = Math.Clamp(sampleSize, 1, framerateSamples.Count - 1);
-            return framerateSamples[0..sampleSize].Max();
-        }
-    }
 
-    /// <summary>
-    /// In milliseconds.
-    /// </summary>
+    public float FramerateAvg => SampleStat(s => s.Average());
+    public float FramerateMin => SampleStat(s => s.Min());
+    public float FramerateMax => SampleStat(s => s.Max());
+
+    /// <summary>In milliseconds.</summary>
     public float RenderTime { get; private set; }
     public ulong RAMUsage { get; private set; }
     public ulong GCRAMUsage { get; private set; }
     public ulong VRAMUsage { get; private set; }
-    public readonly DateTime ProfilerStartTime = DateTime.Now;
     public int Threads { get; private set; }
+
     public uint FetchInterval
     {
         get => fetchInterval;
-        set
-        {
-            fetchInterval = value;
-            GrabLoop.Change(0, value);
-        }
+        set { fetchInterval = value; GrabLoop.Change(0, value); }
     }
 
     private uint fetchInterval = 250;
@@ -73,7 +35,14 @@ public class PerformanceProfiler
 
     public PerformanceProfiler()
     {
-        GrabLoop = new(UpdateProfiler, null, 0, FetchInterval);
+        GrabLoop = new Timer(UpdateProfiler, null, 0, FetchInterval);
+    }
+
+    private float SampleStat(Func<IEnumerable<float>, float> aggregate)
+    {
+        if (framerateSamples.Count < 2) return float.NaN;
+        int sampleSize = Math.Clamp(Program.Settings.ProfilerFrameSampleSize - 1, 1, framerateSamples.Count - 1);
+        return aggregate(framerateSamples[..sampleSize]);
     }
 
     private void UpdateProfiler(object? _)
@@ -84,12 +53,9 @@ public class PerformanceProfiler
         framerateSamples.Insert(0, Framerate);
         RenderTime = (float)(Time.Delta * 1000);
         Threads = Process.GetCurrentProcess().Threads.Count;
-        VRAMUsage = 0;
+        VRAMUsage = LunaWindow.Instance != null ? VramUsageQuery.GetUsedVramBytes(LunaWindow.Instance.GraphicsDevice) : 0;
         lunaProcess.Refresh();
     }
 
-    public void Dispose()
-    {
-        GrabLoop.Dispose();
-    }
+    public void Dispose() => GrabLoop.Dispose();
 }

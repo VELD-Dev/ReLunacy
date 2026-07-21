@@ -1,6 +1,5 @@
-
-using ReLunacy.Utility.Localization;
 using System.Diagnostics;
+using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.MenuBar;
 
@@ -22,8 +21,7 @@ internal static class AboutMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_CheckUpdates"), allowCheckforUpdate))
             return;
 
-        //UpdateChecker.CheckUpdates();
         allowCheckforUpdate = false;
-        cooldownCallback = new Timer((_) => allowCheckforUpdate = true, null, 120_000, Timeout.Infinite);
+        cooldownCallback = new Timer(_ => allowCheckforUpdate = true, null, 120_000, Timeout.Infinite);
     }
 }

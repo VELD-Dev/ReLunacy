@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace ReLunacy.Utility;
 
 public enum DockspacePreset
@@ -33,15 +31,9 @@ public static class DockspaceLayoutManager
 
         switch (preset)
         {
-            case DockspacePreset.Default:
-                ApplyDefaultLayout(dockspaceId, windowNames);
-                break;
-            case DockspacePreset.Compact:
-                ApplyCompactLayout(dockspaceId, windowNames);
-                break;
-            case DockspacePreset.Wide:
-                ApplyWideLayout(dockspaceId, windowNames);
-                break;
+            case DockspacePreset.Default: ApplyDefaultLayout(dockspaceId, windowNames); break;
+            case DockspacePreset.Compact: ApplyCompactLayout(dockspaceId, windowNames); break;
+            case DockspacePreset.Wide: ApplyWideLayout(dockspaceId, windowNames); break;
         }
 
         ImGuiP.DockBuilderFinish(dockspaceId);
@@ -58,15 +50,11 @@ public static class DockspaceLayoutManager
 
     private static unsafe void ApplyDefaultLayout(uint dockspaceId, IReadOnlyList<string> windowNames)
     {
-        // Default: Center=View3D+AssetViewer+TextureExplorer (tabbed), Right top=Explorer, Right bottom=Inspector, Bottom=Console
         uint centerId, rightId, bottomId;
         uint temp = dockspaceId;
 
-        // Split off bottom (25%)
         ImGuiP.DockBuilderSplitNode(temp, ImGuiDir.Down, 0.25f, &bottomId, &temp);
-        // Split off right (25%)
         ImGuiP.DockBuilderSplitNode(temp, ImGuiDir.Right, 0.25f, &rightId, &centerId);
-        // Split right into top (explorer) and bottom (inspector)
         uint rightTopId, rightBottomId;
         ImGuiP.DockBuilderSplitNode(rightId, ImGuiDir.Down, 0.5f, &rightBottomId, &rightTopId);
 
@@ -77,20 +65,16 @@ public static class DockspaceLayoutManager
         var assetViewer = FindWindow(windowNames, "Asset");
         var textureExplorer = FindWindow(windowNames, "Texture");
 
-        // Tabbed together in center
         if (view3d != null) ImGuiP.DockBuilderDockWindow(view3d, centerId);
         if (assetViewer != null) ImGuiP.DockBuilderDockWindow(assetViewer, centerId);
         if (textureExplorer != null) ImGuiP.DockBuilderDockWindow(textureExplorer, centerId);
-        // Right column
         if (explorer != null) ImGuiP.DockBuilderDockWindow(explorer, rightTopId);
         if (inspector != null) ImGuiP.DockBuilderDockWindow(inspector, rightBottomId);
-        // Bottom
         if (console != null) ImGuiP.DockBuilderDockWindow(console, bottomId);
     }
 
     private static unsafe void ApplyCompactLayout(uint dockspaceId, IReadOnlyList<string> windowNames)
     {
-        // Compact: Left=View3D, Right stacked=Explorer+Inspector
         uint leftId, rightId;
         ImGuiP.DockBuilderSplitNode(dockspaceId, ImGuiDir.Right, 0.3f, &rightId, &leftId);
 
@@ -105,7 +89,6 @@ public static class DockspaceLayoutManager
 
     private static unsafe void ApplyWideLayout(uint dockspaceId, IReadOnlyList<string> windowNames)
     {
-        // Wide: Top=View3D, Bottom split=Explorer|Inspector|Assets
         uint topId, bottomId;
         ImGuiP.DockBuilderSplitNode(dockspaceId, ImGuiDir.Down, 0.35f, &bottomId, &topId);
 

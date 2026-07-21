@@ -1,6 +1,6 @@
-
 using ReLunacy.Core;
 using ReLunacy.Core.Frames;
+using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.MenuBar;
@@ -13,6 +13,18 @@ internal static class FileMenuDraw
             return;
 
         LunaWindow.Instance.AddFrame(new FileSelectionDialog());
+    }
+
+    internal static void OpenGameBrowserMenuItem()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<GameBrowserFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_GameBrowser"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<GameBrowserFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new GameBrowserFrame());
     }
 
     internal static void CloseLevelMenuItem()

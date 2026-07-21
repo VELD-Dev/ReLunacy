@@ -1,32 +1,20 @@
-
-using LibLunacy.Numerics;
-using ReLunacy.Core.EntityManagement;
-using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
+using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Scene;
+using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
-internal class BasicEntityExplorer : DockedFrame
+internal class BasicEntityExplorer : DockedFrame, ILevelListener
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
-    private enum Tabs
-    {
-        Mobys,
-        Ties,
-        UFrags,
-        Volumes
-    }
+    private enum Tabs { Mobys, Ties, UFrags, Volumes }
 
-    public Entity[] Entities { get => [.. mobys, .. ties, .. ufrags, .. volumes]; }
+    public Entity[] Entities => [.. mobys, .. ties, .. ufrags, .. volumes];
     private Entity[] mobys = [];
     private Entity[] ties = [];
     private Entity[] ufrags = [];
@@ -36,7 +24,7 @@ internal class BasicEntityExplorer : DockedFrame
 
     private string entityResearch = "";
 
-    public BasicEntityExplorer() : base()
+    public BasicEntityExplorer()
     {
         FrameName = LM.Get("GUI_Frame_EntityExplorer");
     }
@@ -54,23 +42,25 @@ internal class BasicEntityExplorer : DockedFrame
         {
             if (entityResearch.Length > 1)
             {
-                switch (currentTab)
+                _searchResults = currentTab switch
                 {
-                    case Tabs.Mobys: SearchEntities(in mobys, entityResearch, out _searchResults); break;
-                    case Tabs.Ties: SearchEntities(in ties, entityResearch, out _searchResults); break;
-                    case Tabs.UFrags: SearchEntities(in ufrags, entityResearch, out _searchResults); break;
-                    case Tabs.Volumes: SearchEntities(in volumes, entityResearch, out _searchResults); break;
-                }
+                    Tabs.Mobys => SearchEntities(mobys, entityResearch),
+                    Tabs.Ties => SearchEntities(ties, entityResearch),
+                    Tabs.UFrags => SearchEntities(ufrags, entityResearch),
+                    Tabs.Volumes => SearchEntities(volumes, entityResearch),
+                    _ => _searchResults,
+                };
             }
             else
             {
-                switch (currentTab)
+                _searchResults = currentTab switch
                 {
-                    case Tabs.Mobys: _searchResults = mobys; break;
-                    case Tabs.Ties: _searchResults = ties; break;
-                    case Tabs.UFrags: _searchResults = ufrags; break;
-                    case Tabs.Volumes: _searchResults = volumes; break;
-                }
+                    Tabs.Mobys => mobys,
+                    Tabs.Ties => ties,
+                    Tabs.UFrags => ufrags,
+                    Tabs.Volumes => volumes,
+                    _ => _searchResults,
+                };
             }
         }
         if (ImGui.BeginTabBar("hierarchy_filter", ImGuiTabBarFlags.NoCloseWithMiddleMouseButton))
@@ -114,8 +104,8 @@ internal class BasicEntityExplorer : DockedFrame
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowSize(new(200, 600), ImGuiCond.Once);
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new(0.5f));
+        ImGui.SetNextWindowSize(new Vector2(200, 600), ImGuiCond.Once);
+        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new Vector2(0.5f));
         base.RenderAsWindow(deltaTime);
     }
 
@@ -124,38 +114,45 @@ internal class BasicEntityExplorer : DockedFrame
         ImGui.BeginChild("hierarchy_container", ImGui.GetContentRegionAvail());
         foreach (var entity in entities)
         {
-            if (ImGui.Button(entity.Name.Split('/')[^1]))
+            if (ImGui.Button($"{entity.Name.Split('/')[^1]}##entity_{entity.ID}"))
             {
-                if (LunaWindow.Instance.IsAnyFrameOpened<View3D>())
-                {
-                    //LunaWindow.Instance.GetFirstFrame<View3D>().SelectedEntity = entity;
-                }
+                SelectionManager.Singleton.Select(entity);
+                var v3d = Core.LunaWindow.Instance.GetFirstFrame<View3D>();
+                if (v3d != null) v3d.SelectedEntity = entity;
             }
         }
         ImGui.EndChild();
     }
 
+    public void OnLevelUnloading() => SetEntities([]);
+    public void OnLevelLoaded() => SetEntities(EntityManager.Singleton.AllEntities().ToList());
+
     public void SetEntities(List<Entity> newEntityList)
     {
-        mobys = [.. newEntityList.FindAll(e => e.GetType() == typeof(EntityMoby))];
-        ties = [.. newEntityList.FindAll(e => e.GetType() == typeof(EntityTie))];
-        ufrags = [.. newEntityList.FindAll(e => e.GetType() == typeof(EntityUFrag))];
-        volumes = [.. newEntityList.FindAll(e => e.GetType() == typeof(EntityVolume))];
+        mobys = [.. newEntityList.FindAll(e => e is EntityMoby)];
+        ties = [.. newEntityList.FindAll(e => e is EntityTie)];
+        ufrags = [.. newEntityList.FindAll(e => e is EntityUFrag)];
+        volumes = [.. newEntityList.FindAll(e => e is EntityVolume)];
+        _searchResults = currentTab switch
+        {
+            Tabs.Mobys => mobys,
+            Tabs.Ties => ties,
+            Tabs.UFrags => ufrags,
+            Tabs.Volumes => volumes,
+            _ => mobys,
+        };
     }
 
-    public void SearchEntities(in Entity[] entities, string searchArgs, out Entity[] res)
+    public static Entity[] SearchEntities(Entity[] entities, string searchArgs)
     {
         List<Entity> results = [];
         string searchRegex = string.Join("|", Regex.Escape(searchArgs.ToLower()).Split(',', StringSplitOptions.RemoveEmptyEntries));
         foreach (var entity in entities)
         {
-            string name = entity.Name;
-            if (Regex.IsMatch(name.ToLower(), searchRegex))
-            {
+            if (Regex.IsMatch(entity.Name.ToLower(), searchRegex))
                 results.Add(entity);
-            }
         }
-        res = [.. results];
+        return [.. results];
     }
 
     public void Wipe()

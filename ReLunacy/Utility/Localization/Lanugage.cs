@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 
 namespace ReLunacy.Utility.Localization;
 
@@ -24,11 +24,8 @@ public class Language
 
     public static Language? LoadFromFile(string filepath)
     {
-
         if (!File.Exists(filepath))
-        {
             throw new FileNotFoundException($"Language file {filepath} could not be found.");
-        }
 
         var res = JsonConvert.DeserializeObject<Language>(File.ReadAllText(filepath), new JsonSerializerSettings
         {
@@ -36,8 +33,7 @@ public class Language
             Formatting = Formatting.Indented,
         });
 
-        if (res == null)
-            return null;
+        if (res == null) return null;
 
         res.Filepath = filepath;
         res.LangCode = Path.GetFileNameWithoutExtension(filepath);

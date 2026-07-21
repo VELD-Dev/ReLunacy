@@ -1,11 +1,6 @@
+using System.Numerics;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Mice;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ReLunacy.Utility;
 
@@ -14,7 +9,6 @@ public class MouseGrabHandler
     private bool isGrabbed;
 
     public MouseButton mouseButton { get; set; }
-
     public Vector2 GrabPosition;
 
     public bool TryGrabMouse(bool allowNewGrab)
@@ -35,8 +29,7 @@ public class MouseGrabHandler
 
         if (!isGrabbed)
         {
-            if (!allowNewGrab)
-                return false;
+            if (!allowNewGrab) return false;
 
             isGrabbed = true;
             GrabPosition = Input.GetMousePosition();

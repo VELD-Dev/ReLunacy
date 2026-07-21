@@ -10,8 +10,7 @@ internal static class ToolsMenuDraw
 {
     private static View3D? GetView3D()
     {
-        if (!LunaWindow.Instance.IsAnyFrameOpened<View3D>()) return null;
-        return LunaWindow.Instance.GetFirstFrame<View3D>();
+        return !LunaWindow.Instance.IsAnyFrameOpened<View3D>() ? null : LunaWindow.Instance.GetFirstFrame<View3D>();
     }
 
     internal static void TranslationTool()
@@ -20,8 +19,7 @@ internal static class ToolsMenuDraw
         bool isActive = view?.GizmoController.CurrentOperation == ImGuizmoOperation.Translate;
         if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Translation"), "W", isActive, true)) return;
 
-        if (view != null)
-            view.GizmoController.CurrentOperation = ImGuizmoOperation.Translate;
+        if (view != null) view.GizmoController.CurrentOperation = ImGuizmoOperation.Translate;
     }
 
     internal static void RotationTool()
@@ -30,8 +28,7 @@ internal static class ToolsMenuDraw
         bool isActive = view?.GizmoController.CurrentOperation == ImGuizmoOperation.Rotate;
         if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Rotation"), "E", isActive, true)) return;
 
-        if (view != null)
-            view.GizmoController.CurrentOperation = ImGuizmoOperation.Rotate;
+        if (view != null) view.GizmoController.CurrentOperation = ImGuizmoOperation.Rotate;
     }
 
     internal static void ScaleTool()
@@ -40,8 +37,7 @@ internal static class ToolsMenuDraw
         bool isActive = view?.GizmoController.CurrentOperation == ImGuizmoOperation.Scale;
         if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_Scale"), "R", isActive, true)) return;
 
-        if (view != null)
-            view.GizmoController.CurrentOperation = ImGuizmoOperation.Scale;
+        if (view != null) view.GizmoController.CurrentOperation = ImGuizmoOperation.Scale;
     }
 
     internal static void DeselectObject()
@@ -49,8 +45,7 @@ internal static class ToolsMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_DeselectObjects"), "ESC", false, true)) return;
 
         var view = GetView3D();
-        if (view != null)
-            view.SelectedEntity = null;
+        if (view != null) view.SelectedEntity = null;
 
         LunaLog.LogInfo("Deselecting all objects");
     }

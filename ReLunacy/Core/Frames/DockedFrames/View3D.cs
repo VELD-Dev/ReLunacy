@@ -1,29 +1,18 @@
-using Bliss.CSharp;
+using System.Drawing;
+using System.Numerics;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Images;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Keyboards;
 using Bliss.CSharp.Interact.Mice;
 using Bliss.CSharp.Textures;
-using LibLunacy.Numerics;
-using ReLunacy.Core.EntityManagement;
+using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Rendering;
+using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using System;
-using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.Drawing;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
-using ReLunacy.Core.Selection;
-using Veldrid;
-using Veldrid.OpenGLBindings;
-using Vortice.Direct3D11;
-using Vortice.Mathematics;
+using Veldrith;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -35,12 +24,13 @@ public class View3D : DockedFrame
 
     private readonly GraphicsDevice graphicsDevice;
     private readonly CommandList commandList;
-    private bool invalidate = true;
 
     private readonly BasicForwardRenderer renderer;
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
-    private ImmediateRenderer immediateRenderer;
+    private readonly ImmediateRenderer immediateRenderer;
+    private readonly PickingRenderer pickingRenderer;
+    private readonly SelectionOutlineRenderer selectionOutlineRenderer;
     public Rectangle FrameContentRegion { get; private set; }
     public Vector2 FramePos { get; private set; }
     public Vector2 MousePos { get; private set; }
@@ -55,28 +45,29 @@ public class View3D : DockedFrame
 
     public GizmoController GizmoController { get; } = new();
 
-    public View3D(GraphicsDevice gd) : base()
+    public View3D(GraphicsDevice gd)
     {
         FrameName = LM.Get("GUI_Frame_View3D");
-        Camera = new(
-            new(0, 0, 0),
+        Camera = new Cam3D(
+            gd,
+            Vector3.Zero,
             Vector3.UnitZ,
-            300f / 300f,
+            1f,
             Vector3.UnitY,
-            ProjectionType.Perspective, 
+            ProjectionType.Perspective,
             CameraMode.Custom,
             Program.Settings.CamFOV,
             0.01f,
-            Program.Settings.RenderDistance
-        );
+            Program.Settings.RenderDistance);
 
         renderer = new BasicForwardRenderer(gd);
         graphicsDevice = gd;
         commandList = graphicsDevice.ResourceFactory.CreateCommandList();
         immediateRenderer = new ImmediateRenderer(gd);
+        pickingRenderer = new PickingRenderer(gd);
+        selectionOutlineRenderer = new SelectionOutlineRenderer(gd);
 
-        renderTexture = new(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
-
+        renderTexture = new RenderTexture2D(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
     }
 
     protected override void Render(double deltaTime)
@@ -86,14 +77,31 @@ public class View3D : DockedFrame
 
         commandList.Begin();
         commandList.SetFramebuffer(renderTexture.Framebuffer);
-        commandList.ClearColorTarget(0, new(0, 0, 0, 1));
-        commandList.ClearDepthStencil(1.0f);
+        commandList.ClearColorTarget(0, new RgbaFloat(0, 0, 0, 1));
+        // Explicit stencil=0: SelectionOutlineRenderer's mask pass depends on stencil starting
+        // clean every frame, and nothing else in this render path touches it.
+        commandList.ClearDepthStencil(1.0f, 0);
 
-        Camera.Begin();
+        Camera.Begin(commandList);
         Camera.Update(deltaTime);
 
+        immediateRenderer.Begin(commandList, renderTexture.Framebuffer.OutputDescription);
         EntityManager.Singleton.Draw(renderer, renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
         renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
+
+        // Drawn after the main opaque pass (not from inside Entity.Draw) since the inflated-hull
+        // outline technique needs real scene depth already written to correctly clip to the rim.
+        if (SelectedEntity != null)
+        {
+            var world = SelectedEntity.Transform.GetMatrix();
+            var entries = SelectedEntity.GetPickableMeshes().Select(mesh => (mesh, world));
+            selectionOutlineRenderer.DrawOutline(
+                commandList, renderTexture.Framebuffer.OutputDescription,
+                Camera.GetView() * Camera.GetProjection(), entries,
+                new Vector4(1f, 0.65f, 0f, 1f));
+        }
+
+        immediateRenderer.End();
 
         Camera.End();
 
@@ -101,19 +109,36 @@ public class View3D : DockedFrame
         graphicsDevice.SubmitCommands(commandList);
 
         var viewportPos = ImGui.GetCursorScreenPos();
+        // No UV flip needed: the render texture already comes out right-side up and correctly
+        // oriented left/right. A prior commit added a horizontal flip here that mirrored the
+        // whole 3D view (reported as "ties/world mirrored on X and Z") — removed, along with the
+        // matching compensations it forced into PickEntityUnderCursor, GizmoController and
+        // AxisGizmoRenderer.
         ImGui.Image(
-            LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
-            new(renderTexture.Width, renderTexture.Height),
-            Vector2.UnitX,
-            Vector2.UnitY
-        );
+            Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
+            new Vector2(renderTexture.Width, renderTexture.Height),
+            Vector2.Zero,
+            Vector2.One);
         var viewportSize = new Vector2(renderTexture.Width, renderTexture.Height);
         GizmoController.Render(Camera, SelectedEntity, viewportPos, viewportSize);
+
+        if (viewportSize.X >= 120f && viewportSize.Y >= 120f)
+            AxisGizmoRenderer.Draw(Camera, viewportPos + new Vector2(viewportSize.X - 55f, 55f), 28f);
+
+        // Must run after GizmoController.Render(): IsUsing/IsOver only reflect this frame's
+        // gizmo hit-test once Manipulate() above has run. Checking them any earlier sees last
+        // frame's (stale) value, so a click on a gizmo handle would fall through to picking
+        // instead of starting the drag. IsOver is also needed alongside IsUsing because
+        // IsUsingAny() itself lags a frame behind the initial click-down (it wants a drag delta
+        // first) — without it, the very first click on a handle would still leak through.
+        if (pickRequested && !GizmoController.IsUsing && !GizmoController.IsOver)
+            PickEntityUnderCursor();
+        pickRequested = false;
     }
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowSizeConstraints(new(300, 300), ImGui.GetMainViewport().WorkSize);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(300, 300), ImGui.GetMainViewport().WorkSize);
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0));
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0));
         base.RenderAsWindow(deltaTime);
@@ -122,33 +147,27 @@ public class View3D : DockedFrame
 
     public void UpdateWindowSize()
     {
-        var prevSize = new Int2((int)renderTexture.Width, (int)renderTexture.Height);
-
         if (FrameContentRegion.Width <= 0 || FrameContentRegion.Height <= 0) return;
 
-        if (prevSize != FrameContentRegion.GetSizeI())
-        {
+        if ((int)renderTexture.Width != FrameContentRegion.Width || (int)renderTexture.Height != FrameContentRegion.Height)
             OnResize();
-            InvalidateView();
-        }
     }
 
     private void Tick(double deltaTime)
     {
         Vector2 wcravail = ImGui.GetContentRegionAvail();
-        int width  = (int)wcravail.X,
-            height = (int)wcravail.Y;
+        int width = (int)wcravail.X, height = (int)wcravail.Y;
 
         var windowMousePos = Input.GetMousePosition();
 
-        FrameContentRegion = new(0, 0, width, height);
+        FrameContentRegion = new Rectangle(0, 0, width, height);
         FramePos = ImGui.GetWindowPos();
         MousePos = windowMousePos - (FramePos + FrameContentRegion.GetOriginF());
 
         Point absMousePos = new((int)windowMousePos.X, (int)windowMousePos.Y);
         bool isHoveringWnd = ImGui.IsWindowHovered();
         bool isMouseInCntReg = FrameContentRegion.Contains(absMousePos);
-        bool isRotating = CheckRotationInput(deltaTime, isHoveringWnd);
+        bool isRotating = CheckRotationInput(isHoveringWnd);
 
         if (!isRotating && !(isHoveringWnd && isMouseInCntReg))
             return;
@@ -156,46 +175,45 @@ public class View3D : DockedFrame
         HandleShortcuts();
 
         if (isRotating)
-        {
             CheckMovementInput(deltaTime);
-        }
         else
         {
             HandleGizmoShortcuts();
+            if (Input.IsMouseButtonPressed(MouseButton.Left))
+                pickRequested = true;
         }
+    }
 
-        /*
-        if (CheckLMBClick() && FrameContentRegion.Contains(new Point((int)MousePos.X, (int)MousePos.Y)))
+    private bool pickRequested;
+
+    private void PickEntityUnderCursor()
+    {
+        if (FrameContentRegion.Width <= 0 || FrameContentRegion.Height <= 0) return;
+
+        var entities = EntityManager.Singleton.AllEntities().ToList();
+        var entries = entities.SelectMany(e =>
         {
-            var ray = renderPayload.camera.CreateRay(MousePos, FrameContentRegion.GetSizeF());
-            if (HandleLeftMouseDown(ray))
-            {
-                LunaLog.LogDebug("Left mouse button handled.");
-            }
+            var world = e.Transform.GetMatrix();
+            uint id = (uint)e.ID;
+            return e.GetPickableMeshes().Select(mesh => (mesh, world, id));
+        });
+
+        uint hitId;
+        try
+        {
+            hitId = pickingRenderer.Pick(
+                (uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height,
+                (int)MousePos.X, (int)MousePos.Y,
+                Camera.GetView() * Camera.GetProjection(),
+                entries);
         }
-        */
-    }
+        catch (Exception e)
+        {
+            LunaLog.LogError($"Picking failed: {e}");
+            return;
+        }
 
-    private bool HandleLeftMouseDown(Vec3 mouseRay)
-    {
-        if (!Input.IsMouseButtonDown(MouseButton.Left))
-            return false;
-
-        if (renderTexture == null) return false;
-
-        Entity? obj = null;
-
-        // LEGACY
-        //Renderer.ExposeFramebuffer(() => { obj = GetObjectAtScreenPosition(MousePos); });
-
-        //HandleSelect(obj);
-
-        return false; // Temp
-    }
-
-    public void SelectedObjectsOnCollectionChange(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        InvalidateView();
+        SelectedEntity = hitId != PickingRenderer.NoHit ? entities.FirstOrDefault(e => (uint)e.ID == hitId) : null;
     }
 
     protected void OnResize()
@@ -204,83 +222,20 @@ public class View3D : DockedFrame
         Camera.Resize((uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height);
     }
 
-    public void InvalidateView()
-    {
-        invalidate = true;
-    }
-
-    private void UpdateAaLevel()
-    {
-        renderTexture.SampleCount = (TextureSampleCount)Program.Settings.MSAA_Level;
-    }
-
     public void HandleShortcuts()
     {
         if (Input.IsKeyPressed(KeyboardKey.Escape)) SelectedEntity = null;
     }
 
-    /// <summary>
-    /// Gizmo tool shortcuts — called only when NOT in camera movement mode.
-    /// Separated from HandleShortcuts to avoid W/E/R conflicting with WASD movement.
-    /// </summary>
+    /// <summary>Gizmo tool shortcuts — only when NOT in camera movement mode, to avoid clashing with WASD.</summary>
     public void HandleGizmoShortcuts()
     {
-        if (Input.IsKeyPressed(KeyboardKey.W))
-            GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
-        if (Input.IsKeyPressed(KeyboardKey.E))
-            GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
-        if (Input.IsKeyPressed(KeyboardKey.R))
-            GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
+        if (Input.IsKeyPressed(KeyboardKey.W)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
+        if (Input.IsKeyPressed(KeyboardKey.E)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
+        if (Input.IsKeyPressed(KeyboardKey.R)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
     }
 
-    public bool HandleSelect(Entity? obj, bool externalCaller = false, bool pointCameraAtObject = false)
-    {
-        if (Input.IsMouseButtonReleased(MouseButton.Left) && !externalCaller)
-            return false;
-
-        bool isMultiSelect = Input.IsKeyDown(KeyboardKey.ControlLeft);
-
-        /*
-        if (obj == null)
-        {
-            if (!isMultiSelect)
-                selectedEntities.Clear();
-            return false;
-        }
-
-        if (isMultiSelect)
-        {
-            selectedEntities.Toggle(obj);
-        }
-        else
-        {
-            selectedEntities.ToggleOne(obj);
-        }
-        */
-
-        return true;
-    }
-
-    public Entity? GetObjectAtScreenPosition(Vec2 pos)
-    {
-        /*
-        uint hit = 0;
-        GL.ReadBuffer(ReadBufferMode.ColorAttachment1);
-        GL.ReadPixels((int)pos.X, FrameContentRegion.Height - (int)pos.Y, 1, 1, PixelFormat.RedInteger, PixelType.Int, ref hit);
-
-        if (hit == 0) return null;
-
-        var filter = EntityManager.Singleton.GetAllEntities().Find(e => e.InternalID == hit);
-        if (filter == null)
-        {
-            LunaLog.LogInfo($"Did not find any object with ID {hit}. This should not happen.");
-        }
-        */
-
-        return null;
-    }
-
-    private bool CheckRotationInput(double deltaTime, bool allowGrab)
+    private bool CheckRotationInput(bool allowGrab)
     {
         if (GizmoController.IsUsing) return false;
 
@@ -299,22 +254,19 @@ public class View3D : DockedFrame
         rot *= Program.Settings.CamSensivity;
 
         Camera.SetPitch(Camera.GetPitch() - rot.Y, false);
-        Camera.SetYaw(Camera.GetYaw() + rot.X, false);
-        InvalidateView();
+        Camera.SetYaw(Camera.GetYaw() - rot.X, false);
         return true;
     }
 
     private void CheckMovementInput(double deltaTime)
     {
-        float moveSpeed = Program.Settings.CamMoveSpeed;
-        if (Input.IsKeyDown(KeyboardKey.ShiftLeft)) moveSpeed = Program.Settings.CamMaxSpeed;
+        float moveSpeed = Input.IsKeyDown(KeyboardKey.ShiftLeft) ? Program.Settings.CamMaxSpeed : Program.Settings.CamMoveSpeed;
         Vector3 deltaPosition = GetInputAxes();
         if (deltaPosition.LengthSquared() > 0)
         {
             deltaPosition *= moveSpeed * (float)deltaTime;
             Camera.Position += deltaPosition;
             Camera.Target += deltaPosition;
-            InvalidateView();
         }
     }
 
@@ -324,13 +276,11 @@ public class View3D : DockedFrame
 
         if (Input.IsKeyDown(KeyboardKey.W)) dir += Camera.GetForward();
         if (Input.IsKeyDown(KeyboardKey.S)) dir -= Camera.GetForward();
-        if (Input.IsKeyDown(KeyboardKey.A)) dir += Camera.GetRight();
-        if (Input.IsKeyDown(KeyboardKey.D)) dir -= Camera.GetRight();
+        if (Input.IsKeyDown(KeyboardKey.A)) dir -= Camera.GetRight();
+        if (Input.IsKeyDown(KeyboardKey.D)) dir += Camera.GetRight();
         if (Input.IsKeyDown(KeyboardKey.Q)) dir -= Camera.Up;
         if (Input.IsKeyDown(KeyboardKey.E)) dir += Camera.Up;
 
-        dir = new Vector3(dir.X / dir.Length(), dir.Y / dir.Length(), dir.Z / dir.Length());
-
-        return dir;
+        return dir == Vector3.Zero ? dir : Vector3.Normalize(dir);
     }
 }

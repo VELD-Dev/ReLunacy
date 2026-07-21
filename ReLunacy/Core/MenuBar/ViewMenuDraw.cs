@@ -1,6 +1,4 @@
-
 using ReLunacy.Core;
-using ReLunacy.Core.EntityManagement;
 using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -11,8 +9,7 @@ internal static class ViewMenuDraw
 {
     internal static void ShowOverlay()
     {
-        if(!ImGui.MenuItem(LM.Get("GUI_MenuItem_ShowOverlay"), "", Overlay.showOverlay , true)) return;
-        
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_ShowOverlay"), "", Overlay.showOverlay, true)) return;
         Overlay.showOverlay = !Overlay.showOverlay;
     }
 
@@ -22,14 +19,10 @@ internal static class ViewMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_Frame_View3D"), "", frameAlreadyOpen, true))
             return;
 
-        if(frameAlreadyOpen)
-        {
+        if (frameAlreadyOpen)
             LunaWindow.Instance.TryCloseFirstFrame<View3D>();
-        }
         else
-        {
             LunaWindow.Instance.AddFrame(new View3D(LunaWindow.Instance.GraphicsDevice));
-        }
     }
 
     internal static void ShowEntityExplorer()
@@ -38,21 +31,10 @@ internal static class ViewMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer"), "", frameAlreadyOpen, true))
             return;
 
-        if(frameAlreadyOpen)
-        {
+        if (frameAlreadyOpen)
             LunaWindow.Instance.TryCloseFirstFrame<BasicEntityExplorer>();
-        }
         else
-        {
-            if(Program.ProvidedPath != "")
-            {
-                //LunaWindow.Instance.AddFrame(new BasicEntityExplorer(EntityManager.Singleton.GetAllEntities()));
-            }
-            else
-            {
-                LunaWindow.Instance.AddFrame(new BasicEntityExplorer());
-            }
-        }
+            LunaWindow.Instance.AddFrame(new BasicEntityExplorer());
     }
 
     internal static void ShowInstanceInspector()
@@ -62,32 +44,9 @@ internal static class ViewMenuDraw
             return;
 
         if (frameAlreadyOpen)
-        {
             LunaWindow.Instance.TryCloseFirstFrame<PropertyInspectorFrame>();
-        }
         else
-        {
             LunaWindow.Instance.AddFrame(new PropertyInspectorFrame());
-        }
-    }
-
-    internal static void ShowTextureExplorer()
-    {
-        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<TexturesExplorer>();
-        if (!ImGui.MenuItem(LM.Get("GUI_Frame_TextureExplorer"), "", frameAlreadyOpen, true))
-            return;
-
-        if(frameAlreadyOpen)
-        {
-            LunaWindow.Instance.TryCloseFirstFrame<TexturesExplorer>();
-        }
-        else
-        {
-            var frame = new TexturesExplorer();
-            if (LunaWindow.Instance.AssetManager is not null && LunaWindow.Instance.Loader is not null && LunaWindow.Instance.AssetManager.Textures.Count > 0)
-                Task.Run(() => frame.TransmitTextures(LunaWindow.Instance.AssetManager, LunaWindow.Instance.Loader));
-            LunaWindow.Instance.AddFrame(frame);
-        }
     }
 
     internal static void ShowAssetViewer()
@@ -97,49 +56,30 @@ internal static class ViewMenuDraw
             return;
 
         if (frameAlreadyOpen)
-        {
             LunaWindow.Instance.TryCloseFirstFrame<AssetViewer>();
-        }
         else
         {
             var frame = new AssetViewer(LunaWindow.Instance.GraphicsDevice);
-            if (LunaWindow.Instance.AssetManager is not null & LunaWindow.Instance.Loader is not null && LunaWindow.Instance.Loader.Loaded)
-                frame.TransmitAssets(LunaWindow.Instance.AssetManager, LunaWindow.Instance.Loader);
+            if (LunaWindow.Instance.AssetManager != null && LunaWindow.Instance.Level != null)
+                frame.TransmitAssets(LunaWindow.Instance.AssetManager, LunaWindow.Instance.Level.Mobys, LunaWindow.Instance.Level.Ties);
             LunaWindow.Instance.AddFrame(frame);
         }
     }
 
-    internal static void ShowConsoleFrame()
+    internal static void ShowTextureExplorer()
     {
-        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LogsFrame>();
-        if (!ImGui.MenuItem(LM.Get("GUI_Frame_Logs"), "", frameAlreadyOpen, true))
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<TexturesExplorer>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_TextureExplorer"), "", frameAlreadyOpen, true))
             return;
 
         if (frameAlreadyOpen)
-        {
-            LunaWindow.Instance.TryCloseFirstFrame<LogsFrame>();
-        }
+            LunaWindow.Instance.TryCloseFirstFrame<TexturesExplorer>();
         else
         {
-            LunaWindow.Instance.AddFrame(new LogsFrame());
-        }
-    }
-
-    internal static void LayoutPresets()
-    {
-        if (ImGui.BeginMenu("Layout"))
-        {
-            uint dockspaceId = ImGui.GetID("dockspace");
-            var frameNames = LunaWindow.Instance.openFrames.Select(f => f.FrameName).ToList();
-
-            if (ImGui.MenuItem("Default"))
-                DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
-            if (ImGui.MenuItem("Compact"))
-                DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Compact, frameNames);
-            if (ImGui.MenuItem("Wide"))
-                DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Wide, frameNames);
-
-            ImGui.EndMenu();
+            var frame = new TexturesExplorer();
+            if (LunaWindow.Instance.AssetManager != null)
+                frame.TransmitTextures(LunaWindow.Instance.AssetManager);
+            LunaWindow.Instance.AddFrame(frame);
         }
     }
 
@@ -150,12 +90,35 @@ internal static class ViewMenuDraw
             return;
 
         if (frameAlreadyOpen)
-        {
             LunaWindow.Instance.TryCloseFirstFrame<PSArcExplorer>();
-        }
         else
-        {
             LunaWindow.Instance.AddFrame(new PSArcExplorer());
+    }
+
+    internal static void ShowConsoleFrame()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LogsFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_Logs"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<LogsFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new LogsFrame());
+    }
+
+    internal static void LayoutPresets()
+    {
+        if (ImGui.BeginMenu("Layout"))
+        {
+            uint dockspaceId = ImGui.GetID("dockspace");
+            var frameNames = LunaWindow.Instance.openFrames.Select(f => f.FrameName).ToList();
+
+            if (ImGui.MenuItem("Default")) DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
+            if (ImGui.MenuItem("Compact")) DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Compact, frameNames);
+            if (ImGui.MenuItem("Wide")) DockspaceLayoutManager.ForceApplyLayout(dockspaceId, DockspacePreset.Wide, frameNames);
+
+            ImGui.EndMenu();
         }
     }
 }

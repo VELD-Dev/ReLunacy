@@ -2,7 +2,7 @@ using System.Numerics;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Transformations;
 using Hexa.NET.ImGuizmo;
-using ReLunacy.Core.EntityManagement;
+using ReLunacy.Engine.Scene;
 
 namespace ReLunacy.Utility;
 
@@ -13,8 +13,17 @@ public class GizmoController
 
     public bool IsUsing => ImGuizmo.IsUsingAny();
 
+    /// <summary>
+    /// True while the cursor is over a gizmo handle. IsUsingAny() lags a frame behind an initial
+    /// click (it wants a drag delta first), so on the very first click-down on a handle it would
+    /// still read false — checking IsOver too catches that frame so the click isn't mistaken for
+    /// a pick request. Gated on _manipulatedThisFrame since IsOver() reflects stale state from
+    /// whatever the last Manipulate() call drew when there's no selection to manipulate now.
+    /// </summary>
+    public bool IsOver => _manipulatedThisFrame && ImGuizmo.IsOver();
+
     private bool _initialized;
-    private bool _debugLogged = true;
+    private bool _manipulatedThisFrame;
 
     private void EnsureInitialized()
     {
@@ -30,6 +39,7 @@ public class GizmoController
         EnsureInitialized();
         ImGuizmo.BeginFrame();
 
+        _manipulatedThisFrame = entity != null;
         if (entity == null) return;
 
         ImGuizmo.SetDrawlist();
@@ -38,26 +48,10 @@ public class GizmoController
         var view = camera.GetView();
         var projection = camera.GetProjection();
 
-        // The viewport image is displayed with flipped UVs (uv0=1,0 uv1=0,1)
-        // which mirrors it horizontally. Negate X scale in projection so
-        // ImGuizmo's screen-space projection matches the flipped image.
-        projection.M11 = -projection.M11;
-
         var transform = entity.Transform;
         var matrix = Matrix4x4.CreateScale(transform.Scale)
                    * Matrix4x4.CreateFromQuaternion(transform.Rotation)
                    * Matrix4x4.CreateTranslation(transform.Translation);
-
-        if (!_debugLogged)
-        {
-            _debugLogged = true;
-            LunaLog.LogDebug($"[Gizmo] viewportPos={viewportPos}, viewportSize={viewportSize}");
-            LunaLog.LogDebug($"[Gizmo] entity.Transform: pos={transform.Translation}, rot={transform.Rotation}, scale={transform.Scale}");
-            LunaLog.LogDebug($"[Gizmo] matrix={matrix}");
-            LunaLog.LogDebug($"[Gizmo] view={view}");
-            LunaLog.LogDebug($"[Gizmo] projection={projection}");
-            LunaLog.LogDebug($"[Gizmo] operation={CurrentOperation}, mode={CurrentMode}");
-        }
 
         var settings = Program.Settings;
         if (settings.GizmoSnapEnabled)
@@ -76,17 +70,9 @@ public class GizmoController
             ImGuizmo.Manipulate(ref view, ref projection, CurrentOperation, CurrentMode, ref matrix);
         }
 
-        if (ImGuizmo.IsUsingAny())
+        if (ImGuizmo.IsUsingAny() && Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
         {
-            if (Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
-            {
-                entity.SetTransform(new Transform
-                {
-                    Translation = translation,
-                    Rotation = rotation,
-                    Scale = scale
-                });
-            }
+            entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
         }
     }
 }

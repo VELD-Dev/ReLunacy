@@ -1,15 +1,10 @@
-﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace ReLunacy.Utility.Localization;
 
 public static class LM
 {
-    public readonly static Dictionary<string, Language> Languages = [];
+    public static readonly Dictionary<string, Language> Languages = [];
     private static readonly string defaultLanguageFolder = Path.Combine(Program.EditorPath, "Locales");
     private static readonly string defaultLanguage = "en";
     public static Language? CurrentLanguage { get; private set; }
@@ -39,8 +34,7 @@ public static class LM
             if (!Directory.Exists(defaultLanguageFolder))
                 Directory.CreateDirectory(defaultLanguageFolder);
 
-            File.WriteAllText(Path.Combine(defaultLanguageFolder, $"template_locale.json"), locfile);
-            LunaLog.LogDebug($"Created language template file in {defaultLanguageFolder}");
+            File.WriteAllText(Path.Combine(defaultLanguageFolder, "template_locale.json"), locfile);
 
             TrySetLanguage(templateLanguage.LangCode);
             return;
@@ -57,7 +51,6 @@ public static class LM
     {
         if (!Directory.Exists(defaultLanguageFolder))
         {
-            LunaLog.LogWarn($"Default language folder {defaultLanguageFolder} does not exist. Creating it. Fallback string keys will be used instead.");
             Directory.CreateDirectory(defaultLanguageFolder);
             return;
         }
@@ -68,24 +61,12 @@ public static class LM
             try
             {
                 var locale = Language.LoadFromFile(file);
-                if (locale is null)
-                {
-                    LunaLog.LogWarn($"Locale {file} was an incorrect localization file. It have been skipped.");
-                    continue;
-                }
+                if (locale is null) continue;
 
                 if (Languages.ContainsKey(locale.LangCode) && !overwrite)
-                {
-                    LunaLog.LogWarn($"A concurrent locale with code {locale.LangCode} already exists. Skipping this one. ({file})");
                     continue;
-                }
-                else if (Languages.ContainsKey(locale.LangCode) && overwrite)
-                {
-                    Languages[locale.LangCode] = locale;
-                    continue;
-                }
 
-                Languages.Add(locale.LangCode, locale);
+                Languages[locale.LangCode] = locale;
             }
             catch (Exception ex)
             {
@@ -99,42 +80,30 @@ public static class LM
         if (Languages.TryGetValue(langcode, out Language? newLocale))
         {
             CurrentLanguage = newLocale;
-            LunaLog.LogInfo($"Language set to {CurrentLanguage.LangCode}.");
             Program.Settings.Language = CurrentLanguage.LangCode;
         }
         else if (DefaultLanguage != null)
         {
-            LunaLog.LogWarn($"Unable to set language to {langcode}. Language not found. Defaulting to {defaultLanguage}.");
             CurrentLanguage = DefaultLanguage;
             Program.Settings.Language = CurrentLanguage.LangCode;
         }
         else
         {
-            LunaLog.LogError($"Unable to set language to {langcode}. No locale file found. Using keys instead.");
             CurrentLanguage = null;
         }
-
     }
 
     public static string Get(string key, params object[] args)
     {
         if (CurrentLanguage != null && CurrentLanguage.strings.TryGetValue(key, out string? fmt) && fmt != string.Empty)
-        {
             return string.Format(fmt, args);
-        }
         else if (CurrentLanguage != null && !CurrentLanguage.strings.TryGetValue(key, out fmt))
-        {
             CurrentLanguage.strings.Add(key, "");
-        }
 
         if (UseFallbackLanguage && DefaultLanguage != null && DefaultLanguage.strings.TryGetValue(key, out fmt) && fmt != string.Empty)
-        {
             return string.Format(fmt, args);
-        }
         else if (DefaultLanguage != null && !DefaultLanguage.strings.TryGetValue(key, out fmt))
-        {
             DefaultLanguage.strings.Add(key, "");
-        }
 
         return key;
     }
@@ -153,19 +122,13 @@ public static class LM
             File.WriteAllText(DefaultLanguage.Filepath, locfile);
         }
 
-        LunaLog.LogInfo("Saved primary language files.");
-
-        if (!all)
-            return;
+        if (!all) return;
 
         foreach (var lang in Languages)
         {
-            if (lang.Value == CurrentLanguage || lang.Value == DefaultLanguage)
-                continue;
+            if (lang.Value == CurrentLanguage || lang.Value == DefaultLanguage) continue;
             var locfile = JsonConvert.SerializeObject(lang.Value, Formatting.Indented);
             File.WriteAllText(lang.Value.Filepath, locfile);
         }
-
-        LunaLog.LogInfo("Saved all language files.");
     }
 }

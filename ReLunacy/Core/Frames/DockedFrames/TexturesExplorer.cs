@@ -1,6 +1,11 @@
-﻿using Bliss.CSharp.Images;
+using Bliss.CSharp.Images;
 using Bliss.CSharp.Textures;
-using LibLunacy.Textures;
+using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Assets.Mobys;
+using ReLunacy.Engine.Assets.Ties;
+using ReLunacy.Engine.Rendering;
+using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using System.Numerics;
@@ -9,20 +14,20 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 public record struct TextureObject
 {
-    public TextureObject(Texture lunaTexture, Texture2D tex2d)
+    public TextureObject(ITexture texture, Texture2D tex2d)
     {
-        Texture = lunaTexture;
+        Texture = texture;
         TexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
         BlissTexture = tex2d;
     }
 
-    public readonly string? TextureName => Texture.name;
-    public readonly Texture Texture;
+    public readonly string? TextureName => Texture.Name;
+    public readonly ITexture Texture;
     public readonly Texture2D BlissTexture;
     public readonly ImTextureRef TexturePtr;
 }
 
-public class TexturesExplorer : DockedFrame
+public class TexturesExplorer : DockedFrame, ILevelListener
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
@@ -30,31 +35,140 @@ public class TexturesExplorer : DockedFrame
 
     private string inputText = "";
 
-    // for now I do it this way so it's faster
     private List<TextureObject> textureObjects = [];
 
     private int selectedTexture = -1;
     private ImTextureRef selectedTexturePtr;
+    private TextureUsageResult? textureUsageResults;
+
+    private sealed record TextureUsageResult(List<Moby> Mobys, List<Tie> Ties, List<IUFrag> UFrags)
+    {
+        public bool IsEmpty => Mobys.Count == 0 && Ties.Count == 0 && UFrags.Count == 0;
+    }
 
     public TexturesExplorer() : base()
     {
         FrameName = LM.Get("GUI_Frame_TextureExplorer");
     }
 
-    public void TransmitTextures(AssetManager assetManager, LunaLoader loader)
+    public void TransmitTextures(AssetManager assetManager)
     {
-        List<Texture2D> textures = [.. assetManager.Textures.Values];
-        for(int i = 0; i < textures.Count; i++)
+        textureObjects.Clear();
+        foreach (var (id, tex) in assetManager.SourceTextures)
         {
-            var tex = textures[i];
-            var lunaTex = loader.Textures.Values.ToArray()[i];
-            textureObjects.Add(new(lunaTex, tex));
+            if (assetManager.BuiltTextures.TryGetValue(id, out var tex2d))
+                textureObjects.Add(new(tex, tex2d));
         }
+    }
+
+    /// <summary>textureObjects wraps AssetManager-owned Texture2Ds that are about to be disposed —
+    /// drop the reference before that happens rather than leaving a stale/dangling entry showing.</summary>
+    public void OnLevelUnloading()
+    {
+        textureObjects.Clear();
+        selectedTexture = -1;
+        textureUsageResults = null;
+    }
+
+    public void OnLevelLoaded()
+    {
+        if (LunaWindow.Instance.AssetManager != null)
+            TransmitTextures(LunaWindow.Instance.AssetManager);
+    }
+
+    /// <summary>Selects the texture with the given asset id, e.g. when jumping here from another frame. Returns false if it isn't in the currently transmitted set.</summary>
+    public bool SelectTexture(ulong textureId)
+    {
+        int index = textureObjects.FindIndex(t => t.Texture.Id == textureId);
+        if (index == -1) return false;
+
+        selectedTexture = index;
+        selectedTexturePtr = textureObjects[index].TexturePtr;
+        textureUsageResults = null;
+        return true;
+    }
+
+    private static bool MaterialUsesTexture(IMaterial mat, ulong textureId) =>
+        mat.AlbedoTexture?.Id == textureId ||
+        mat.NormalTexture?.Id == textureId ||
+        mat.PropertiesTexture?.Id == textureId;
+
+    private static bool MobyUsesTexture(Moby moby, ulong textureId) =>
+        moby.Bangles.Any(bangle => bangle.Meshes.Any(mesh => MaterialUsesTexture(mesh.Material, textureId)));
+
+    private static bool TieUsesTexture(Tie tie, ulong textureId) =>
+        tie.Meshes.Any(mesh => MaterialUsesTexture(mesh.Material, textureId));
+
+    private static TextureUsageResult FindTextureUsages(ulong textureId)
+    {
+        var level = LunaWindow.Instance.Level;
+        if (level == null) return new TextureUsageResult([], [], []);
+
+        var mobys = level.Mobys.Values.Where(m => MobyUsesTexture(m, textureId)).ToList();
+        var ties = level.Ties.Values.Where(t => TieUsesTexture(t, textureId)).ToList();
+        // UFrags carry a single Material directly (no per-mesh loop — a UFrag is one mesh).
+        var ufrags = level.Zones.Values
+            .SelectMany(z => z.UFrags)
+            .Where(u => MaterialUsesTexture(u.Material, textureId))
+            .ToList();
+
+        return new TextureUsageResult(mobys, ties, ufrags);
+    }
+
+    private static void OpenMobyInAssetViewer(ulong mobyId)
+    {
+        var viewer = OpenAssetViewer();
+        if (viewer != null)
+        {
+            viewer.SelectMobyById(mobyId);
+            viewer.Focus();
+        }
+    }
+
+    private static void OpenTieInAssetViewer(ulong tieId)
+    {
+        var viewer = OpenAssetViewer();
+        if (viewer != null)
+        {
+            viewer.SelectTieById(tieId);
+            viewer.Focus();
+        }
+    }
+
+    private static AssetViewer? OpenAssetViewer()
+    {
+        var viewer = LunaWindow.Instance.GetFirstFrame<AssetViewer>();
+        if (viewer == null)
+        {
+            viewer = new AssetViewer(LunaWindow.Instance.GraphicsDevice);
+            LunaWindow.Instance.AddFrame(viewer);
+        }
+        if (LunaWindow.Instance.AssetManager == null || LunaWindow.Instance.Level == null)
+            return null;
+
+        viewer.TransmitAssets(LunaWindow.Instance.AssetManager, LunaWindow.Instance.Level.Mobys, LunaWindow.Instance.Level.Ties);
+        return viewer;
+    }
+
+    // UFrags are baked per-zone terrain, not a browsable asset catalog like Mobys/Ties — the
+    // coherent selection target for one is the scene entity already loaded in the 3D view.
+    // Matched by reference, not Id: IUFrag.Id is only unique within its own zone (ZoneReader
+    // assigns it as a local loop index), so two UFrags from different zones can share an Id —
+    // EntityUFrag.UFrag holds the exact same IUFrag instance from LevelData.Zones though, so
+    // reference equality is the one comparison that's actually unambiguous here.
+    private static void SelectUFragInView3D(IUFrag ufrag)
+    {
+        var entity = EntityManager.Singleton.AllEntities().OfType<EntityUFrag>().FirstOrDefault(e => ReferenceEquals(e.UFrag, ufrag));
+        if (entity == null) return;
+
+        SelectionManager.Singleton.Select(entity);
+        var v3d = LunaWindow.Instance.GetFirstFrame<View3D>();
+        if (v3d != null) v3d.SelectedEntity = entity;
     }
 
     protected override void Render(double deltaTime)
     {
-        if(ImGui.InputTextWithHint(LM.Get("GUI_Frame_TextureExplorer_SearchLabel"), LM.Get("GUI_Frame_TextureExplorer_SearchHint", LunaWindow.Instance.AssetManager?.Textures.Count ?? 0), ref inputText, 128))
+        if(ImGui.InputTextWithHint(LM.Get("GUI_Frame_TextureExplorer_SearchLabel"), LM.Get("GUI_Frame_TextureExplorer_SearchHint", textureObjects.Count), ref inputText, 128))
         {
 
         }
@@ -74,6 +188,7 @@ public class TexturesExplorer : DockedFrame
                     {
                         selectedTexture = i;
                         selectedTexturePtr = texobj.TexturePtr;
+                        textureUsageResults = null;
                     }
                     ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
 
@@ -86,7 +201,15 @@ public class TexturesExplorer : DockedFrame
         if(selectedTexture != -1)
         {
             ImGui.SameLine();
-            if(ImGui.BeginChild("texture_preview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
+            // AlwaysVerticalScrollbar: without it, the scrollbar's appearance depends on whether
+            // the Find Usages results (a variable-length list) push content past the visible
+            // height — but the image above is sized from ContentRegionAvail().X, so the
+            // scrollbar showing up shrinks the available width, which shrinks the square image,
+            // which shrinks total content height, which removes the need for a scrollbar next
+            // frame, which grows the image back... an every-frame oscillation. Reserving the
+            // scrollbar's space unconditionally keeps the available width constant regardless of
+            // whether it's actually needed, breaking the feedback loop.
+            if(ImGui.BeginChild("texture_preview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
                 var selection = textureObjects[selectedTexture];
 
@@ -110,7 +233,7 @@ public class TexturesExplorer : DockedFrame
                 if(ImGui.Button("B"))
                 {
                 }
-                if(selection.Texture.TexFormat != TextureFormat.DXT1 && selection.Texture.TexFormat != TextureFormat.R5G6B5)
+                if(selection.Texture.Format != TextureFormat.DXT1 && selection.Texture.Format != TextureFormat.R5G6B5)
                 {
                     ImGui.SameLine();
                     if (ImGui.Button("A"))
@@ -123,15 +246,13 @@ public class TexturesExplorer : DockedFrame
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureCompressionType"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureDimensions"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureBufferSize"));
-                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureSizeOnDisk"));
                 ImGui.EndGroup();
                 ImGui.SameLine();
                 ImGui.BeginGroup();
                 ImGui.Text(selection.TextureName ?? $"Tex_{selectedTexture}");
-                ImGui.Text(selection.Texture.TexFormat.ToString());
+                ImGui.Text(selection.Texture.Format.ToString());
                 ImGui.Text($"{selection.Texture.Width}x{selection.Texture.Height}");
                 ImGui.Text($"{selection.BlissTexture.Images[0].Data.Length / 1000f}KB");
-                ImGui.Text($"{selection.Texture.data.Length / 1000f}KB");
                 ImGui.EndGroup();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportRaw")))
                 {
@@ -139,7 +260,7 @@ public class TexturesExplorer : DockedFrame
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
 
-                    File.WriteAllBytes(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".raw" : $"Tex_{selectedTexture}.raw"), selection.Texture.data);
+                    File.WriteAllBytes(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".raw" : $"Tex_{selectedTexture}.raw"), selection.Texture.GetPixelData());
                 }
                 ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
@@ -149,9 +270,52 @@ public class TexturesExplorer : DockedFrame
                         Directory.CreateDirectory(path);
 
                     var clone = (Image)selection.BlissTexture.Images[0].Clone();
-                    if (selection.Texture.TexFormat > TextureFormat.A8R8G8B8)
-                        clone.FlipVertical();
                     clone.SaveAsPng(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".png" : $"Tex_{selectedTexture}.png"));
+                }
+                ImGui.Separator();
+                if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindUsages")))
+                    textureUsageResults = FindTextureUsages(selection.Texture.Id);
+
+                if (textureUsageResults != null)
+                {
+                    if (textureUsageResults.IsEmpty)
+                    {
+                        ImGui.TextDisabled(LM.Get("GUI_Frame_TextureExplorer_Preview_NoUsagesFound"));
+                    }
+                    else
+                    {
+                        if (textureUsageResults.Mobys.Count > 0)
+                        {
+                            ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_UsagesMobys", textureUsageResults.Mobys.Count));
+                            foreach (var moby in textureUsageResults.Mobys)
+                            {
+                                if (ImGui.Selectable($"{moby.Name ?? moby.Id.ToString("X")}##usage_moby_{moby.Id:X}"))
+                                    OpenMobyInAssetViewer(moby.Id);
+                            }
+                        }
+                        if (textureUsageResults.Ties.Count > 0)
+                        {
+                            ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_UsagesTies", textureUsageResults.Ties.Count));
+                            foreach (var tie in textureUsageResults.Ties)
+                            {
+                                if (ImGui.Selectable($"{tie.Name ?? tie.Id.ToString("X")}##usage_tie_{tie.Id:X}"))
+                                    OpenTieInAssetViewer(tie.Id);
+                            }
+                        }
+                        if (textureUsageResults.UFrags.Count > 0)
+                        {
+                            ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_UsagesUFrags", textureUsageResults.UFrags.Count));
+                            // Indexed, not keyed by ufrag.Id: IUFrag.Id is only unique within its
+                            // own zone (see SelectUFragInView3D), so two results here can share
+                            // an Id — using the list index keeps these ImGui ids unique instead.
+                            for (int i = 0; i < textureUsageResults.UFrags.Count; i++)
+                            {
+                                var ufrag = textureUsageResults.UFrags[i];
+                                if (ImGui.Selectable($"{ufrag.Name ?? ufrag.Id.ToString("X")}##usage_ufrag_{i}"))
+                                    SelectUFragInView3D(ufrag);
+                            }
+                        }
+                    }
                 }
             }
             ImGui.EndChild();

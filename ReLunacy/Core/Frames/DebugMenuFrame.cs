@@ -1,17 +1,10 @@
-
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace ReLunacy.Core.Frames;
 
 internal class DebugDemoFrame : Frame
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
-    public DebugDemoFrame() : base()
+    public DebugDemoFrame()
     {
         FrameName = "Debug Demo Frame";
     }
