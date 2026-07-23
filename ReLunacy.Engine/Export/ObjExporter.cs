@@ -11,7 +11,10 @@ namespace ReLunacy.Engine.Export;
 /// </summary>
 public static class ObjExporter
 {
-    public static void Export(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, Action<float>? onProgress = null)
+    /// <summary>`skeleton` is accepted (and ignored) only so this matches GltfExporter.Export's
+    /// signature — the two are called through the same delegate type in AssetViewer.ExportModel.
+    /// OBJ/MTL has no representation for a bone hierarchy or vertex skin weights at all.</summary>
+    public static void Export(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
     {
         string directory = Path.GetDirectoryName(filePath) ?? ".";
         string baseName = Path.GetFileNameWithoutExtension(filePath);

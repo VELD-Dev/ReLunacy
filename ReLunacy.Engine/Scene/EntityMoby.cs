@@ -47,7 +47,7 @@ public class EntityMoby : Entity
         Models = models;
     }
 
-    public override void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public override void Draw(IRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender || !EntityManager.Singleton.renderMobys) return;
 

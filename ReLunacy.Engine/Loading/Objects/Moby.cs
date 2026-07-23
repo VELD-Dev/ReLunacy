@@ -22,12 +22,18 @@ public class Moby : IDisposable
     public uint BanglesPointer => MobyObj is OldMoby ? 0 : ((NewMoby)MobyObj).banglesPointer;
     public uint BanglesCount => MobyObj is OldMoby om ? om.bangleCount : ((NewMoby)MobyObj).bangleCount1;
     public uint SkeletonPointer => MobyObj is OldMoby om ? om.skeletonPointer : ((NewMoby)MobyObj).skeletonPointer;
+    public uint BonesCount => MobyObj is OldMoby om ? om.bonesCount : ((NewMoby)MobyObj).bonesCount1;
     public uint TransformPointer => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).skeletonPointer;
     public uint VerticesOffset => MobyObj is OldMoby om ? om.verticesOffset : uint.MinValue;
     public uint IndicesOffset => MobyObj is OldMoby om ? om.indicesOffset : uint.MinValue;
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
     public MobyBangle[] Bangles => MobyObj.bangles;
     public ulong[]? ShaderTUIDs;
+
+    /// <summary>Null if this moby has no skeleton (static props etc.) or if reading one failed —
+    /// see the catch below. Read defensively: this is new, unverified-against-every-real-asset
+    /// code, and a bug in it must not be able to break loading for mobys that don't even reach it.</summary>
+    public MobySkeleton? Skeleton { get; private set; }
 
     public Moby(StreamHelper sh, FileManager fm, int index = 0) // Index only for old mobys
     {
@@ -41,6 +47,15 @@ public class Moby : IDisposable
             mobyStream.Seek(section.offset + OldMoby.Size * index);
 
         ReadMoby(isOld: section.length != 0x100, index);
+
+        try
+        {
+            Skeleton = MobySkeletonReader.Read(mobyStream, SkeletonPointer, BonesCount);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to read skeleton for moby {TUID:X}: {ex.Message}");
+        }
 
         if (!IsOld)
         {

@@ -47,7 +47,7 @@ public abstract class Entity : IDisposable
         ID = EntityIndex++;
     }
 
-    public abstract void Draw(BasicForwardRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer);
+    public abstract void Draw(IRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer);
 
     /// <summary>Meshes to draw for GPU picking, all tagged with this entity's own ID — populated from the last Draw() call. A Moby's bangles/submeshes all resolve back to the one Moby entity.</summary>
     public IEnumerable<Bliss.CSharp.Geometry.Meshes.IMesh> GetPickableMeshes() => cachedRenderables.Select(r => r.Mesh);

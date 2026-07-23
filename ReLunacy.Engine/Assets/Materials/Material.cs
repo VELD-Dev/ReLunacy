@@ -14,6 +14,8 @@ public sealed class Material : IMaterial
 
     public RenderMode RenderMode { get; init; }
     public float AlphaClipThreshold { get; init; }
+    public bool IsDecal { get; init; }
+    public float DecalOffsetCandidate { get; init; }
 
     public Material(ulong id)
     {
@@ -22,7 +24,7 @@ public sealed class Material : IMaterial
         AlphaClipThreshold = 0.5f;
     }
 
-    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f)
+    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f, bool isDecal = false, float decalOffsetCandidate = 0f)
     {
         return new Material(id)
         {
@@ -30,7 +32,9 @@ public sealed class Material : IMaterial
             NormalTexture = normal,
             PropertiesTexture = properties,
             RenderMode = renderMode,
-            AlphaClipThreshold = alphaClipThreshold
+            AlphaClipThreshold = alphaClipThreshold,
+            IsDecal = isDecal,
+            DecalOffsetCandidate = decalOffsetCandidate
         };
     }
 }

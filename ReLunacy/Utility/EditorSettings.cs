@@ -37,6 +37,16 @@ public class EditorSettings
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders = [];
     public bool LegacyRenderingMode;
+    // Global multiplier on IMaterial.DecalOffsetCandidate (ShaderMetadata's file offset 0x48,
+    // still an unconfirmed hypothesis) — together they push Decal-render-mode geometry outward
+    // along its (computed, since these formats don't carry real per-vertex normals) normal at
+    // mesh-build time, so it doesn't Z-fight the opaque surface it's meant to decal. Depth WRITE
+    // is already disabled for every AlphaBlend material (DecalAwareForwardRenderer), but depth
+    // TEST alone still flickers for genuinely coincident geometry. Default of 1 means "trust the
+    // per-material file value as-is" — raise/lower it only if that value turns out to need an
+    // extra scale factor once tested against more real data. Baked into the mesh at build time,
+    // not applied per-frame — reload the level to see a changed value take effect.
+    public float DecalOffset;
 
     [JsonIgnore]
     public float CamFOVRad => CamFOV * (MathF.PI / 180f);
@@ -76,6 +86,7 @@ public class EditorSettings
         GizmoSnapRotation = 15.0f;
         GizmoSnapScale = 0.25f;
         LegacyRenderingMode = false;
+        DecalOffset = 1.0f;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;
 #else

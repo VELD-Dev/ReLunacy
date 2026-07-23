@@ -43,6 +43,15 @@ public record struct MobyMesh : ILunaSerializable, IMesh
 
     public ushort[] indices;
 
+    /// <summary>
+    /// This primitive's local joint palette — vertex bone indices (VertexFormat1.bones,
+    /// VertexFormat0.boneIndex) are local indices into THIS array, not skeleton-global bone
+    /// indices directly (confirmed against InsomniaToolset's PrimitiveV2.joints / the
+    /// AttributeBoneIndex(indices) codecs in its glTF exporter). Empty for meshes with no skin
+    /// data (boneMapIndicesCount == 0) or if reading failed.
+    /// </summary>
+    public ushort[] boneMap;
+
     public readonly float[] vpos
     {
         get
@@ -118,6 +127,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         }
 
         indices = new ushort[indicesCount];
+        boneMap ??= [];
     }
 
     public void ReadVerticesBuffer(StreamHelper sh)
@@ -144,6 +154,30 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         {
             indices[i] = sh.ReadUInt16();
         }
+    }
+
+    /// <summary>
+    /// Reads this primitive's joint palette (boneMapIndicesCount uint16 entries at boneMapOffset)
+    /// — same absolute-from-mobyStream-start pointer convention already proven by the bangle/mesh
+    /// [Reference] chain and by MobySkeletonReader, so no per-engine adjustment is needed. `sh`
+    /// must be the moby's own mobyStream, not verticesStream/indicesStream (boneMapOffset is a
+    /// header field resolved the same way skeletonPointer/banglesPointer are, not a bulk-buffer
+    /// offset).
+    /// </summary>
+    public void ReadBoneMap(StreamHelper sh)
+    {
+        if (boneMapIndicesCount == 0)
+        {
+            boneMap = [];
+            return;
+        }
+
+        long savedPosition = sh.BaseStream.Position;
+        sh.Seek(boneMapOffset);
+        boneMap = new ushort[boneMapIndicesCount];
+        for (int i = 0; i < boneMapIndicesCount; i++)
+            boneMap[i] = sh.ReadUInt16();
+        sh.Seek(savedPosition);
     }
 
     public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords)

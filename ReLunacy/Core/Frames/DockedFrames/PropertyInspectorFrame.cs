@@ -94,6 +94,13 @@ public class PropertyInspectorFrame : DockedFrame
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenTieInAssetViewer(tie.BaseTie.Id);
         }
+        else if (SelectedEntity is EntityUFrag ufrag)
+        {
+            var mat = ufrag.UFrag.Material;
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialRenderMode", mat.RenderMode));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlphaClip", mat.AlphaClipThreshold));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlbedoFormat", mat.AlbedoTexture?.Format.ToString() ?? "None"));
+        }
 
         ImGui.Separator();
 

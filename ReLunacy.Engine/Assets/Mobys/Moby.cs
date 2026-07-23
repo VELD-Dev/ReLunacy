@@ -12,6 +12,7 @@ public sealed class Moby : IMoby
 
     public IReadOnlyList<IBangle> Bangles { get; init; }
     public float Scale { get; init; }
+    public ISkeleton? Skeleton { get; init; }
 
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;
 
@@ -20,12 +21,14 @@ public sealed class Moby : IMoby
         IReadOnlyList<IBangle> bangles,
         float scale = 1.0f,
         string? name = null,
-        Func<(Vector3, float)>? boundingSphereCalculator = null)
+        Func<(Vector3, float)>? boundingSphereCalculator = null,
+        ISkeleton? skeleton = null)
     {
         Id = id;
         Name = name;
         Bangles = bangles ?? throw new ArgumentNullException(nameof(bangles));
         Scale = scale;
+        Skeleton = skeleton;
         IsLoaded = true;
 
         if (boundingSphereCalculator != null)

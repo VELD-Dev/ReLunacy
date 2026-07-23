@@ -61,17 +61,27 @@ public sealed class MaterialReader
             normal: shader.Normal != null ? WrapTexture(shader.Normal) : null,
             properties: shader.Expensive != null ? WrapTexture(shader.Expensive) : null,
             renderMode: ToRenderMode(shader.RenderingMode),
-            alphaClipThreshold: GetAlphaClip(shader));
+            alphaClipThreshold: GetAlphaClip(shader),
+            isDecal: shader.RenderingMode == RenderingMode.Decal,
+            decalOffsetCandidate: GetDecalOffsetCandidate(shader));
         material.Name = shader.name;
 
         _materialCache[tuid] = material;
         return material;
     }
 
+    // See TextureMetadataOld.AlphaKillCandidate — logged once per distinct texture so a real
+    // level load can show whether this bit actually correlates with textures that should be
+    // transparent but currently render solid.
+    private static readonly HashSet<ulong> _loggedAlphaKillTextures = [];
+
     private Texture WrapTexture(Textures.Texture legacy)
     {
         if (_textureCache.TryGetValue(legacy.id, out var cached))
             return cached;
+
+        if (legacy.isOld && legacy.textureMetadata is Textures.TextureMetadataOld oldMeta && oldMeta.AlphaKillCandidate && _loggedAlphaKillTextures.Add(legacy.id))
+            Console.WriteLine($"Diagnostic: texture {legacy.id:X} ('{legacy.name}') has the candidate old-engine alphaKill bit set (unverified — see TextureMetadataOld.AlphaKillCandidate).");
 
         var texture = Texture.FromData(legacy.id, legacy.Width, legacy.Height, ToTextureFormat(legacy.TexFormat), legacy.data, (int)legacy.MipmapCounts);
         texture.Name = legacy.name;
@@ -92,15 +102,43 @@ public sealed class MaterialReader
         return _defaultMaterial;
     }
 
-    private static RenderMode ToRenderMode(RenderingMode mode) => mode switch
+    // 0x00/0x01/0x04/0x05/0x06 are confirmed against real files (see RenderingMode.cs). 0x02 has
+    // been observed but isn't understood yet, and 0x03 hasn't shown up at all — any value not
+    // named in the enum still silently falls through to Opaque below, so it's logged once per
+    // distinct value so a real level load keeps surfacing gaps as they're found (use the Shader
+    // Browser's render-mode filter to isolate and inspect them). Decal/AlphaBlendNoCull both
+    // collapse to the same RenderMode.AlphaBlend as AlphaBlend here — the only confirmed
+    // difference Decal/AlphaBlend have from AlphaBlendNoCull is backface culling, which this
+    // simplified enum doesn't model; AssetManager already renders every material with
+    // RasterizerStateDescription.CULL_NONE regardless, so that distinction wouldn't currently
+    // change anything downstream. What Decal DOES get from mapping to AlphaBlend here is the
+    // depth-test-but-no-depth-write path DecalAwareForwardRenderer already applies to every
+    // AlphaBlend material — see RenderingMode.cs for why that's the fix being tried first for its
+    // Z-fighting symptom.
+    private static readonly HashSet<byte> _loggedUnknownRenderingModes = [];
+
+    private static RenderMode ToRenderMode(RenderingMode mode)
     {
-        RenderingMode.AlphaClip => RenderMode.AlphaClip,
-        RenderingMode.AlphaBlend => RenderMode.AlphaBlend,
-        _ => RenderMode.Opaque,
-    };
+        switch (mode)
+        {
+            case RenderingMode.Opaque: return RenderMode.Opaque;
+            case RenderingMode.AlphaClip: return RenderMode.AlphaClip;
+            case RenderingMode.AlphaBlend: return RenderMode.AlphaBlend;
+            case RenderingMode.AlphaBlendNoCull: return RenderMode.AlphaBlend;
+            case RenderingMode.Decal: return RenderMode.AlphaBlend;
+            default:
+                byte raw = (byte)mode;
+                if (_loggedUnknownRenderingModes.Add(raw))
+                    Console.WriteLine($"Warning: Unrecognized shader renderingMode byte 0x{raw:X2} (falling back to Opaque — this material may actually need alpha clip/blend and render fully solid instead).");
+                return RenderMode.Opaque;
+        }
+    }
 
     private static float GetAlphaClip(Shader shader) =>
         shader.isOld ? shader.metadataOld!.Value.alphaClip : shader.metadataNew!.Value.alphaClip;
+
+    private static float GetDecalOffsetCandidate(Shader shader) =>
+        shader.isOld ? shader.metadataOld!.Value.decalOffsetCandidate : shader.metadataNew!.Value.decalOffsetCandidate;
 
     private static TextureFormat ToTextureFormat(Textures.TextureFormat format) => format switch
     {

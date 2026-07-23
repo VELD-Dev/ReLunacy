@@ -62,7 +62,7 @@ public class EntityCluster : IDisposable
         return entity != null;
     }
 
-    public void Draw(BasicForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender) return;
 

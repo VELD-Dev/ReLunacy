@@ -1,4 +1,5 @@
 using ReLunacy.Engine.Loading.IO;
+using ReLunacy.Engine.Loading.Shaders;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
@@ -87,7 +88,8 @@ public sealed class LevelReader
             region: _region,
             isOldEngine: _fileManager.isOld,
             debugReader: _debugReader,
-            allTextures: allTextures);
+            allTextures: allTextures,
+            shaders: _textureShaderLoader.Shaders);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -113,6 +115,16 @@ public sealed class LevelData
     /// </summary>
     public IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture> AllTextures { get; }
 
+    /// <summary>
+    /// Every shader the loader parsed from shaders.dat/main.dat, keyed by TUID — including ones
+    /// no loaded Moby/Tie/UFrag material references (same "cut content is still worth seeing"
+    /// reasoning as AllTextures above). Raw, not the engine-facing IMaterial wrapper: this is
+    /// meant for the Shader Browser, which exists specifically to inspect metadata (renderingMode
+    /// byte, alphaClip, the still-unidentified Unk byte ranges) that IMaterial deliberately
+    /// doesn't expose.
+    /// </summary>
+    public IReadOnlyDictionary<ulong, Shader> Shaders { get; }
+
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
@@ -120,7 +132,8 @@ public sealed class LevelData
         Assets.Levels.Region? region,
         bool isOldEngine,
         DebugReader debugReader,
-        IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture>? allTextures = null)
+        IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture>? allTextures = null,
+        IReadOnlyDictionary<ulong, Shader>? shaders = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -129,5 +142,6 @@ public sealed class LevelData
         IsOldEngine = isOldEngine;
         DebugReader = debugReader;
         AllTextures = allTextures ?? new Dictionary<ulong, Assets.Interfaces.ITexture>();
+        Shaders = shaders ?? new Dictionary<ulong, Shader>();
     }
 }

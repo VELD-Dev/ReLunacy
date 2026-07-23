@@ -47,6 +47,9 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_VSync"), ref Program.Settings.VSync);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
+                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_DecalOffset"), ref Program.Settings.DecalOffset, 0.001f, 0f, 1f, "%.3f");
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_DecalOffsetHelp"));
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     currLanguage = selectedLanguage;

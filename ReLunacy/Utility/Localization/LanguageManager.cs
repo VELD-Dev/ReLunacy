@@ -96,16 +96,34 @@ public static class LM
     public static string Get(string key, params object[] args)
     {
         if (CurrentLanguage != null && CurrentLanguage.strings.TryGetValue(key, out string? fmt) && fmt != string.Empty)
-            return string.Format(fmt, args);
+            return SafeFormat(fmt, args);
         else if (CurrentLanguage != null && !CurrentLanguage.strings.TryGetValue(key, out fmt))
             CurrentLanguage.strings.Add(key, "");
 
         if (UseFallbackLanguage && DefaultLanguage != null && DefaultLanguage.strings.TryGetValue(key, out fmt) && fmt != string.Empty)
-            return string.Format(fmt, args);
+            return SafeFormat(fmt, args);
         else if (DefaultLanguage != null && !DefaultLanguage.strings.TryGetValue(key, out fmt))
             DefaultLanguage.strings.Add(key, "");
 
         return key;
+    }
+
+    // A locale string's placeholder count can drift out of sync with its call site — most often a
+    // stale on-disk translation left over after a key's format changed elsewhere: self-healing
+    // (above) only fills in keys that are entirely MISSING, it never reconciles an EXISTING key's
+    // value against a call site that now passes a different number of args. string.Format throwing
+    // on that mismatch used to take the whole app down over a single mistranslated/stale label —
+    // degrade to the raw unformatted string instead.
+    private static string SafeFormat(string fmt, object[] args)
+    {
+        try
+        {
+            return string.Format(fmt, args);
+        }
+        catch (FormatException)
+        {
+            return fmt;
+        }
     }
 
     public static void SaveLanguages(bool all = false)

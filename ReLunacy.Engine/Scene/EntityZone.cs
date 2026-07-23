@@ -34,7 +34,7 @@ public class EntityZone : IDisposable
             UFrags.Add(ufrag, gd);
     }
 
-    public void Draw(BasicForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender) return;
 

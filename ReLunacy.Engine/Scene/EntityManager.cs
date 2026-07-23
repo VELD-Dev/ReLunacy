@@ -32,7 +32,7 @@ public class EntityManager : IDisposable
         Regions.Add(new EntityRegion(region, am, gd));
     }
 
-    public void Draw(BasicForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         foreach (var region in Regions)
             region.Draw(renderer, od, cl, camera, immediateRenderer);

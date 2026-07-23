@@ -37,7 +37,7 @@ public class EntityRegion : IDisposable
             Zones.Add(new EntityZone(zone, gd, assetManager));
     }
 
-    public void Draw(BasicForwardRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
+    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         if (!allowRender) return;
 

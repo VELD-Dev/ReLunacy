@@ -17,7 +17,17 @@ public record struct ShaderMetadataOld : ILunaSerializable
     [FileOffset(0x11)] public byte renderingMode;
     [FileOffset(0x12), Reference(0x0E)] public byte[] Unk2;
     [FileOffset(0x20)] public float alphaClip;
-    [FileOffset(0x24), Reference(0x5C)] public byte[] Unk3;
+    [FileOffset(0x24), Reference(0x24)] public byte[] Unk3a;
+    // Candidates found via the Shader Browser's float32 dump while investigating the Decal
+    // (renderingMode 0x01) Z-fight fix — see AssetManager's decal vertex offset and
+    // EditorSettings.DecalOffset. decalOffsetFactorCandidate consistently reads 0-1 across
+    // shaders; decalOffsetCandidate's values lined up with what a specific water decal actually
+    // needed. Neither is confirmed against enough real data yet to be certain of the exact
+    // semantics (e.g. whether they multiply together, or the factor gates the offset on/off) —
+    // named descriptively rather than Unk*, but treat the names as a working hypothesis.
+    [FileOffset(0x48)] public float decalOffsetCandidate;
+    [FileOffset(0x4C)] public float decalOffsetFactorCandidate;
+    [FileOffset(0x50), Reference(0x30)] public byte[] Unk3b;
 
     public static ShaderMetadataOld Read(StreamHelper sh) => FileUtils.ReadStructure<ShaderMetadataOld>(sh);
 
@@ -38,7 +48,12 @@ public record struct ShaderMetadataNew : ILunaSerializable
     [FileOffset(0x21)] public byte renderingMode;
     [FileOffset(0x22), Reference(0x0E)] public byte[] Unk2;
     [FileOffset(0x30)] public float alphaClip;
-    [FileOffset(0x34), Reference(0x4C)] public byte[] Unk3;
+    [FileOffset(0x34), Reference(0x14)] public byte[] Unk3a;
+    // See ShaderMetadataOld's identically-named fields — same absolute file offsets (0x48/0x4C),
+    // same unconfirmed-hypothesis caveat.
+    [FileOffset(0x48)] public float decalOffsetCandidate;
+    [FileOffset(0x4C)] public float decalOffsetFactorCandidate;
+    [FileOffset(0x50), Reference(0x30)] public byte[] Unk3b;
 
     public static ShaderMetadataNew Read(StreamHelper sh) => FileUtils.ReadStructure<ShaderMetadataNew>(sh);
 

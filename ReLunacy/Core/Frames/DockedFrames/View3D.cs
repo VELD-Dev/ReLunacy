@@ -25,7 +25,7 @@ public class View3D : DockedFrame
     private readonly GraphicsDevice graphicsDevice;
     private readonly CommandList commandList;
 
-    private readonly BasicForwardRenderer renderer;
+    private readonly IRenderer renderer;
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
     private readonly ImmediateRenderer immediateRenderer;
@@ -60,7 +60,7 @@ public class View3D : DockedFrame
             0.01f,
             Program.Settings.RenderDistance);
 
-        renderer = new BasicForwardRenderer(gd);
+        renderer = new DecalAwareForwardRenderer(gd);
         graphicsDevice = gd;
         commandList = graphicsDevice.ResourceFactory.CreateCommandList();
         immediateRenderer = new ImmediateRenderer(gd);

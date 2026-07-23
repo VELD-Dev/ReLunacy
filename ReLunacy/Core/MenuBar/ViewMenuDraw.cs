@@ -83,6 +83,23 @@ internal static class ViewMenuDraw
         }
     }
 
+    internal static void ShowShaderBrowser()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ShaderBrowser>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_ShaderBrowser"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ShaderBrowser>();
+        else
+        {
+            var frame = new ShaderBrowser();
+            if (LunaWindow.Instance.Level != null)
+                frame.TransmitShaders(LunaWindow.Instance.Level);
+            LunaWindow.Instance.AddFrame(frame);
+        }
+    }
+
     internal static void ShowPSArcExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();

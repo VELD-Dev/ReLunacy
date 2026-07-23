@@ -11,7 +11,7 @@ namespace ReLunacy.Engine.Rendering;
 
 public sealed class SceneRenderer : IDisposable
 {
-    private readonly BasicForwardRenderer _renderer;
+    private readonly IRenderer _renderer;
     private Frustum? _frustum;
 
     public int SubmittedCount { get; private set; }
@@ -19,7 +19,7 @@ public sealed class SceneRenderer : IDisposable
 
     public SceneRenderer(GraphicsDevice graphicsDevice)
     {
-        _renderer = new BasicForwardRenderer(graphicsDevice);
+        _renderer = new DecalAwareForwardRenderer(graphicsDevice);
     }
 
     public void BeginFrame(Cam3D camera)

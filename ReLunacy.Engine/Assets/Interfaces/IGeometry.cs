@@ -10,4 +10,11 @@ public interface IGeometry : IAsset
     uint[] GetIndices();
     Vector3 GetBoundingCenter();
     float GetBoundingRadius();
+
+    /// <summary>Per-vertex skin bindings, 4 slots per vertex (flat arrays, vertexCount*4 long) —
+    /// null if this geometry has no skin data. GetJointIndices entries are skeleton-global bone
+    /// indices (see IMoby.Skeleton), already resolved through the source format's per-primitive
+    /// joint palette; -1 marks an unused slot. GetJointWeights entries are 0 for unused slots.</summary>
+    int[]? GetJointIndices();
+    float[]? GetJointWeights();
 }

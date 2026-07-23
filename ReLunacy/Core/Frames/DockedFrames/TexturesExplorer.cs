@@ -4,6 +4,7 @@ using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.Mobys;
 using ReLunacy.Engine.Assets.Ties;
+using ReLunacy.Engine.Loading.Shaders;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
@@ -40,6 +41,18 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     private int selectedTexture = -1;
     private ImTextureRef selectedTexturePtr;
     private TextureUsageResult? textureUsageResults;
+    private List<Shader>? relatedShaders;
+    // Owned by us (unlike TextureObject.BlissTexture, which AssetManager owns) — built on demand
+    // when a channel-preview button is clicked, must be disposed before being replaced/dropped.
+    private Texture2D? channelPreviewTexture;
+
+    private enum UsageFilter { All, Used, Unused }
+    private UsageFilter textureUsageFilter = UsageFilter.All;
+
+    // "Used" = referenced by at least one loaded Moby/Tie/UFrag material — same definition
+    // FindTextureUsages below already answers per-texture on click; computed once per
+    // TransmitTextures call instead of re-scanning every asset for every texture every frame.
+    private HashSet<ulong> usedTextureIds = [];
 
     private sealed record TextureUsageResult(List<Moby> Mobys, List<Tie> Ties, List<IUFrag> UFrags)
     {
@@ -59,6 +72,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             if (assetManager.BuiltTextures.TryGetValue(id, out var tex2d))
                 textureObjects.Add(new(tex, tex2d));
         }
+
+        usedTextureIds = ComputeUsedTextureIds();
     }
 
     /// <summary>textureObjects wraps AssetManager-owned Texture2Ds that are about to be disposed —
@@ -66,8 +81,61 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     public void OnLevelUnloading()
     {
         textureObjects.Clear();
+        usedTextureIds.Clear();
         selectedTexture = -1;
         textureUsageResults = null;
+        relatedShaders = null;
+        channelPreviewTexture?.Dispose();
+        channelPreviewTexture = null;
+    }
+
+    /// <summary>Rebuilds selectedTexturePtr as a grayscale view of a single channel of the
+    /// currently selected texture's decoded RGBA — lets the user visually confirm whether a
+    /// texture actually carries real alpha data instead of guessing from the format alone.</summary>
+    private void ShowChannel(TextureObject selection, ReLunacy.Engine.Rendering.TextureUtils.Colours channel)
+    {
+        byte[]? rgba = ReLunacy.Engine.Rendering.TextureUtils.DecodeToRgba8888(selection.Texture, out int width, out int height);
+        if (rgba == null) return;
+
+        byte[] filtered = ReLunacy.Engine.Rendering.TextureUtils.ColourAsMain(rgba, channel);
+        var image = new Image(width, height, filtered);
+
+        channelPreviewTexture?.Dispose();
+        channelPreviewTexture = new Texture2D(LunaWindow.Instance.GraphicsDevice, image, true);
+        selectedTexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, channelPreviewTexture.DeviceTexture);
+    }
+
+    /// <summary>Same "referenced by a loaded Moby/Tie/UFrag material" definition as
+    /// MaterialUsesTexture/FindTextureUsages below, just collected in one pass over every asset
+    /// instead of one scan per texture — building this once for potentially thousands of textures
+    /// the way FindTextureUsages does per-click would be O(textures × assets).</summary>
+    private static HashSet<ulong> ComputeUsedTextureIds()
+    {
+        var used = new HashSet<ulong>();
+        var level = LunaWindow.Instance.Level;
+        if (level == null) return used;
+
+        static void AddMaterial(HashSet<ulong> used, IMaterial mat)
+        {
+            if (mat.AlbedoTexture != null) used.Add(mat.AlbedoTexture.Id);
+            if (mat.NormalTexture != null) used.Add(mat.NormalTexture.Id);
+            if (mat.PropertiesTexture != null) used.Add(mat.PropertiesTexture.Id);
+        }
+
+        foreach (var moby in level.Mobys.Values)
+            foreach (var bangle in moby.Bangles)
+                foreach (var mesh in bangle.Meshes)
+                    AddMaterial(used, mesh.Material);
+
+        foreach (var tie in level.Ties.Values)
+            foreach (var mesh in tie.Meshes)
+                AddMaterial(used, mesh.Material);
+
+        foreach (var zone in level.Zones.Values)
+            foreach (var ufrag in zone.UFrags)
+                AddMaterial(used, ufrag.Material);
+
+        return used;
     }
 
     public void OnLevelLoaded()
@@ -85,6 +153,9 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         selectedTexture = index;
         selectedTexturePtr = textureObjects[index].TexturePtr;
         textureUsageResults = null;
+        relatedShaders = null;
+        channelPreviewTexture?.Dispose();
+        channelPreviewTexture = null;
         return true;
     }
 
@@ -113,6 +184,34 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             .ToList();
 
         return new TextureUsageResult(mobys, ties, ufrags);
+    }
+
+    // Raw shaders, not materials — a texture can be referenced by a shader that isn't actually
+    // used by any loaded mesh (cut content), which FindTextureUsages above wouldn't find at all
+    // since it only walks placed Mobys/Ties/UFrags. Level.Shaders carries every shader the loader
+    // parsed regardless of whether it's reachable from loaded geometry (see LevelData.Shaders).
+    private static List<Shader> FindRelatedShaders(ulong textureId)
+    {
+        var level = LunaWindow.Instance.Level;
+        if (level == null) return [];
+
+        return level.Shaders.Values
+            .Where(s => s.Albedo?.id == textureId || s.Normal?.id == textureId || s.Expensive?.id == textureId)
+            .ToList();
+    }
+
+    private static void OpenShaderInBrowser(ulong tuid)
+    {
+        var browser = LunaWindow.Instance.GetFirstFrame<ShaderBrowser>();
+        if (browser == null)
+        {
+            browser = new ShaderBrowser();
+            LunaWindow.Instance.AddFrame(browser);
+        }
+        if (LunaWindow.Instance.Level != null)
+            browser.TransmitShaders(LunaWindow.Instance.Level);
+        browser.SelectShader(tuid);
+        browser.Focus();
     }
 
     private static void OpenMobyInAssetViewer(ulong mobyId)
@@ -166,32 +265,63 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         if (v3d != null) v3d.SelectedEntity = entity;
     }
 
+    private IEnumerable<TextureObject> FilteredTextureObjects()
+    {
+        IEnumerable<TextureObject> objects = textureUsageFilter switch
+        {
+            UsageFilter.Used => textureObjects.Where(t => usedTextureIds.Contains(t.Texture.Id)),
+            UsageFilter.Unused => textureObjects.Where(t => !usedTextureIds.Contains(t.Texture.Id)),
+            _ => textureObjects,
+        };
+
+        return string.IsNullOrWhiteSpace(inputText)
+            ? objects
+            : objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
+    }
+
     protected override void Render(double deltaTime)
     {
-        if(ImGui.InputTextWithHint(LM.Get("GUI_Frame_TextureExplorer_SearchLabel"), LM.Get("GUI_Frame_TextureExplorer_SearchHint", textureObjects.Count), ref inputText, 128))
-        {
+        ImGui.InputTextWithHint(LM.Get("GUI_Frame_TextureExplorer_SearchLabel"), LM.Get("GUI_Frame_TextureExplorer_SearchHint", textureObjects.Count), ref inputText, 128);
 
-        }
+        int filter = (int)textureUsageFilter;
+        ImGui.RadioButton(LM.Get("GUI_Common_FilterAll"), ref filter, (int)UsageFilter.All);
+        ImGui.SameLine();
+        ImGui.RadioButton(LM.Get("GUI_Common_FilterUsed"), ref filter, (int)UsageFilter.Used);
+        ImGui.SameLine();
+        ImGui.RadioButton(LM.Get("GUI_Common_FilterUnused"), ref filter, (int)UsageFilter.Unused);
+        textureUsageFilter = (UsageFilter)filter;
+
+        var filteredObjects = FilteredTextureObjects().ToList();
+
         if (ImGui.BeginChild("texture_gridview", new (ImGui.GetContentRegionAvail().X / 2, ImGui.GetContentRegionAvail().Y), ImGuiChildFlags.Borders))
         {
             var columns = (int)ImGui.GetContentRegionAvail().X / 128;
             if(columns >= 1)
             {
                 ImGui.Columns(columns, "texture_grid", false);
-                for (int i = 0; i < textureObjects.Count; i++)
+                for (int i = 0; i < filteredObjects.Count; i++)
                 {
-                    var texobj = textureObjects[i];
+                    var texobj = filteredObjects[i];
                     if (i > 0 && i % columns == 0) ImGui.Spacing();
 
                     ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
                     if (ImGui.IsItemClicked())
                     {
-                        selectedTexture = i;
+                        // Index into the FULL textureObjects list, not filteredObjects — the
+                        // preview panel below indexes textureObjects[selectedTexture] directly, and
+                        // filtering/searching can reorder or drop entries relative to it.
+                        selectedTexture = textureObjects.FindIndex(t => t.Texture.Id == texobj.Texture.Id);
                         selectedTexturePtr = texobj.TexturePtr;
                         textureUsageResults = null;
+                        relatedShaders = null;
+                        channelPreviewTexture?.Dispose();
+                        channelPreviewTexture = null;
                     }
-                    ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
 
+                    bool isUsed = usedTextureIds.Contains(texobj.Texture.Id);
+                    if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+                    ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
+                    if (!isUsed) ImGui.PopStyleColor();
 
                     ImGui.NextColumn();
                 }
@@ -219,25 +349,31 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 // Optimizations will be done by making copies of these channels only when the texture is selected.
                 if(ImGui.Button("All"))
                 {
+                    channelPreviewTexture?.Dispose();
+                    channelPreviewTexture = null;
                     selectedTexturePtr = selection.TexturePtr;
                 }
                 ImGui.SameLine();
                 if (ImGui.Button("R"))
                 {
+                    ShowChannel(selection, ReLunacy.Engine.Rendering.TextureUtils.Colours.Red);
                 }
                 ImGui.SameLine();
                 if(ImGui.Button("G"))
                 {
+                    ShowChannel(selection, ReLunacy.Engine.Rendering.TextureUtils.Colours.Green);
                 }
                 ImGui.SameLine();
                 if(ImGui.Button("B"))
                 {
+                    ShowChannel(selection, ReLunacy.Engine.Rendering.TextureUtils.Colours.Blue);
                 }
                 if(selection.Texture.Format != TextureFormat.DXT1 && selection.Texture.Format != TextureFormat.R5G6B5)
                 {
                     ImGui.SameLine();
                     if (ImGui.Button("A"))
                     {
+                        ShowChannel(selection, ReLunacy.Engine.Rendering.TextureUtils.Colours.Alpha);
                     }
                 }
                 ImGui.Separator();
@@ -314,6 +450,28 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                                 if (ImGui.Selectable($"{ufrag.Name ?? ufrag.Id.ToString("X")}##usage_ufrag_{i}"))
                                     SelectUFragInView3D(ufrag);
                             }
+                        }
+                    }
+                }
+
+                ImGui.Separator();
+                if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindRelatedShaders")))
+                    relatedShaders = FindRelatedShaders(selection.Texture.Id);
+
+                if (relatedShaders != null)
+                {
+                    if (relatedShaders.Count == 0)
+                    {
+                        ImGui.TextDisabled(LM.Get("GUI_Frame_TextureExplorer_Preview_NoRelatedShaders"));
+                    }
+                    else
+                    {
+                        ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_RelatedShaders", relatedShaders.Count));
+                        foreach (var shader in relatedShaders)
+                        {
+                            string label = string.IsNullOrEmpty(shader.name) ? shader.TUID.ToString("X") : shader.name;
+                            if (ImGui.Selectable($"{label}##related_shader_{shader.TUID:X}"))
+                                OpenShaderInBrowser(shader.TUID);
                         }
                     }
                 }

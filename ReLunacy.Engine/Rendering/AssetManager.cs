@@ -25,6 +25,7 @@ public sealed class AssetManager : IDisposable
     private readonly Dictionary<ulong, Texture2D> _textureCache = [];
     private readonly Dictionary<ulong, ITexture> _sourceTextures = [];
     private readonly Dictionary<ulong, Material> _materialCache = [];
+    private readonly float _decalOffset;
 
     public IReadOnlyDictionary<ulong, Texture2D> BuiltTextures => _textureCache;
     public IReadOnlyDictionary<ulong, ITexture> SourceTextures => _sourceTextures;
@@ -32,9 +33,14 @@ public sealed class AssetManager : IDisposable
     public Dictionary<ulong, Model[]> Mobys { get; } = []; // one Model per bangle
     public Dictionary<ulong, Model> Ties { get; } = [];
 
-    public AssetManager(LevelData level, GraphicsDevice gd)
+    // decalOffset: see EditorSettings.DecalOffset — how far IMaterial.IsDecal geometry gets pushed
+    // outward along its (computed) normal at mesh-build time, to avoid Z-fighting the opaque
+    // surface it's decaling. Passed in rather than read from Program.Settings directly since this
+    // project deliberately has no dependency on the app layer.
+    public AssetManager(LevelData level, GraphicsDevice gd, float decalOffset = 0f)
     {
         _gd = gd;
+        _decalOffset = decalOffset;
 
         foreach (var (id, moby) in level.Mobys)
         {
@@ -76,7 +82,14 @@ public sealed class AssetManager : IDisposable
         {
             var mesh = meshes[i];
             var material = GetOrBuildMaterial(mesh.Material);
-            var vertices = ConvertGeometryToVertices(mesh.Geometry);
+            // DecalOffsetCandidate (file offset 0x48) is an unconfirmed per-material hypothesis —
+            // see IMaterial.DecalOffsetCandidate — used here as a multiplier on the global
+            // EditorSettings.DecalOffset slider rather than the raw offset directly, so the slider
+            // stays a meaningful "scale everything up/down" knob regardless of whether the file
+            // value turns out to already be in the right units on its own (in which case DecalOffset
+            // should just be left at 1) or needs further scaling.
+            float decalOffset = mesh.Material.IsDecal ? _decalOffset * mesh.Material.DecalOffsetCandidate : 0f;
+            var vertices = ConvertGeometryToVertices(mesh.Geometry, decalOffset);
             bMeshes[i] = new Mesh<Vertex3D>(_gd, material, new BasicMeshData(vertices, mesh.Geometry.GetIndices()));
         }
         return new Model(_gd, bMeshes, null, []);
@@ -139,7 +152,9 @@ public sealed class AssetManager : IDisposable
 
     // Geometry only carries positions/uvs/normals — tangents are derived here per-triangle
     // (standard UV-gradient method) since Moby/Tie meshes have no baked tangent data.
-    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry)
+    // decalOffset (0 = no-op): pushes the final vertex position outward along its normal — see
+    // AssetManager's constructor doc and EditorSettings.DecalOffset for why.
+    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, float decalOffset = 0f)
     {
         var positions = geometry.GetVertexPositions();
         var uvs = geometry.GetTextureCoordinates();
@@ -193,7 +208,8 @@ public sealed class AssetManager : IDisposable
 
             float handedness = Vector3.Dot(Vector3.Cross(n, tan), bitangentAccum[i]) < 0f ? -1f : 1f;
 
-            vertices[i] = new Vertex3D(pos[i], uv[i], uv[i], n, new Vector4(tan, handedness), Vector4.One);
+            Vector3 offsetPos = decalOffset != 0f ? pos[i] + n * decalOffset : pos[i];
+            vertices[i] = new Vertex3D(offsetPos, uv[i], uv[i], n, new Vector4(tan, handedness), Vector4.One);
         }
 
         return vertices;

@@ -77,10 +77,12 @@ public class AssetViewer : DockedFrame, ILevelListener
     public MouseGrabHandler rmbghandler = new() { mouseButton = Bliss.CSharp.Interact.Mice.MouseButton.Right };
     private readonly GraphicsDevice graphicsDevice;
     private RenderTexture2D renderTexture;
-    private readonly BasicForwardRenderer renderer;
+    private readonly IRenderer renderer;
+    private readonly ImmediateRenderer immediateRenderer;
     public readonly CommandList commandList;
     public readonly Cam3D Camera;
     private Renderable? cubeRenderable;
+    private bool showSkeleton = true;
 
     private List<Renderable> cachedRenderables = [];
     public List<MobyAsset> mobyAssets = [];
@@ -101,7 +103,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             selectedMobyAsset = value;
             if (value != null) selectedTieAsset = null;
             IsDirty = true;
-            RebuildSelectedAssetTextures();
+            RebuildSelectedAssetMaterials();
         }
     }
 
@@ -114,18 +116,27 @@ public class AssetViewer : DockedFrame, ILevelListener
             selectedTieAsset = value;
             if (value != null) selectedMobyAsset = null;
             IsDirty = true;
-            RebuildSelectedAssetTextures();
+            RebuildSelectedAssetMaterials();
         }
     }
 
     private AssetManager? assetManager;
     private string assetSearch = "";
 
-    // Moby textures are grouped per bangle (a texture used by several bangles shows up under
+    private enum UsageFilter { All, Used, Unused }
+    private UsageFilter assetUsageFilter = UsageFilter.All;
+
+    // "Used" = has at least one placed instance in the currently loaded level (same definition
+    // "Find usages" below already uses) — recomputed once per TransmitAssets call rather than
+    // walking EntityManager.AllEntities() on every frame for every asset in the list.
+    private HashSet<ulong> usedMobyIds = [];
+    private HashSet<ulong> usedTieIds = [];
+
+    // Moby materials are grouped per bangle (a material used by several bangles shows up under
     // each) since bangles are independently toggleable — seeing which bangle actually pulls in a
-    // texture matters. Ties have no bangles, so their textures are just a flat deduped list.
-    private readonly List<(int bangleIndex, List<ITexture> textures)> selectedMobyTexturesByBangle = [];
-    private readonly List<ITexture> selectedTieTextures = [];
+    // material matters. Ties have no bangles, so their materials are just a flat deduped list.
+    private readonly List<(int bangleIndex, List<IMaterial> materials)> selectedMobyMaterialsByBangle = [];
+    private readonly List<IMaterial> selectedTieMaterials = [];
 
     // Placed instances of the currently selected asset found in the loaded level, populated on
     // demand by the "Find usages" button (mirrors TexturesExplorer's usage lookup) — cleared
@@ -154,7 +165,8 @@ public class AssetViewer : DockedFrame, ILevelListener
             0.001f,
             100f);
         renderTexture = new RenderTexture2D(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
-        renderer = new BasicForwardRenderer(gd);
+        renderer = new DecalAwareForwardRenderer(gd);
+        immediateRenderer = new ImmediateRenderer(gd);
     }
 
     /// <summary>Drops every reference to the level that's about to be unloaded — mobyAssets/
@@ -164,9 +176,11 @@ public class AssetViewer : DockedFrame, ILevelListener
     {
         selectedMobyAsset = null;
         selectedTieAsset = null;
-        RebuildSelectedAssetTextures();
+        RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
+        usedMobyIds.Clear();
+        usedTieIds.Clear();
         cachedRenderables.Clear();
         assetManager = null;
         IsDirty = true;
@@ -198,19 +212,22 @@ public class AssetViewer : DockedFrame, ILevelListener
                     tieAssets.Add(new(tieModel, tie));
             }
         }
+
+        usedMobyIds = EntityManager.Singleton.AllEntities().OfType<EntityMoby>().Select(e => e.BaseMoby.Id).ToHashSet();
+        usedTieIds = EntityManager.Singleton.AllEntities().OfType<EntityTie>().Select(e => e.BaseTie.Id).ToHashSet();
     }
 
-    private void RebuildSelectedAssetTextures()
+    private void RebuildSelectedAssetMaterials()
     {
-        selectedMobyTexturesByBangle.Clear();
-        selectedTieTextures.Clear();
+        selectedMobyMaterialsByBangle.Clear();
+        selectedTieMaterials.Clear();
         mobyUsageResults = null;
         tieUsageResults = null;
 
-        static void AddTexture(HashSet<ulong> seen, List<ITexture> into, ITexture? tex)
+        static void AddMaterial(HashSet<ulong> seen, List<IMaterial> into, IMaterial mat)
         {
-            if (tex != null && seen.Add(tex.Id))
-                into.Add(tex);
+            if (seen.Add(mat.Id))
+                into.Add(mat);
         }
 
         if (selectedMobyAsset != null)
@@ -219,26 +236,18 @@ public class AssetViewer : DockedFrame, ILevelListener
             for (int i = 0; i < bangles.Count; i++)
             {
                 var seen = new HashSet<ulong>();
-                var textures = new List<ITexture>();
+                var materials = new List<IMaterial>();
                 foreach (var mesh in bangles[i].Meshes)
-                {
-                    AddTexture(seen, textures, mesh.Material.AlbedoTexture);
-                    AddTexture(seen, textures, mesh.Material.NormalTexture);
-                    AddTexture(seen, textures, mesh.Material.PropertiesTexture);
-                }
-                if (textures.Count > 0)
-                    selectedMobyTexturesByBangle.Add((i, textures));
+                    AddMaterial(seen, materials, mesh.Material);
+                if (materials.Count > 0)
+                    selectedMobyMaterialsByBangle.Add((i, materials));
             }
         }
         else if (selectedTieAsset != null)
         {
             var seen = new HashSet<ulong>();
             foreach (var mesh in selectedTieAsset.Value.Tie.Meshes)
-            {
-                AddTexture(seen, selectedTieTextures, mesh.Material.AlbedoTexture);
-                AddTexture(seen, selectedTieTextures, mesh.Material.NormalTexture);
-                AddTexture(seen, selectedTieTextures, mesh.Material.PropertiesTexture);
-            }
+                AddMaterial(seen, selectedTieMaterials, mesh.Material);
         }
     }
 
@@ -285,20 +294,55 @@ public class AssetViewer : DockedFrame, ILevelListener
             renderLeaf(item);
     }
 
+    /// <summary>Compact "All / Used / Unused" radio row shared by both the Moby and Tie tabs below
+    /// — one filter for the whole asset library, same as the search box above it.</summary>
+    private void RenderUsageFilterControl()
+    {
+        int filter = (int)assetUsageFilter;
+        ImGui.RadioButton(LM.Get("GUI_Common_FilterAll"), ref filter, (int)UsageFilter.All);
+        ImGui.SameLine();
+        ImGui.RadioButton(LM.Get("GUI_Common_FilterUsed"), ref filter, (int)UsageFilter.Used);
+        ImGui.SameLine();
+        ImGui.RadioButton(LM.Get("GUI_Common_FilterUnused"), ref filter, (int)UsageFilter.Unused);
+        assetUsageFilter = (UsageFilter)filter;
+    }
+
+    private IEnumerable<MobyAsset> FilteredMobyAssets() => assetUsageFilter switch
+    {
+        UsageFilter.Used => mobyAssets.Where(a => usedMobyIds.Contains(a.Moby.Id)),
+        UsageFilter.Unused => mobyAssets.Where(a => !usedMobyIds.Contains(a.Moby.Id)),
+        _ => mobyAssets,
+    };
+
+    private IEnumerable<TieAsset> FilteredTieAssets() => assetUsageFilter switch
+    {
+        UsageFilter.Used => tieAssets.Where(a => usedTieIds.Contains(a.Tie.Id)),
+        UsageFilter.Unused => tieAssets.Where(a => !usedTieIds.Contains(a.Tie.Id)),
+        _ => tieAssets,
+    };
+
     private void RenderMobyLeaf(MobyAsset asset)
     {
         string label = asset.MobyName.Split('/')[^1];
         bool isSelected = selectedMobyAsset?.Moby.Id == asset.Moby.Id;
+        bool isUsed = usedMobyIds.Contains(asset.Moby.Id);
+
+        if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         if (ImGui.Selectable($"{label}##moby_{asset.Moby.Id:X}", isSelected))
             SelectedMobyAsset = asset;
+        if (!isUsed) ImGui.PopStyleColor();
     }
 
     private void RenderTieLeaf(TieAsset asset)
     {
         string label = asset.TieName.Split('/')[^1];
         bool isSelected = selectedTieAsset?.Tie.Id == asset.Tie.Id;
+        bool isUsed = usedTieIds.Contains(asset.Tie.Id);
+
+        if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
         if (ImGui.Selectable($"{label}##tie_{asset.Tie.Id:X}", isSelected))
             SelectedTieAsset = asset;
+        if (!isUsed) ImGui.PopStyleColor();
     }
 
     /// <summary>Selects the moby with the given asset id, e.g. when jumping here from the Texture Explorer's "used by" list. Returns false if it isn't in the currently transmitted set.</summary>
@@ -338,18 +382,18 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    private void OpenTextureInExplorer(ITexture texture)
+    private void OpenShaderInBrowser(ulong tuid)
     {
-        var explorer = LunaWindow.Instance.GetFirstFrame<TexturesExplorer>();
-        if (explorer == null)
+        var browser = LunaWindow.Instance.GetFirstFrame<ShaderBrowser>();
+        if (browser == null)
         {
-            explorer = new TexturesExplorer();
-            LunaWindow.Instance.AddFrame(explorer);
+            browser = new ShaderBrowser();
+            LunaWindow.Instance.AddFrame(browser);
         }
-        if (assetManager != null)
-            explorer.TransmitTextures(assetManager);
-        explorer.SelectTexture(texture.Id);
-        explorer.Focus();
+        if (LunaWindow.Instance.Level != null)
+            browser.TransmitShaders(LunaWindow.Instance.Level);
+        browser.SelectShader(tuid);
+        browser.Focus();
     }
 
     private static void RenderUsageResults<TEntity>(List<TEntity>? results, string idPrefix) where TEntity : Entity
@@ -372,20 +416,23 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    private void RenderTextureGrid(IReadOnlyList<ITexture> textures, string columnsId)
+    // Shader preview uses the material's albedo texture — same convention as the Shader Browser's
+    // own texture-reference thumbnails — since a shader has no rendering of its own worth showing.
+    private void RenderShaderGrid(IReadOnlyList<IMaterial> materials, string columnsId)
     {
         int columns = Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 72);
         ImGui.Columns(columns, columnsId, false);
-        foreach (var tex in textures)
+        foreach (var mat in materials)
         {
-            if (assetManager != null && assetManager.BuiltTextures.TryGetValue(tex.Id, out var tex2D))
+            if (mat.AlbedoTexture != null && assetManager != null && assetManager.BuiltTextures.TryGetValue(mat.AlbedoTexture.Id, out var tex2D))
             {
                 var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, tex2D.DeviceTexture);
                 ImGui.Image(ptr, new Vector2(64, 64), Vector2.UnitY, Vector2.UnitX);
                 if (ImGui.IsItemClicked())
-                    OpenTextureInExplorer(tex);
+                    OpenShaderInBrowser(mat.Id);
             }
-            ImGui.TextWrapped(tex.Name ?? tex.Id.ToString("X"));
+            if (ImGui.Selectable($"{mat.Name ?? mat.Id.ToString("X")}##shader_grid_{mat.Id:X}"))
+                OpenShaderInBrowser(mat.Id);
             ImGui.NextColumn();
         }
         ImGui.Columns(1);
@@ -403,6 +450,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             }
             ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
             ImGui.InputTextWithHint("##asset_viewer_search", LM.Get("GUI_Frame_AssetViewer_SearchHint", mobyAssets.Count + tieAssets.Count), ref assetSearch, 128);
+            RenderUsageFilterControl();
 
             if (ImGui.BeginTabBar(LM.Get("GUI_Frame_AssetViewer_Tab")))
             {
@@ -410,13 +458,14 @@ public class AssetViewer : DockedFrame, ILevelListener
                 {
                     if (ImGui.BeginChild("asset_viewer_moby_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
                     {
+                        var filtered = FilteredMobyAssets().ToList();
                         if (string.IsNullOrWhiteSpace(assetSearch))
                         {
-                            RenderHierarchyNode(BuildHierarchy(mobyAssets, a => a.MobyName), "", a => a.MobyName, RenderMobyLeaf);
+                            RenderHierarchyNode(BuildHierarchy(filtered, a => a.MobyName), "", a => a.MobyName, RenderMobyLeaf);
                         }
                         else
                         {
-                            foreach (var moby in mobyAssets)
+                            foreach (var moby in filtered)
                             {
                                 if (moby.MobyName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
                                     RenderMobyLeaf(moby);
@@ -432,13 +481,14 @@ public class AssetViewer : DockedFrame, ILevelListener
                 {
                     if (ImGui.BeginChild("asset_viewer_tie_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
                     {
+                        var filtered = FilteredTieAssets().ToList();
                         if (string.IsNullOrWhiteSpace(assetSearch))
                         {
-                            RenderHierarchyNode(BuildHierarchy(tieAssets, a => a.TieName), "", a => a.TieName, RenderTieLeaf);
+                            RenderHierarchyNode(BuildHierarchy(filtered, a => a.TieName), "", a => a.TieName, RenderTieLeaf);
                         }
                         else
                         {
-                            foreach (var tie in tieAssets)
+                            foreach (var tie in filtered)
                             {
                                 if (tie.TieName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
                                     RenderTieLeaf(tie);
@@ -473,6 +523,9 @@ public class AssetViewer : DockedFrame, ILevelListener
 
             Camera.Begin(commandList);
             Camera.Update(deltaTime);
+            // Depth test disabled: the skeleton overlay (see DrawSkeleton below) should always
+            // read on top of the mesh, not get hidden behind it when bones sit inside the model.
+            immediateRenderer.Begin(commandList, renderTexture.Framebuffer.OutputDescription, depthStencilState: DepthStencilStateDescription.DISABLED);
 
             if (selectedMobyAsset == null && selectedTieAsset == null)
             {
@@ -520,8 +573,12 @@ public class AssetViewer : DockedFrame, ILevelListener
                 foreach (var renderable in cachedRenderables)
                     renderer.DrawRenderable(renderable);
                 renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
+
+                if (showSkeleton && selectedMobyAsset?.Moby.Skeleton is { } skeleton)
+                    DrawSkeleton(skeleton, immediateRenderer);
             }
 
+            immediateRenderer.End();
             Camera.End();
 
             commandList.End();
@@ -548,6 +605,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             ImGui.Text("Scale");
             ImGui.Text("Bangles");
             ImGui.Text("Vertices");
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Skeleton"));
             ImGui.EndGroup();
             ImGui.SameLine();
             ImGui.BeginGroup();
@@ -556,7 +614,14 @@ public class AssetViewer : DockedFrame, ILevelListener
             ImGui.Text(moby.Scale.ToString("0.###"));
             ImGui.Text(moby.Bangles.Count.ToString());
             ImGui.Text(selectedMobyAsset.Value.verticesCount.ToString());
+            ImGui.Text(moby.Skeleton != null
+                ? LM.Get("GUI_Frame_AssetViewer_SkeletonBones", moby.Skeleton.Bones.Count)
+                : LM.Get("GUI_Frame_AssetViewer_SkeletonNone"));
             ImGui.EndGroup();
+
+            if (moby.Skeleton != null)
+                ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_ShowSkeleton"), ref showSkeleton);
+
             if (ImGui.BeginChild("moby_bangles_switches", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y / 2), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
                 var renderMap = selectedMobyAsset.Value.RenderModelMap;
@@ -568,14 +633,14 @@ public class AssetViewer : DockedFrame, ILevelListener
             }
             ImGui.EndChild();
 
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Textures"));
-            if (ImGui.BeginChild("moby_textures", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
+            if (ImGui.BeginChild("moby_shaders", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
-                foreach (var (bangleIndex, textures) in selectedMobyTexturesByBangle)
+                foreach (var (bangleIndex, materials) in selectedMobyMaterialsByBangle)
                 {
-                    if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_texture_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
+                    if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_shader_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
                     {
-                        RenderTextureGrid(textures, $"moby_texture_grid_{bangleIndex}");
+                        RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}");
                         ImGui.TreePop();
                     }
                 }
@@ -584,10 +649,10 @@ public class AssetViewer : DockedFrame, ILevelListener
 
             ImGui.Separator();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby));
+                ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby));
+                ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
 
             ImGui.Separator();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
@@ -611,10 +676,10 @@ public class AssetViewer : DockedFrame, ILevelListener
             ImGui.Text(selectedTieAsset.Value.verticesCount.ToString());
             ImGui.EndGroup();
 
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Textures"));
-            if (ImGui.BeginChild("tie_textures", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
+            if (ImGui.BeginChild("tie_shaders", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
-                RenderTextureGrid(selectedTieTextures, "tie_texture_grid");
+                RenderShaderGrid(selectedTieMaterials, "tie_shader_grid");
             }
             ImGui.EndChild();
 
@@ -640,45 +705,17 @@ public class AssetViewer : DockedFrame, ILevelListener
     /// Shared by both the Moby and Tie export buttons — builds a sanitized output path under
     /// EditorPath/Exported/Models (asset names routinely contain path-like characters, e.g.
     /// "levels/great_clock_a/entities/.../foo.entity.irb", which would otherwise be interpreted
-    /// as subdirectories), runs the actual export off the main thread behind a LoadingModal
-    /// progress bar so a big Tie/Moby doesn't freeze the UI, and reports the result — success or
-    /// failure — via an ExportResultModal once done.
-    ///
-    /// The background task only ever touches the progress modal through UpdateProgress (which
-    /// locks internally) and otherwise reports back through LunaWindow.QueueExportCompletion — a
-    /// ConcurrentQueue drained on the main thread — rather than mutating openFrames itself, same
-    /// rule LoadLevelDataAsync already follows for the exact same reason (openFrames is a plain
-    /// List&lt;Frame&gt;, not thread-safe against concurrent enumeration during ImGui rendering).
+    /// as subdirectories) and hands off to ExportRunner for the actual background export + progress
+    /// modal + result modal (shared with the whole-level export in GameBrowserFrame/FileMenuDraw).
     /// </summary>
-    private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups)
+    private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null)
     {
         string safeName = ExportPaths.SanitizeFileName(assetName);
         string directory = Path.Combine(Program.EditorPath, "Exported", "Models");
         string path = Path.Combine(directory, $"{safeName}.{extension}");
 
-        var progressModal = new LoadingModal(LM.Get("GUI_Frame_AssetViewer_ExportingStatus", safeName), 100)
-        {
-            FrameName = LM.Get("GUI_Frame_AssetViewer_ExportingTitle")
-        };
-        LunaWindow.Instance.AddFrame(progressModal);
-
-        Task.Run(() =>
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-                exporter(path, safeName, groups, progress => progressModal.UpdateProgress(0,
-                    new LoadingProgress(LM.Get("GUI_Frame_AssetViewer_ExportingStatus", safeName), 100, true) { current = (uint)(progress * 100) }));
-
-                LunaWindow.Instance.QueueExportCompletion(new LunaWindow.ExportCompletion(progressModal, true, path, directory));
-                LunaLog.LogInfo(LM.Get("GUI_Frame_AssetViewer_ExportSucceeded", path));
-            }
-            catch (Exception ex)
-            {
-                LunaWindow.Instance.QueueExportCompletion(new LunaWindow.ExportCompletion(progressModal, false, ex.Message, directory));
-                LunaLog.LogError(LM.Get("GUI_Frame_AssetViewer_ExportFailed", ex.Message));
-            }
-        });
+        ExportRunner.Run(LM.Get("GUI_Frame_AssetViewer_ExportingTitle"), path, directory,
+            progress => exporter(path, safeName, groups, skeleton, progress));
     }
 
     /// <summary>One MeshGroup per bangle (indexed name fallback for unnamed bangles) — keeps
@@ -687,6 +724,25 @@ public class AssetViewer : DockedFrame, ILevelListener
     /// not interchangeable LOD/skin variants.</summary>
     private static List<MeshGroup> GetMobyGroups(IMoby moby) =>
         moby.Bangles.Select((bangle, i) => new MeshGroup(string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name, bangle.Meshes)).ToList();
+
+    /// <summary>
+    /// Draws each bone-to-parent segment as a red line, using WorldBindPose's translation
+    /// directly with no extra scale applied — unlike the raw fixed-point vertex positions
+    /// (MobyMesh.GetBuffers multiplies those by moby.Scale), the skeleton's tms0/tms1 matrices are
+    /// plain floats already in the same absolute space the scaled mesh geometry ends up in
+    /// (confirmed against InsomniaToolset: its glTF exporter applies meshScale only to the vertex
+    /// position attribute, never to the skeleton matrices). The preview's own meshes are drawn at
+    /// an identity Transform, so no further placement transform belongs here either.
+    /// </summary>
+    private static void DrawSkeleton(ISkeleton skeleton, ImmediateRenderer immediateRenderer)
+    {
+        foreach (var bone in skeleton.Bones)
+        {
+            if (bone.ParentIndex < 0) continue;
+            var parent = skeleton.Bones[bone.ParentIndex];
+            immediateRenderer.DrawLine(parent.WorldBindPose.Translation, bone.WorldBindPose.Translation, Bliss.CSharp.Colors.Color.Red);
+        }
+    }
 
     public override void RenderAsWindow(double deltaTime)
     {

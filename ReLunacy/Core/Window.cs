@@ -257,7 +257,7 @@ public class LunaWindow : Disposable
 
         if (Level is null) return;
 
-        AssetManager = new AssetManager(Level, GraphicsDevice);
+        AssetManager = new AssetManager(Level, GraphicsDevice, Program.Settings.DecalOffset);
         EntityManager.Singleton.LoadRegion(Level.Region, AssetManager, GraphicsDevice);
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
@@ -347,6 +347,7 @@ public class LunaWindow : Disposable
         {
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.OpenGameBrowserMenuItem();
+            FileMenuDraw.ExportLevelMenuItem();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }
@@ -374,6 +375,7 @@ public class LunaWindow : Disposable
             ViewMenuDraw.ShowView3D();
             ViewMenuDraw.ShowAssetViewer();
             ViewMenuDraw.ShowTextureExplorer();
+            ViewMenuDraw.ShowShaderBrowser();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
             ViewMenuDraw.ShowConsoleFrame();
