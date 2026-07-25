@@ -159,6 +159,14 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         return true;
     }
 
+    // Texture names come straight from the game's own string tables, which for some formats
+    // (e.g. new-engine shader-referenced texture names) are full slash-delimited asset paths,
+    // not bare filenames — writing that as-is into Path.Combine either creates unwanted nested
+    // directories under Extracted/ or fails outright. Keep only the last path segment, and fall
+    // back to the texture's index (not e.g. "unnamed") when it has no name at all.
+    private static string GetExportFileName(string? textureName, int index) =>
+        string.IsNullOrEmpty(textureName) ? $"Tex_{index}" : textureName.Split('/')[^1];
+
     private static bool MaterialUsesTexture(IMaterial mat, ulong textureId) =>
         mat.AlbedoTexture?.Id == textureId ||
         mat.NormalTexture?.Id == textureId ||
@@ -396,7 +404,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
 
-                    File.WriteAllBytes(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".raw" : $"Tex_{selectedTexture}.raw"), selection.Texture.GetPixelData());
+                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selectedTexture) + ".raw"), selection.Texture.GetPixelData());
                 }
                 ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
@@ -406,7 +414,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                         Directory.CreateDirectory(path);
 
                     var clone = (Image)selection.BlissTexture.Images[0].Clone();
-                    clone.SaveAsPng(Path.Combine(path, selection.TextureName != null ? selection.TextureName + ".png" : $"Tex_{selectedTexture}.png"));
+                    clone.SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selectedTexture) + ".png"));
                 }
                 ImGui.Separator();
                 if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindUsages")))

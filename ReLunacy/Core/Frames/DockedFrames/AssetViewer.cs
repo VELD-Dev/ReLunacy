@@ -76,6 +76,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     public Vector2 RenderFramePos { get; private set; }
     public Vector2 MousePos { get; private set; }
     public MouseGrabHandler rmbghandler = new() { mouseButton = Bliss.CSharp.Interact.Mice.MouseButton.Right };
+    public MouseGrabHandler mmbghandler = new() { mouseButton = Bliss.CSharp.Interact.Mice.MouseButton.Middle };
     private readonly GraphicsDevice graphicsDevice;
     private RenderTexture2D renderTexture;
     private readonly IRenderer renderer;
@@ -655,7 +656,10 @@ public class AssetViewer : DockedFrame, ILevelListener
 
         HorizontalSplitter("##split_preview", ref previewHeight, rightWidth);
 
-        ImGui.Text($"{RenderFrameSize.Width}x{RenderFrameSize.Height} - Distance to origin: {Camera.Position.Length()}m");
+        // Distance to Target (the orbit pivot), not Camera.Position.Length() (distance to world
+        // zero) — those were the same thing before middle-click pan could move Target away from
+        // Vector3.Zero, but "distance to origin" now means "distance to wherever the pivot is."
+        ImGui.Text($"{RenderFrameSize.Width}x{RenderFrameSize.Height} - Distance to target: {Vector3.Distance(Camera.Position, Camera.Target)}m");
         ImGui.Separator();
 
         // Lower part split vertically: asset info/shaders/export on the left (unchanged content),
@@ -848,7 +852,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         Point absMousePos = new((int)windowMousePos.X, (int)windowMousePos.Y);
         bool isHoveringWnd = ImGui.IsWindowHovered();
         bool isMouseInCntReg = RenderFrameSize.Contains(absMousePos);
-        CheckRotationInput(isMouseInCntReg);
+        CheckCameraDragInput(isMouseInCntReg);
 
         // Scroll-zoom is independent of the RMB rotate-drag and gated purely on hovering the
         // render image, not "anywhere in the window" — otherwise scrolling while reading the
@@ -1118,27 +1122,75 @@ public class AssetViewer : DockedFrame, ILevelListener
             height += ImGui.GetIO().MouseDelta.Y;
     }
 
-    private void CheckRotationInput(bool allowGrab)
+    // Tracks the previous frame's drag state so the shared NoMouse flag (below) is only touched
+    // on a rising/falling edge, not every frame.
+    private bool wasDragging;
+
+    /// <summary>RMB drags orbit (rotates Position around the fixed Target); MMB drags pan (moves
+    /// Position and Target together, so the orbit origin itself relocates instead of just
+    /// spinning around it). Both share one method rather than two independent ones because they
+    /// also share the ImGuiConfigFlags.NoMouse relative-mouse-mode flag: two separate methods each
+    /// unconditionally setting/clearing that flag would have the second one clobber whatever the
+    /// first just set whenever only one of the two buttons is actually held.</summary>
+    private void CheckCameraDragInput(bool allowGrab)
     {
         ImGuiIOPtr io = ImGui.GetIO();
-        if (rmbghandler.TryGrabMouse(allowGrab))
-        {
+        bool rotating = rmbghandler.TryGrabMouse(allowGrab);
+        bool panning = mmbghandler.TryGrabMouse(allowGrab);
+        bool isDragging = rotating || panning;
+
+        // Edge-triggered, not level-triggered: NoMouse is also written by View3D's own drag
+        // handling (same relative-mouse-mode pattern, different viewport). Unconditionally
+        // clearing it every frame this viewport has nothing grabbed — what this used to do — would
+        // cut off a drag in progress over there if both frames tick within the same pass.
+        if (isDragging && !wasDragging)
             io.ConfigFlags |= ImGuiConfigFlags.NoMouse;
-        }
-        else
-        {
+        else if (!isDragging && wasDragging)
             io.ConfigFlags &= ~ImGuiConfigFlags.NoMouse;
-            return;
+        wasDragging = isDragging;
+
+        if (!isDragging) return;
+
+        Vector2 delta = Input.GetMouseDelta();
+
+        if (rotating)
+        {
+            Vector2 rot = delta * Program.Settings.CamSensivity;
+
+            // rotateAroundTarget: true swings Position around the fixed Target (real orbit).
+            // false — what this used to pass — keeps Position fixed and swings Target instead,
+            // which is FPS-style look, not an orbit; that's why this never actually orbited.
+            Camera.SetPitch(Camera.GetPitch() - rot.Y, true);
+            Camera.SetYaw(Camera.GetYaw() - rot.X, true);
         }
 
-        Vector2 rot = Input.GetMouseDelta();
-        rot *= Program.Settings.CamSensivity;
+        if (panning)
+        {
+            // Screen-pixel delta -> world-space delta at the orbit target's own depth (same
+            // perspective back-solve as WorldScaleForPixelRadius, without that method's
+            // billboard-specific 0.005 constant), so the point under the cursor at drag-start
+            // stays roughly under the cursor while dragging, matching typical middle-click-pan
+            // tools.
+            float distance = Vector3.Distance(Camera.Position, Camera.Target);
+            float fovYRad = Camera.Fov * (MathF.PI / 180f);
+            float worldUnitsPerPixel = 2f * distance * MathF.Tan(fovYRad * 0.5f) / Math.Max(1, RenderFrameSize.Height);
 
-        // rotateAroundTarget: true swings Position around the fixed Target (real orbit).
-        // false — what this used to pass — keeps Position fixed and swings Target instead,
-        // which is FPS-style look, not an orbit; that's why this never actually orbited.
-        Camera.SetPitch(Camera.GetPitch() - rot.Y, true);
-        Camera.SetYaw(Camera.GetYaw() - rot.X, true);
+            // Built by hand instead of Cam3D.MoveRight/MoveUp: those use GetRight() = Cross(Forward,
+            // Up) and the raw Up field directly, neither of which is normalized — Up drifts and
+            // isn't guaranteed orthogonal to Forward after SetPitch/SetRoll, so pan speed would
+            // vary with pitch (shrinking toward zero looking straight up/down) and drift over time.
+            // right/up here are a proper orthonormal basis for the current view.
+            Vector3 forward = Camera.GetForward();
+            Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Camera.Up));
+            Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
+
+            // Signs make the dragged point track the cursor (drag right -> content follows right,
+            // i.e. camera moves left; drag down -> content follows down, i.e. camera moves up) —
+            // not runtime-verified; if the pan feels inverted, flip both signs here.
+            Vector3 shift = right * (-delta.X * worldUnitsPerPixel) + up * (delta.Y * worldUnitsPerPixel);
+            Camera.Position += shift;
+            Camera.Target += shift;
+        }
     }
 
     private void UpdateWindowSize()
