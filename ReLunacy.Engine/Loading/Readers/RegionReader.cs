@@ -31,7 +31,7 @@ public sealed class RegionReader
         IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
 
         var mobyInstances = ReadMobyInstancesOld(gameplayFile);
-        var volumes = ReadVolumesOld(gameplayFile);
+        var volumes = ReadVolumesOld(gameplayFile, _debugReader);
 
         return new Assets.Levels.Region(
             id: 0,
@@ -235,14 +235,26 @@ public sealed class RegionReader
         sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
         sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
 
-    private static List<Volume> ReadVolumesOld(IGFile gameplayFile)
+    private static List<Volume> ReadVolumesOld(IGFile gameplayFile, DebugReader debugReader)
     {
         var volumeSection = gameplayFile.QuerySection(0x7740);
         var volumes = new Volume[volumeSection.count];
-        gameplayFile.sh.Seek(volumeSection.offset);
         for (int i = 0; i < volumeSection.count; i++)
         {
-            volumes[i] = new Volume((ulong)i, ReadMatrix4x4(gameplayFile.sh));
+            // Old-engine volume entries are 0x90 bytes each: a 0x40-byte (16-float, row-major,
+            // same convention as TieBound/new-engine volumes) transform matrix followed by 0x50
+            // bytes of still-unidentified trailing data — confirmed against ReLunacy-Ymir's own
+            // OldVolumeInstance, which documents this exact layout and explicitly warns against
+            // reading it as a packed array of bare matrices. Reading with no stride skip (what
+            // this used to do — sequential 0x40-byte reads with no gap) meant every entry after
+            // the first started inside the PREVIOUS entry's unknown trailing bytes instead of at
+            // its own real matrix: since gcd(0x40, 0x90) leaves a common period of 9 iterations
+            // (9 * 0x40 == 4 * 0x90), only every 9th "volume" happened to land back on a genuine
+            // entry boundary and decode correctly — everything else decomposed into a garbled
+            // scale/rotation, which reads as a visibly wrong-shaped/wrong-proportioned volume.
+            gameplayFile.sh.Seek(volumeSection.offset + i * 0x90);
+            string name = debugReader.GetVolumeName(i) ?? $"Volume_{i}";
+            volumes[i] = new Volume((ulong)i, ReadMatrix4x4(gameplayFile.sh), name);
         }
         return [.. volumes];
     }

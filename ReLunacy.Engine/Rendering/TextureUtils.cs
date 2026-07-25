@@ -46,6 +46,12 @@ public static class TextureUtils
     private static readonly BlockDecoder Bc1Decoder = BlockDecoder.Create(BlockFormat.BC1);
     private static readonly BlockDecoder Bc2Decoder = BlockDecoder.Create(BlockFormat.BC2);
     private static readonly BlockDecoder Bc3Decoder = BlockDecoder.Create(BlockFormat.BC3);
+    // Unsigned variants: no confirmed case in this game's assets needs signed BC4/BC5 data, and
+    // ReconstructZ (which derives a normal map's Z from X/Y) isn't used here since this decode
+    // path is generic — it's shared by plain texture export too, where injecting a normal-map
+    // assumption into every BC5 texture would be wrong.
+    private static readonly BlockDecoder Bc4Decoder = BlockDecoder.Create(BlockFormat.BC4U);
+    private static readonly BlockDecoder Bc5Decoder = BlockDecoder.Create(BlockFormat.BC5U);
 
     /// <summary>
     /// Decodes an ITexture's raw (possibly block-compressed) pixel data to a plain RGBA8888
@@ -65,10 +71,17 @@ public static class TextureUtils
         return texture.Format switch
         {
             Assets.Interfaces.TextureFormat.R5G6B5 => RGB565ToRGBA8888(raw, width, height),
+            Assets.Interfaces.TextureFormat.A1R5G5B5 => A1RGB555ToRGBA8888(raw, width, height),
+            Assets.Interfaces.TextureFormat.RGBA4 => RGBA4444ToRGBA8888(raw, width, height),
             Assets.Interfaces.TextureFormat.A8R8G8B8 => ARGB8888ToRGBA8888(raw, width, height),
+            Assets.Interfaces.TextureFormat.R8 => R8ToRGBA8888(raw, width, height),
+            Assets.Interfaces.TextureFormat.G8B8 => G8B8ToRGBA8888(raw, width, height),
+            Assets.Interfaces.TextureFormat.RGBA16F => RGBA16FToRGBA8888(raw, width, height),
             Assets.Interfaces.TextureFormat.DXT1 => Bc1Decoder.Decode(width, height, raw),
             Assets.Interfaces.TextureFormat.DXT3 => Bc2Decoder.Decode(width, height, raw),
             Assets.Interfaces.TextureFormat.DXT5 => Bc3Decoder.Decode(width, height, raw),
+            Assets.Interfaces.TextureFormat.BC4 => Bc4Decoder.Decode(width, height, raw),
+            Assets.Interfaces.TextureFormat.BC5 => Bc5Decoder.Decode(width, height, raw),
             _ => null,
         };
     }
@@ -144,6 +157,22 @@ public static class TextureUtils
         return img;
     }
 
+    /// <summary>Reassembles a big-endian (disk-order) 16-bit pixel from a 2-byte source. All the
+    /// 16-bit format decoders below read from data already loaded as-is off disk (StreamHelper's
+    /// stream is big-endian, and Texture.Unswizzle/ReadTexture don't reorder bytes — see those for
+    /// why), so byte0 is always the high byte.</summary>
+    private static ushort ReadPixel16(byte[] rawData, int i) => (ushort)((rawData[i * 2] << 8) | rawData[i * 2 + 1]);
+
+    /// <summary>Expands an N-bit channel value to 8 bits by replicating its high bits into the low
+    /// bits (e.g. 5-bit 11111 -> 11111111, not 11111000) — the standard bit-replication expansion,
+    /// avoids the low end of the range never reaching full brightness/darkness.</summary>
+    private static byte Expand(int value, int bits) => (byte)((value << (8 - bits)) | (value >> (2 * bits - 8)));
+
+    // Previously computed R/B by right-shifting a 5-bit field into the top of an 8-bit channel
+    // with no expansion (max output ~0x1F, i.e. red/blue could never exceed ~12% brightness), and
+    // G by OR-ing an unshifted byte1 high-bits term against a shifted byte0 low-bits term — the
+    // two write to overlapping bit positions instead of adjacent ones, corrupting green on every
+    // pixel. Fixed by unpacking the full 16-bit word first, then expanding each channel properly.
     public static byte[] RGB565ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int Rgb565Ps = 2;
@@ -156,10 +185,116 @@ public static class TextureUtils
 
         for (int i = 0; i < pixelCount; i++)
         {
-            result[i * Rgba8888Ps + 0] = (byte)((rawData[i * Rgb565Ps + 0] & 0b11111000) >> 3);
-            result[i * Rgba8888Ps + 1] = (byte)((byte)((rawData[i * Rgb565Ps + 0] & 0b00000111) << 3) | (byte)(rawData[i * Rgb565Ps + 1] & 0b11100000));
-            result[i * Rgba8888Ps + 2] = (byte)(rawData[i * Rgb565Ps + 1] & 0b00011111);
+            ushort px = ReadPixel16(rawData, i);
+            result[i * Rgba8888Ps + 0] = Expand((px >> 11) & 0x1F, 5);
+            result[i * Rgba8888Ps + 1] = Expand((px >> 5) & 0x3F, 6);
+            result[i * Rgba8888Ps + 2] = Expand(px & 0x1F, 5);
             result[i * Rgba8888Ps + 3] = 0xFF;
+        }
+
+        return result;
+    }
+
+    /// <summary>Bit layout (MSB->LSB) A1 R5 G5 B5 — matches the format name and the equivalent
+    /// bare-Vulkan/D3D "A1R5G5B5" convention, not independently confirmed against real data.</summary>
+    public static byte[] A1RGB555ToRGBA8888(in byte[] rawData, int width, int height)
+    {
+        const int DstPs = 4;
+        int pixelCount = width * height;
+        byte[] result = new byte[pixelCount * DstPs];
+
+        for (int i = 0; i < pixelCount; i++)
+        {
+            ushort px = ReadPixel16(rawData, i);
+            result[i * DstPs + 0] = Expand((px >> 10) & 0x1F, 5);
+            result[i * DstPs + 1] = Expand((px >> 5) & 0x1F, 5);
+            result[i * DstPs + 2] = Expand(px & 0x1F, 5);
+            result[i * DstPs + 3] = (byte)(((px >> 15) & 0x1) * 0xFF);
+        }
+
+        return result;
+    }
+
+    /// <summary>Bit layout (MSB->LSB) R4 G4 B4 A4, following the format name's channel order —
+    /// unconfirmed against real data; if colors look swapped/tinted on a real RGBA4 texture, this
+    /// is the first thing to try reordering (e.g. to A4R4G4B4).</summary>
+    public static byte[] RGBA4444ToRGBA8888(in byte[] rawData, int width, int height)
+    {
+        const int DstPs = 4;
+        int pixelCount = width * height;
+        byte[] result = new byte[pixelCount * DstPs];
+
+        for (int i = 0; i < pixelCount; i++)
+        {
+            ushort px = ReadPixel16(rawData, i);
+            result[i * DstPs + 0] = Expand((px >> 12) & 0xF, 4);
+            result[i * DstPs + 1] = Expand((px >> 8) & 0xF, 4);
+            result[i * DstPs + 2] = Expand((px >> 4) & 0xF, 4);
+            result[i * DstPs + 3] = Expand(px & 0xF, 4);
+        }
+
+        return result;
+    }
+
+    /// <summary>Single 8-bit channel, replicated across R/G/B for a legible grayscale view (same
+    /// convention as ColourAsMain below) rather than left only in the red channel.</summary>
+    public static byte[] R8ToRGBA8888(in byte[] rawData, int width, int height)
+    {
+        const int DstPs = 4;
+        int pixelCount = width * height;
+        byte[] result = new byte[pixelCount * DstPs];
+
+        for (int i = 0; i < pixelCount; i++)
+        {
+            byte v = rawData[i];
+            result[i * DstPs + 0] = v;
+            result[i * DstPs + 1] = v;
+            result[i * DstPs + 2] = v;
+            result[i * DstPs + 3] = 0xFF;
+        }
+
+        return result;
+    }
+
+    /// <summary>byte0=G, byte1=B per the format name's order (commonly a 2-channel tangent-space
+    /// normal map XY pair in other engines, but that's not confirmed for this game) — unconfirmed
+    /// against real data, same caveat as RGBA4444ToRGBA8888.</summary>
+    public static byte[] G8B8ToRGBA8888(in byte[] rawData, int width, int height)
+    {
+        const int SrcPs = 2, DstPs = 4;
+        int pixelCount = width * height;
+        byte[] result = new byte[pixelCount * DstPs];
+
+        for (int i = 0; i < pixelCount; i++)
+        {
+            result[i * DstPs + 0] = 0;
+            result[i * DstPs + 1] = rawData[i * SrcPs + 0];
+            result[i * DstPs + 2] = rawData[i * SrcPs + 1];
+            result[i * DstPs + 3] = 0xFF;
+        }
+
+        return result;
+    }
+
+    /// <summary>4x 16-bit half-float channels (RGBA), clamped to [0,1] and scaled to 8-bit since
+    /// the output target here is always an LDR buffer (GPU upload or PNG export) — HDR values
+    /// above 1.0 just clip rather than tone-map. Byte order matches ReadPixel16 (big-endian
+    /// disk-order halves).</summary>
+    public static byte[] RGBA16FToRGBA8888(in byte[] rawData, int width, int height)
+    {
+        const int DstPs = 4;
+        int pixelCount = width * height;
+        byte[] result = new byte[pixelCount * DstPs];
+
+        for (int i = 0; i < pixelCount; i++)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                int srcIdx = i * 8 + c * 2;
+                ushort halfBits = (ushort)((rawData[srcIdx] << 8) | rawData[srcIdx + 1]);
+                float value = (float)BitConverter.UInt16BitsToHalf(halfBits);
+                result[i * DstPs + c] = (byte)(Math.Clamp(value, 0f, 1f) * 0xFF);
+            }
         }
 
         return result;
