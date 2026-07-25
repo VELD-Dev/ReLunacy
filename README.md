@@ -19,7 +19,7 @@
     <a href="#notes">Notes</a> •
     <a href="./LICENSE">License</a> •
     <a href="#credits">Credits</a>
-    <a href="CONTRIBUTING.md">Contributing</a>-->
+    <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
