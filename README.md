@@ -23,7 +23,10 @@
 </p>
 
 <p align="center">
-    <video autoplay="true" src="media/demo.mp4">
+    <video src="https://github.com/user-attachments/assets/9031135c-a13b-4e37-a829-c0ffb7aa1ce6" autoplay muted loop playsinline></video>
+</p>
+
+<p align="center">
     <img alt="GitHub License" src="https://img.shields.io/github/license/VELD-Dev/ReLunacy?style=for-the-badge">
     <img alt="GitHub Release" src="https://img.shields.io/github/v/release/VELD-Dev/ReLunacy?style=for-the-badge&color=00DD00">
     <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/VELD-Dev/ReLunacy/total?style=for-the-badge&label=tot.%20downloads&color=7E7EDD">
@@ -44,6 +47,7 @@
 | Ratchet & Clank: Full Frontal Assault |      New+      |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
 | Resistance: Burning Skies             |      New+      |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
 | Ratchet & Clank: Into the Nexus       |      New+      |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
+
 Notes:
 - **¹** : Textures are supported but some artifacts remain.
 - **²** : Textures are supported but some artifacts remain and some meshes have wrong UVs
