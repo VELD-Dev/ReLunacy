@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-    <video autoplay="true" src="media/demo.webm">
+    <video autoplay="true" src="media/demo.mp4">
     <img alt="GitHub License" src="https://img.shields.io/github/license/VELD-Dev/ReLunacy?style=for-the-badge">
     <img alt="GitHub Release" src="https://img.shields.io/github/v/release/VELD-Dev/ReLunacy?style=for-the-badge&color=00DD00">
     <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/VELD-Dev/ReLunacy/total?style=for-the-badge&label=tot.%20downloads&color=7E7EDD">
