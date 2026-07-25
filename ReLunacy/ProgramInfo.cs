@@ -8,7 +8,7 @@ namespace ReLunacy;
 
 public static class ProgramInfo
 {
-    public const string Name = "ReLunacy_Blissed";
+    public const string Name = "ReLunacy";
     public const string DisplayName = "ReLunacy";
     public const string Version = "0.04";
     public const string GithubURL = "https://github.com/VELD-Dev/ReLunacy/";
