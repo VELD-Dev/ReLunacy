@@ -6,17 +6,17 @@
 </h1>
 <h3>
     <p align="center">
-        Level Editor for the Ratchet and Clank: Future Series and Resistance PS3 games
+        Level Editor for the Ratchet and Clank: Future Series and Resistance PS3 opuses
     </p>
 </h3>
 <p align="center" style="font-weight: 300;">
     <a href="#features">Features</a> •
     <a href="#prerequisites">Prerequisites</a> •
     <a href="#usage">Usage</a> •
-    <a href="#building">Building</a> •
+    <a href="#clone_build">Clone & Build</a> •
     <a href="#running">Running</a> •
     <a href="#notes">Notes</a> •
-    <a href="#license">License</a> •
+    <a href="./LICENSE">License</a> •
     <a href="#credits">Credits</a>
     <!--<a href="#technology">Technology</a> •
     <a href="CONTRIBUTING.md">Contributing</a>-->
@@ -49,9 +49,9 @@ ReLunacy is still in early development, but it comes with very interesting featu
 <h2 id="prerequisites">⚠️ Prerequisites</h2>
 
 Here are essential things you need to run **ReLunacy**, without those, the app might be slow or could just not run at all.
-- (Windows) [**.NET 8.0 Desktop Runtime**](https://download.visualstudio.microsoft.com/download/pr/907765b0-2bf8-494e-93aa-5ef9553c5d68/a9308dc010617e6716c0e6abd53b05ce/windowsdesktop-runtime-8.0.8-win-x64.exe)
-- (Linux/Mac) [**.NET 8.0 Runtime**](https://dotnet.microsoft.com/fr-fr/download/dotnet/8.0#runtime-8.0.8)
-- A 64bits (x64) OS... I mean... 32bits (x32) OS doesn't exist anymore right ?
+- (Windows) [**.NET 9.0 Desktop Runtime**](https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.1/windowsdesktop-runtime-9.0.1-win-x64.exe)
+- (Linux/Mac) [**.NET 9.0 Runtime**](https://dotnet.microsoft.com/fr-fr/download/dotnet/9.0#runtime-9.0.1)
+- A 64bits (x64) OS... I mean... who uses a x32 device in 2025 ?
 
 <h2 id="usage">⌨️ Usage</h2>
 
@@ -88,9 +88,12 @@ Controls:
   - The Stats Overlay can be customized inside `Edit > Editor Settings > Overlay settings`.
   - The interface language can be changed inside `Edit > Editor Settings > Visual settings`.
 
-## Building
-* cd into the directory with the `Lunacy.sln` file
-* Run `dotnet build`
+<h2 id="clone_build">Clone & Build</h2>
+
+- Clone the repo with `git clone https://github.com/VELD-Dev/ReLunacy.git --recursive` (add `-b dev` if you want to use branch dev)
+- After cloning, make sure to run `git submodules update --recursive` to update the external dependencies (LibreFios).
+- cd into the directory with the `Lunacy.sln` file
+- Run `dotnet build ReLunacy` (Lunacy probably won't build anymore, I did not try to fix its errors or adapt it to the new LunaLib)
 
 ## Running
 
@@ -122,12 +125,6 @@ Controls:
 
 * Including the `texstream.dat` file in the same place as `main.dat` will improve texture resolution (found in `level_textures.psarc`)
 * Including the `debug.dat` file for a level in the same place as `main.dat` will include asset and instance names
-
-## License
-This project is using different licenses for its components.
-- **ReLunacy** is licensed as Copyleft **GPL-v3.0**. [See LICENSE-RELUNACY](./LICENSE-RELUNACY)
-- **LunaLib** is licensed as **MIT**. [See LICENSE-LUNALIB](./LICENSE-LUNALIB)
-- **Lunacy** is licensed as **ALL RIGHTS RESERVED** (belonging to NefariousTechSupport) accordingly to the original repository (no license)
 
 ## Credits
 

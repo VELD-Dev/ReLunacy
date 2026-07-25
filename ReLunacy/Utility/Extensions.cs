@@ -1,91 +1,40 @@
-﻿using Vec2 = OpenTK.Mathematics.Vector2;
-using Vector2 = System.Numerics.Vector2;
-using Vec3 = OpenTK.Mathematics.Vector3;
-using Vector3 = System.Numerics.Vector3;
-using Vec4 = OpenTK.Mathematics.Vector4;
-using Vector4 = System.Numerics.Vector4;
-using Quat = OpenTK.Mathematics.Quaternion;
-using Quaternion = System.Numerics.Quaternion;
+using System.Drawing;
+using System.Numerics;
 
 namespace ReLunacy.Utility;
 
 public static class Extensions
 {
-    public const float YardToMeter = 0.914402f;
-    public const float MeterToYard = 1.093611f;
-
-    public static Vector2 ToNumerics(this Vec2 vec) => new(vec.X, vec.Y);
-    public static Vector2 ToNumerics(this Vector2i vec) => new(vec.X, vec.Y);
-    public static Vec2 ToOpenTK(this Vector2 vec) => new(vec.X, vec.Y);
-    public static Vector3 ToNumerics(this Vec3 vec) => new(vec.X, vec.Y, vec.Z);
-    public static Vector3 ToNumerics(this Vector3i vec) => new(vec.X, vec.Y, vec.Z);
-    public static Vec3 ToOpenTK(this Vector3 vec) => new(vec.X, vec.Y, vec.Z);
-    public static Vector4 ToNumerics(this Vec4 vec) => new(vec.X, vec.Y, vec.Z, vec.W);
-    public static Vector4 Tonumerics(this Vector4i vec) => new(vec.X, vec.Y, vec.Z, vec.W);
-    public static Vec4 ToOpenTK(this Vector4 vec) => new(vec.X, vec.Y, vec.Z, vec.W);
-    public static Matrix4x4 ToNumerics(this Matrix4 matrix) => new(
-        matrix.M11, matrix.M12, matrix.M13, matrix.M14,
-        matrix.M21, matrix.M22, matrix.M23, matrix.M24,
-        matrix.M31, matrix.M32, matrix.M33, matrix.M34,
-        matrix.M41, matrix.M42, matrix.M43, matrix.M44
-        );
-    public static Matrix4 ToOpenTK(this Matrix4x4 matrix) => new(
-        matrix.M11, matrix.M12, matrix.M13, matrix.M14,
-        matrix.M21, matrix.M22, matrix.M23, matrix.M24,
-        matrix.M31, matrix.M32, matrix.M33, matrix.M34,
-        matrix.M41, matrix.M42, matrix.M43, matrix.M44
-        );
-    public static Quaternion ToNumerics(this Quat quat) => new(quat.X, quat.Y, quat.Z, quat.W);
-    public static Quat ToOpenTK(this Quaternion quat) => new(quat.X, quat.Y, quat.Z, quat.W);
-
-    public static Vector4 ToVec4Num(this Color4 col) => new(col.R, col.G, col.B, col.A);
-    public static Vector4 ToVec4NumB(this Color4 col) => new(col.R * 0xFF, col.G * 0xFF, col.B * 0xFF, col.A * 0xFF);
-    public static Vec4 ToVec4TK(this Color4 col) => new(col.R, col.G, col.B, col.A);
-    public static Vec4 ToVec4TKB(this Color4 col) => new(col.R * 0xFF, col.G * 0xFF, col.B * 0xFF, col.A * 0xFF);
-
     public static Vector2 GetSizeF(this Rectangle rect) => new(rect.Width, rect.Height);
-    public static Vector2i GetSizeI(this Rectangle rect) => new(rect.Width, rect.Height);
     public static Vector2 GetOriginF(this Rectangle rect) => new(rect.Location.X, rect.Location.Y);
-    public static Vector2i GetOriginI(this Rectangle rect) => new(rect.Location.X, rect.Location.Y);
     public static Vector2 GetEndF(this Rectangle rect) => new(rect.Right, rect.Bottom);
-    public static Vector2i GetEndI(this Rectangle rect) => new(rect.Right, rect.Bottom);
     public static Vector2 GetCenterF(this Rectangle rect) => new(rect.Width / 2f, rect.Height / 2f);
-    public static Vector2i GetCenterI(this Rectangle rect) => new(rect.Width / 2, rect.Height / 2);
 
-    public static double DistanceFrom(this Vector3 origin, Vector3 obj)
-    {
-        Vector3 objRelPos = obj - origin;
-        double distance = Math.Sqrt(Math.Pow(objRelPos.X, 2) + Math.Pow(objRelPos.Y, 2) + Math.Pow(objRelPos.Z, 2));
-        return (float)distance;
-    }
-
-    public static double DistanceFrom(this Vec3 origin, Vec3 obj)
-    {
-        Vec3 objRelPos = obj - origin;
-        double distance = Math.Sqrt(Math.Pow(objRelPos.X, 2) + Math.Pow(objRelPos.Y, 2) + Math.Pow(objRelPos.Z, 2));
-        return (float)distance;
-    }
+    public static double DistanceFrom(this Vector3 origin, Vector3 obj) => Vector3.Distance(origin, obj);
 
     public static Vector3 GetXYZ(this Vector4 vec4) => new(vec4.X, vec4.Y, vec4.Z);
 
-    /// <summary>
-    /// Stringifies efficiently any <see cref="IEnumerable{T}"/> using a defined key, separated by a char or a string and a defined amount of times.
-    /// </summary>
-    /// <typeparam name="T">Type of the element of the enumerable.</typeparam>
-    /// <param name="enumerable">Enumerable to stringify.</param>
-    /// <param name="separator">String that will be used to separate each <typeparamref name="T"/> of the <see cref="IEnumerable{T}"/> once stringified.</param>
-    /// <param name="key">Key that will be used for the enumerable.</param>
-    /// <param name="count">Amount of elements of the enumerable to stringify. 0 stringifies the entire <see cref="IEnumerable{T}"/>.</param>
-    /// <returns></returns>
+    public static Quaternion QuaternionFromEuler(this Vector3 vec3) => Quaternion.CreateFromYawPitchRoll(vec3.X, vec3.Y, vec3.Z);
+
+    /// <summary>Inverse of <see cref="QuaternionFromEuler"/>: returns (yaw, pitch, roll) in radians.</summary>
+    public static Vector3 ToEuler(this Quaternion q)
+    {
+        float yaw = MathF.Atan2(2f * (q.W * q.Y + q.X * q.Z), 1f - 2f * (q.Y * q.Y + q.X * q.X));
+        float sinp = 2f * (q.W * q.X - q.Y * q.Z);
+        float pitch = MathF.Abs(sinp) >= 1f ? MathF.CopySign(MathF.PI / 2f, sinp) : MathF.Asin(sinp);
+        float roll = MathF.Atan2(2f * (q.W * q.Z + q.X * q.Y), 1f - 2f * (q.X * q.X + q.Z * q.Z));
+        return new Vector3(yaw, pitch, roll);
+    }
+
     public static string Stringify<T>(this IEnumerable<T> enumerable, string separator = ",", Func<T, string>? key = null, uint count = 0)
     {
-        key ??= (itm => itm?.ToString() ?? "undefined");
-        if (count == 0 || count > enumerable.Count()) count = (uint)enumerable.Count();
+        key ??= itm => itm?.ToString() ?? "undefined";
+        var items = enumerable.ToList();
+        if (count == 0 || count > items.Count) count = (uint)items.Count;
         var sb = new StringBuilder();
         for (int i = 0; i < count; i++)
         {
-            sb.Append(key.Invoke(enumerable.ElementAt(i)));
-
+            sb.Append(key.Invoke(items[i]));
             if (i == count - 1) break;
             sb.Append(separator);
         }

@@ -1,8 +1,9 @@
 using System.Linq;
+using LibLunacy.Legacy;
 
 namespace Lunacy
 {
-	public class EntityManager
+    public class EntityManager
 	{
 		static Lazy<EntityManager> lazy = new Lazy<EntityManager>(() => new EntityManager());
 
@@ -48,7 +49,7 @@ namespace Lunacy
 					{
 						for(uint k = 0; k < gp.regions[i].zones[j].ufrags.Length; k++)
 						{
-							var ufrag = new Entity(gp.regions[i].zones[j].ufrags[k]);
+							var ufrag = new Entity(gp.regions[i].zones[j].ufrags[k], (ulong)j, (int)k);
                             TFrags.Last().Add(ufrag);
 						}
 					}
@@ -165,8 +166,8 @@ namespace Lunacy
 
 	public class Entity
 	{
-		public object instance;					//Is either a Region.CMobyInstance or a TieInstance depending on if it's a moby or tie repsectively
-		public object drawable;					//Is either a DrawableListList or a DrawableList depending on if it's a moby or tie respectively
+		public object instance;					//Is either a Region.CMobyInstance or a TieInstance depending on if it's a MobyObj or tie repsectively
+		public object drawable;					//Is either a DrawableListList or a DrawableList depending on if it's a MobyObj or tie respectively
 		public int id;
 		public string name = string.Empty;
 
@@ -197,12 +198,12 @@ namespace Lunacy
 			(drawable as DrawableList).AddDrawCall(transform);
 			boundingSphere = new Vector4(Utils.ToOpenTK(tieInstance.boundingPosition), tieInstance.boundingRadius);
 		}
-		public Entity(CZone.UFrag ufrag)
+		public Entity(CZone.UFrag ufrag, ulong zoneIndex, int ufragIndex)
 		{
 			instance = ufrag;
 			drawable = new Drawable(ref ufrag);
-			name = $"UFrag_{ufrag.GetTuid():X08}";
-			transform = new Transform(ufrag.GetPosition().ToOpenTK(), Vector3.Zero, Vector3.One / (float)255f);
+			name = $"UFrag_{zoneIndex}_{ufragIndex}";
+			transform = new Transform(ufrag.GetPosition().ToOpenTK() / 0x100, Vector3.Zero, Vector3.One / 0x100);
 
 			((Drawable)drawable).AddDrawCall(transform);
 			((Drawable)drawable).ConsolidateDrawCalls();

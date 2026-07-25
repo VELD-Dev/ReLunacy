@@ -6,4 +6,9 @@
 */bin
 */obj
 *.ini
+*.zip
 recovery
+
+# Other files
+*.rdc  # RenderDoc captures
+.claude/

@@ -1,7 +1,9 @@
+using LibLunacy.Legacy;
+
 namespace Lunacy
 {
-	//This class converts the games assets into things that OpenGL can deal with, along with caching them to cut down on memory and loads
-	public class AssetManager
+    //This class converts the games assets into things that OpenGL can deal with, along with caching them to cut down on memory and loads
+    public class AssetManager
 	{
 		private static readonly Lazy<AssetManager> lazy = new Lazy<AssetManager>(() => new AssetManager());
 		public static AssetManager Singleton => lazy.Value;
