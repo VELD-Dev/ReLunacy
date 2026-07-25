@@ -17,5 +17,6 @@ public class Volume : IVolumeData
         Name = name;
         this.transform = transform;
         IsLoaded = true;
+        this.group = group;
     }
 }

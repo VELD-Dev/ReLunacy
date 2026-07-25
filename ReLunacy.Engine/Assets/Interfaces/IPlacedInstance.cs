@@ -14,5 +14,7 @@ public interface IPlacedInstance<out TAsset> where TAsset : IAsset
     public string Name { get; set; }
     /// <summary><c>0</c> on old engine.</summary>
     public ushort Group { get; init; }
+    /// <summary>Distance (in-game units) beyond which the game itself stops rendering this instance. &lt; 0 means unlimited. Only Mobys carry this from the file; other instance types default to unlimited.</summary>
+    public float DisplayDistance { get; init; }
     Matrix4x4 GetTransformMatrix();
 }

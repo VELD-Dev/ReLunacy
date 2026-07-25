@@ -52,10 +52,16 @@ public static class LevelExporter
 
                 foreach (var instance in assetGroup)
                 {
-                    if (moby.Skeleton != null)
-                        AddSkinnedInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes, moby.Skeleton);
-                    else
-                        AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
+                    // Mobys are always exported as static (rigid) meshes at whole-level scope, even
+                    // when their asset has a skeleton — a shared skeletal asset placed more than once
+                    // would need one fresh joint hierarchy per instance, all parented under the same
+                    // level-wide root, and SharpGLTF's armature validation rejects that as soon as two
+                    // instances' bone nodes collide by name (NodeBuilder.IsValidArmature walks the
+                    // whole scene graph under the shared root, not just one instance's joints),
+                    // throwing "Export failed:  (Parameter 'joints')" on any level with a skinned Moby
+                    // placed more than once. Single-asset export (AssetViewer) is unaffected — each
+                    // export there gets its own standalone scene/root.
+                    AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
                     anyContentAdded = true;
                     ReportProgress();
                 }
@@ -140,33 +146,17 @@ public static class LevelExporter
             sceneBuilder.AddRigidMesh(mesh, instanceNode.CreateNode(name));
     }
 
-    /// <summary>Skinned counterpart of AddInstanceNode. Unlike a rigid mesh, a skinned mesh is
-    /// positioned by its joint nodes' world transforms rather than a mesh-attach transform, so
-    /// each placed instance needs its own fresh joint hierarchy (parented under its own instance
-    /// node) even though it reuses the same cached mesh/skin-weight data as every other
-    /// instance.</summary>
-    private static void AddSkinnedInstanceNode(SceneBuilder sceneBuilder, NodeBuilder assetNode, string instanceName, Matrix4x4 worldMatrix, IReadOnlyList<(string Name, IMeshBuilder<MaterialBuilder> Mesh)> assetMeshes, ISkeleton skeleton)
-    {
-        var instanceNode = assetNode.CreateNode(ExportPaths.SanitizeFileName(instanceName));
-        instanceNode.LocalTransform = new AffineTransform(worldMatrix);
-
-        var jointBindings = GltfExporter.BuildSkinnedJoints(skeleton, instanceNode);
-        foreach (var (_, mesh) in assetMeshes)
-            sceneBuilder.AddSkinnedMesh(mesh, jointBindings);
-    }
-
     private static IReadOnlyList<(string Name, IMeshBuilder<MaterialBuilder> Mesh)> GetOrBuildMobyMeshes(
         IMoby moby, Dictionary<ulong, MaterialBuilder> materialCache, Dictionary<ulong, IReadOnlyList<(string, IMeshBuilder<MaterialBuilder>)>> cache)
     {
         if (cache.TryGetValue(moby.Id, out var cached))
             return cached;
 
-        var skeleton = moby.Skeleton;
+        // Always the rigid (unskinned) builder — see the comment at this method's call site for why
+        // whole-level export never uses skeletal data, even for Mobys that have one.
         var result = moby.Bangles
             .Select((bangle, i) => string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name)
-            .Zip(moby.Bangles, (name, bangle) => (name, skeleton != null
-                ? (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildSkinnedMeshBuilder(name, bangle.Meshes, materialCache, skeleton.RootBoneIndex)
-                : (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildMeshBuilder(name, bangle.Meshes, materialCache)))
+            .Zip(moby.Bangles, (name, bangle) => (name, (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildMeshBuilder(name, bangle.Meshes, materialCache)))
             .ToList();
 
         cache[moby.Id] = result;

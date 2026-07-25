@@ -95,6 +95,12 @@ internal class EditorSettingsFrame : Frame
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, 0.1f, 1.0f, "%.3fm");
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, 1.0f, 15.0f, "%.3f°");
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapScale"), ref Program.Settings.GizmoSnapScale, 0.05f, 0.25f, "%.3f");
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_VolumeWireThickness"), ref Program.Settings.VolumeWireThickness, 0.01f, 5f, "%.2f", ImGuiSliderFlags.AlwaysClamp);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_VolumeWireThicknessHelp"));
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeColor"), ref Program.Settings.VolumeColor);
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_SelectionOutlineColor"), ref Program.Settings.SelectionOutlineColor);
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }

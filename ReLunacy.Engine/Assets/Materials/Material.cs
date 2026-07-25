@@ -11,6 +11,7 @@ public sealed class Material : IMaterial
     public ITexture? AlbedoTexture { get; init; }
     public ITexture? NormalTexture { get; init; }
     public ITexture? PropertiesTexture { get; init; }
+    public ITexture? DetailTexture { get; init; }
 
     public RenderMode RenderMode { get; init; }
     public float AlphaClipThreshold { get; init; }
@@ -30,13 +31,14 @@ public sealed class Material : IMaterial
         AlphaClipThreshold = 0.5f;
     }
 
-    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f, bool usesVertexAlphaCandidate = false)
+    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, ITexture? detail = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f, bool usesVertexAlphaCandidate = false)
     {
         return new Material(id)
         {
             AlbedoTexture = albedo,
             NormalTexture = normal,
             PropertiesTexture = properties,
+            DetailTexture = detail,
             RenderMode = renderMode,
             AlphaClipThreshold = alphaClipThreshold,
             UsesVertexAlphaCandidate = usesVertexAlphaCandidate

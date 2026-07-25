@@ -15,12 +15,12 @@ Because the European date format is better, please keep date format like this: `
 - Added a new logging system, logging everything to a file (except the errors, will be fixed in a future release)
 - Added a new `Logs` frame, showing the logs output.
 - Created internal Entity types based off their real types, increasing editor flexibility and reliability.
-- [TO BE DONE] Added a new `Asset View` frame, allowing to isolate an entity and its data on a separate frame, showing its model in its own frame. It will also allow to export objects as `.gltf`, `.obj` and `.dae` models in the future.
+- Added a new `Asset View` frame, allowing to isolate an entity and its data on a separate frame, showing its model in its own frame. Objects can now be exported as `.gltf`/`.glb` and `.obj` (`.dae` still not supported).
 - Added a new `Texture Explorer` frame, allowing to inspect a texture and its data on a separate frame, and export its raw data or export them as `.bmp` and `.png`
 - Added bases for animations and animations viewing in the Asset view.
-- [TO BE DONE] Added basic transform tools to interact with assets directly from the 3D View.
+- Added transform tools (move/rotate/scale gizmos, via ImGuizmo) to interact with assets directly from the 3D View, including translation/rotation/scale snapping settings.
 - Added frames rounding and removed frames borders, making the UI more modern and pleasant for the eyes.
-- [TO BE DONE] Edited Update frame, it will now show a frame telling that there is no newer version too.
+- Edited Update frame: it now supports a Stable/Nightly update channel setting and properly notifies when no newer version is available.
 - Added a loading modal when loading a level, showing the precise progress of the level loading, with all the detailed steps.
 - A few fixes for UFrags on old engine.
 - Rewrote Textures reading, it is much faster than before.
@@ -31,6 +31,18 @@ Because the European date format is better, please keep date format like this: `
 - Instance Properties frame now shows the vertices of the object (will be moved to Asset View).
 - Reducing far clip distance should now increase performance as it now unloads objects that are further this distance (which was not the case before, it was just not showing them but they were still rendering)
 - Updated Entity Explorer frame's search bar: It will now update the output only when pressing "enter", and above that the search results are now cached, improving considerably performances.
+- Merged LibLunacy (asset-format library) and its archive I/O directly into ReLunacy.Engine instead of referencing them as separate assemblies, fully retargeted to Bliss 1.6.15/Veldrith; reorganized loading/asset code under clearer `Loading`/`Assets`/`Scene`/`Rendering`/`Games` namespaces and removed unused legacy engine code left over from the old architecture.
+- Added `.gltf`/`.glb` and `.obj` model export (with `.mtl`/`.png`), including a new whole-level export (`Export Level`) that bundles every placed instance into a single scene file. Export runs in the background with a progress modal and an "open containing folder" action when done. Mobys with skeletons now always export as static/rigid meshes at level scope (this avoids a crash from colliding bone names across placed instances) and the exported level file is named after the level's own folder instead of the raw `level_cached`/`level_uncached` archive filename.
+- Added skinned-mesh/skeleton export support (joint extraction, bone-weighted meshes) for single-asset exports.
+- Implemented a custom `DecalAwareForwardRenderer`, fixing z-fighting on alpha-blended decal textures (moss/vines painted onto terrain) by disabling depth *writes* (while keeping depth *testing*) for translucent geometry instead of Bliss's default renderer, which hardcoded depth writes for everything.
+- Implemented Moby per-instance render/display distance culling (reverse-engineered from real gameplay data), toggleable from the Render menu — off by default since the free-fly editor camera doesn't share the game's player-anchored camera assumptions.
+- Added Volume selection in the 3D viewport: proper GPU-buffer picking against the volume's actual wireframe edges (not a solid hitbox, so clicking empty interior space no longer selects a volume), with configurable wire thickness and unselected/selected colors in Editor Settings, and volume metadata (ID/group) now shown in the Property Inspector.
+- Added a configurable Selection Outline color in Editor Settings.
+- Expanded supported texture formats (R8, A1R5G5B5, RGBA4, RGBA16F, BC4, BC5, G8B8), fixed imprecise RGB565 channel expansion, and added linearization handling for Morton-swizzled textures.
+- Native vertex tangent decoding straight from source mesh data, replacing the previous derived/approximated tangents, for more accurate normal-mapped rendering.
+- Added a nightly build pipeline (GitHub Actions, Windows + Linux artifacts, rolling release).
+- Relicensed the project under the GNU GPL v3.
+- README overhaul: replaced the demo GIF with an embedded, autoplaying video and cleaned up the licensing section.
 
 ## [v0.03](https://github.com/VELD-Dev/ReLunacy/releases/0.03) - 23-05-2025
 

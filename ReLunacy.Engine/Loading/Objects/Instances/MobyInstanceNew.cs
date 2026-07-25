@@ -12,7 +12,9 @@ public record struct MobyInstanceNew : ILunaSerializable, IMobyInstance
 
     [FileOffset(0x00)] public ushort mobyIndex;
     [FileOffset(0x02)] public ushort groupIndex;
-    [FileOffset(0x04), Reference(0x10)] public byte[] Unk1;
+    [FileOffset(0x04)] public float displayDist;
+    [FileOffset(0x08)] public float updateDist;
+    [FileOffset(0x0C), Reference(0x08)] public byte[] Unk1;
     [FileOffset(0x14)] public Vector3 position;
     [FileOffset(0x20)] public Vector3 rotation;
     [FileOffset(0x2C)] public float scale;
@@ -22,6 +24,8 @@ public record struct MobyInstanceNew : ILunaSerializable, IMobyInstance
     public Vector3 Rotation { readonly get => rotation; set => rotation = value; }
     public float Scale { readonly get => scale; set => scale = value; }
     public ushort MobyIndex { readonly get => mobyIndex; set => mobyIndex = value; }
+    public float DisplayDistance { readonly get => displayDist; set => displayDist = value; }
+    public float UpdateDistance { readonly get => updateDist; set => updateDist = value; }
 
     public static MobyInstanceNew Read(StreamHelper sh) => FileUtils.ReadStructure<MobyInstanceNew>(sh);
 

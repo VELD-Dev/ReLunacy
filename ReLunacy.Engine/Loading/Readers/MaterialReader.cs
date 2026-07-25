@@ -62,6 +62,7 @@ public sealed class MaterialReader
             albedo: albedo,
             normal: shader.Normal != null ? WrapTexture(shader.Normal) : null,
             properties: shader.Expensive != null ? WrapTexture(shader.Expensive) : null,
+            detail: shader.DetailMap != null ? WrapTexture(shader.DetailMap) : null,
             renderMode: ToRenderMode(shader.RenderingMode),
             alphaClipThreshold: GetAlphaClip(shader),
             usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo));

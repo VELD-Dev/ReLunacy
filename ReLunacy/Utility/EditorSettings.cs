@@ -40,6 +40,10 @@ public class EditorSettings
     public float GizmoSnapTranslation;
     public float GizmoSnapRotation;
     public float GizmoSnapScale;
+    public float VolumeWireThickness;
+    public Vector4 VolumeColor;
+    public Vector4 VolumeSelectedColor;
+    public Vector4 SelectionOutlineColor;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders = [];
     public bool LegacyRenderingMode;
@@ -93,6 +97,10 @@ public class EditorSettings
         GizmoSnapTranslation = 1.0f;
         GizmoSnapRotation = 15.0f;
         GizmoSnapScale = 0.25f;
+        VolumeWireThickness = 0.1f;
+        VolumeColor = new Vector4(1f, 1f, 0f, 1f);
+        VolumeSelectedColor = new Vector4(1f, 1f, 1f, 1f);
+        SelectionOutlineColor = new Vector4(1f, 0.65f, 0f, 1f);
         LegacyRenderingMode = false;
         BackfaceCulling = false;
         UpdateChannel = UpdateChannel.Stable;

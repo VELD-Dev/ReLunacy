@@ -1,3 +1,4 @@
+using System.Numerics;
 using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
@@ -20,6 +21,29 @@ public class EntityManager : IDisposable
     public bool renderVolumes = true;
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
+    /// <summary>Skip drawing Mobys past their in-game display distance (read from the level's own
+    /// gameplay data). Defaults OFF, unlike <see cref="FrustumCullingEnabled"/> — the game only
+    /// relies on a short display distance because its camera stays near the player, but the
+    /// editor's free-fly camera has no such guarantee, so a real, fairly common in-game value
+    /// (many old-engine instances sit around 64 units) reads as "this Moby just isn't loading" the
+    /// moment the camera is anywhere else. Toggle on from the Render menu when specifically
+    /// checking what the game itself would render at the current camera position.</summary>
+    public bool MobyDistanceCullingEnabled = false;
+    /// <summary>Absolute world-unit thickness of the edge geometry EntityVolume builds (see
+    /// Primitives.CreateWireEdge) — the same for every volume regardless of its own size. This
+    /// same geometry is both the visible wireframe box and its own GPU pick target — a solid pick
+    /// hitbox would make clicking anywhere inside a (often large) volume select it instead of
+    /// whatever's actually behind the click, so picking is scoped to near the edges, same as what's
+    /// actually drawn. Kept on EntityManager rather than read directly from EditorSettings because
+    /// ReLunacy.Engine has no reference to the app project — View3D syncs this from
+    /// Program.Settings.VolumeWireThickness every frame, same pattern as Camera.FarPlane.</summary>
+    public float VolumeWireThickness = 0.1f;
+    /// <summary>RGBA (0-1 per channel, matching ImGui's ColorEdit4) tint for a Volume's wireframe
+    /// box, unselected/selected. Synced from Program.Settings by View3D every frame, same reason
+    /// and pattern as <see cref="VolumeWireThickness"/> — EntityVolume converts these to Bliss's
+    /// byte-channel Color when (re)building its shared tint materials.</summary>
+    public Vector4 VolumeColor = new(1f, 1f, 0f, 1f);
+    public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
 
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);
     public int VolumesCount => Regions.Sum(r => r.Volumes.Size);

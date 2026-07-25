@@ -20,8 +20,10 @@ public class Shader
     public Texture? Normal;
     public Texture? Expensive;
     // Old engine only so far (ShaderMetadataOld.detailMap, offset 0x0C) — ShaderMetadataNew
-    // hasn't had its equivalent identified yet. Unconfirmed what this actually holds; being
-    // wired through so it can be inspected in the Shader Browser rather than guessed at blind.
+    // hasn't had its equivalent identified yet. Confirmed layout: B = roughness, R/G = a second,
+    // higher-frequency tangent-space normal map, sampled at a tiled UV. The tiling scale itself
+    // hasn't been located in ShaderMetadata's still-unidentified byte ranges — consumers
+    // (GltfExporter) use a placeholder constant until it's found.
     public Texture? DetailMap;
     public RenderingMode RenderingMode => (RenderingMode)(isOld ? metadataOld!.Value.renderingMode : metadataNew!.Value.renderingMode);
 

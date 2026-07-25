@@ -50,10 +50,10 @@ public class EntityCluster : IDisposable
         Entities.Add(new EntityUFrag(gd, ufrag, _assetManager));
     }
 
-    public void Add(Volume volume)
+    public void Add(Volume volume, GraphicsDevice gd)
     {
         TotalEntities++;
-        Entities.Add(new EntityVolume(volume));
+        Entities.Add(new EntityVolume(volume, gd));
     }
 
     public bool TryGetEntity(int id, [NotNullWhen(true)] out Entity? entity)
