@@ -1,0 +1,96 @@
+# Mirrors VELD-Dev/Riftripper's nightly workflow: every push to `nightly` builds Windows + Linux
+# artifacts and publishes/updates them under a single rolling "Nightly Builds" GitHub release
+# (tag `nightly`), accumulating every nightly build's artifacts there rather than replacing them
+# (replacesArtifacts: false below) — the running app's UpdateChecker (Nightly channel) picks the
+# newest artifact per platform out of that list by filename.
+
+name: Nightly Releases
+
+on:
+  push:
+    branches: [ "nightly" ]
+
+jobs:
+  build:
+    name: Nightly Builds
+
+    strategy:
+      # max-parallel: 1 serializes Windows/Linux — both jobs publish to the same rolling `nightly`
+      # release tag via ncipollo/release-action, and on the very first run (before that release
+      # exists) two parallel "create" calls race and one gets a 422. Serial runs cost wall time but
+      # this workflow only fires on nightly pushes, so it's not latency-sensitive.
+      max-parallel: 1
+      matrix:
+        kind: ["WINDOWS", "LINUX"]
+        include:
+        - kind: WINDOWS
+          os: windows-latest
+          target: win-x64
+        - kind: LINUX
+          os: ubuntu-latest
+          target: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore ReLunacy.sln
+
+    - name: Stamp nightly build info
+      shell: bash
+      run: |
+        commit_hash=$(git rev-parse --short "$GITHUB_SHA")
+        build_date=$(date -u +'%Y-%m-%d')
+        echo "commit_hash=$commit_hash" >> "$GITHUB_ENV"
+        echo "build_date=$build_date" >> "$GITHUB_ENV"
+
+        # NightlyBuildInfo.cs is checked in with both consts null (every other build) — this run
+        # is the one place they get filled in, matching what UpdateChecker.CheckNightly extracts
+        # back out of the artifact filename below to compare against.
+        cat > ReLunacy/NightlyBuildInfo.cs <<EOF
+        namespace ReLunacy;
+
+        public static class NightlyBuildInfo
+        {
+            public const string? CommitHash = "$commit_hash";
+            public const string? BuildDate = "$build_date";
+        }
+        EOF
+
+    - name: Build
+      shell: bash
+      run: |
+        release_name="ReLunacy-nightly-${{ env.build_date }}.${{ env.commit_hash }}.${{ matrix.target }}"
+        echo "release_name=$release_name" >> "$GITHUB_ENV"
+
+        dotnet build ReLunacy/ReLunacy.csproj -c Release -r "${{ matrix.target }}" --no-self-contained
+
+        if [ "${{ matrix.target }}" == "win-x64" ]; then
+          7z a -tzip "${release_name}.zip" "./ReLunacy/bin/Release/net10.0/${{ matrix.target }}/*"
+        else
+          tar -czvf "${release_name}.tar.gz" -C "./ReLunacy/bin/Release/net10.0/${{ matrix.target }}" .
+        fi
+
+    - name: Publish
+      uses: ncipollo/release-action@v1.12.0
+      with:
+        name: Nightly Builds
+        tag: 'nightly'
+        artifacts: ./ReLunacy-nightly-*
+        allowUpdates: true
+        draft: false
+        omitBodyDuringUpdate: true
+        omitDraftDuringUpdate: true
+        omitNameDuringUpdate: true
+        prerelease: true
+        replacesArtifacts: false
+        skipIfReleaseExists: false

@@ -8,6 +8,11 @@ public interface IGeometry : IAsset
     float[] GetTextureCoordinates();
     float[]? GetNormals();
 
+    /// <summary>Per-vertex tangent, 4 floats per vertex (xyz direction + w bitangent-handedness
+    /// sign, matching glTF's TANGENT accessor convention) — see GeometryMath.ComputeTangents for
+    /// how it's derived, including why `w` is always computed rather than read from source data.</summary>
+    float[]? GetTangents();
+
     /// <summary>Per-vertex decode of VertexFormat0's boneIndex-as-alpha candidate (see
     /// Material.UsesVertexAlphaCandidate) — null for geometry that doesn't carry it. Not
     /// necessarily meaningful data even when non-null; callers gate use on the material flag.</summary>

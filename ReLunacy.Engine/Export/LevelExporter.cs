@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Assets.Geometry;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Scene;
 using SharpGLTF.Geometry;
@@ -51,7 +52,10 @@ public static class LevelExporter
 
                 foreach (var instance in assetGroup)
                 {
-                    AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
+                    if (moby.Skeleton != null)
+                        AddSkinnedInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes, moby.Skeleton);
+                    else
+                        AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
                     anyContentAdded = true;
                     ReportProgress();
                 }
@@ -136,15 +140,33 @@ public static class LevelExporter
             sceneBuilder.AddRigidMesh(mesh, instanceNode.CreateNode(name));
     }
 
+    /// <summary>Skinned counterpart of AddInstanceNode. Unlike a rigid mesh, a skinned mesh is
+    /// positioned by its joint nodes' world transforms rather than a mesh-attach transform, so
+    /// each placed instance needs its own fresh joint hierarchy (parented under its own instance
+    /// node) even though it reuses the same cached mesh/skin-weight data as every other
+    /// instance.</summary>
+    private static void AddSkinnedInstanceNode(SceneBuilder sceneBuilder, NodeBuilder assetNode, string instanceName, Matrix4x4 worldMatrix, IReadOnlyList<(string Name, IMeshBuilder<MaterialBuilder> Mesh)> assetMeshes, ISkeleton skeleton)
+    {
+        var instanceNode = assetNode.CreateNode(ExportPaths.SanitizeFileName(instanceName));
+        instanceNode.LocalTransform = new AffineTransform(worldMatrix);
+
+        var jointBindings = GltfExporter.BuildSkinnedJoints(skeleton, instanceNode);
+        foreach (var (_, mesh) in assetMeshes)
+            sceneBuilder.AddSkinnedMesh(mesh, jointBindings);
+    }
+
     private static IReadOnlyList<(string Name, IMeshBuilder<MaterialBuilder> Mesh)> GetOrBuildMobyMeshes(
         IMoby moby, Dictionary<ulong, MaterialBuilder> materialCache, Dictionary<ulong, IReadOnlyList<(string, IMeshBuilder<MaterialBuilder>)>> cache)
     {
         if (cache.TryGetValue(moby.Id, out var cached))
             return cached;
 
+        var skeleton = moby.Skeleton;
         var result = moby.Bangles
             .Select((bangle, i) => string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name)
-            .Zip(moby.Bangles, (name, bangle) => (name, (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildMeshBuilder(name, bangle.Meshes, materialCache)))
+            .Zip(moby.Bangles, (name, bangle) => (name, skeleton != null
+                ? (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildSkinnedMeshBuilder(name, bangle.Meshes, materialCache, skeleton.RootBoneIndex)
+                : (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildMeshBuilder(name, bangle.Meshes, materialCache)))
             .ToList();
 
         cache[moby.Id] = result;
@@ -181,6 +203,18 @@ public static class LevelExporter
         public float[] GetVertexPositions() => ufrag.GetVertexPositions();
         public float[] GetTextureCoordinates() => ufrag.GetTextureCoordinates();
         public float[]? GetNormals() => ufrag.GetNormals();
+
+        // UFrag terrain carries no baked tangent (or, on some readers, even normal) data — derive
+        // both from the triangle/UV data itself via the same fallback GeometryData uses for
+        // formats that don't decode real vertex attributes.
+        public float[]? GetTangents()
+        {
+            var positions = ufrag.GetVertexPositions();
+            var indices = ufrag.GetIndices();
+            var normals = ufrag.GetNormals() ?? GeometryMath.ComputeNormals(positions, indices);
+            return GeometryMath.ComputeTangents(positions, ufrag.GetTextureCoordinates(), normals, indices, null);
+        }
+
         public float[]? GetVertexAlphaCandidates() => null;
         public uint[] GetIndices() => ufrag.GetIndices();
         public Vector3 GetBoundingCenter() => ufrag.GetBoundingCenter();
