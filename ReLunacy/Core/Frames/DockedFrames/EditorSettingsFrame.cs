@@ -68,6 +68,17 @@ internal class EditorSettingsFrame : Frame
                     string langCode = LM.Languages.Values.ElementAt(selectedLanguage).LangCode;
                     LM.TrySetLanguage(langCode);
                 }
+                if (ImGui.BeginCombo(LM.Get("GUI_Frame_EditorSettings_UpdateChannel"), Program.Settings.UpdateChannel.ToString()))
+                {
+                    foreach (var channel in Enum.GetValues<UpdateChannel>())
+                    {
+                        if (ImGui.Selectable($"\t {channel}", channel == Program.Settings.UpdateChannel))
+                            Program.Settings.UpdateChannel = channel;
+                    }
+                    ImGui.EndCombo();
+                }
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_UpdateChannelHelp"));
                 if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
                 {
                     ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));

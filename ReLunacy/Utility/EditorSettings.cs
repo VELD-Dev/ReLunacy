@@ -3,6 +3,12 @@ using Newtonsoft.Json;
 using ReLunacy.Utility;
 using Veldrith;
 
+public enum UpdateChannel
+{
+    Stable,
+    Nightly,
+}
+
 [JsonObject]
 public class EditorSettings
 {
@@ -44,6 +50,11 @@ public class EditorSettings
     // culling can be flipped on live, per-session, to see how bad it actually is on real data rather
     // than assuming — not a confirmed-safe rendering mode.
     public bool BackfaceCulling;
+    // See UpdateChecker: Stable checks GitHub's normal "latest release"; Nightly checks the
+    // rolling "nightly" tag release .github/workflows/nightly.yml keeps updated on every push to
+    // the nightly branch. Independent of which build the user is actually running — someone on a
+    // stable build can still opt into nightly update notifications and vice versa.
+    public UpdateChannel UpdateChannel;
 
     [JsonIgnore]
     public float CamFOVRad => CamFOV * (MathF.PI / 180f);
@@ -84,6 +95,7 @@ public class EditorSettings
         GizmoSnapScale = 0.25f;
         LegacyRenderingMode = false;
         BackfaceCulling = false;
+        UpdateChannel = UpdateChannel.Stable;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;
 #else

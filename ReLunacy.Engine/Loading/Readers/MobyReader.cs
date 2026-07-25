@@ -178,10 +178,10 @@ public sealed class MobyReader
     {
         // Positions are fixed-point int16 in bangle-local space; the moby's own scale must be
         // applied here, matching what MobyMesh.GetBuffers already does for the legacy renderer.
-        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var vertexAlphaCandidates);
+        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
 
-        var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh);
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
+        var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh, (int)(moby.Skeleton?.NumBones ?? 0));
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
 
         IMaterial material = moby.IsOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.shaderIndex)
@@ -203,7 +203,7 @@ public sealed class MobyReader
     ///   feature.
     /// Returns (null, null) if this mesh has no joint palette (no skin data).
     /// </summary>
-    private static (int[]? jointIndices, float[]? jointWeights) ExtractSkinData(MobyMesh mesh)
+    private static (int[]? jointIndices, float[]? jointWeights) ExtractSkinData(MobyMesh mesh, int skeletonBoneCount)
     {
         if (mesh.boneMap.Length == 0)
             return (null, null);
@@ -218,10 +218,10 @@ public sealed class MobyReader
             for (int v = 0; v < vertexCount; v++)
             {
                 var vertex = mesh.vertices1[v];
-                SetBinding(jointIndices, jointWeights, mesh.boneMap, v, 0, vertex.bones.Item1, vertex.weights.Item1);
-                SetBinding(jointIndices, jointWeights, mesh.boneMap, v, 1, vertex.bones.Item2, vertex.weights.Item2);
-                SetBinding(jointIndices, jointWeights, mesh.boneMap, v, 2, vertex.bones.Item3, vertex.weights.Item3);
-                SetBinding(jointIndices, jointWeights, mesh.boneMap, v, 3, vertex.bones.Item4, vertex.weights.Item4);
+                SetBinding(jointIndices, jointWeights, mesh.boneMap, skeletonBoneCount, v, 0, vertex.bones.Item1, vertex.weights.Item1);
+                SetBinding(jointIndices, jointWeights, mesh.boneMap, skeletonBoneCount, v, 1, vertex.bones.Item2, vertex.weights.Item2);
+                SetBinding(jointIndices, jointWeights, mesh.boneMap, skeletonBoneCount, v, 2, vertex.bones.Item3, vertex.weights.Item3);
+                SetBinding(jointIndices, jointWeights, mesh.boneMap, skeletonBoneCount, v, 3, vertex.bones.Item4, vertex.weights.Item4);
             }
         }
         else if (mesh.verticesType == 0)
@@ -229,19 +229,29 @@ public sealed class MobyReader
             for (int v = 0; v < vertexCount; v++)
             {
                 int localIndex = Math.Abs((mesh.vertices0[v].boneIndex + 1) / 3);
-                SetBinding(jointIndices, jointWeights, mesh.boneMap, v, 0, localIndex, 255);
+                SetBinding(jointIndices, jointWeights, mesh.boneMap, skeletonBoneCount, v, 0, localIndex, 255);
             }
         }
 
         return (jointIndices, jointWeights);
     }
 
-    private static void SetBinding(int[] jointIndices, float[] jointWeights, ushort[] boneMap, int vertex, int slot, int localIndex, byte weightByte)
+    // skeletonBoneCount bounds-checks boneMap's resolved value too, not just the local palette
+    // index into boneMap itself — boneMap[localIndex] is a skeleton-global bone index, and nothing
+    // previously verified it was actually within the skeleton before it reached GltfExporter's
+    // joint-node array (built with exactly skeleton.Bones.Count entries), where an out-of-range
+    // value would throw. Treated the same as an unweighted slot (skipped) rather than clamped, so
+    // a corrupt/misread binding silently drops that influence instead of binding to a wrong bone.
+    private static void SetBinding(int[] jointIndices, float[] jointWeights, ushort[] boneMap, int skeletonBoneCount, int vertex, int slot, int localIndex, byte weightByte)
     {
         if (weightByte == 0 || localIndex < 0 || localIndex >= boneMap.Length)
             return;
 
-        jointIndices[vertex * 4 + slot] = boneMap[localIndex];
+        int globalIndex = boneMap[localIndex];
+        if (skeletonBoneCount > 0 && globalIndex >= skeletonBoneCount)
+            return;
+
+        jointIndices[vertex * 4 + slot] = globalIndex;
         jointWeights[vertex * 4 + slot] = weightByte / 255f;
     }
 }

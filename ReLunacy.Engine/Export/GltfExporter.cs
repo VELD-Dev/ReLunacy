@@ -10,10 +10,10 @@ using AlphaMode = SharpGLTF.Materials.AlphaMode;
 
 namespace ReLunacy.Engine.Export;
 
-using MeshBuilder = MeshBuilder<MaterialBuilder, VertexPositionNormal, VertexTexture1, VertexEmpty>;
-using Vertex = VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>;
-using SkinnedMeshBuilder = MeshBuilder<MaterialBuilder, VertexPositionNormal, VertexTexture1, VertexJoints4>;
-using SkinnedVertex = VertexBuilder<VertexPositionNormal, VertexTexture1, VertexJoints4>;
+using MeshBuilder = MeshBuilder<MaterialBuilder, VertexPositionNormalTangent, VertexTexture1, VertexEmpty>;
+using Vertex = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, VertexEmpty>;
+using SkinnedMeshBuilder = MeshBuilder<MaterialBuilder, VertexPositionNormalTangent, VertexTexture1, VertexJoints4>;
+using SkinnedVertex = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, VertexJoints4>;
 
 /// <summary>Exports engine meshes as a single-file .glb — one group (e.g. a Moby's bangle, or a
 /// Tie's whole mesh list) becomes one glTF mesh/node, so bangles stay distinct submeshes instead
@@ -31,17 +31,16 @@ public static class GltfExporter
         // Built once and reused for every group below — every mesh of a skinned asset shares the
         // exact same bind-pose joint hierarchy, since bind pose is a property of the asset, not of
         // any one submesh.
-        NodeBuilder[]? joints = skeleton != null ? BuildJointNodes(skeleton) : null;
+        (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]? jointBindings = skeleton != null ? BuildSkinnedJoints(skeleton) : null;
 
         foreach (var group in groups)
         {
             string name = string.IsNullOrEmpty(group.Name) ? modelName : group.Name;
             void ReportProgress() => onProgress?.Invoke(++processedMeshes / (float)totalMeshes);
 
-            if (skeleton != null && joints != null)
+            if (skeleton != null && jointBindings != null)
             {
                 var meshBuilder = BuildSkinnedMeshBuilder(name, group.Meshes, materialCache, skeleton.RootBoneIndex, ReportProgress);
-                var jointBindings = joints.Select((node, i) => (node, EnsureAffine(skeleton.Bones[i].InverseBindPose))).ToArray();
                 sceneBuilder.AddSkinnedMesh(meshBuilder, jointBindings);
             }
             else
@@ -74,6 +73,7 @@ public static class GltfExporter
             var positions = mesh.Geometry.GetVertexPositions();
             var uvs = mesh.Geometry.GetTextureCoordinates();
             var normals = mesh.Geometry.GetNormals();
+            var tangents = mesh.Geometry.GetTangents();
             var indices = mesh.Geometry.GetIndices();
 
             int vertexCount = positions.Length / 3;
@@ -84,9 +84,12 @@ public static class GltfExporter
                 var normal = normals != null && normals.Length >= i * 3 + 3
                     ? new Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2])
                     : Vector3.UnitY;
+                var tangent = tangents != null && tangents.Length >= i * 4 + 4
+                    ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
+                    : new Vector4(1f, 0f, 0f, 1f);
                 var uv = new Vector2(uvs[i * 2], uvs[i * 2 + 1]);
 
-                vertices[i] = new Vertex(new VertexPositionNormal(position, normal), new VertexTexture1(uv));
+                vertices[i] = new Vertex(new VertexPositionNormalTangent(position, normal, tangent), new VertexTexture1(uv));
             }
 
             // Winding is passed through as-is: the renderer draws these with backface culling
@@ -120,6 +123,7 @@ public static class GltfExporter
             var positions = mesh.Geometry.GetVertexPositions();
             var uvs = mesh.Geometry.GetTextureCoordinates();
             var normals = mesh.Geometry.GetNormals();
+            var tangents = mesh.Geometry.GetTangents();
             var indices = mesh.Geometry.GetIndices();
             var jointIndices = mesh.Geometry.GetJointIndices();
             var jointWeights = mesh.Geometry.GetJointWeights();
@@ -132,10 +136,13 @@ public static class GltfExporter
                 var normal = normals != null && normals.Length >= i * 3 + 3
                     ? new Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2])
                     : Vector3.UnitY;
+                var tangent = tangents != null && tangents.Length >= i * 4 + 4
+                    ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
+                    : new Vector4(1f, 0f, 0f, 1f);
                 var uv = new Vector2(uvs[i * 2], uvs[i * 2 + 1]);
                 var joints = BuildJoints(jointIndices, jointWeights, i, rootBoneIndex);
 
-                vertices[i] = new SkinnedVertex(new VertexPositionNormal(position, normal), new VertexTexture1(uv), joints);
+                vertices[i] = new SkinnedVertex(new VertexPositionNormalTangent(position, normal, tangent), new VertexTexture1(uv), joints);
             }
 
             for (int i = 0; i + 2 < indices.Length; i += 3)
@@ -172,13 +179,21 @@ public static class GltfExporter
     /// <summary>
     /// One NodeBuilder per bone, parented to mirror the skeleton hierarchy, with each node's
     /// LocalTransform set to that bone's transform relative to its parent — computed as
-    /// `parent.InverseBindPose * bone.WorldBindPose`, transliterated exactly (same operand order)
-    /// from InsomniaToolset's GenerateSkeleton (extract_gltf.cpp), not independently re-derived.
+    /// `bone.WorldBindPose * parent.InverseBindPose`. An earlier version had this transliterated
+    /// from InsomniaToolset's GenerateSkeleton (extract_gltf.cpp) with the operands reversed
+    /// (`parent.InverseBindPose * bone.WorldBindPose`); these matrices are the row-vector
+    /// convention System.Numerics.Matrix4x4 always uses (confirmed via MobySkeletonReader/
+    /// RegionReader's identical sequential-float fill, and that other consumers of these same
+    /// matrices Decompose them correctly elsewhere), so composing local-then-parent transforms
+    /// for a row vector (`v' = v * Local * ParentWorld`) means the correct parent-relative
+    /// transform is `WorldBindPose * ParentInverseBindPose`, not the reverse — the reversed order
+    /// silently produced a conjugated (wrong) rotation for any bone whose orientation doesn't
+    /// commute with its parent's, deforming/exploding the exported mesh without any error.
     /// Returned in skeleton bone-index order so glTF's JOINTS_0 vertex indices (already resolved
     /// to skeleton-global bone indices at read time — see MobyReader.ExtractSkinData) can be used
     /// directly as indices into this array with no further remapping.
     /// </summary>
-    private static NodeBuilder[] BuildJointNodes(ISkeleton skeleton)
+    private static NodeBuilder[] BuildJointNodes(ISkeleton skeleton, NodeBuilder? rootParent = null)
     {
         var nodes = new NodeBuilder[skeleton.Bones.Count];
 
@@ -189,7 +204,7 @@ public static class GltfExporter
 
             var local = index == skeleton.RootBoneIndex
                 ? bone.WorldBindPose
-                : skeleton.Bones[bone.ParentIndex].InverseBindPose * bone.WorldBindPose;
+                : bone.WorldBindPose * skeleton.Bones[bone.ParentIndex].InverseBindPose;
             node.LocalTransform = new AffineTransform(EnsureAffine(local));
 
             nodes[index] = node;
@@ -199,8 +214,21 @@ public static class GltfExporter
                     CreateNode(i, node);
         }
 
-        CreateNode(skeleton.RootBoneIndex, null);
+        CreateNode(skeleton.RootBoneIndex, rootParent);
         return nodes;
+    }
+
+    /// <summary>Builds a fresh joint hierarchy plus its glTF skin bindings (joint node, inverse
+    /// bind matrix). A skinned mesh is positioned in the scene by its joint nodes' world
+    /// transforms rather than by a rigid mesh-attach transform, so every placed instance of a
+    /// skinned asset needs its own joint hierarchy — pass `rootParent` (an instance's own
+    /// transform node) so multiple instances of the same skeleton don't collapse onto the same
+    /// placement. Only the mesh/skin-weight data (built separately) is safe to share across
+    /// instances.</summary>
+    internal static (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[] BuildSkinnedJoints(ISkeleton skeleton, NodeBuilder? rootParent = null)
+    {
+        var joints = BuildJointNodes(skeleton, rootParent);
+        return joints.Select((node, i) => (node, EnsureAffine(skeleton.Bones[i].InverseBindPose))).ToArray();
     }
 
     /// <summary>Zeroes the W column of the top 3 rows and forces M44=1 — cheap defensive cleanup
