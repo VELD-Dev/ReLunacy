@@ -14,6 +14,12 @@ jobs:
   build:
     name: Nightly Builds
 
+    # ncipollo/release-action needs write access to create/update the `nightly` release — without
+    # this, it inherits the default GITHUB_TOKEN, which many repos/orgs now default to read-only,
+    # and the create/update call fails with "403: Resource not accessible by integration".
+    permissions:
+      contents: write
+
     strategy:
       # max-parallel: 1 serializes Windows/Linux — both jobs publish to the same rolling `nightly`
       # release tag via ncipollo/release-action, and on the very first run (before that release
