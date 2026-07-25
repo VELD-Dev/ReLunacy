@@ -85,6 +85,22 @@ public class Moby : IDisposable
             if (MobyObj is not OldMoby omoby)
                 return;
 
+            // Some old-engine mobys (logic-only props: triggers, camera targets, path markers,
+            // etc. — confirmed present in Tools of Destruction's meridian_city) have zero bangles,
+            // or a bangle with zero meshes: no visual geometry at all. bangles/meshes are
+            // [Reference(...)]-deserialized arrays that stay null when their count is zero, so
+            // blindly indexing bangles[^1].meshes[^1] (as this used to, four times below) threw a
+            // NullReferenceException for any such moby instead of just... having no mesh data.
+            if (!TryGetLastMesh(omoby.bangles, out var lastMesh))
+            {
+                // Empty, not left null: MobyReader.ReadMobyBanglesMeshes unconditionally seeks
+                // these streams before checking bangle/mesh counts, so a null stream here would
+                // just move the same crash one call further down instead of fixing it.
+                verticesStream = new StreamHelper(new MemoryStream(), StreamHelper.Endianness.Big);
+                indicesStream = new StreamHelper(new MemoryStream(), StreamHelper.Endianness.Big);
+                return;
+            }
+
             // Old engine: geometry lives in either vertices.dat or textures.dat, selected by
             // the high bit of the offset field itself.
             if ((omoby.verticesOffset & 0x80000000) != 0)
@@ -92,7 +108,6 @@ public class Moby : IDisposable
                 var vertigfile = fm.igfiles["vertices.dat"]!;
                 var vertSec = vertigfile.QuerySection(0x9000);
                 vertigfile.sh.Seek(vertSec.offset + (omoby.verticesOffset & ~0x80000000));
-                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
                 verticesStream = new StreamHelper(new MemoryStream(vertigfile.sh.ReadBytes(length)), StreamHelper.Endianness.Big);
             }
@@ -103,7 +118,6 @@ public class Moby : IDisposable
 
                 omoby.verticesOffset &= ~0x80000000;
                 txstream.Seek(omoby.verticesOffset, SeekOrigin.Begin);
-                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
                 byte[] verticesData = new byte[length];
                 txstream.Read(verticesData, 0, (int)length);
@@ -115,7 +129,6 @@ public class Moby : IDisposable
                 var indigfile = fm.igfiles["vertices.dat"]!;
                 var indSec = indigfile.QuerySection(0x9100);
                 indigfile.sh.Seek(indSec.offset + (omoby.indicesOffset & ~0x80000000));
-                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
                 indicesStream = new StreamHelper(new MemoryStream(indigfile.sh.ReadBytes(length)), StreamHelper.Endianness.Big);
             }
@@ -126,13 +139,34 @@ public class Moby : IDisposable
 
                 omoby.indicesOffset &= ~0x80000000;
                 txstream.Seek(omoby.indicesOffset, SeekOrigin.Begin);
-                var lastMesh = omoby.bangles[^1].meshes[^1];
                 var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
                 byte[] indexData = new byte[length];
                 txstream.Read(indexData, 0, (int)length);
                 indicesStream = new StreamHelper(new MemoryStream(indexData), StreamHelper.Endianness.Big);
             }
         }
+    }
+
+    // Searches backward for the last bangle that actually has meshes (not necessarily the very
+    // last bangle — a moby could have trailing empty bangles too), since the whole point is
+    // finding the true final mesh's offset/count to compute the total buffer length. Returns
+    // false if this moby has no mesh data anywhere (null/empty bangles, or every bangle empty).
+    private static bool TryGetLastMesh(MobyBangle[]? bangles, out MobyMesh lastMesh)
+    {
+        lastMesh = default;
+        if (bangles == null)
+            return false;
+
+        for (int i = bangles.Length - 1; i >= 0; i--)
+        {
+            if (bangles[i].meshes != null && bangles[i].meshes.Length > 0)
+            {
+                lastMesh = bangles[i].meshes[^1];
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public void ReadMoby(bool isOld, int index = 0) // index only for old mobys
@@ -144,16 +178,24 @@ public class Moby : IDisposable
 
     public void Dispose()
     {
-        for (int i = 0; i < MobyObj.bangles.Length; i++)
+        // Same null-bangles/null-meshes possibility as the constructor guards against above (a
+        // moby with no visual geometry) — nothing was rented from either pool in that case, so
+        // there's nothing to return either.
+        if (MobyObj.bangles != null)
         {
-            for (int j = 0; j < MobyObj.bangles[i].meshes.Length; j++)
+            for (int i = 0; i < MobyObj.bangles.Length; i++)
             {
-                ref var mesh = ref MobyObj.bangles[i].meshes[j];
-                if (mesh.verticesType == 0) ArrayPool<VertexFormat0>.Shared.Return(mesh.vertices0);
-                if (mesh.verticesType == 1) ArrayPool<VertexFormat1>.Shared.Return(mesh.vertices1);
+                if (MobyObj.bangles[i].meshes == null) continue;
+
+                for (int j = 0; j < MobyObj.bangles[i].meshes.Length; j++)
+                {
+                    ref var mesh = ref MobyObj.bangles[i].meshes[j];
+                    if (mesh.verticesType == 0) ArrayPool<VertexFormat0>.Shared.Return(mesh.vertices0);
+                    if (mesh.verticesType == 1) ArrayPool<VertexFormat1>.Shared.Return(mesh.vertices1);
+                }
             }
+            ArrayPool<MobyBangle>.Shared.Return(MobyObj.bangles);
         }
-        ArrayPool<MobyBangle>.Shared.Return(MobyObj.bangles);
 
         verticesStream?.Close();
         indicesStream?.Close();
