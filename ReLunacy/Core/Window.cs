@@ -257,7 +257,7 @@ public class LunaWindow : Disposable
 
         if (Level is null) return;
 
-        AssetManager = new AssetManager(Level, GraphicsDevice, Program.Settings.DecalOffset);
+        AssetManager = new AssetManager(Level, GraphicsDevice);
         EntityManager.Singleton.LoadRegion(Level.Region, AssetManager, GraphicsDevice);
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
@@ -432,6 +432,15 @@ public class LunaWindow : Disposable
     {
         Entity.EntitiesRenderedThisFrame = 0;
 
+        // EntityManager is engine-layer and deliberately doesn't read Program.Settings (see
+        // AssetManager's decalOffset for the same convention) — so the persisted setting is
+        // pushed in here every frame instead of being read where it's consumed. Cheap enough
+        // (one bool) to just always do, rather than only on Settings-frame Apply, so a value
+        // loaded from disk at startup takes effect immediately without the user having to open
+        // the Settings frame and toggle the checkbox once first.
+        EntityManager.Singleton.FrustumCullingEnabled = EditorSettings.FrustrumCulling;
+        AssetManager?.SetBackfaceCulling(EditorSettings.BackfaceCulling);
+
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)
@@ -473,8 +482,16 @@ public class LunaWindow : Disposable
         FullScreenRenderer.Draw(commandList, FinalFullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
 
         commandList.End();
-        graphicsDevice.WaitForIdle();
         graphicsDevice.SubmitCommands(commandList);
+        // Veldrith's Vulkan backend only signals a render-finished semaphore before presenting
+        // when the present queue differs from the graphics queue — on a shared queue (the common
+        // case on desktop GPUs), SwapBuffers's vkQueuePresentKHR call waits on nothing at all, so
+        // without this the presentation engine can read the swapchain image before the GPU has
+        // finished writing it, showing stale/previous-frame content (flicker, visible in both the
+        // 3D viewport and the GUI since both are already composited into this image by here).
+        // WaitForIdle was previously called before this Submit instead of after, which only waited
+        // on the *prior* frame's work and left this exact gap uncovered.
+        graphicsDevice.WaitForIdle();
         graphicsDevice.SwapBuffers();
     }
 

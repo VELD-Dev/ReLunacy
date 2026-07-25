@@ -115,14 +115,14 @@ public sealed class TieReader
 
     private IMesh ConvertTieMesh(TieMesh legacyMesh, System.Numerics.Vector3 scale, Objects.Tie tie)
     {
-        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs);
+        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var vertexAlphaCandidates);
 
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices);
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, vertexAlphaCandidates: vertexAlphaCandidates);
 
         IMaterial material = legacyMesh.isOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.oldShaderIndex)
             : _materialReader.GetMaterialForLocalIndex(tie.ShaderTUIDs, legacyMesh.newShaderIndex);
 
-        return new Assets.Geometry.Mesh(geometry, material, "TieMesh");
+        return new Assets.Geometry.Mesh(geometry, material, "TieMesh", TieMesh.VertexFormatName, legacyMesh.DumpVertex);
     }
 }

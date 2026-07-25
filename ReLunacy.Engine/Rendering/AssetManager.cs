@@ -1,16 +1,20 @@
 using System.Numerics;
 using Bliss.CSharp;
 using Bliss.CSharp.Colors;
+using Bliss.CSharp.Effects;
 using Bliss.CSharp.Geometry.Meshes;
 using Bliss.CSharp.Geometry.Meshes.Data;
 using Bliss.CSharp.Geometry.Models;
+using Bliss.CSharp.Graphics.Pipelines.Buffers;
 using Bliss.CSharp.Graphics.VertexTypes;
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Textures;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Loading.Readers;
+using ReLunacy.Engine.Rendering.Shaders;
 using Veldrith;
+using Veldrith.SPIRV;
 using IMesh = ReLunacy.Engine.Assets.Interfaces.IMesh;
 using RenderMode = Bliss.CSharp.Graphics.Rendering.RenderMode;
 
@@ -25,7 +29,8 @@ public sealed class AssetManager : IDisposable
     private readonly Dictionary<ulong, Texture2D> _textureCache = [];
     private readonly Dictionary<ulong, ITexture> _sourceTextures = [];
     private readonly Dictionary<ulong, Material> _materialCache = [];
-    private readonly float _decalOffset;
+    private bool _backfaceCulling;
+    private Effect? _vertexAlphaModelEffect;
 
     public IReadOnlyDictionary<ulong, Texture2D> BuiltTextures => _textureCache;
     public IReadOnlyDictionary<ulong, ITexture> SourceTextures => _sourceTextures;
@@ -33,14 +38,9 @@ public sealed class AssetManager : IDisposable
     public Dictionary<ulong, Model[]> Mobys { get; } = []; // one Model per bangle
     public Dictionary<ulong, Model> Ties { get; } = [];
 
-    // decalOffset: see EditorSettings.DecalOffset — how far IMaterial.IsDecal geometry gets pushed
-    // outward along its (computed) normal at mesh-build time, to avoid Z-fighting the opaque
-    // surface it's decaling. Passed in rather than read from Program.Settings directly since this
-    // project deliberately has no dependency on the app layer.
-    public AssetManager(LevelData level, GraphicsDevice gd, float decalOffset = 0f)
+    public AssetManager(LevelData level, GraphicsDevice gd)
     {
         _gd = gd;
-        _decalOffset = decalOffset;
 
         foreach (var (id, moby) in level.Mobys)
         {
@@ -82,14 +82,7 @@ public sealed class AssetManager : IDisposable
         {
             var mesh = meshes[i];
             var material = GetOrBuildMaterial(mesh.Material);
-            // DecalOffsetCandidate (file offset 0x48) is an unconfirmed per-material hypothesis —
-            // see IMaterial.DecalOffsetCandidate — used here as a multiplier on the global
-            // EditorSettings.DecalOffset slider rather than the raw offset directly, so the slider
-            // stays a meaningful "scale everything up/down" knob regardless of whether the file
-            // value turns out to already be in the right units on its own (in which case DecalOffset
-            // should just be left at 1) or needs further scaling.
-            float decalOffset = mesh.Material.IsDecal ? _decalOffset * mesh.Material.DecalOffsetCandidate : 0f;
-            var vertices = ConvertGeometryToVertices(mesh.Geometry, decalOffset);
+            var vertices = ConvertGeometryToVertices(mesh.Geometry, mesh.Material.UsesVertexAlphaCandidate);
             bMeshes[i] = new Mesh<Vertex3D>(_gd, material, new BasicMeshData(vertices, mesh.Geometry.GetIndices()));
         }
         return new Model(_gd, bMeshes, null, []);
@@ -104,13 +97,30 @@ public sealed class AssetManager : IDisposable
         {
             Assets.Interfaces.RenderMode.AlphaClip => RenderMode.Cutout,
             Assets.Interfaces.RenderMode.AlphaBlend => RenderMode.Translucent,
+            // Bliss's own RenderMode has no Additive case — Translucent is the closest bucket
+            // (same depth-test-no-write handling via DecalAwareForwardRenderer), the real
+            // distinction is the blend state passed below.
+            Assets.Interfaces.RenderMode.Additive => RenderMode.Translucent,
             _ => RenderMode.Solid,
         };
 
+        // Standard "over" alpha blend for everything that blends, including vertex-alpha-fallback
+        // materials (see Material.UsesVertexAlphaCandidate) — additive and Screen were both tried
+        // here and reverted; the darkening/brightening those were chasing turned out to be this
+        // renderer being unlit (no specular/lighting response the real game has), not a wrong blend
+        // equation. Standard alpha blend is correct; the visual mismatch is a lighting gap to close
+        // separately, later.
+        BlendStateDescription? blendState = material.RenderMode switch
+        {
+            Assets.Interfaces.RenderMode.Additive => BlendStateDescription.SINGLE_ADDITIVE_BLEND,
+            Assets.Interfaces.RenderMode.AlphaBlend => BlendStateDescription.SINGLE_ALPHA_BLEND,
+            _ => null,
+        };
+
         var bMat = new Material(
-            GlobalResource.DefaultModelEffect,
-            RasterizerStateDescription.CULL_NONE,
-            renderMode == RenderMode.Translucent ? BlendStateDescription.SINGLE_ALPHA_BLEND : null,
+            material.UsesVertexAlphaCandidate ? GetVertexAlphaModelEffect() : GlobalResource.DefaultModelEffect,
+            _backfaceCulling ? RasterizerStateDescription.DEFAULT : RasterizerStateDescription.CULL_NONE,
+            blendState,
             renderMode);
 
         var albedo = material.AlbedoTexture != null ? GetOrBuildTexture(material.AlbedoTexture) : GlobalResource.DefaultModelTexture;
@@ -124,6 +134,39 @@ public sealed class AssetManager : IDisposable
 
         _materialCache[material.Id] = bMat;
         return bMat;
+    }
+
+    // Same buffer/texture layout as GlobalResource.DefaultModelEffect (MatrixBuffer@0 vertex,
+    // TransformBuffer@1 vertex, MaterialBuffer@2 fragment, Albedo texture@3) — a drop-in swap.
+    // Bliss's bundled default_model shaders never pass vColor through the vertex stage at all
+    // (confirmed by reading the actual GLSL), so consuming it needs a real second shader rather
+    // than a material-level trick; kept as our own Effect instead of touching the vendored content
+    // files so every other material (the overwhelming majority) is completely unaffected.
+    private Effect GetVertexAlphaModelEffect() => _vertexAlphaModelEffect ??= BuildVertexAlphaModelEffect();
+
+    private Effect BuildVertexAlphaModelEffect()
+    {
+        var effect = new Effect(_gd, VertexAlphaModelShaderSource.Vertex, VertexAlphaModelShaderSource.Fragment, new CrossCompileOptions(), []);
+        effect.AddBufferLayout("MatrixBuffer", 0u, SimpleBufferType.Uniform, ShaderStages.Vertex);
+        effect.AddBufferLayout("TransformBuffer", 1u, SimpleBufferType.Uniform, ShaderStages.Vertex);
+        effect.AddBufferLayout("MaterialBuffer", 2u, SimpleBufferType.Uniform, ShaderStages.Fragment);
+        effect.AddTextureLayout(MaterialMapType.Albedo.GetName(), 3u);
+        return effect;
+    }
+
+    // Live opt-in toggle, not a rebuild trigger: Bliss's Material.RasterizerState is a plain public
+    // field read fresh by BasicForwardRenderer.Draw every draw call (verified via IL — it feeds
+    // directly into that frame's SimplePipelineDescription), so mutating it on the already-cached
+    // Material instances takes effect on the very next frame with no need to touch geometry or
+    // rebuild anything. See EditorSettings.BackfaceCulling for why this defaults off.
+    public void SetBackfaceCulling(bool enabled)
+    {
+        if (_backfaceCulling == enabled) return;
+        _backfaceCulling = enabled;
+
+        var state = enabled ? RasterizerStateDescription.DEFAULT : RasterizerStateDescription.CULL_NONE;
+        foreach (var material in _materialCache.Values)
+            material.RasterizerState = state;
     }
 
     public Texture2D GetOrBuildTexture(ITexture texture)
@@ -152,13 +195,15 @@ public sealed class AssetManager : IDisposable
 
     // Geometry only carries positions/uvs/normals — tangents are derived here per-triangle
     // (standard UV-gradient method) since Moby/Tie meshes have no baked tangent data.
-    // decalOffset (0 = no-op): pushes the final vertex position outward along its normal — see
-    // AssetManager's constructor doc and EditorSettings.DecalOffset for why.
-    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, float decalOffset = 0f)
+    // useVertexAlpha: see Material.UsesVertexAlphaCandidate — when set, GetVertexAlphaCandidates()
+    // is written into each vertex's color alpha instead of the default fully-opaque white, and
+    // GetOrBuildMaterial picks a shader that actually reads it.
+    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, bool useVertexAlpha)
     {
         var positions = geometry.GetVertexPositions();
         var uvs = geometry.GetTextureCoordinates();
         var normals = geometry.GetNormals();
+        var vertexAlpha = useVertexAlpha ? geometry.GetVertexAlphaCandidates() : null;
         var indices = geometry.GetIndices();
 
         int vertexCount = positions.Length / 3;
@@ -208,8 +253,8 @@ public sealed class AssetManager : IDisposable
 
             float handedness = Vector3.Dot(Vector3.Cross(n, tan), bitangentAccum[i]) < 0f ? -1f : 1f;
 
-            Vector3 offsetPos = decalOffset != 0f ? pos[i] + n * decalOffset : pos[i];
-            vertices[i] = new Vertex3D(offsetPos, uv[i], uv[i], n, new Vector4(tan, handedness), Vector4.One);
+            float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
+            vertices[i] = new Vertex3D(pos[i], uv[i], uv[i], n, new Vector4(tan, handedness), new Vector4(1f, 1f, 1f, alpha));
         }
 
         return vertices;
@@ -227,6 +272,9 @@ public sealed class AssetManager : IDisposable
         foreach (var texture in _textureCache.Values)
             if (texture != GlobalResource.DefaultModelTexture)
                 texture.Dispose();
+
+        _vertexAlphaModelEffect?.Dispose();
+        _vertexAlphaModelEffect = null;
 
         Mobys.Clear();
         Ties.Clear();

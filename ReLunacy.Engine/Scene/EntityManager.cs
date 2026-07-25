@@ -19,6 +19,7 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderVolumes = true;
     public bool renderBoundingSpheres = false;
+    public bool FrustumCullingEnabled = true;
 
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);
     public int VolumesCount => Regions.Sum(r => r.Volumes.Size);

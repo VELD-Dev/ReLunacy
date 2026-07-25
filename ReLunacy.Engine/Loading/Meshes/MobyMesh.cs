@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Numerics;
 using ReLunacy.Engine.Loading.Interfaces;
 using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Vertices;
@@ -180,16 +181,22 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         sh.Seek(savedPosition);
     }
 
-    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords)
+    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] vertexAlphaCandidates)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
 
         vpos = new float[verticesCount * 3];
         uvcoords = new float[verticesCount * 2];
+        normals = new float[verticesCount * 3];
+        vertexAlphaCandidates = new float[verticesCount];
 
         for (int k = 0; k < verticesCount; k++)
         {
+            // Mobys scale uniformly (single scalar, unlike Ties' per-axis Vector3), so a decoded
+            // normal doesn't need the inverse-transpose treatment Ties do — direction is unaffected
+            // by uniform scale, only renormalized since the packed decode isn't exactly unit length.
+            Vector3 n;
             if (verticesType == 0)
             {
                 vpos[k * 3 + 0] = vertices0[k].position.Item1 * scalar;
@@ -197,6 +204,8 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                 vpos[k * 3 + 2] = vertices0[k].position.Item3 * scalar;
                 uvcoords[k * 2 + 0] = (float)vertices0[k].UVs.Item1;
                 uvcoords[k * 2 + 1] = (float)vertices0[k].UVs.Item2;
+                n = vertices0[k].Normal;
+                vertexAlphaCandidates[k] = vertices0[k].VertexAlphaCandidate;
             }
             else
             {
@@ -205,7 +214,17 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                 vpos[k * 3 + 2] = vertices1[k].position.Item3 * scalar;
                 uvcoords[k * 2 + 0] = (float)vertices1[k].UVs.Item1;
                 uvcoords[k * 2 + 1] = (float)vertices1[k].UVs.Item2;
+                n = vertices1[k].Normal;
+                // VertexFormat1's Unk1 is the skinned equivalent of VertexFormat0.boneIndex, but
+                // unlike boneIndex it's confirmed to carry tangible (bone-related) data on boned
+                // meshes — not a vertex alpha candidate, so no decode applies here.
+                vertexAlphaCandidates[k] = 1f;
             }
+
+            n = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitY;
+            normals[k * 3 + 0] = n.X;
+            normals[k * 3 + 1] = n.Y;
+            normals[k * 3 + 2] = n.Z;
         }
     }
 
@@ -242,4 +261,18 @@ public record struct MobyMesh : ILunaSerializable, IMesh
 
         return rented;
     }
+
+    public readonly string VertexFormatName => verticesType switch
+    {
+        0 => "VertexFormat0",
+        1 => "VertexFormat1 (skinned)",
+        _ => $"Unknown (verticesType={verticesType})",
+    };
+
+    public readonly string? DumpVertex(int index) => verticesType switch
+    {
+        0 => vertices0 != null && index >= 0 && index < vertices0.Length ? vertices0[index].Dump() : null,
+        1 => vertices1 != null && index >= 0 && index < vertices1.Length ? vertices1[index].Dump() : null,
+        _ => null,
+    };
 }

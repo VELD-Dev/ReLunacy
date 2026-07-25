@@ -72,6 +72,14 @@ public class View3D : DockedFrame
 
     protected override void Render(double deltaTime)
     {
+        // Cam3D.Fov/FarPlane are public fields only ever set by View3D's own constructor, so a
+        // change made in the Editor Settings frame afterwards would otherwise never reach the
+        // already-constructed Camera without restarting the app. Cam3D.Begin (called below every
+        // frame) already recomputes its projection matrix from these fields each call, so simply
+        // keeping them in sync here is enough — no separate recompute needed.
+        Camera.Fov = Program.Settings.CamFOV;
+        Camera.FarPlane = Program.Settings.RenderDistance;
+
         UpdateWindowSize();
         Tick(deltaTime);
 

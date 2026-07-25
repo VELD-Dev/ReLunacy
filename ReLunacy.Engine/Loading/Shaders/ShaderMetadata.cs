@@ -13,21 +13,20 @@ public record struct ShaderMetadataOld : ILunaSerializable
     [FileOffset(0x00)] public uint albedo;
     [FileOffset(0x04)] public uint normal;
     [FileOffset(0x08)] public uint expensive;
-    [FileOffset(0x0C), Reference(0x05)] public byte[] Unk1;
+    [FileOffset(0x0C)] public uint detailMap;
     [FileOffset(0x11)] public byte renderingMode;
-    [FileOffset(0x12), Reference(0x0E)] public byte[] Unk2;
+    [FileOffset(0x12)] public byte Class;
+    [FileOffset(0x13), Reference(0x0D)] public byte[] Unk1;
     [FileOffset(0x20)] public float alphaClip;
-    [FileOffset(0x24), Reference(0x24)] public byte[] Unk3a;
-    // Candidates found via the Shader Browser's float32 dump while investigating the Decal
-    // (renderingMode 0x01) Z-fight fix — see AssetManager's decal vertex offset and
-    // EditorSettings.DecalOffset. decalOffsetFactorCandidate consistently reads 0-1 across
-    // shaders; decalOffsetCandidate's values lined up with what a specific water decal actually
-    // needed. Neither is confirmed against enough real data yet to be certain of the exact
-    // semantics (e.g. whether they multiply together, or the factor gates the offset on/off) —
-    // named descriptively rather than Unk*, but treat the names as a working hypothesis.
-    [FileOffset(0x48)] public float decalOffsetCandidate;
-    [FileOffset(0x4C)] public float decalOffsetFactorCandidate;
-    [FileOffset(0x50), Reference(0x30)] public byte[] Unk3b;
+    [FileOffset(0x24), Reference(0x24)] public byte[] Unk2;
+    // Was decalOffsetCandidate (0x48, float) / opacityCandidate (0x4C, float, was previously named
+    // decalOffsetFactorCandidate) — both retracted. The decal Z-fight vertex-offset hypothesis was
+    // abandoned (the game doesn't do that), and the "opacity multiplier" reading turned out to
+    // explain flat dimming but not the spatial fade seen in-game; the real mechanism looks to be
+    // per-vertex alpha (see VertexFormat0's boneIndex field). Back to unknown pending a proper
+    // re-read of this range.
+    [FileOffset(0x48), Reference(0x08)] public byte[] Unk4;
+    [FileOffset(0x50), Reference(0x30)] public byte[] Unk3a;
 
     public static ShaderMetadataOld Read(StreamHelper sh) => FileUtils.ReadStructure<ShaderMetadataOld>(sh);
 
@@ -49,10 +48,8 @@ public record struct ShaderMetadataNew : ILunaSerializable
     [FileOffset(0x22), Reference(0x0E)] public byte[] Unk2;
     [FileOffset(0x30)] public float alphaClip;
     [FileOffset(0x34), Reference(0x14)] public byte[] Unk3a;
-    // See ShaderMetadataOld's identically-named fields — same absolute file offsets (0x48/0x4C),
-    // same unconfirmed-hypothesis caveat.
-    [FileOffset(0x48)] public float decalOffsetCandidate;
-    [FileOffset(0x4C)] public float decalOffsetFactorCandidate;
+    // See ShaderMetadataOld's Unk4 — same absolute file offset (0x48), retracted for the same reason.
+    [FileOffset(0x48), Reference(0x08)] public byte[] Unk4;
     [FileOffset(0x50), Reference(0x30)] public byte[] Unk3b;
 
     public static ShaderMetadataNew Read(StreamHelper sh) => FileUtils.ReadStructure<ShaderMetadataNew>(sh);

@@ -14,8 +14,14 @@ public sealed class Material : IMaterial
 
     public RenderMode RenderMode { get; init; }
     public float AlphaClipThreshold { get; init; }
-    public bool IsDecal { get; init; }
-    public float DecalOffsetCandidate { get; init; }
+
+    // True when this material's render mode blends (Overlay/SoftEdge/Blended — the game's
+    // RenderingMode, not this simplified RenderMode) and its albedo has no format-level alpha
+    // channel to source transparency from. The only place we've confirmed a per-vertex alpha
+    // candidate actually varies meaningfully is on meshes matching this condition — see
+    // VertexFormat0's boneIndex field and AssetManager, which only writes decoded vertex alpha
+    // into the vColor attribute for materials with this flag set.
+    public bool UsesVertexAlphaCandidate { get; init; }
 
     public Material(ulong id)
     {
@@ -24,7 +30,7 @@ public sealed class Material : IMaterial
         AlphaClipThreshold = 0.5f;
     }
 
-    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f, bool isDecal = false, float decalOffsetCandidate = 0f)
+    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f, bool usesVertexAlphaCandidate = false)
     {
         return new Material(id)
         {
@@ -33,8 +39,7 @@ public sealed class Material : IMaterial
             PropertiesTexture = properties,
             RenderMode = renderMode,
             AlphaClipThreshold = alphaClipThreshold,
-            IsDecal = isDecal,
-            DecalOffsetCandidate = decalOffsetCandidate
+            UsesVertexAlphaCandidate = usesVertexAlphaCandidate
         };
     }
 }

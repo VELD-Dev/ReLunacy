@@ -7,6 +7,12 @@ public interface IGeometry : IAsset
     float[] GetVertexPositions();
     float[] GetTextureCoordinates();
     float[]? GetNormals();
+
+    /// <summary>Per-vertex decode of VertexFormat0's boneIndex-as-alpha candidate (see
+    /// Material.UsesVertexAlphaCandidate) — null for geometry that doesn't carry it. Not
+    /// necessarily meaningful data even when non-null; callers gate use on the material flag.</summary>
+    float[]? GetVertexAlphaCandidates();
+
     uint[] GetIndices();
     Vector3 GetBoundingCenter();
     float GetBoundingRadius();

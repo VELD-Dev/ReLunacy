@@ -42,14 +42,26 @@ internal class EditorSettingsFrame : Frame
                     }
                     ImGui.EndCombo();
                 }
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_RestartRequiredHelp"));
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_FarClipDist"), ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.InputInt(LM.Get("GUI_Frame_EditorSettings_MaxFramerate"), ref Program.Settings.TargetFPS);
-                ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1);
-                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_VSync"), ref Program.Settings.VSync);
-                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
-                ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_DecalOffset"), ref Program.Settings.DecalOffset, 0.001f, 0f, 1f, "%.3f");
+                // currentMsaa used to be a local int with no connection to Program.Settings.MSAA_Level
+                // at all (never initialized from it, never written back to it) — the combo was
+                // purely cosmetic and always showed "Disabled" regardless of the real, persisted
+                // setting. Resync from the real value every frame (so external changes, e.g. the
+                // Cancel button's ReloadSettings, are reflected too) and write straight back on edit.
+                currentMsaa = (int)Program.Settings.MSAA_Level;
+                if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1))
+                    Program.Settings.MSAA_Level = (uint)currentMsaa;
                 ImGui.SameLine();
-                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_DecalOffsetHelp"));
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_RestartRequiredHelp"));
+                if (ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_VSync"), ref Program.Settings.VSync))
+                    LunaWindow.Instance.GraphicsDevice.SyncToVerticalBlank = Program.Settings.VSync;
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_BackfaceCulling"), ref Program.Settings.BackfaceCulling);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_BackfaceCullingHelp"));
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     currLanguage = selectedLanguage;

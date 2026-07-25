@@ -7,6 +7,7 @@ using Bliss.CSharp.Geometry.Models;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Interact;
+using Bliss.CSharp.Interact.Mice;
 using Bliss.CSharp.Materials;
 using Bliss.CSharp.Textures;
 using Bliss.CSharp.Transformations;
@@ -79,10 +80,51 @@ public class AssetViewer : DockedFrame, ILevelListener
     private RenderTexture2D renderTexture;
     private readonly IRenderer renderer;
     private readonly ImmediateRenderer immediateRenderer;
+    private readonly PickingRenderer pickingRenderer;
     public readonly CommandList commandList;
     public readonly Cam3D Camera;
     private Renderable? cubeRenderable;
     private bool showSkeleton = true;
+    private bool pickRequested;
+
+    // Picking granularity for this viewport only (never fed into the shared scene-picking used
+    // by View3D) — reuses local (bangleIndex, meshIndex) as the picking ID directly instead of
+    // minting a globally-unique ID per mesh, since only one asset is ever previewed here at a
+    // time. bangleIndex is always 0 for Ties (no bangle concept).
+    private (int bangleIndex, int meshIndex)? selectedMesh;
+    private int selectedVertexIndex;
+    private bool vertexEditMode;
+
+    // Screen-space pixel radii for the vertex-edit-mode overlay/picking — kept generous on the
+    // pick radius specifically per the ask that vertex selection be tolerant, since a raw vertex
+    // dot is a much smaller target than a mesh triangle.
+    private const float VertexPointPixelRadius = 4f;
+    private const float SelectedVertexPixelRadius = 7f;
+    private const float VertexPickPixelRadius = 10f;
+
+    // ImmediateRenderer's DrawBillboard always uses white-source * this to produce, for any
+    // background pixel color C, a final color of (1,1,1) - C — i.e. the dot always reads as the
+    // inverse of whatever's behind it, so it stays visible regardless of the underlying texture
+    // (this is the whole reason for this blend state instead of a fixed dot color). Alpha is left
+    // untouched (dest kept as-is) since only the color channels need inverting.
+    private static readonly BlendStateDescription InvertBlendState = new(
+        RgbaFloat.WHITE,
+        new BlendAttachmentDescription(
+            blendEnabled: true,
+            sourceColorFactor: BlendFactor.InverseDestinationColor,
+            destinationColorFactor: BlendFactor.Zero,
+            colorFunction: BlendFunction.Add,
+            sourceAlphaFactor: BlendFactor.Zero,
+            destinationAlphaFactor: BlendFactor.One,
+            alphaFunction: BlendFunction.Add));
+
+    // Persisted, user-draggable pane sizes (pixels) — each tracks the pane immediately BEFORE its
+    // splitter; the trailing pane on the other side of a splitter always just takes whatever
+    // GetContentRegionAvail() leaves over, so only one size needs to be stored per split.
+    private float treeListWidth = 260f;
+    private float previewHeight = 300f;
+    private float assetInfoWidth = 320f;
+    private const float SplitterThickness = 6f;
 
     private List<Renderable> cachedRenderables = [];
     public List<MobyAsset> mobyAssets = [];
@@ -102,6 +144,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         {
             selectedMobyAsset = value;
             if (value != null) selectedTieAsset = null;
+            selectedMesh = null;
             IsDirty = true;
             RebuildSelectedAssetMaterials();
         }
@@ -115,6 +158,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         {
             selectedTieAsset = value;
             if (value != null) selectedMobyAsset = null;
+            selectedMesh = null;
             IsDirty = true;
             RebuildSelectedAssetMaterials();
         }
@@ -167,6 +211,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         renderTexture = new RenderTexture2D(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
         renderer = new DecalAwareForwardRenderer(gd);
         immediateRenderer = new ImmediateRenderer(gd);
+        pickingRenderer = new PickingRenderer(gd);
     }
 
     /// <summary>Drops every reference to the level that's about to be unloaded — mobyAssets/
@@ -176,6 +221,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     {
         selectedMobyAsset = null;
         selectedTieAsset = null;
+        selectedMesh = null;
         RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
@@ -440,8 +486,11 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     protected override void Render(double deltaTime)
     {
+        Vector2 totalAvail = ImGui.GetContentRegionAvail();
+        treeListWidth = Math.Clamp(treeListWidth, 150f, Math.Max(150f, totalAvail.X - 200f));
+
         ImGui.BeginGroup();
-        if (ImGui.BeginChild("assets_explorer", new(ImGui.GetContentRegionAvail().X / 3, ImGui.GetContentRegionAvail().Y), ImGuiChildFlags.None))
+        if (ImGui.BeginChild("assets_explorer", new Vector2(treeListWidth, totalAvail.Y), ImGuiChildFlags.None))
         {
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_Unselect")))
             {
@@ -506,12 +555,12 @@ public class AssetViewer : DockedFrame, ILevelListener
         ImGui.EndChild();
         ImGui.EndGroup();
 
-        ImGui.SameLine();
-        ImGui.Separator();
-        ImGui.SameLine();
+        VerticalSplitter("##split_tree", ref treeListWidth, totalAvail.Y);
 
         ImGui.BeginGroup();
-        if (ImGui.BeginChild("asset_view", new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y / 2), ImGuiChildFlags.Borders, ImGuiWindowFlags.NoScrollbar))
+        float rightWidth = ImGui.GetContentRegionAvail().X;
+        previewHeight = Math.Clamp(previewHeight, 100f, Math.Max(100f, totalAvail.Y - 150f));
+        if (ImGui.BeginChild("asset_view", new Vector2(rightWidth, previewHeight), ImGuiChildFlags.Borders, ImGuiWindowFlags.NoScrollbar))
         {
             UpdateWindowSize();
             Tick(deltaTime);
@@ -576,7 +625,19 @@ public class AssetViewer : DockedFrame, ILevelListener
 
                 if (showSkeleton && selectedMobyAsset?.Moby.Skeleton is { } skeleton)
                     DrawSkeleton(skeleton, immediateRenderer);
+
+                if (vertexEditMode && ResolveSelectedMesh() is { } selectedMeshForOverlay)
+                    DrawVertexOverlay(selectedMeshForOverlay);
             }
+
+            if (pickRequested)
+            {
+                if (vertexEditMode && selectedMesh != null)
+                    PickVertexUnderCursor();
+                else
+                    PickMeshUnderCursor();
+            }
+            pickRequested = false;
 
             immediateRenderer.End();
             Camera.End();
@@ -592,8 +653,17 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
         ImGui.EndChild();
 
+        HorizontalSplitter("##split_preview", ref previewHeight, rightWidth);
+
         ImGui.Text($"{RenderFrameSize.Width}x{RenderFrameSize.Height} - Distance to origin: {Camera.Position.Length()}m");
         ImGui.Separator();
+
+        // Lower part split vertically: asset info/shaders/export on the left (unchanged content),
+        // selected-mesh inspector (from GPU picking in the preview above) on the right.
+        Vector2 lowerAvail = ImGui.GetContentRegionAvail();
+        assetInfoWidth = Math.Clamp(assetInfoWidth, 150f, Math.Max(150f, lowerAvail.X - 150f));
+        if (ImGui.BeginChild("asset_lower_left", new Vector2(assetInfoWidth, lowerAvail.Y), ImGuiChildFlags.None))
+        {
         ImGui.Text("Asset");
 
         if (selectedMobyAsset != null)
@@ -697,6 +767,14 @@ public class AssetViewer : DockedFrame, ILevelListener
                 tieUsageResults = FindTieInstances(tie.Id);
             RenderUsageResults(tieUsageResults, "tie_usage");
         }
+        }
+        ImGui.EndChild();
+
+        VerticalSplitter("##split_lower", ref assetInfoWidth, lowerAvail.Y);
+
+        if (ImGui.BeginChild("asset_lower_right", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
+            RenderSelectedMeshPanel();
+        ImGui.EndChild();
 
         ImGui.EndGroup();
     }
@@ -761,7 +839,11 @@ public class AssetViewer : DockedFrame, ILevelListener
         RenderFrameSize = new Rectangle((int)RenderFramePos.X, (int)RenderFramePos.Y, width, height);
         var windowMousePos = Input.GetMousePosition();
 
-        MousePos = windowMousePos - (RenderFramePos + RenderFrameSize.GetOriginF());
+        // RenderFrameSize's origin is already RenderFramePos (absolute screen coords, unlike
+        // View3D's zero-relative FrameContentRegion) — adding RenderFrameSize.GetOriginF() here
+        // on top of RenderFramePos double-subtracted it, shifting every pick by an extra
+        // -RenderFramePos and throwing off exactly the click-to-viewport mapping this was for.
+        MousePos = windowMousePos - RenderFramePos;
 
         Point absMousePos = new((int)windowMousePos.X, (int)windowMousePos.Y);
         bool isHoveringWnd = ImGui.IsWindowHovered();
@@ -775,6 +857,265 @@ public class AssetViewer : DockedFrame, ILevelListener
         // along the view axis — Position += would drag the orbit pivot off the asset every zoom.
         if (isHoveringWnd && isMouseInCntReg && Input.IsMouseScrolling(out var scrollDelta))
             Camera.MoveToTarget(-scrollDelta.Y * 0.5f);
+
+        // Left click picks a bangle/mesh under the cursor — independent of the RMB orbit-drag
+        // above (different button, no gizmo in this viewport to conflict with).
+        if (isHoveringWnd && isMouseInCntReg && Input.IsMouseButtonPressed(MouseButton.Left))
+            pickRequested = true;
+    }
+
+    /// <summary>
+    /// GPU color-ID picking scoped to this viewport's own preview model (same PickingRenderer
+    /// class View3D uses for whole-entity picking, but the id here is packed straight from local
+    /// (bangleIndex, meshIndex) instead of a globally-unique per-mesh id — this viewport only ever
+    /// shows one asset at a time, so there's no cross-asset collision risk to design around.
+    /// bangleIndex is always 0 for Ties.
+    /// </summary>
+    private void PickMeshUnderCursor()
+    {
+        if (RenderFrameSize.Width <= 0 || RenderFrameSize.Height <= 0) return;
+
+        var entries = new List<(Bliss.CSharp.Geometry.Meshes.IMesh mesh, Matrix4x4 world, uint id)>();
+        if (selectedMobyAsset != null)
+        {
+            var models = selectedMobyAsset.Value.Model;
+            var renderMap = selectedMobyAsset.Value.RenderModelMap;
+            for (int bangleIndex = 0; bangleIndex < models.Length; bangleIndex++)
+            {
+                if (!renderMap[bangleIndex]) continue;
+                var meshes = models[bangleIndex].Meshes;
+                for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
+                    entries.Add((meshes[meshIndex], Matrix4x4.Identity, (uint)((bangleIndex << 16) | meshIndex)));
+            }
+        }
+        else if (selectedTieAsset != null)
+        {
+            var meshes = selectedTieAsset.Value.Model.Meshes;
+            for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
+                entries.Add((meshes[meshIndex], Matrix4x4.Identity, (uint)meshIndex));
+        }
+        else
+        {
+            return;
+        }
+
+        uint hitId;
+        try
+        {
+            hitId = pickingRenderer.Pick(
+                (uint)RenderFrameSize.Width, (uint)RenderFrameSize.Height,
+                (int)MousePos.X, (int)MousePos.Y,
+                Camera.GetView() * Camera.GetProjection(),
+                entries);
+        }
+        catch (Exception e)
+        {
+            LunaLog.LogError($"Asset picking failed: {e}");
+            return;
+        }
+
+        if (hitId == PickingRenderer.NoHit)
+        {
+            selectedMesh = null;
+            return;
+        }
+
+        selectedMesh = selectedMobyAsset != null
+            ? ((int)(hitId >> 16), (int)(hitId & 0xFFFF))
+            : (0, (int)hitId);
+    }
+
+    /// <summary>Resolves selectedMesh's (bangleIndex, meshIndex) back to the engine-level IMesh
+    /// (not the Bliss Model used by PickMeshUnderCursor/rendering) — shared by the info panel,
+    /// vertex-edit-mode picking, and its overlay, since all three need VertexDumper/raw vertex
+    /// positions rather than the GPU-side mesh.</summary>
+    private IMesh? ResolveSelectedMesh()
+    {
+        if (selectedMesh == null) return null;
+        var (bangleIndex, meshIndex) = selectedMesh.Value;
+
+        if (selectedMobyAsset != null)
+        {
+            var bangles = selectedMobyAsset.Value.Moby.Bangles;
+            return bangleIndex >= 0 && bangleIndex < bangles.Count && meshIndex >= 0 && meshIndex < bangles[bangleIndex].Meshes.Count
+                ? bangles[bangleIndex].Meshes[meshIndex]
+                : null;
+        }
+        if (selectedTieAsset != null)
+        {
+            var meshes = selectedTieAsset.Value.Tie.Meshes;
+            return meshIndex >= 0 && meshIndex < meshes.Count ? meshes[meshIndex] : null;
+        }
+        return null;
+    }
+
+    /// <summary>CPU screen-space nearest-vertex picking against the selected mesh's raw vertex
+    /// positions, rather than a second GPU picking pass — these preview meshes are small enough
+    /// (single asset, not a whole level) that projecting every vertex per click is cheap, and it
+    /// sidesteps rasterizing sub-pixel point primitives with a click-tolerant hit radius, which a
+    /// GPU ID buffer can't easily give without inflating actual triangle geometry.</summary>
+    private void PickVertexUnderCursor()
+    {
+        if (RenderFrameSize.Width <= 0 || RenderFrameSize.Height <= 0) return;
+
+        var mesh = ResolveSelectedMesh();
+        if (mesh == null) return;
+
+        float[] positions = mesh.Geometry.GetVertexPositions();
+        Matrix4x4 viewProj = Camera.GetView() * Camera.GetProjection();
+
+        int best = -1;
+        float bestDistSq = VertexPickPixelRadius * VertexPickPixelRadius;
+
+        for (int i = 0; i < positions.Length / 3; i++)
+        {
+            var worldPos = new Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+            if (!TryProjectToScreen(worldPos, viewProj, out Vector2 screen)) continue;
+
+            float dx = screen.X - MousePos.X, dy = screen.Y - MousePos.Y;
+            float distSq = dx * dx + dy * dy;
+            if (distSq < bestDistSq)
+            {
+                bestDistSq = distSq;
+                best = i;
+            }
+        }
+
+        if (best >= 0)
+            selectedVertexIndex = best;
+    }
+
+    private bool TryProjectToScreen(Vector3 worldPos, Matrix4x4 viewProj, out Vector2 screen)
+    {
+        Vector4 clip = Vector4.Transform(new Vector4(worldPos, 1f), viewProj);
+        if (clip.W <= 0.0001f)
+        {
+            screen = default;
+            return false;
+        }
+
+        Vector3 ndc = new(clip.X / clip.W, clip.Y / clip.W, clip.Z / clip.W);
+        screen = new Vector2(
+            (ndc.X * 0.5f + 0.5f) * RenderFrameSize.Width,
+            (1f - (ndc.Y * 0.5f + 0.5f)) * RenderFrameSize.Height);
+        return true;
+    }
+
+    /// <summary>Vertex-edit-mode overlay: one billboard dot per vertex of the selected mesh,
+    /// blended with InvertBlendState so each dot always reads against its background regardless
+    /// of the underlying texture/lighting. The vertex currently backing the raw-dump panel
+    /// (selectedVertexIndex) is drawn larger so it's unambiguous which one is picked.</summary>
+    private void DrawVertexOverlay(IMesh mesh)
+    {
+        float[] positions = mesh.Geometry.GetVertexPositions();
+        int vertexCount = positions.Length / 3;
+        if (vertexCount == 0) return;
+
+        immediateRenderer.PushBlendState(InvertBlendState);
+        immediateRenderer.PushDepthStencilState(DepthStencilStateDescription.DEPTH_ONLY_LESS_EQUAL_READ);
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            var worldPos = new Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+            float pixelRadius = i == selectedVertexIndex ? SelectedVertexPixelRadius : VertexPointPixelRadius;
+            float scale = WorldScaleForPixelRadius(worldPos, pixelRadius);
+            immediateRenderer.DrawBillboard(worldPos, new Vector2(scale), Bliss.CSharp.Colors.Color.White);
+        }
+
+        immediateRenderer.PopDepthStencilState();
+        immediateRenderer.PopBlendState();
+    }
+
+    // DrawBillboard sizes its quad off GlobalResource.DefaultImmediateRendererTexture's 1x1
+    // source rect (half-size = (Width/100)/2 = 0.005 world units per unit of `scale`, since no
+    // texture is pushed before calling it here) — back-solve the `scale` that makes the billboard
+    // cover pixelRadius screen pixels at this vertex's current distance from the camera, so every
+    // dot stays a roughly constant on-screen size regardless of mesh scale or camera zoom.
+    private float WorldScaleForPixelRadius(Vector3 worldPos, float pixelRadius)
+    {
+        float distance = Vector3.Distance(Camera.Position, worldPos);
+        float fovYRad = Camera.Fov * (MathF.PI / 180f);
+        float worldHalfSize = 2f * distance * MathF.Tan(fovYRad * 0.5f) * (pixelRadius / Math.Max(1, RenderFrameSize.Height));
+        return worldHalfSize / 0.005f;
+    }
+
+    /// <summary>Right-hand column of the lower split — metadata + raw vertex data for whatever
+    /// PickMeshUnderCursor last selected. Resolves back through the engine-level Moby/Tie mesh
+    /// list (not the Bliss Model used for picking/rendering) since that's what still has
+    /// IMesh.VertexDumper/VertexFormatName and the real Material.</summary>
+    private void RenderSelectedMeshPanel()
+    {
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_SelectedMeshTitle"));
+        ImGui.Separator();
+
+        if (selectedMesh == null)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_SelectedMeshHint"));
+            return;
+        }
+
+        var (bangleIndex, meshIndex) = selectedMesh.Value;
+        string location = selectedMobyAsset != null ? $"Bangle_{bangleIndex} / Mesh {meshIndex}" : $"Mesh {meshIndex}";
+        ImGui.Text(location);
+
+        IMesh? mesh = ResolveSelectedMesh();
+        if (mesh == null)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_SelectedMeshStale"));
+            return;
+        }
+
+        int vertexCount = mesh.Geometry.GetVertexPositions().Length / 3;
+        int indexCount = mesh.Geometry.GetIndices().Length;
+
+        ImGui.Text($"Material: {mesh.Material.Name ?? mesh.Material.Id.ToString("X")} (0x{mesh.Material.Id:X})");
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_VertexFormat", mesh.VertexFormatName ?? LM.Get("GUI_Frame_ShaderBrowser_Unknown")));
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_VertexIndexCounts", vertexCount, indexCount, indexCount / 3));
+
+        ImGui.Separator();
+        ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_VertexEditMode"), ref vertexEditMode);
+        ImGui.SameLine();
+        ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_VertexEditModeHelp"));
+
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_RawVertexSection"));
+
+        if (mesh.VertexDumper == null)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_RawVertexUnavailable"));
+            return;
+        }
+
+        ImGui.SetNextItemWidth(120);
+        ImGui.InputInt(LM.Get("GUI_Frame_AssetViewer_VertexIndex"), ref selectedVertexIndex);
+        selectedVertexIndex = Math.Clamp(selectedVertexIndex, 0, Math.Max(0, vertexCount - 1));
+
+        string? dump = mesh.VertexDumper(selectedVertexIndex);
+        ImGui.TextUnformatted(dump ?? LM.Get("GUI_Frame_AssetViewer_VertexOutOfRange"));
+    }
+
+    /// <summary>Draggable divider between two side-by-side panes — mutates <paramref name="width"/>
+    /// (the pane immediately to its left) by the horizontal mouse delta while dragged. Caller
+    /// clamps <paramref name="width"/> before using it; this only applies the raw delta.</summary>
+    private static void VerticalSplitter(string id, ref float width, float height)
+    {
+        ImGui.SameLine(0, 0);
+        ImGui.Button(id, new Vector2(SplitterThickness, height));
+        if (ImGui.IsItemHovered() || ImGui.IsItemActive())
+            ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEw);
+        if (ImGui.IsItemActive())
+            width += ImGui.GetIO().MouseDelta.X;
+        ImGui.SameLine(0, 0);
+    }
+
+    /// <summary>Draggable divider between two stacked panes — mutates <paramref name="height"/>
+    /// (the pane immediately above it) by the vertical mouse delta while dragged.</summary>
+    private static void HorizontalSplitter(string id, ref float height, float width)
+    {
+        ImGui.Button(id, new Vector2(width, SplitterThickness));
+        if (ImGui.IsItemHovered() || ImGui.IsItemActive())
+            ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNs);
+        if (ImGui.IsItemActive())
+            height += ImGui.GetIO().MouseDelta.Y;
     }
 
     private void CheckRotationInput(bool allowGrab)

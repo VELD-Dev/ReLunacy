@@ -86,23 +86,42 @@ public record struct TieMesh : ILunaSerializable, IMesh
         }
     }
 
-    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords)
+    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] vertexAlphaCandidates)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
 
         vpos = new float[verticesCount * 3];
         uvcoords = new float[verticesCount * 2];
+        normals = new float[verticesCount * 3];
+        vertexAlphaCandidates = new float[verticesCount];
 
         for (int k = 0; k < verticesCount; k++)
         {
+            vertexAlphaCandidates[k] = vertices[k].VertexAlphaCandidate;
             vpos[k * 3 + 0] = vertices[k].position.Item1 * scale.X;
             vpos[k * 3 + 1] = vertices[k].position.Item2 * scale.Y;
             vpos[k * 3 + 2] = vertices[k].position.Item3 * scale.Z;
             uvcoords[k * 2 + 0] = (float)vertices[k].UVs.Item1;
             uvcoords[k * 2 + 1] = (float)vertices[k].UVs.Item2;
+
+            // Ties can have non-uniform per-axis scale (unlike Mobys' single scalar) — a normal
+            // under non-uniform scale must use the inverse-transpose (divide by the same per-axis
+            // scale applied to positions, then renormalize), not be scaled like a position, or
+            // lighting skews on any Tie that isn't scaled equally on all three axes.
+            Vector3 n = vertices[k].Normal;
+            Vector3 scaledN = new(n.X / scale.X, n.Y / scale.Y, n.Z / scale.Z);
+            scaledN = scaledN.LengthSquared() > 1e-12f ? Vector3.Normalize(scaledN) : Vector3.UnitY;
+            normals[k * 3 + 0] = scaledN.X;
+            normals[k * 3 + 1] = scaledN.Y;
+            normals[k * 3 + 2] = scaledN.Z;
         }
     }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams) => throw new NotImplementedException();
+
+    public const string VertexFormatName = "VertexFormat0";
+
+    public readonly string? DumpVertex(int index) =>
+        vertices != null && index >= 0 && index < vertices.Length ? vertices[index].Dump() : null;
 }

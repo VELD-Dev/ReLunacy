@@ -4,7 +4,8 @@ public enum RenderMode
 {
     Opaque = 0,
     AlphaClip = 1,
-    AlphaBlend = 2
+    AlphaBlend = 2,
+    Additive = 3,
 }
 
 public interface IMaterial : IAsset
@@ -15,15 +16,8 @@ public interface IMaterial : IAsset
     RenderMode RenderMode { get; }
     float AlphaClipThreshold { get; }
 
-    // True for shaders read with Loading.Shaders.RenderingMode.Decal (raw byte 0x01) — kept
-    // separate from RenderMode above rather than adding a 4th RenderMode case, since everything
-    // that already switches on RenderMode (blend-state selection, glTF export) is correct for
-    // decals treating them as plain AlphaBlend; this flag exists only for AssetManager's mesh
-    // build step to know which geometry needs the Z-fight vertex offset.
-    bool IsDecal { get; }
-
-    // ShaderMetadataOld/New.decalOffsetCandidate (file offset 0x48) — an unconfirmed-but-promising
-    // per-material candidate for the actual decal Z-offset magnitude, found by comparing several
-    // Decal shaders' raw bytes. See AssetManager, which multiplies this by EditorSettings.DecalOffset.
-    float DecalOffsetCandidate { get; }
+    // See Material.UsesVertexAlphaCandidate — true when this material's render mode blends and
+    // its albedo has no format-level alpha channel, the one condition we've confirmed a per-vertex
+    // alpha candidate (VertexFormat0.boneIndex) actually correlates with real fade behavior.
+    bool UsesVertexAlphaCandidate { get; }
 }

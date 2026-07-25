@@ -9,6 +9,7 @@ public sealed class GeometryData : IGeometry
     private readonly float[] _positions;
     private readonly float[] _uvs;
     private readonly float[]? _normals;
+    private readonly float[]? _vertexAlphaCandidates;
     private readonly uint[] _indices;
     private readonly int[]? _jointIndices;
     private readonly float[]? _jointWeights;
@@ -19,7 +20,7 @@ public sealed class GeometryData : IGeometry
     public bool IsLoaded => true;
 
     public GeometryData(ulong id, float[] positions, float[] uvs, uint[] indices, float[]? normals = null, BoundingSphere? boundingSphere = null,
-        int[]? jointIndices = null, float[]? jointWeights = null)
+        int[]? jointIndices = null, float[]? jointWeights = null, float[]? vertexAlphaCandidates = null)
     {
         if (positions.Length % 3 != 0)
             throw new ArgumentException("Positions must be in groups of 3 (x,y,z)", nameof(positions));
@@ -42,13 +43,13 @@ public sealed class GeometryData : IGeometry
         Id = id;
         _positions = positions;
         _uvs = uvs;
-        // Moby/Tie readers never read real per-vertex normals from the file (only UFrags do) —
-        // without this, AssetManager's vertex conversion silently defaulted every normal to
-        // Vector3.UnitY, which is wrong for anything that isn't a flat horizontal surface. Needed
-        // as a real (if approximate) outward direction for the Decal vertex offset below to push
-        // along — computed from the triangle data itself rather than reverse-engineered from the
-        // file, since it's ordinary mesh processing, not a format-specific field.
+        // Moby/Tie readers now decode real per-vertex normals (VertexFormat0/1's packed signed
+        // 11:11:10 normal word — see PackedNormal) and pass them in. This fallback only fires for
+        // formats that don't carry real normals at all (UFrags currently don't plumb theirs
+        // through either) — computed from the triangle data itself rather than guessed, so it's
+        // still a reasonable substitute where no real data is available.
         _normals = normals ?? ComputeNormals(positions, indices);
+        _vertexAlphaCandidates = vertexAlphaCandidates;
         _indices = indices;
         _jointIndices = jointIndices;
         _jointWeights = jointWeights;
@@ -93,6 +94,7 @@ public sealed class GeometryData : IGeometry
     public float[] GetVertexPositions() => _positions;
     public float[] GetTextureCoordinates() => _uvs;
     public float[]? GetNormals() => _normals;
+    public float[]? GetVertexAlphaCandidates() => _vertexAlphaCandidates;
     public uint[] GetIndices() => _indices;
     public int[]? GetJointIndices() => _jointIndices;
     public float[]? GetJointWeights() => _jointWeights;

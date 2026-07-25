@@ -172,6 +172,8 @@ public static class LevelExporter
         public IGeometry Geometry => this;
         public IMaterial Material => ufrag.Material;
         public string? Name => name;
+        public string? VertexFormatName => null;
+        public Func<int, string?>? VertexDumper => null;
 
         public ulong Id => ufrag.Id;
         public bool IsLoaded => ufrag.IsLoaded;
@@ -179,6 +181,7 @@ public static class LevelExporter
         public float[] GetVertexPositions() => ufrag.GetVertexPositions();
         public float[] GetTextureCoordinates() => ufrag.GetTextureCoordinates();
         public float[]? GetNormals() => ufrag.GetNormals();
+        public float[]? GetVertexAlphaCandidates() => null;
         public uint[] GetIndices() => ufrag.GetIndices();
         public Vector3 GetBoundingCenter() => ufrag.GetBoundingCenter();
         public float GetBoundingRadius() => ufrag.GetBoundingRadius();

@@ -170,25 +170,22 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         float alphaClip = shader.isOld ? shader.metadataOld!.Value.alphaClip : shader.metadataNew!.Value.alphaClip;
         ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_AlphaClip", alphaClip));
 
-        float decalOffsetCandidate = shader.isOld ? shader.metadataOld!.Value.decalOffsetCandidate : shader.metadataNew!.Value.decalOffsetCandidate;
-        float decalOffsetFactorCandidate = shader.isOld ? shader.metadataOld!.Value.decalOffsetFactorCandidate : shader.metadataNew!.Value.decalOffsetFactorCandidate;
-        ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_DecalOffsetCandidate", decalOffsetCandidate));
-        ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_DecalOffsetFactorCandidate", decalOffsetFactorCandidate));
-
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_TexturesSection"));
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Albedo"), shader.Albedo);
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Normal"), shader.Normal);
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Expensive"), shader.Expensive);
+        DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_DetailMap"), shader.DetailMap);
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_RawMetadataSection"));
         ImGui.Checkbox(LM.Get("GUI_Frame_ShaderBrowser_ShowAsFloats"), ref showFloatInterpretation);
         if (shader.isOld && shader.metadataOld.HasValue)
         {
             var meta = shader.metadataOld.Value;
-            DrawHexDump("Unk1", 0x0C, meta.Unk1);
-            DrawHexDump("Unk2", 0x12, meta.Unk2);
-            DrawHexDump("Unk3a", 0x24, meta.Unk3a);
-            DrawHexDump("Unk3b", 0x50, meta.Unk3b);
+            ImGui.Text($"0x12 Class: {meta.Class}");
+            DrawHexDump("Unk1", 0x13, meta.Unk1);
+            DrawHexDump("Unk2", 0x24, meta.Unk2);
+            DrawHexDump("Unk4", 0x48, meta.Unk4);
+            DrawHexDump("Unk3a", 0x50, meta.Unk3a);
         }
         else if (!shader.isOld && shader.metadataNew.HasValue)
         {
@@ -196,6 +193,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             DrawHexDump("Unk1", 0x0C, meta.Unk1);
             DrawHexDump("Unk2", 0x22, meta.Unk2);
             DrawHexDump("Unk3a", 0x34, meta.Unk3a);
+            DrawHexDump("Unk4", 0x48, meta.Unk4);
             DrawHexDump("Unk3b", 0x50, meta.Unk3b);
         }
 

@@ -178,16 +178,16 @@ public sealed class MobyReader
     {
         // Positions are fixed-point int16 in bangle-local space; the moby's own scale must be
         // applied here, matching what MobyMesh.GetBuffers already does for the legacy renderer.
-        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs);
+        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var vertexAlphaCandidates);
 
         var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh);
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, jointIndices: jointIndices, jointWeights: jointWeights);
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
 
         IMaterial material = moby.IsOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.shaderIndex)
             : _materialReader.GetMaterialForLocalIndex(moby.ShaderTUIDs, legacyMesh.shaderIndex);
 
-        return new Assets.Geometry.Mesh(geometry, material, "MobyMesh");
+        return new Assets.Geometry.Mesh(geometry, material, "MobyMesh", legacyMesh.VertexFormatName, legacyMesh.DumpVertex);
     }
 
     /// <summary>

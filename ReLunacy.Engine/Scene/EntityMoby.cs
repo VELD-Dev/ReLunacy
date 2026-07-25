@@ -53,7 +53,7 @@ public class EntityMoby : Entity
 
         var sphere = WorldBoundingSphere;
         var sphereCenter = new Vector3(sphere.X, sphere.Y, sphere.Z);
-        if (!camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
+        if (EntityManager.Singleton.FrustumCullingEnabled && !camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
 
         if (Models is null) return;
 

@@ -46,7 +46,7 @@ public class EntityVolume : Entity
         // cull anything the OBB test would have kept.
         var sphere = WorldBoundingSphere;
         var sphereCenter = new Vector3(sphere.X, sphere.Y, sphere.Z);
-        if (!camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
+        if (EntityManager.Singleton.FrustumCullingEnabled && !camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
 
         if (EntityManager.Singleton.renderBoundingSpheres)
             DrawBoundingSphere(outputDescription, commandList, immediateRenderer);

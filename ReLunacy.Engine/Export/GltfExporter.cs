@@ -248,6 +248,9 @@ public static class GltfExporter
         {
             RenderMode.AlphaClip => AlphaMode.MASK,
             RenderMode.AlphaBlend => AlphaMode.BLEND,
+            // glTF has no additive alpha mode — BLEND is the closest approximation available;
+            // falling through to OPAQUE here would export additive-glow materials as solid quads.
+            RenderMode.Additive => AlphaMode.BLEND,
             _ => AlphaMode.OPAQUE,
         };
         builder.WithAlpha(alphaMode, material.AlphaClipThreshold);

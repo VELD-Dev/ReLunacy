@@ -19,6 +19,10 @@ public class Shader
     public Texture? Albedo;
     public Texture? Normal;
     public Texture? Expensive;
+    // Old engine only so far (ShaderMetadataOld.detailMap, offset 0x0C) — ShaderMetadataNew
+    // hasn't had its equivalent identified yet. Unconfirmed what this actually holds; being
+    // wired through so it can be inspected in the Shader Browser rather than guessed at blind.
+    public Texture? DetailMap;
     public RenderingMode RenderingMode => (RenderingMode)(isOld ? metadataOld!.Value.renderingMode : metadataNew!.Value.renderingMode);
 
     public Shader(StreamHelper sh, bool isOld = false, uint index = 0)
