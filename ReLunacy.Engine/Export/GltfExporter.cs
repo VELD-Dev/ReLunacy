@@ -262,15 +262,16 @@ public static class GltfExporter
                 builder.WithBaseColor(TextureEncoding.EncodeRgbaToPng(albedoRgba, albedoWidth, albedoHeight));
         }
 
-        if (material.NormalTexture != null)
-        {
-            var png = TextureEncoding.DecodeToPng(material.NormalTexture);
-            if (png != null)
-                builder.WithNormal(png, 1.0f);
-        }
+        byte[]? detailRgba = null;
+        int detailWidth = 0, detailHeight = 0;
+        if (material.DetailTexture != null)
+            detailRgba = TextureUtils.DecodeToRgba8888(material.DetailTexture, out detailWidth, out detailHeight);
 
-        if (material.PropertiesTexture != null)
-            ApplyExpensiveChannels(material.PropertiesTexture, albedoRgba, albedoWidth, albedoHeight, builder);
+        if (material.NormalTexture != null || detailRgba != null)
+            ApplyNormalWithDetail(material.NormalTexture, detailRgba, detailWidth, detailHeight, builder);
+
+        if (material.PropertiesTexture != null || detailRgba != null)
+            ApplyExpensiveChannels(material.PropertiesTexture, albedoRgba, albedoWidth, albedoHeight, detailRgba, detailWidth, detailHeight, builder);
 
         var alphaMode = material.RenderMode switch
         {
@@ -291,22 +292,35 @@ public static class GltfExporter
     /// The "expensive"/properties texture packs specular (R), metallic (G) and emissive intensity
     /// (B) into one image — not a layout any glTF texture slot accepts directly, so each channel
     /// gets split out into its own properly-shaped image: metallic into a synthesized
-    /// metallicRoughnessTexture (metallic in B per glTF convention; there's no source roughness
-    /// data, so G is filled with a constant mid-value rather than invented per-pixel data),
-    /// specular into KHR_materials_specular's specularTexture (strength in A), and emissive —
-    /// the B channel is only ever an *intensity*, the actual glow color is the material's own
-    /// albedo — into an RGB texture built by scaling each albedo texel by its co-located
-    /// intensity texel (nearest-neighbor if the two textures aren't the same resolution).
+    /// metallicRoughnessTexture (metallic in B per glTF convention; roughness in G is now sourced
+    /// from the detail map's confirmed B channel, tiled — see <see cref="SampleDetailTiled"/> —
+    /// falling back to a constant mid-value only when no detail map is present at all), specular
+    /// into KHR_materials_specular's specularTexture (strength in A), and emissive — the B channel
+    /// is only ever an *intensity*, the actual glow color is the material's own albedo — into an
+    /// RGB texture built by scaling each albedo texel by its co-located intensity texel
+    /// (nearest-neighbor if the two textures aren't the same resolution). Specular/emissive are
+    /// skipped entirely when there's no properties texture (a detail-only material has no source
+    /// data for either).
     /// </summary>
-    private static void ApplyExpensiveChannels(ITexture propertiesTexture, byte[]? albedoRgba, int albedoWidth, int albedoHeight, MaterialBuilder builder)
+    private static void ApplyExpensiveChannels(ITexture? propertiesTexture, byte[]? albedoRgba, int albedoWidth, int albedoHeight, byte[]? detailRgba, int detailWidth, int detailHeight, MaterialBuilder builder)
     {
-        byte[]? rgba = TextureUtils.DecodeToRgba8888(propertiesTexture, out int width, out int height);
-        if (rgba == null)
+        byte[]? rgba = null;
+        int width = 0, height = 0;
+        if (propertiesTexture != null)
+            rgba = TextureUtils.DecodeToRgba8888(propertiesTexture, out width, out height);
+
+        if (rgba == null && detailRgba == null)
             return;
 
+        if (rgba == null)
+        {
+            width = detailWidth;
+            height = detailHeight;
+        }
+
         var metallicRoughness = new byte[width * height * 4];
-        var specular = new byte[width * height * 4];
-        var emissive = new byte[width * height * 4];
+        byte[]? specular = rgba != null ? new byte[width * height * 4] : null;
+        byte[]? emissive = rgba != null ? new byte[width * height * 4] : null;
         bool hasAlbedo = albedoRgba != null && albedoWidth > 0 && albedoHeight > 0;
 
         for (int y = 0; y < height; y++)
@@ -314,45 +328,146 @@ public static class GltfExporter
             for (int x = 0; x < width; x++)
             {
                 int i = (y * width + x) * 4;
-                byte specularValue = rgba[i + 0];
-                byte metallicValue = rgba[i + 1];
-                byte emissiveIntensity = rgba[i + 2];
+                byte metallicValue = rgba != null ? rgba[i + 1] : (byte)0;
+
+                byte roughnessValue = 128; // no detail map at all — constant mid-value fallback
+                if (detailRgba != null)
+                {
+                    float u = (x + 0.5f) / width;
+                    float v = (y + 0.5f) / height;
+                    var (_, _, db) = SampleDetailTiled(detailRgba, detailWidth, detailHeight, u, v);
+                    roughnessValue = db;
+                }
 
                 metallicRoughness[i + 0] = 0;
-                metallicRoughness[i + 1] = 128; // no source roughness data — constant mid-value fallback
+                metallicRoughness[i + 1] = roughnessValue;
                 metallicRoughness[i + 2] = metallicValue;
                 metallicRoughness[i + 3] = 255;
 
-                specular[i + 0] = 255;
-                specular[i + 1] = 255;
-                specular[i + 2] = 255;
-                specular[i + 3] = specularValue;
-
-                byte albedoR = 255, albedoG = 255, albedoB = 255;
-                if (hasAlbedo)
+                if (rgba != null)
                 {
-                    int ai = ((y * albedoHeight / height) * albedoWidth + x * albedoWidth / width) * 4;
-                    albedoR = albedoRgba![ai + 0];
-                    albedoG = albedoRgba[ai + 1];
-                    albedoB = albedoRgba[ai + 2];
-                }
+                    byte specularValue = rgba[i + 0];
+                    byte emissiveIntensity = rgba[i + 2];
 
-                emissive[i + 0] = (byte)(albedoR * emissiveIntensity / 255);
-                emissive[i + 1] = (byte)(albedoG * emissiveIntensity / 255);
-                emissive[i + 2] = (byte)(albedoB * emissiveIntensity / 255);
-                emissive[i + 3] = 255;
+                    specular![i + 0] = 255;
+                    specular[i + 1] = 255;
+                    specular[i + 2] = 255;
+                    specular[i + 3] = specularValue;
+
+                    byte albedoR = 255, albedoG = 255, albedoB = 255;
+                    if (hasAlbedo)
+                    {
+                        int ai = ((y * albedoHeight / height) * albedoWidth + x * albedoWidth / width) * 4;
+                        albedoR = albedoRgba![ai + 0];
+                        albedoG = albedoRgba[ai + 1];
+                        albedoB = albedoRgba[ai + 2];
+                    }
+
+                    emissive![i + 0] = (byte)(albedoR * emissiveIntensity / 255);
+                    emissive[i + 1] = (byte)(albedoG * emissiveIntensity / 255);
+                    emissive[i + 2] = (byte)(albedoB * emissiveIntensity / 255);
+                    emissive[i + 3] = 255;
+                }
             }
         }
 
         builder.WithMetallicRoughness(TextureEncoding.EncodeRgbaToPng(metallicRoughness, width, height), metallic: null, roughness: null);
-        builder.WithSpecularFactor(TextureEncoding.EncodeRgbaToPng(specular, width, height), 1.0f);
-        // rgb must be an explicit Vector3.One, not null: MaterialBuilder.WithEmissive(image, rgb:
-        // null, ...) never calls the rgb-factor overload at all (see its source — it's guarded by
-        // `if (rgb.HasValue)`), so glTF's emissiveFactor is left at its spec default of (0,0,0).
-        // That means finalEmissive = emissiveTexture * emissiveFactor = emissiveTexture * 0 — the
-        // baked albedo-times-intensity texture below was correct but had zero visible effect in
-        // the actual exported file. Verified empirically (decompiled + reproduced with a synthetic
-        // export/reload round-trip) before fixing, not assumed from the method signature.
-        builder.WithEmissive(TextureEncoding.EncodeRgbaToPng(emissive, width, height), rgb: Vector3.One, strength: 1.0f);
+
+        if (specular != null && emissive != null)
+        {
+            builder.WithSpecularFactor(TextureEncoding.EncodeRgbaToPng(specular, width, height), 1.0f);
+            // rgb must be an explicit Vector3.One, not null: MaterialBuilder.WithEmissive(image, rgb:
+            // null, ...) never calls the rgb-factor overload at all (see its source — it's guarded by
+            // `if (rgb.HasValue)`), so glTF's emissiveFactor is left at its spec default of (0,0,0).
+            // That means finalEmissive = emissiveTexture * emissiveFactor = emissiveTexture * 0 — the
+            // baked albedo-times-intensity texture below was correct but had zero visible effect in
+            // the actual exported file. Verified empirically (decompiled + reproduced with a synthetic
+            // export/reload round-trip) before fixing, not assumed from the method signature.
+            builder.WithEmissive(TextureEncoding.EncodeRgbaToPng(emissive, width, height), rgb: Vector3.One, strength: 1.0f);
+        }
+    }
+
+    /// <summary>Combines the base NormalTexture with DetailTexture's R/G channels (a second,
+    /// tangent-space normal map sampled at a tiled UV — see <see cref="SampleDetailTiled"/>) into
+    /// one glTF normal texture, since glTF has no native slot for a second normal map. Uses a UDN
+    /// (partial-derivative) blend — the two normals' XY components add, Z is taken from the base
+    /// normal, and the result is renormalized — cheap and close enough for a detail-scale effect
+    /// given the tiling factor itself is already a placeholder. Baked at the base NormalTexture's
+    /// resolution when present, otherwise at DetailTexture's own resolution with a flat "up" base
+    /// normal.</summary>
+    private static void ApplyNormalWithDetail(ITexture? normalTexture, byte[]? detailRgba, int detailWidth, int detailHeight, MaterialBuilder builder)
+    {
+        byte[]? baseRgba = null;
+        int width = 0, height = 0;
+        if (normalTexture != null)
+            baseRgba = TextureUtils.DecodeToRgba8888(normalTexture, out width, out height);
+
+        if (baseRgba == null && detailRgba == null)
+            return;
+
+        if (baseRgba == null)
+        {
+            width = detailWidth;
+            height = detailHeight;
+        }
+
+        var combined = new byte[width * height * 4];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int i = (y * width + x) * 4;
+
+                Vector3 baseNormal = Vector3.UnitZ;
+                if (baseRgba != null)
+                {
+                    baseNormal = new Vector3(
+                        baseRgba[i + 0] / 255f * 2f - 1f,
+                        baseRgba[i + 1] / 255f * 2f - 1f,
+                        baseRgba[i + 2] / 255f * 2f - 1f);
+                }
+
+                Vector3 result = baseNormal;
+                if (detailRgba != null)
+                {
+                    float u = (x + 0.5f) / width;
+                    float v = (y + 0.5f) / height;
+                    var (dr, dg, _) = SampleDetailTiled(detailRgba, detailWidth, detailHeight, u, v);
+                    float dnx = dr / 255f * 2f - 1f;
+                    float dny = dg / 255f * 2f - 1f;
+
+                    result = baseRgba != null
+                        ? Vector3.Normalize(new Vector3(baseNormal.X + dnx, baseNormal.Y + dny, baseNormal.Z))
+                        : Vector3.Normalize(new Vector3(dnx, dny, MathF.Sqrt(MathF.Max(0f, 1f - dnx * dnx - dny * dny))));
+                }
+
+                combined[i + 0] = (byte)((result.X * 0.5f + 0.5f) * 255f);
+                combined[i + 1] = (byte)((result.Y * 0.5f + 0.5f) * 255f);
+                combined[i + 2] = (byte)((result.Z * 0.5f + 0.5f) * 255f);
+                combined[i + 3] = 255;
+            }
+        }
+
+        builder.WithNormal(TextureEncoding.EncodeRgbaToPng(combined, width, height), 1.0f);
+    }
+
+    // Real per-shader tiling scale hasn't been located in ShaderMetadata's still-unidentified byte
+    // ranges — this is a placeholder repeat factor (a common in-engine detail-map tiling order of
+    // magnitude) used only so the confirmed channel layout can be baked in now rather than left
+    // unused. Replace once the real value is found.
+    private const float PlaceholderDetailTiling = 4.0f;
+
+    private static (byte r, byte g, byte b) SampleDetailTiled(byte[] detailRgba, int detailWidth, int detailHeight, float u, float v)
+    {
+        u = (u * PlaceholderDetailTiling) % 1f;
+        v = (v * PlaceholderDetailTiling) % 1f;
+        if (u < 0f) u += 1f;
+        if (v < 0f) v += 1f;
+
+        int x = Math.Clamp((int)(u * detailWidth), 0, detailWidth - 1);
+        int y = Math.Clamp((int)(v * detailHeight), 0, detailHeight - 1);
+        int i = (y * detailWidth + x) * 4;
+        return (detailRgba[i + 0], detailRgba[i + 1], detailRgba[i + 2]);
     }
 }

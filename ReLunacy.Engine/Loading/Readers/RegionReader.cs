@@ -153,7 +153,10 @@ public sealed class RegionReader
                 // Matches Legacy's Region(IGFile, AssetLoader): debug.dat instance names (when
                 // present) are matched purely by array position, not by any tuid.
                 string name = _debugReader.GetMobyInstanceName(i) ?? $"Moby_{legacyInstance.mobyIndex:X4}_Instance_{i}";
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name));
+                // 0 or negative in the file means unlimited — normalize to -1 so callers only
+                // ever need to check "< 0 = unlimited".
+                float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance));
             }
         }
 
@@ -222,7 +225,8 @@ public sealed class RegionReader
                     ? metadataNames[i]!
                     : $"Moby_{legacyInstance.mobyIndex:X4}_Instance_{i}";
 
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name));
+                float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance));
             }
         }
 
@@ -262,32 +266,43 @@ public sealed class RegionReader
     private static List<Volume> ReadVolumesNew(IGFile prius)
     {
         // Same file-location correction as moby instances: volumes and their names live in
-        // gp_prius.dat, not region.dat.
+        // gp_prius.dat, not region.dat. Metadata (TUID/name/group) is read first into arrays,
+        // same two-pass shape as ReadMobyInstancesNew, so each Volume can be constructed with its
+        // real identity/group instead of a loop-index placeholder that a later pass can't fix up
+        // (Volume.Id is init-only).
+        var volumeMetaSection = prius.QuerySection(InstanceMetadata.VolumeMetadataID);
+        var metadatas = new InstanceMetadata[volumeMetaSection.count];
+        var metadataNames = new string?[volumeMetaSection.count];
+        if (volumeMetaSection.count > 0)
+        {
+            prius.sh.Seek(volumeMetaSection.offset);
+            for (int i = 0; i < volumeMetaSection.count; i++)
+            {
+                metadatas[i] = new InstanceMetadata(prius.sh);
+                if (metadatas[i].namePointer != 0)
+                {
+                    // Same position-drift hazard as the moby metadata loop above: save/restore
+                    // around the string-pool seek so the next sequential InstanceMetadata read
+                    // stays correct.
+                    long nextRecordPos = prius.sh.BaseStream.Position;
+                    metadataNames[i] = prius.sh.ReadString(metadatas[i].namePointer);
+                    prius.sh.Seek(nextRecordPos);
+                }
+            }
+        }
+
         var volumeSection = prius.QuerySection(0x2505C);
         var volumes = new Volume[volumeSection.count];
         prius.sh.Seek(volumeSection.offset);
         for (int i = 0; i < volumeSection.count; i++)
         {
-            volumes[i] = new Volume((ulong)i, ReadMatrix4x4(prius.sh));
-        }
-
-        var volumeMetaSection = prius.QuerySection(InstanceMetadata.VolumeMetadataID);
-        prius.sh.Seek(volumeMetaSection.offset);
-        for (int i = 0; i < volumeMetaSection.count && i < volumes.Length; i++)
-        {
-            var volumeMeta = new InstanceMetadata(prius.sh);
-            if (volumeMeta.namePointer != 0)
-            {
-                // Same position-drift hazard as the moby metadata loop above: save/restore around
-                // the string-pool seek so the next sequential InstanceMetadata read stays correct.
-                long nextRecordPos = prius.sh.BaseStream.Position;
-                volumes[i].Name = prius.sh.ReadString(volumeMeta.namePointer);
-                prius.sh.Seek(nextRecordPos);
-            }
-            else
-            {
-                volumes[i].Name = $"Volume_{i}";
-            }
+            var transform = ReadMatrix4x4(prius.sh);
+            ulong tuid = i < metadatas.Length ? metadatas[i].TUID : (ulong)i;
+            ushort group = i < metadatas.Length ? metadatas[i].group : (ushort)0;
+            string name = i < metadataNames.Length && metadataNames[i] != null
+                ? metadataNames[i]!
+                : $"Volume_{i}";
+            volumes[i] = new Volume(tuid, transform, name, group);
         }
 
         return [.. volumes];

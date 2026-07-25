@@ -85,6 +85,21 @@ public static class GameLibraryScanner
     }
 
     /// <summary>
+    /// Derives a level's display name from its own source path, for callers that only have
+    /// something like Program.ProvidedPath and never went through <see cref="Scan"/> (so never got
+    /// a proper <see cref="Level"/>.Name). Same rule as <see cref="ScanPsarcLevels"/>: a .psarc's own
+    /// filename is always one of a fixed handful (level_cached, level_uncached, level_textures), so
+    /// for a file path the actual level name is its containing folder, not the file itself — a
+    /// folder path (old engine, or a pre-extracted new-engine level) is already the level name.
+    /// </summary>
+    public static string GetLevelNameFromPath(string path)
+    {
+        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string levelDir = File.Exists(trimmed) ? Path.GetDirectoryName(trimmed) ?? trimmed : trimmed;
+        return Path.GetFileName(levelDir);
+    }
+
+    /// <summary>
     /// Same lookup as <see cref="ResolveDebugDatPath"/>, but starting from a level's own folder or
     /// .psarc file path instead of an already-known root — for callers (manual "Open level" file
     /// pickers) that never went through <see cref="Scan"/> and so never got a root path at all.

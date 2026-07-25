@@ -49,8 +49,34 @@ public abstract class Entity : IDisposable
 
     public abstract void Draw(IRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer);
 
-    /// <summary>Meshes to draw for GPU picking, all tagged with this entity's own ID — populated from the last Draw() call. A Moby's bangles/submeshes all resolve back to the one Moby entity.</summary>
-    public IEnumerable<Bliss.CSharp.Geometry.Meshes.IMesh> GetPickableMeshes() => cachedRenderables.Select(r => r.Mesh);
+    /// <summary>Meshes to draw for GPU picking, each with its own already-fully-world-baked
+    /// transform, all tagged with this entity's own ID — populated from the last Draw() call. A
+    /// Moby's bangles/submeshes all resolve back to the one Moby entity. Reads each Renderable's
+    /// OWN Transform(s) rather than this entity's Transform directly: every entity (Moby/Tie/UFrag,
+    /// and EntityVolume's 12 separate per-edge Renderables) constructs each Renderable with the
+    /// exact Transform that Renderable should be drawn/picked at, so this is just trusting that
+    /// directly instead of recomputing/assuming it's always equal to Entity.Transform — which lets
+    /// an entity with more than one Renderable (like EntityVolume) report each one's real world
+    /// position instead of collapsing them all onto one shared matrix. GetTransforms() returns a
+    /// capacity-sized backing array (rounded up to a power of two, padded with default Transforms
+    /// past the real count) — InstanceCount is the actual number of live entries, hence the
+    /// explicit bound below rather than trusting the span's own length; this matters even for a
+    /// non-instanced single-transform Renderable in principle, and is essential the moment
+    /// anything in this codebase uses real GPU instancing (useInstancing: true) again. Materializes
+    /// into a List rather than using yield return because ReadOnlySpan&lt;Transform&gt; can't be
+    /// held live across a yield boundary.</summary>
+    public IEnumerable<(Bliss.CSharp.Geometry.Meshes.IMesh mesh, Matrix4x4 world)> GetPickableMeshes()
+    {
+        var results = new List<(Bliss.CSharp.Geometry.Meshes.IMesh, Matrix4x4)>();
+        foreach (var renderable in cachedRenderables)
+        {
+            var transforms = renderable.GetTransforms();
+            int count = (int)renderable.InstanceCount;
+            for (int i = 0; i < count; i++)
+                results.Add((renderable.Mesh, transforms[i].GetMatrix()));
+        }
+        return results;
+    }
 
     public virtual void DrawBoundingSphere(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
     {

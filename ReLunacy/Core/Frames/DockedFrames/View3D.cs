@@ -79,6 +79,11 @@ public class View3D : DockedFrame
         // keeping them in sync here is enough — no separate recompute needed.
         Camera.Fov = Program.Settings.CamFOV;
         Camera.FarPlane = Program.Settings.RenderDistance;
+        // EntityManager (ReLunacy.Engine) has no reference to Program.Settings (app-layer) — see
+        // EntityManager.VolumeWireThickness's own comment.
+        EntityManager.Singleton.VolumeWireThickness = Program.Settings.VolumeWireThickness;
+        EntityManager.Singleton.VolumeColor = Program.Settings.VolumeColor;
+        EntityManager.Singleton.VolumeSelectedColor = Program.Settings.VolumeSelectedColor;
 
         UpdateWindowSize();
         Tick(deltaTime);
@@ -99,14 +104,18 @@ public class View3D : DockedFrame
 
         // Drawn after the main opaque pass (not from inside Entity.Draw) since the inflated-hull
         // outline technique needs real scene depth already written to correctly clip to the rim.
-        if (SelectedEntity != null)
+        // Volumes opt out entirely: EntityVolume already recolors its own wireframe box on
+        // selection (see its Draw()), and the inflated-hull technique expects one closed mesh —
+        // a volume's pick/wire mesh is 12 disjoint GPU-instanced edges, not a closed surface, so
+        // inflating along vertex normals would produce a patchy, disconnected-looking rim instead
+        // of a clean outline.
+        if (SelectedEntity != null && SelectedEntity is not EntityVolume)
         {
-            var world = SelectedEntity.Transform.GetMatrix();
-            var entries = SelectedEntity.GetPickableMeshes().Select(mesh => (mesh, world));
+            var entries = SelectedEntity.GetPickableMeshes();
             selectionOutlineRenderer.DrawOutline(
                 commandList, renderTexture.Framebuffer.OutputDescription,
                 Camera.GetView() * Camera.GetProjection(), entries,
-                new Vector4(1f, 0.65f, 0f, 1f));
+                Program.Settings.SelectionOutlineColor);
         }
 
         immediateRenderer.End();
@@ -201,9 +210,8 @@ public class View3D : DockedFrame
         var entities = EntityManager.Singleton.AllEntities().ToList();
         var entries = entities.SelectMany(e =>
         {
-            var world = e.Transform.GetMatrix();
             uint id = (uint)e.ID;
-            return e.GetPickableMeshes().Select(mesh => (mesh, world, id));
+            return e.GetPickableMeshes().Select(pm => (pm.mesh, pm.world, id));
         });
 
         uint hitId;

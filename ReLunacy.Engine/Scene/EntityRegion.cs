@@ -31,7 +31,7 @@ public class EntityRegion : IDisposable
 
         Volumes = new EntityCluster([], assetManager);
         foreach (var volume in region.Volumes)
-            Volumes.Add(volume);
+            Volumes.Add(volume, gd);
 
         foreach (var zone in region.Zones)
             Zones.Add(new EntityZone(zone, gd, assetManager));
