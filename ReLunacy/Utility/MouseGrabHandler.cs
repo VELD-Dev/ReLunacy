@@ -1,9 +1,6 @@
-﻿using OpenTK.Windowing.GraphicsLibraryFramework;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Numerics;
+using Bliss.CSharp.Interact;
+using Bliss.CSharp.Interact.Mice;
 
 namespace ReLunacy.Utility;
 
@@ -12,29 +9,31 @@ public class MouseGrabHandler
     private bool isGrabbed;
 
     public MouseButton mouseButton { get; set; }
+    public Vector2 GrabPosition;
 
     public bool TryGrabMouse(bool allowNewGrab)
     {
-        bool isDown = Window.Singleton.MouseState.IsButtonDown(mouseButton);
-        bool wasDown = Window.Singleton.MouseState.WasButtonDown(mouseButton);
+        bool isDown = Input.IsMouseButtonDown(mouseButton);
 
-        if(!isDown)
+        if (!isDown)
         {
-            if(wasDown && isGrabbed)
+            if (isGrabbed)
             {
                 isGrabbed = false;
-                Window.Singleton.CursorState = CursorState.Normal;
+                Input.DisableRelativeMouseMode();
+                Input.SetMousePosition(GrabPosition);
+                GrabPosition = Vector2.Zero;
             }
             return false;
         }
 
-        if(!wasDown)
+        if (!isGrabbed)
         {
-            if (!allowNewGrab)
-                return false;
+            if (!allowNewGrab) return false;
 
             isGrabbed = true;
-            Window.Singleton.CursorState = CursorState.Grabbed;
+            GrabPosition = Input.GetMousePosition();
+            Input.EnableRelativeMouseMode();
         }
 
         return isGrabbed;

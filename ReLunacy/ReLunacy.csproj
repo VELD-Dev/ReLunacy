@@ -1,29 +1,15 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>preview</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>-->
     <ApplicationIcon>Assets\logo.ico</ApplicationIcon>
-    <StartupObject>ReLunacy.Program</StartupObject>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Remove="Engine\Model\**" />
-    <EmbeddedResource Remove="Engine\Model\**" />
-    <None Remove="Engine\Model\**" />
-  </ItemGroup>
 
   <ItemGroup>
     <None Remove="Assets\logo.ico" />
@@ -31,6 +17,24 @@
 
   <ItemGroup>
     <Content Include="Assets\logo.ico" />
+    <Content Include="Shaders\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Shaders\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+  
+  <ItemGroup>
+    <Content Include="Assets\Fonts\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets\Fonts\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Locales/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Locales\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -38,46 +42,32 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ImGui.NET" Version="1.91.6.1" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="OpenTK" Version="4.9.3" />
-    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="Bliss" Version="1.6.15" />
+    <PackageReference Include="Hexa.NET.ImGui" Version="2.2.10-prerelease" />
+    <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.2.10-prerelease" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
+    <PackageReference Include="NativeFileDialogSharp" Version="0.6.0-alpha" />
+    <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\LibLunacy\LibLunacy.csproj" />
-    <ProjectReference Include="..\LibreFios\LibreFios\LibreFios.csproj" />
+    <ProjectReference Include="..\ReLunacy.Engine\ReLunacy.Engine.csproj" />
+  </ItemGroup>
+
+  <!-- Depends on the deleted UpdateChecker (GitHub-release auto-update check) — deferred,
+       not core viewer functionality. -->
+  <ItemGroup>
+    <Compile Remove="Core\Frames\UpdateInfoFrame.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Shaders\compositef.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\pickingf.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\screenf.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\screenv.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\solidf.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\stdv.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\stdvsingle.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\transparentf.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\volumef.glsl">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Shaders\whitef.glsl">
+    <Folder Include="Assets\Fonts\" />
+    <Folder Include="Core\MenuBar\" />
+    <Folder Include="Locales\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Locales\en.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

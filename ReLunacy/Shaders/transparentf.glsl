@@ -3,15 +3,18 @@
 layout(location = 0) out vec4 accum;
 layout(location = 1) out float reveal;
 
-in vec2 UVs;
+layout(location = 0) in vec2 UVs;
 
-uniform sampler2D albedo;
-uniform bool useTexture;
+layout(set = 0, binding = 0) uniform sampler2D albedo;
+layout(set = 1, binding = 1) uniform Parameters
+{
+	bool useTexture;
+} params;
 
 void main()
 {
 	vec4 color;
-	if(useTexture)
+	if(params.useTexture)
 	{
 		color = texture(albedo, UVs);
 	}

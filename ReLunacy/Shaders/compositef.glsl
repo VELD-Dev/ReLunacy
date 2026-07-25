@@ -5,9 +5,9 @@ layout(location = 0) out vec4 color;
 layout(binding = 0) uniform sampler2D accum;
 layout(binding = 1) uniform sampler2D reveal;
 
-in vec2 UVs;
+layout(location = 0) in vec2 UVs;
 
-const float EPSILON = 0.00001f;
+layout(constant_id = 0) const float EPSILON = 0.00001f;
 
 bool isApproximatelyEqual(float a, float b)
 {

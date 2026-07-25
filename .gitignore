@@ -11,7 +11,4 @@ recovery
 
 # Other files
 *.rdc  # RenderDoc captures
-/.idea/
-/.claude/
-/.idea/
-/.claude/
+.claude/

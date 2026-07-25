@@ -1,5 +1,4 @@
-﻿using Vector2 = System.Numerics.Vector2;
-using Vector3 = System.Numerics.Vector3;
+using System.Numerics;
 
 namespace ReLunacy.Utility;
 
@@ -8,7 +7,7 @@ public static class ImGuiPlus
     public static void HelpMarker(string text)
     {
         ImGui.TextDisabled("(?)");
-        if(ImGui.IsItemHovered(ImGuiHoveredFlags.DelayShort) && ImGui.BeginTooltip())
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.DelayShort) && ImGui.BeginTooltip())
         {
             ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35f);
             ImGui.TextUnformatted(text);
@@ -19,13 +18,13 @@ public static class ImGuiPlus
 
     public static void RequiredMarker()
     {
-        ImGui.TextColored(new(228f / 255f, 48f / 255f, 48f / 255, 1), ['*']);
+        ImGui.TextColored(new Vector4(228f / 255f, 48f / 255f, 48f / 255, 1), "*");
     }
 
     public static void RequiredMarker(string text, ImGuiHoveredFlags flags = ImGuiHoveredFlags.DelayShort)
     {
-        ImGui.TextColored(new(228f / 255f, 48f / 255f, 48 / 255f, 1), ['*']);
-        if(ImGui.IsItemHovered(flags) && ImGui.BeginTooltip())
+        ImGui.TextColored(new Vector4(228f / 255f, 48f / 255f, 48 / 255f, 1), "*");
+        if (ImGui.IsItemHovered(flags) && ImGui.BeginTooltip())
         {
             ImGui.PushTextWrapPos(ImGui.GetFontSize() * 35f);
             ImGui.TextUnformatted(text);
@@ -66,43 +65,32 @@ public static class ImGuiPlus
         float avail = ImGui.GetContentRegionAvail().X;
 
         float offset = (avail - horizontalSize) * pivot;
-        if(offset > 0)
-        {
+        if (offset > 0)
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
-        }
 
-        if(size != null)
-        {
-            return ImGui.Button(label, size.Value);
-        }
-        return ImGui.Button(label);
+        return size != null ? ImGui.Button(label, size.Value) : ImGui.Button(label);
     }
 
-    public static void CenteredImage(nint texture_id, Vector2 size, float pivot = 0.5f)
+    public static void CenteredImage(ImTextureRef textureId, Vector2 size, float pivot = 0.5f)
     {
         ImGuiStylePtr style = ImGui.GetStyle();
 
         float horizontalSize = size.X + style.FramePadding.X * 2;
         float avail = ImGui.GetContentRegionAvail().X;
-
         float offset = (avail - horizontalSize) * pivot;
-        
-        if(offset > 0)
-        {
+
+        if (offset > 0)
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
-        }
-        ImGui.Image(texture_id, size);
+        ImGui.Image(textureId, size);
     }
 
     public static void CenteredText(string label, float pivot = 0.5f)
     {
-        float horizotalSize = ImGui.CalcTextSize(label).X;
+        float horizontalSize = ImGui.CalcTextSize(label).X;
         float avail = ImGui.GetContentRegionAvail().X;
-        float offset = (avail - horizotalSize) * pivot;
-        if(offset > 0)
-        {
+        float offset = (avail - horizontalSize) * pivot;
+        if (offset > 0)
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
-        }
         ImGui.Text(label);
     }
 }
