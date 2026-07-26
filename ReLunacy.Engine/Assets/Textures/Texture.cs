@@ -71,10 +71,12 @@ public sealed class Texture : ITexture
     {
         return format switch
         {
-            TextureFormat.R5G6B5 => width * height * 2,
+            TextureFormat.R5G6B5 or TextureFormat.A1R5G5B5 or TextureFormat.G8B8 or TextureFormat.RGBA4 => width * height * 2,
             TextureFormat.A8R8G8B8 => width * height * 4,
-            TextureFormat.DXT1 => Math.Max(1, (width + 3) / 4) * Math.Max(1, (height + 3) / 4) * 8,
-            TextureFormat.DXT3 or TextureFormat.DXT5 => Math.Max(1, (width + 3) / 4) * Math.Max(1, (height + 3) / 4) * 16,
+            TextureFormat.RGBA16F => width * height * 8,
+            TextureFormat.R8 => width * height,
+            TextureFormat.DXT1 or TextureFormat.BC4 => Math.Max(1, (width + 3) / 4) * Math.Max(1, (height + 3) / 4) * 8,
+            TextureFormat.DXT3 or TextureFormat.DXT5 or TextureFormat.BC5 => Math.Max(1, (width + 3) / 4) * Math.Max(1, (height + 3) / 4) * 16,
             _ => throw new NotSupportedException($"Format {format} not supported")
         };
     }

@@ -7,9 +7,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	ProjectSection(SolutionItems) = preProject
 		.gitignore = .gitignore
 		CHANGELOG.md = CHANGELOG.md
-		LICENSE-LUNALIB.txt = LICENSE-LUNALIB.txt
-		LICENSE-RELUNACY.txt = LICENSE-RELUNACY.txt
 		README.md = README.md
+		LICENSE = LICENSE
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "submodules", "submodules", "{BE399D72-C406-4FDB-A18C-FFEBFB2324C2}"

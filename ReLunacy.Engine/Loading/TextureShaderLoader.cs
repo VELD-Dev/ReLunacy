@@ -50,9 +50,15 @@ public sealed class TextureShaderLoader
 
         var alstream = assetlookup.sh;
         var hmstream = new StreamHelper(highmipstream, StreamHelper.Endianness.Big);
+        var texstream = new StreamHelper(texturestream, StreamHelper.Endianness.Big);
 
         var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
         var textureMetaSec = assetlookup.QuerySection(TextureMetadataNew.ID);
+        // Lower-resolution single-mip fallback copies, embedded directly in textures.dat,
+        // index-aligned with the metadata/highmip-pointer tables above — see
+        // Texture.ReadTexture's lowres fallback branch. Absent on some levels (QuerySection
+        // returns a zero-length default header when the section doesn't exist at all).
+        var textureRefSec = assetlookup.QuerySection(0x1D180);
 
         alstream.Seek(highmipsPtrSec.offset);
         var highmipsPtrs = AssetPointer.ReadArray(alstream, highmipsPtrSec.length / 0x10);
@@ -71,7 +77,15 @@ public sealed class TextureShaderLoader
             // above made this loop run more than once (id=0 duplicate on the 2nd texture).
             var tex = new Texture(alstream) { highmipsRef = highmipsPtrs[i], id = highmipsPtrs[i].TUID };
             Textures.Add(tex.id, tex);
-            tex.ReadTexture(hmstream);
+
+            AssetPointer? lowresRef = null;
+            if (textureRefSec.length >= (i + 1) * 0x10)
+            {
+                alstream.Seek(textureRefSec.offset + i * 0x10);
+                lowresRef = new AssetPointer(alstream);
+            }
+
+            tex.ReadTexture(hmstream, texstream, lowresRef);
         }
     }
 
@@ -112,21 +126,33 @@ public sealed class TextureShaderLoader
                 texstreamReferences.Add(TexstreamReference.Read(mainStream));
             }
 
+            // texstreamReferences.index is the TARGET texture's index, not a 1:1 position in this
+            // list — a texstream override only exists for a subset of textures. The previous loop
+            // used its own counter `i` as both the reference-list position AND the texture-array
+            // index, which are different things: any reference whose own .index was >=
+            // texstreamRefSection.count (entirely plausible — the ref list only has as many
+            // entries as overridden textures, which can be indexed anywhere in the full texture
+            // table) was silently skipped, and the reference actually found at position i was
+            // applied to the wrong texture whenever the two diverged.
             var textureList = Textures.Values.ToArray();
-            for (uint i = 0; i < texstreamRefSection.count; i++)
+            foreach (var texstreamref in texstreamReferences)
             {
-                if (!texstreamReferences.Any(otr => otr.index == i))
-                    continue;
-
-                var texstreamref = texstreamReferences.Find(otr => otr.index == i);
-                textureList[i].highmipsMetadatasOld?.Add(texstreamref);
+                if (texstreamref.index < textureList.Length)
+                    textureList[texstreamref.index].highmipsMetadatasOld?.Add(texstreamref);
             }
         }
 
-        var streamToRead = texstream ?? textures;
+        // Per texture, not a single stream for the whole level: only textures with their own
+        // texstream override (highmipsMetadatasOld non-empty) read from texstream.dat — its
+        // offsets are meaningless against textures.dat and vice versa. The previous single
+        // `streamToRead = texstream ?? textures` read EVERY texture from texstream.dat whenever
+        // that file existed at all, even textures with no override entry, seeking to garbage
+        // offsets for all of them — texstream.dat only overrides a subset of textures on levels
+        // that have one at all (e.g. Tools of Destruction's meridian_city).
         foreach (var tex in Textures.Values)
         {
-            tex.ReadTexture(streamToRead);
+            bool hasOverride = (tex.highmipsMetadatasOld?.Count ?? 0) > 0;
+            tex.ReadTexture(hasOverride && texstream is not null ? texstream : textures);
         }
     }
 

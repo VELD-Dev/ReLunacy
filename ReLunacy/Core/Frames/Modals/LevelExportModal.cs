@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Export;
+using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -49,7 +50,7 @@ public class LevelExportModal : Modal
 
     private void StartExport()
     {
-        string levelName = ExportPaths.SanitizeFileName(Path.GetFileName(Program.ProvidedPath.TrimEnd(Path.DirectorySeparatorChar)));
+        string levelName = ExportPaths.SanitizeFileName(GameLibraryScanner.GetLevelNameFromPath(Program.ProvidedPath));
         string directory = Path.Combine(Program.EditorPath, "Exported", "Levels");
         string path = Path.Combine(directory, $"{levelName}.glb");
         var options = new LevelExportOptions(exportMobys, exportTies, exportUFrags);

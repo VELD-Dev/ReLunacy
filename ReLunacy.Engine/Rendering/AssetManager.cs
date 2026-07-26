@@ -32,6 +32,13 @@ public sealed class AssetManager : IDisposable
     private bool _backfaceCulling;
     private Effect? _vertexAlphaModelEffect;
 
+    // Veldrith's RasterizerStateDescription.DEFAULT assumes a clockwise front face; this game's
+    // meshes wind the opposite way, so using DEFAULT as-is culled the near side of every triangle
+    // and left the far side visible (backface culling looked "inside out" — confirmed by the user
+    // after enabling it). Same CullMode.Back as DEFAULT, just the winding flipped.
+    private static readonly RasterizerStateDescription BackfaceCullState = new(
+        FaceCullMode.Back, PolygonFillMode.Solid, FrontFace.CounterClockwise, true, false);
+
     public IReadOnlyDictionary<ulong, Texture2D> BuiltTextures => _textureCache;
     public IReadOnlyDictionary<ulong, ITexture> SourceTextures => _sourceTextures;
 
@@ -119,7 +126,7 @@ public sealed class AssetManager : IDisposable
 
         var bMat = new Material(
             material.UsesVertexAlphaCandidate ? GetVertexAlphaModelEffect() : GlobalResource.DefaultModelEffect,
-            _backfaceCulling ? RasterizerStateDescription.DEFAULT : RasterizerStateDescription.CULL_NONE,
+            _backfaceCulling ? BackfaceCullState : RasterizerStateDescription.CULL_NONE,
             blendState,
             renderMode);
 
@@ -164,7 +171,7 @@ public sealed class AssetManager : IDisposable
         if (_backfaceCulling == enabled) return;
         _backfaceCulling = enabled;
 
-        var state = enabled ? RasterizerStateDescription.DEFAULT : RasterizerStateDescription.CULL_NONE;
+        var state = enabled ? BackfaceCullState : RasterizerStateDescription.CULL_NONE;
         foreach (var material in _materialCache.Values)
             material.RasterizerState = state;
     }
@@ -193,8 +200,9 @@ public sealed class AssetManager : IDisposable
         return tex;
     }
 
-    // Geometry only carries positions/uvs/normals — tangents are derived here per-triangle
-    // (standard UV-gradient method) since Moby/Tie meshes have no baked tangent data.
+    // Normals and tangents are decoded straight from the source vertex data (VertexFormat0/1's
+    // packed 11:11:10 words — see PackedNormal/GeometryMath) rather than derived here; GeometryData
+    // only falls back to UV-gradient derivation for formats that don't carry real data at all.
     // useVertexAlpha: see Material.UsesVertexAlphaCandidate — when set, GetVertexAlphaCandidates()
     // is written into each vertex's color alpha instead of the default fully-opaque white, and
     // GetOrBuildMaterial picks a shader that actually reads it.
@@ -203,58 +211,24 @@ public sealed class AssetManager : IDisposable
         var positions = geometry.GetVertexPositions();
         var uvs = geometry.GetTextureCoordinates();
         var normals = geometry.GetNormals();
+        var tangents = geometry.GetTangents();
         var vertexAlpha = useVertexAlpha ? geometry.GetVertexAlphaCandidates() : null;
-        var indices = geometry.GetIndices();
 
         int vertexCount = positions.Length / 3;
-        var pos = new Vector3[vertexCount];
-        var uv = new Vector2[vertexCount];
-        var norm = new Vector3[vertexCount];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            pos[i] = new Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
-            uv[i] = new Vector2(uvs[i * 2], uvs[i * 2 + 1]);
-            norm[i] = normals != null && normals.Length >= i * 3 + 3
-                ? new Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2])
-                : Vector3.Zero;
-        }
-
-        var tangentAccum = new Vector3[vertexCount];
-        var bitangentAccum = new Vector3[vertexCount];
-
-        for (int t = 0; t + 2 < indices.Length; t += 3)
-        {
-            uint i0 = indices[t], i1 = indices[t + 1], i2 = indices[t + 2];
-            Vector3 edge1 = pos[i1] - pos[i0];
-            Vector3 edge2 = pos[i2] - pos[i0];
-            Vector2 duv1 = uv[i1] - uv[i0];
-            Vector2 duv2 = uv[i2] - uv[i0];
-
-            float det = duv1.X * duv2.Y - duv2.X * duv1.Y;
-            if (MathF.Abs(det) < 1e-8f) continue;
-
-            float r = 1.0f / det;
-            Vector3 tangent = (edge1 * duv2.Y - edge2 * duv1.Y) * r;
-            Vector3 bitangent = (edge2 * duv1.X - edge1 * duv2.X) * r;
-
-            tangentAccum[i0] += tangent; tangentAccum[i1] += tangent; tangentAccum[i2] += tangent;
-            bitangentAccum[i0] += bitangent; bitangentAccum[i1] += bitangent; bitangentAccum[i2] += bitangent;
-        }
-
         var vertices = new Vertex3D[vertexCount];
         for (int i = 0; i < vertexCount; i++)
         {
-            Vector3 n = norm[i] != Vector3.Zero ? Vector3.Normalize(norm[i]) : Vector3.UnitY;
-
-            Vector3 tan = tangentAccum[i] - n * Vector3.Dot(n, tangentAccum[i]);
-            if (tan.LengthSquared() < 1e-12f)
-                tan = MathF.Abs(n.Y) < 0.99f ? Vector3.Cross(Vector3.UnitY, n) : Vector3.Cross(Vector3.UnitX, n);
-            tan = Vector3.Normalize(tan);
-
-            float handedness = Vector3.Dot(Vector3.Cross(n, tan), bitangentAccum[i]) < 0f ? -1f : 1f;
+            var pos = new Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+            var uv = new Vector2(uvs[i * 2], uvs[i * 2 + 1]);
+            var n = normals != null && normals.Length >= i * 3 + 3
+                ? new Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2])
+                : Vector3.UnitY;
+            var tan = tangents != null && tangents.Length >= i * 4 + 4
+                ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
+                : new Vector4(1f, 0f, 0f, 1f);
 
             float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
-            vertices[i] = new Vertex3D(pos[i], uv[i], uv[i], n, new Vector4(tan, handedness), new Vector4(1f, 1f, 1f, alpha));
+            vertices[i] = new Vertex3D(pos, uv, uv, n, tan, new Vector4(1f, 1f, 1f, alpha));
         }
 
         return vertices;

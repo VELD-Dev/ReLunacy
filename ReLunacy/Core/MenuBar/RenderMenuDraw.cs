@@ -35,4 +35,10 @@ internal static class RenderMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres, !Program.Settings.LegacyRenderingMode)) return;
         EntityManager.Singleton.renderBoundingSpheres = !EntityManager.Singleton.renderBoundingSpheres;
     }
+
+    internal static void ShowMobyDistanceCulling()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_MobyDistanceCulling"), "", EntityManager.Singleton.MobyDistanceCullingEnabled, !Program.Settings.LegacyRenderingMode)) return;
+        EntityManager.Singleton.MobyDistanceCullingEnabled = !EntityManager.Singleton.MobyDistanceCullingEnabled;
+    }
 }

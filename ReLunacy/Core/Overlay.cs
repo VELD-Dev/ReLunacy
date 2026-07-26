@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Core.Frames.DockedFrames;
+using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -22,10 +23,7 @@ public class Overlay
         get
         {
             if (string.IsNullOrEmpty(Program.ProvidedPath)) return "None";
-
-            List<string> chunks = [.. Program.ProvidedPath.Split(Path.DirectorySeparatorChar)];
-            chunks.RemoveAll(s => s == "");
-            return chunks[^1];
+            return GameLibraryScanner.GetLevelNameFromPath(Program.ProvidedPath);
         }
     }
 

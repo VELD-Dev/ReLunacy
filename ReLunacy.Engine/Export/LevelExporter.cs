@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Assets.Geometry;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Scene;
 using SharpGLTF.Geometry;
@@ -51,6 +52,15 @@ public static class LevelExporter
 
                 foreach (var instance in assetGroup)
                 {
+                    // Mobys are always exported as static (rigid) meshes at whole-level scope, even
+                    // when their asset has a skeleton — a shared skeletal asset placed more than once
+                    // would need one fresh joint hierarchy per instance, all parented under the same
+                    // level-wide root, and SharpGLTF's armature validation rejects that as soon as two
+                    // instances' bone nodes collide by name (NodeBuilder.IsValidArmature walks the
+                    // whole scene graph under the shared root, not just one instance's joints),
+                    // throwing "Export failed:  (Parameter 'joints')" on any level with a skinned Moby
+                    // placed more than once. Single-asset export (AssetViewer) is unaffected — each
+                    // export there gets its own standalone scene/root.
                     AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
                     anyContentAdded = true;
                     ReportProgress();
@@ -142,6 +152,8 @@ public static class LevelExporter
         if (cache.TryGetValue(moby.Id, out var cached))
             return cached;
 
+        // Always the rigid (unskinned) builder — see the comment at this method's call site for why
+        // whole-level export never uses skeletal data, even for Mobys that have one.
         var result = moby.Bangles
             .Select((bangle, i) => string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name)
             .Zip(moby.Bangles, (name, bangle) => (name, (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildMeshBuilder(name, bangle.Meshes, materialCache)))
@@ -181,6 +193,18 @@ public static class LevelExporter
         public float[] GetVertexPositions() => ufrag.GetVertexPositions();
         public float[] GetTextureCoordinates() => ufrag.GetTextureCoordinates();
         public float[]? GetNormals() => ufrag.GetNormals();
+
+        // UFrag terrain carries no baked tangent (or, on some readers, even normal) data — derive
+        // both from the triangle/UV data itself via the same fallback GeometryData uses for
+        // formats that don't decode real vertex attributes.
+        public float[]? GetTangents()
+        {
+            var positions = ufrag.GetVertexPositions();
+            var indices = ufrag.GetIndices();
+            var normals = ufrag.GetNormals() ?? GeometryMath.ComputeNormals(positions, indices);
+            return GeometryMath.ComputeTangents(positions, ufrag.GetTextureCoordinates(), normals, indices, null);
+        }
+
         public float[]? GetVertexAlphaCandidates() => null;
         public uint[] GetIndices() => ufrag.GetIndices();
         public Vector3 GetBoundingCenter() => ufrag.GetBoundingCenter();

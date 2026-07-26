@@ -67,9 +67,19 @@ public class PropertyInspectorFrame : DockedFrame
         }
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
         {
-            var t = SelectedEntity.Transform;
-            t.Scale = selectedScale;
-            SelectedEntity.Transform = t;
+            // EntityVolume keeps its real box size in its own `scale` field rather than
+            // Transform.Scale (which it always leaves at 1,1,1 — see EntityVolume's constructor
+            // comment) — writing to Transform.Scale here for a Volume would silently do nothing.
+            if (SelectedEntity is EntityVolume volume)
+            {
+                volume.SetScale(selectedScale);
+            }
+            else
+            {
+                var t = SelectedEntity.Transform;
+                t.Scale = selectedScale;
+                SelectedEntity.Transform = t;
+            }
         }
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
@@ -100,6 +110,15 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialRenderMode", mat.RenderMode));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlphaClip", mat.AlphaClipThreshold));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlbedoFormat", mat.AlbedoTexture?.Format.ToString() ?? "None"));
+        }
+        else if (SelectedEntity is EntityVolume volumeEntity)
+        {
+            // Volumes carry nothing beyond a transform in the level format itself — old engine has
+            // no ID/group at all (BaseVolume.Id is just its load-order index there), new engine adds
+            // a TUID + zone group from gp_prius's instance metadata section. This is genuinely all
+            // there is to show; see RegionReader.ReadVolumesOld/New.
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeId", volumeEntity.BaseVolume.Id));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeGroup", volumeEntity.BaseVolume.group));
         }
 
         ImGui.Separator();
@@ -176,7 +195,7 @@ public class PropertyInspectorFrame : DockedFrame
 
         selectedPosition = SelectedEntity.Transform.Translation;
         selectedAngle = SelectedEntity.Transform.Rotation.ToEuler() * (180f / MathF.PI);
-        selectedScale = SelectedEntity.Transform.Scale;
+        selectedScale = SelectedEntity is EntityVolume volume ? volume.scale : SelectedEntity.Transform.Scale;
         selectedBSphere = SelectedEntity.BoundingSphere.GetXYZ();
         selectedBSphereRadius = SelectedEntity.BoundingSphere.W;
     }

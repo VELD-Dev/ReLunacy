@@ -14,7 +14,11 @@ public sealed class DebugReader
     // names from gp_prius.dat (mobys) or the zone's own file (ties), not debug.dat.
     private readonly List<string?> _mobyInstanceNames = [];
     private readonly List<string?> _tieInstanceNames = [];
-    private readonly List<string> _volumeNames = [];
+    // Index-aligned with the old-engine volume transform array (section 0x7740 in gameplay.dat —
+    // see RegionReader.ReadVolumesOld), same as _mobyInstanceNames/_tieInstanceNames above. Must
+    // stay List<string?> with an unconditional Add per entry, not List<string> skipping empties —
+    // skipping any entry desyncs every name after it from its actual volume index.
+    private readonly List<string?> _volumeNames = [];
     private readonly bool _isOld;
 
     public DebugReader(FileManager fileManager)
@@ -133,12 +137,16 @@ public sealed class DebugReader
         var section = _debugFile!.QuerySection(0x7760);
         if (section.count == 0) return;
 
-        for (int i = 0; i < section.count; i++)
-        {
-            var volumeName = _debugFile.sh.ReadString();
-            if (!string.IsNullOrEmpty(volumeName))
-                _volumeNames.Add(volumeName);
-        }
+        // Previously read via a bare loop of sh.ReadString() calls with no seek to section.offset
+        // first — it read from wherever the stream happened to be left by LoadShaderNames() just
+        // before it, not this section's actual data, and skipped adding an entry at all for empty
+        // names instead of preserving the slot — desyncing every name after the first gap from its
+        // real volume index. Same struct/pattern as moby/tie instance names fixes both.
+        _debugFile.sh.Seek(section.offset);
+        var names = FileUtils.ReadStructureArray<DebugInstanceName>(_debugFile.sh, section.count);
+
+        foreach (var item in names)
+            _volumeNames.Add(string.IsNullOrEmpty(item.name) ? null : item.name);
     }
 
     public string? GetMobyPrototypeName(ulong tuid) => _mobyPrototypeNames.TryGetValue(tuid, out var name) ? name : null;
@@ -146,6 +154,7 @@ public sealed class DebugReader
     public string? GetShaderName(ulong tuid) => _shaderNames.TryGetValue(tuid, out var name) ? name : null;
     public string? GetMobyInstanceName(int index) => index >= 0 && index < _mobyInstanceNames.Count ? _mobyInstanceNames[index] : null;
     public string? GetTieInstanceName(int index) => index >= 0 && index < _tieInstanceNames.Count ? _tieInstanceNames[index] : null;
+    public string? GetVolumeName(int index) => index >= 0 && index < _volumeNames.Count ? _volumeNames[index] : null;
 
     public string GetSummary()
     {

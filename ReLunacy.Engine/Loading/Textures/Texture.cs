@@ -23,16 +23,26 @@ public class Texture
     public ITextureMetadata textureMetadata;
     public bool isOld;
 
+    private static readonly HashSet<ulong> _loggedSuspiciousTextures = [];
+
+    // Block-compressed formats are always read/stored linear regardless of the per-instance
+    // linear bit/prefix (see TextureMetadataOld/New.IsLinear) — DXT/BC compression has no
+    // swizzled-on-disk variant in this format family.
+    private static bool IsBlockCompressed(TextureFormat format) =>
+        format is TextureFormat.DXT1 or TextureFormat.DXT3 or TextureFormat.DXT5 or TextureFormat.BC4 or TextureFormat.BC5;
+
     public uint HighmipSize
     {
         get
         {
             return TexFormat switch
             {
-                TextureFormat.DXT1 => Math.Max(1, (Width + 3) / 4) * Math.Max(1, (Height + 3) / 4) * 8,
-                TextureFormat.DXT3 or TextureFormat.DXT5 => Math.Max(1, (Width + 3) / 4) * Math.Max(1, (Height + 3) / 4) * 16,
+                TextureFormat.DXT1 or TextureFormat.BC4 => Math.Max(1, (Width + 3) / 4) * Math.Max(1, (Height + 3) / 4) * 8,
+                TextureFormat.DXT3 or TextureFormat.DXT5 or TextureFormat.BC5 => Math.Max(1, (Width + 3) / 4) * Math.Max(1, (Height + 3) / 4) * 16,
                 TextureFormat.A8R8G8B8 => Width * Height * 4u,
-                TextureFormat.R5G6B5 => Width * Height * 2u,
+                TextureFormat.RGBA16F => Width * Height * 8u,
+                TextureFormat.R5G6B5 or TextureFormat.A1R5G5B5 or TextureFormat.G8B8 or TextureFormat.RGBA4 => Width * Height * 2u,
+                TextureFormat.R8 => Width * Height,
                 _ => 0,
             };
         }
@@ -69,10 +79,13 @@ public class Texture
         id = highmipsRef.Value.TUID;
     }
 
-    /// <summary>In new engine, stream must be the highmips stream.</summary>
-    public void ReadTexture(StreamHelper sh)
+    /// <summary>In new engine, <paramref name="sh"/> must be the highmips stream. <paramref name="lowresStream"/>/
+    /// <paramref name="lowresRef"/> (new engine only) are the assetlookup 0x1D180 fallback — a single-mip copy
+    /// embedded directly in textures.dat, used when this texture has no highmip data at all.</summary>
+    public void ReadTexture(StreamHelper sh, StreamHelper? lowresStream = null, AssetPointer? lowresRef = null)
     {
         int offset;
+        StreamHelper source = sh;
         if (isOld)
         {
             if ((highmipsMetadatasOld?.Count ?? 0) > 0)
@@ -94,37 +107,70 @@ public class Texture
                 throw new InvalidOperationException("Highmips reference is null. It must be read before reading the texture in new engine!");
 
             var hmref = highmipsRef.Value;
-            offset = (int)hmref.offset;
-            if (hmref.length == 0)
+            if (hmref.length > 0)
+            {
+                offset = (int)hmref.offset;
+                data = new byte[hmref.length];
+
+                // Diagnostic: the highmip entry's own length should match what the block decoder
+                // will actually expect for this texture's Width/Height/format — if it doesn't,
+                // the decoder gets handed a buffer that's the wrong size for the dimensions it's
+                // told to decode, which for a short buffer reads as flat/degenerate output (the
+                // reported new-engine DXT1/DXT5 "unicolor" symptom) without throwing anything.
+                if (IsBlockCompressed(TexFormat) && _loggedSuspiciousTextures.Add(id) && hmref.length != HighmipSize)
+                    Console.WriteLine($"Diagnostic: texture {id:X} ('{name}') is {TexFormat} at {Width}x{Height} — highmip entry is {hmref.length} bytes but decoding at these dimensions expects {HighmipSize} bytes.");
+            }
+            else if (lowresStream is not null && lowresRef is { length: > 0 } lref && HighmipSize > 0)
+            {
+                // No highmip data for this texture — fall back to the lower-resolution single-mip
+                // copy embedded directly in textures.dat (assetlookup section 0x1D180), same as
+                // ReLunacy-Ymir's `useLowres` path. Previously this case just returned with `data`
+                // left at its default `[]`, which decodes to null and renders as
+                // GlobalResource.DefaultModelTexture — a flat placeholder that looks exactly like
+                // the reported "unicolor" bug, for any texture whose highmip entry is legitimately
+                // empty (a normal, common case on new engine, not corruption).
+                source = lowresStream;
+                offset = (int)lref.offset;
+                data = new byte[HighmipSize];
+            }
+            else
             {
                 return;
             }
-            data = new byte[hmref.length];
         }
 
-        if (offset > sh.BaseStream.Length || offset < 0)
-            throw new IndexOutOfRangeException($"Offset is out of bounds: {offset:X}/{sh.BaseStream.Length:X}");
+        if (offset > source.BaseStream.Length || offset < 0)
+            throw new IndexOutOfRangeException($"Offset is out of bounds: {offset:X}/{source.BaseStream.Length:X}");
 
-        if (TexFormat > TextureFormat.A8R8G8B8)
+        // Whether to unswizzle is a per-instance property (see ITextureMetadata.IsLinear), not
+        // something derivable from the format alone — the previous `TexFormat > A8R8G8B8` check
+        // only worked by coincidence for the 5 formats that existed before this format list was
+        // expanded (every "> A8R8G8B8" format happened to also be DXT). It breaks for RGBA4/G8B8,
+        // which the new-engine prefix scheme can mark either swizzled OR linear per texture.
+        if (IsBlockCompressed(TexFormat) || textureMetadata.IsLinear)
         {
-            sh.Seek(offset);
-            sh.Read(data);
+            source.Seek(offset);
+            source.Read(data);
         }
         else
         {
-            sh.Seek(offset);
-            Unswizzle(sh);
+            source.Seek(offset);
+            Unswizzle(source);
         }
     }
 
     public void Unswizzle(StreamHelper sh)
     {
-        if ((int)TexFormat > (int)TextureFormat.A8R8G8B8) throw new InvalidOperationException("DXT formats aren't swizzled.");
+        if (IsBlockCompressed(TexFormat)) throw new InvalidOperationException("DXT/BC formats aren't swizzled.");
         if (data.Length <= 1) return;
 
-        int pixelSize = 0;
-        if (TexFormat == TextureFormat.R5G6B5) pixelSize = 2;
-        else if (TexFormat == TextureFormat.A8R8G8B8) pixelSize = 4;
+        int pixelSize = TexFormat switch
+        {
+            TextureFormat.R8 => 1,
+            TextureFormat.R5G6B5 or TextureFormat.A1R5G5B5 or TextureFormat.G8B8 or TextureFormat.RGBA4 => 2,
+            TextureFormat.A8R8G8B8 => 4,
+            _ => throw new ArgumentOutOfRangeException(nameof(TexFormat), TexFormat, "Unsupported format for unswizzle"),
+        };
 
         Span<byte> pixel = stackalloc byte[pixelSize];
 
@@ -138,6 +184,17 @@ public class Texture
 
     private static int MortonSwizzle(int index, int width, int height)
     {
+        // The row-stride multiplier below must be the ORIGINAL width, not the loop-shifted copy —
+        // `width` gets shifted down to 1 by the end of the loop below (that's how it tracks when
+        // to stop consuming bits for the X axis), so using the parameter directly in the final
+        // `yMortonValue * width + xMortonValue` silently used a stride of 1 instead of the real
+        // row width. That collapses most (x,y) pairs onto the same handful of destination indices
+        // instead of spreading them across the full width*height buffer — every swizzled texture
+        // (every non-DXT, non-linear one — DXT/linear textures are read raw and never call this)
+        // came out scrambled, while unswizzled reads looked fine, matching the reported symptom of
+        // some textures being broken and others not. ReLunacy-Ymir's equivalent Morton() takes the
+        // same approach but keeps the original `x` parameter untouched for exactly this reason.
+        int originalWidth = width;
         int bitPositionMultiplierY, bitPositionMultiplierX = bitPositionMultiplierY = 1;
         int yMortonValue, xMortonValue = yMortonValue = 0;
 
@@ -159,6 +216,6 @@ public class Texture
             }
         }
 
-        return yMortonValue * width + xMortonValue;
+        return yMortonValue * originalWidth + xMortonValue;
     }
 }

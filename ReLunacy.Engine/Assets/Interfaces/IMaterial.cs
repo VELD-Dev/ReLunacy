@@ -13,6 +13,10 @@ public interface IMaterial : IAsset
     ITexture? AlbedoTexture { get; }
     ITexture? NormalTexture { get; }
     ITexture? PropertiesTexture { get; }
+    // Confirmed layout (see Shader.DetailMap): B = roughness, R/G = a second, higher-frequency
+    // tangent-space normal map. Tiling scale not yet identified in ShaderMetadata's unknown byte
+    // ranges — consumers use a placeholder tiling factor until it's found.
+    ITexture? DetailTexture { get; }
     RenderMode RenderMode { get; }
     float AlphaClipThreshold { get; }
 

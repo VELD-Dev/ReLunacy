@@ -3,6 +3,12 @@ using Newtonsoft.Json;
 using ReLunacy.Utility;
 using Veldrith;
 
+public enum UpdateChannel
+{
+    Stable,
+    Nightly,
+}
+
 [JsonObject]
 public class EditorSettings
 {
@@ -34,6 +40,10 @@ public class EditorSettings
     public float GizmoSnapTranslation;
     public float GizmoSnapRotation;
     public float GizmoSnapScale;
+    public float VolumeWireThickness;
+    public Vector4 VolumeColor;
+    public Vector4 VolumeSelectedColor;
+    public Vector4 SelectionOutlineColor;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders = [];
     public bool LegacyRenderingMode;
@@ -44,6 +54,11 @@ public class EditorSettings
     // culling can be flipped on live, per-session, to see how bad it actually is on real data rather
     // than assuming — not a confirmed-safe rendering mode.
     public bool BackfaceCulling;
+    // See UpdateChecker: Stable checks GitHub's normal "latest release"; Nightly checks the
+    // rolling "nightly" tag release .github/workflows/nightly.yml keeps updated on every push to
+    // the nightly branch. Independent of which build the user is actually running — someone on a
+    // stable build can still opt into nightly update notifications and vice versa.
+    public UpdateChannel UpdateChannel;
 
     [JsonIgnore]
     public float CamFOVRad => CamFOV * (MathF.PI / 180f);
@@ -82,8 +97,13 @@ public class EditorSettings
         GizmoSnapTranslation = 1.0f;
         GizmoSnapRotation = 15.0f;
         GizmoSnapScale = 0.25f;
+        VolumeWireThickness = 0.1f;
+        VolumeColor = new Vector4(1f, 1f, 0f, 1f);
+        VolumeSelectedColor = new Vector4(1f, 1f, 1f, 1f);
+        SelectionOutlineColor = new Vector4(1f, 0.65f, 0f, 1f);
         LegacyRenderingMode = false;
         BackfaceCulling = false;
+        UpdateChannel = UpdateChannel.Stable;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;
 #else

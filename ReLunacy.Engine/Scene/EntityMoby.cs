@@ -18,6 +18,9 @@ public class EntityMoby : Entity
 
     public override Vector4 BoundingSphere { get; set; }
 
+    /// <summary>In-game display distance for this instance (units), &lt; 0 = unlimited. Read straight from the level's own gameplay data — see MobyInstanceOld/New.</summary>
+    public float DisplayDistance { get; }
+
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
         BaseMoby = mobyInstance.Asset;
@@ -41,6 +44,8 @@ public class EntityMoby : Entity
         var (center, radius) = BaseMoby.GetBoundingSphere();
         BoundingSphere = new Vector4(center, radius);
 
+        DisplayDistance = mobyInstance.DisplayDistance;
+
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";
 
         assetManager.Mobys.TryGetValue(BaseMoby.Id, out var models);
@@ -54,6 +59,10 @@ public class EntityMoby : Entity
         var sphere = WorldBoundingSphere;
         var sphereCenter = new Vector3(sphere.X, sphere.Y, sphere.Z);
         if (EntityManager.Singleton.FrustumCullingEnabled && !camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
+
+        // camera.Position is stored negated relative to world/entity positions (same convention
+        // used throughout the editor — see PropertyInspectorFrame's distance-to-entity readout).
+        if (EntityManager.Singleton.MobyDistanceCullingEnabled && DisplayDistance >= 0 && Vector3.Distance(sphereCenter, -camera.Position) > DisplayDistance) return;
 
         if (Models is null) return;
 

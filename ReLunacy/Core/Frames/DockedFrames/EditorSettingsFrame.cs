@@ -68,6 +68,17 @@ internal class EditorSettingsFrame : Frame
                     string langCode = LM.Languages.Values.ElementAt(selectedLanguage).LangCode;
                     LM.TrySetLanguage(langCode);
                 }
+                if (ImGui.BeginCombo(LM.Get("GUI_Frame_EditorSettings_UpdateChannel"), Program.Settings.UpdateChannel.ToString()))
+                {
+                    foreach (var channel in Enum.GetValues<UpdateChannel>())
+                    {
+                        if (ImGui.Selectable($"\t {channel}", channel == Program.Settings.UpdateChannel))
+                            Program.Settings.UpdateChannel = channel;
+                    }
+                    ImGui.EndCombo();
+                }
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_UpdateChannelHelp"));
                 if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
                 {
                     ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));
@@ -84,6 +95,12 @@ internal class EditorSettingsFrame : Frame
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, 0.1f, 1.0f, "%.3fm");
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, 1.0f, 15.0f, "%.3f°");
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapScale"), ref Program.Settings.GizmoSnapScale, 0.05f, 0.25f, "%.3f");
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_VolumeWireThickness"), ref Program.Settings.VolumeWireThickness, 0.01f, 5f, "%.2f", ImGuiSliderFlags.AlwaysClamp);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_VolumeWireThicknessHelp"));
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeColor"), ref Program.Settings.VolumeColor);
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_SelectionOutlineColor"), ref Program.Settings.SelectionOutlineColor);
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }

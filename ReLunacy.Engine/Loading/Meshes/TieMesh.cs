@@ -86,7 +86,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
         }
     }
 
-    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] vertexAlphaCandidates)
+    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[] vertexAlphaCandidates)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
@@ -94,6 +94,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
         vpos = new float[verticesCount * 3];
         uvcoords = new float[verticesCount * 2];
         normals = new float[verticesCount * 3];
+        tangents = new float[verticesCount * 3];
         vertexAlphaCandidates = new float[verticesCount];
 
         for (int k = 0; k < verticesCount; k++)
@@ -115,6 +116,16 @@ public record struct TieMesh : ILunaSerializable, IMesh
             normals[k * 3 + 0] = scaledN.X;
             normals[k * 3 + 1] = scaledN.Y;
             normals[k * 3 + 2] = scaledN.Z;
+
+            // Unlike the normal, a tangent lies IN the surface (it's an edge/gradient direction,
+            // not a perpendicular) — under non-uniform scale it transforms with the scale
+            // directly, the same as a position, not with the inverse-transpose.
+            Vector3 t = vertices[k].Tangent;
+            Vector3 scaledT = new(t.X * scale.X, t.Y * scale.Y, t.Z * scale.Z);
+            scaledT = scaledT.LengthSquared() > 1e-12f ? Vector3.Normalize(scaledT) : Vector3.UnitX;
+            tangents[k * 3 + 0] = scaledT.X;
+            tangents[k * 3 + 1] = scaledT.Y;
+            tangents[k * 3 + 2] = scaledT.Z;
         }
     }
 

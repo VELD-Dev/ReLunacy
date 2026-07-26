@@ -115,9 +115,9 @@ public sealed class TieReader
 
     private IMesh ConvertTieMesh(TieMesh legacyMesh, System.Numerics.Vector3 scale, Objects.Tie tie)
     {
-        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var vertexAlphaCandidates);
+        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
 
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, vertexAlphaCandidates: vertexAlphaCandidates);
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, vertexAlphaCandidates: vertexAlphaCandidates);
 
         IMaterial material = legacyMesh.isOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.oldShaderIndex)

@@ -62,6 +62,7 @@ public sealed class MaterialReader
             albedo: albedo,
             normal: shader.Normal != null ? WrapTexture(shader.Normal) : null,
             properties: shader.Expensive != null ? WrapTexture(shader.Expensive) : null,
+            detail: shader.DetailMap != null ? WrapTexture(shader.DetailMap) : null,
             renderMode: ToRenderMode(shader.RenderingMode),
             alphaClipThreshold: GetAlphaClip(shader),
             usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo));
@@ -160,8 +161,12 @@ public sealed class MaterialReader
     private static bool UsesVertexAlphaCandidate(RenderingMode mode, ITexture? albedo) =>
         mode is RenderingMode.Overlay or RenderingMode.SoftEdge or RenderingMode.Blended && !HasAlphaChannel(albedo);
 
+    // A1R5G5B5/RGBA4 carry real (if low-precision) alpha bits, same as A8R8G8B8/DXT3/DXT5 —
+    // included here for the same reason those are: UsesVertexAlphaCandidate should only kick in
+    // when the albedo genuinely has nowhere else to source transparency from.
     private static bool HasAlphaChannel(ITexture? texture) =>
-        texture?.Format is TextureFormat.A8R8G8B8 or TextureFormat.DXT3 or TextureFormat.DXT5;
+        texture?.Format is TextureFormat.A8R8G8B8 or TextureFormat.DXT3 or TextureFormat.DXT5
+            or TextureFormat.A1R5G5B5 or TextureFormat.RGBA4;
 
     private static TextureFormat ToTextureFormat(Textures.TextureFormat format) => format switch
     {
@@ -170,6 +175,13 @@ public sealed class MaterialReader
         Textures.TextureFormat.DXT1 => TextureFormat.DXT1,
         Textures.TextureFormat.DXT3 => TextureFormat.DXT3,
         Textures.TextureFormat.DXT5 => TextureFormat.DXT5,
+        Textures.TextureFormat.R8 => TextureFormat.R8,
+        Textures.TextureFormat.A1R5G5B5 => TextureFormat.A1R5G5B5,
+        Textures.TextureFormat.BC4 => TextureFormat.BC4,
+        Textures.TextureFormat.BC5 => TextureFormat.BC5,
+        Textures.TextureFormat.G8B8 => TextureFormat.G8B8,
+        Textures.TextureFormat.RGBA4 => TextureFormat.RGBA4,
+        Textures.TextureFormat.RGBA16F => TextureFormat.RGBA16F,
         _ => TextureFormat.Unknown,
     };
 }
