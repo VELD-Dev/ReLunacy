@@ -673,6 +673,14 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (selectedMobyAsset != null)
         {
             var moby = selectedMobyAsset.Value.Moby;
+            
+            ImGui.Separator();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
+                ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
+                ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
+            
             ImGui.BeginGroup();
             ImGui.Text("Id");
             ImGui.Text("Name");
@@ -722,13 +730,6 @@ public class AssetViewer : DockedFrame, ILevelListener
             ImGui.EndChild();
 
             ImGui.Separator();
-            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
-            ImGui.SameLine();
-            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
-
-            ImGui.Separator();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
                 mobyUsageResults = FindMobyInstances(moby.Id);
             RenderUsageResults(mobyUsageResults, "moby_usage");
@@ -736,6 +737,15 @@ public class AssetViewer : DockedFrame, ILevelListener
         else if (selectedTieAsset != null)
         {
             var tie = selectedTieAsset.Value.Tie;
+            ImGui.Separator();
+            string tieAssetName = tie.Name ?? $"Tie_{tie.Id:X}";
+            var tieGroups = new List<MeshGroup> { new(tieAssetName, tie.Meshes) };
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
+                ExportModel(GltfExporter.Export, "glb", tieAssetName, tieGroups);
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
+                ExportModel(ObjExporter.Export, "obj", tieAssetName, tieGroups);
+            
             ImGui.BeginGroup();
             ImGui.Text("Id");
             ImGui.Text("Name");
@@ -756,15 +766,6 @@ public class AssetViewer : DockedFrame, ILevelListener
                 RenderShaderGrid(selectedTieMaterials, "tie_shader_grid");
             }
             ImGui.EndChild();
-
-            ImGui.Separator();
-            string tieAssetName = tie.Name ?? $"Tie_{tie.Id:X}";
-            var tieGroups = new List<MeshGroup> { new(tieAssetName, tie.Meshes) };
-            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", tieAssetName, tieGroups);
-            ImGui.SameLine();
-            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", tieAssetName, tieGroups);
 
             ImGui.Separator();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
