@@ -678,6 +678,9 @@ public class AssetViewer : DockedFrame, ILevelListener
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
                 ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
             ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
+            ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
                 ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
             
@@ -743,6 +746,9 @@ public class AssetViewer : DockedFrame, ILevelListener
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
                 ExportModel(GltfExporter.Export, "glb", tieAssetName, tieGroups);
             ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", tieAssetName, tieGroups, ownFolder: true);
+            ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
                 ExportModel(ObjExporter.Export, "obj", tieAssetName, tieGroups);
             
@@ -785,16 +791,22 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>
-    /// Shared by both the Moby and Tie export buttons — builds a sanitized output path under
+    /// Shared by every Moby/Tie export button — builds a sanitized output path under
     /// EditorPath/Exported/Models (asset names routinely contain path-like characters, e.g.
     /// "levels/great_clock_a/entities/.../foo.entity.irb", which would otherwise be interpreted
     /// as subdirectories) and hands off to ExportRunner for the actual background export + progress
     /// modal + result modal (shared with the whole-level export in GameBrowserFrame/FileMenuDraw).
     /// </summary>
-    private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null)
+    /// <param name="ownFolder">True for exporters that write more than one file alongside the
+    /// main one (e.g. GltfExporter.ExportGltfSeparate's .bin + texture PNGs) — puts the asset in
+    /// its own Exported/Models/&lt;name&gt;/ folder instead of dropping several loose files
+    /// directly into Exported/Models next to every other asset's exports.</param>
+    private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, bool ownFolder = false)
     {
         string safeName = ExportPaths.SanitizeFileName(assetName);
-        string directory = Path.Combine(Program.EditorPath, "Exported", "Models");
+        string directory = ownFolder
+            ? Path.Combine(Program.EditorPath, "Exported", "Models", safeName)
+            : Path.Combine(Program.EditorPath, "Exported", "Models");
         string path = Path.Combine(directory, $"{safeName}.{extension}");
 
         ExportRunner.Run(LM.Get("GUI_Frame_AssetViewer_ExportingTitle"), path, directory,

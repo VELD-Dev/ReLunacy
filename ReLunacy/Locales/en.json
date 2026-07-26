@@ -10,6 +10,7 @@
     "GUI_Common_LoadWord": "Load Level",
     "GUI_Frame_AssetViewer": "Asset Viewer",
     "GUI_Frame_AssetViewer_ExportGltf": "Export as .glb",
+    "GUI_Frame_AssetViewer_ExportGltfSeparate": "Export as .gltf",
     "GUI_Frame_AssetViewer_ExportObj": "Export as .obj",
     "GUI_Frame_AssetViewer_ExportingTitle": "Exporting model",
     "GUI_Frame_AssetViewer_ExportingStatus": "Exporting {0}...",

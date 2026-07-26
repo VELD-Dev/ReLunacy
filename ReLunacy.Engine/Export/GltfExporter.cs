@@ -4,6 +4,7 @@ using ReLunacy.Engine.Rendering;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
+using SharpGLTF.Schema2;
 using SharpGLTF.Scenes;
 using SharpGLTF.Transforms;
 using AlphaMode = SharpGLTF.Materials.AlphaMode;
@@ -15,12 +16,35 @@ using Vertex = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, Vertex
 using SkinnedMeshBuilder = MeshBuilder<MaterialBuilder, VertexPositionNormalTangent, VertexTexture1, VertexJoints4>;
 using SkinnedVertex = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, VertexJoints4>;
 
-/// <summary>Exports engine meshes as a single-file .glb — one group (e.g. a Moby's bangle, or a
-/// Tie's whole mesh list) becomes one glTF mesh/node, so bangles stay distinct submeshes instead
-/// of being flattened into a single blob.</summary>
+/// <summary>Exports engine meshes as glTF — one group (e.g. a Moby's bangle, or a Tie's whole mesh
+/// list) becomes one glTF mesh/node, so bangles stay distinct submeshes instead of being flattened
+/// into a single blob. Two output modes share the same scene-building logic (<see
+/// cref="BuildModel"/>) and only differ in how the result is written to disk: <see cref="Export"/>
+/// packs everything (geometry, textures) into one self-contained .glb; <see
+/// cref="ExportGltfSeparate"/> writes a loose .gltf JSON + .bin buffer + separate texture image
+/// files in the same folder — the layout sites like The Models Resource expect a submission to be
+/// in, since it lets a submission be inspected/re-textured file-by-file instead of needing to be
+/// unpacked from a binary blob first.</summary>
 public static class GltfExporter
 {
     public static void Export(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
+    {
+        var model = BuildModel(modelName, groups, skeleton, onProgress);
+        model.SaveGLB(filePath);
+    }
+
+    /// <summary>Same geometry/material data as <see cref="Export"/>, written as a loose .gltf +
+    /// .bin + PNG textures instead of one packed .glb — see the class-level comment for why. All
+    /// resources land in <paramref name="filePath"/>'s own directory (SharpGLTF's
+    /// ResourceWriteMode.SatelliteFile default naming), so callers should give this its own
+    /// dedicated output folder rather than one shared with other exports.</summary>
+    public static void ExportGltfSeparate(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
+    {
+        var model = BuildModel(modelName, groups, skeleton, onProgress);
+        model.SaveGLTF(filePath, new WriteSettings { ImageWriting = ResourceWriteMode.SatelliteFile });
+    }
+
+    private static ModelRoot BuildModel(string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton, Action<float>? onProgress)
     {
         var sceneBuilder = new SceneBuilder();
         var materialCache = new Dictionary<ulong, MaterialBuilder>();
@@ -50,8 +74,7 @@ public static class GltfExporter
             }
         }
 
-        var model = sceneBuilder.ToGltf2();
-        model.SaveGLB(filePath);
+        return sceneBuilder.ToGltf2();
     }
 
     /// <summary>
