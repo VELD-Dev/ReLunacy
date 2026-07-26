@@ -43,13 +43,16 @@ public record struct VertexFormat0
     public readonly override string ToString() => $"Pos: ({position.Item1}; {position.Item2}; {position.Item3}) UVs: ({UVs.Item1}; {UVs.Item2})";
 
     // For the Shader/Mesh raw-vertex inspector — every field this format has, raw and decoded.
-    // boneIndex is called out deliberately: on Tie meshes (which have no skeleton at all, so this
-    // int16 can't be doing its nominal job there) it's the single most plausible remaining place
-    // for a per-vertex color/alpha value to be hiding, now that normal/tangent are both confirmed
-    // to fully consume their 32 bits as pure direction data with zero bits to spare.
+    // Labeled "vertexAttribute" rather than "boneIndex" here: on Mobys with a skeleton, this field
+    // genuinely is the bone index (the field keeps that C# name since that's its real job there),
+    // but on Tie meshes (which have no skeleton at all, so it can't be doing its nominal job) it's
+    // the single most plausible remaining place for a per-vertex color/alpha value to be hiding,
+    // now that normal/tangent are both confirmed to fully consume their 32 bits as pure direction
+    // data with zero bits to spare — this one field pulls double (or more) duty depending on the
+    // mesh, so the inspector describes it generically instead of implying it's always a bone index.
     public readonly string Dump() =>
         $"Position (raw int16): ({position.Item1}, {position.Item2}, {position.Item3})\n" +
-        $"boneIndex (raw int16, unconfirmed meaning — likely unused on non-skinned/Tie meshes): {boneIndex} (0x{(ushort)boneIndex:X4})  decoded as vertex alpha candidate: {VertexAlphaCandidate:0.###}\n" +
+        $"vertexAttribute (bone index on mobys, vertex color or alpha on Ties): {boneIndex} (0x{(ushort)boneIndex:X4}) (as vertex alpha: {VertexAlphaCandidate:0.###})\n" +
         $"UVs (Half): ({(float)UVs.Item1:0.######}, {(float)UVs.Item2:0.######})\n" +
         $"normal:  raw 0x{normal:X8}  decoded (signed 11:11:10) {Normal}\n" +
         $"tangent: raw 0x{tangent:X8}  decoded (signed 11:11:10) {Tangent}";
