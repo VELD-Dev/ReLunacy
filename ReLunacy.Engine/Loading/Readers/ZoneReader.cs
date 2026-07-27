@@ -146,6 +146,13 @@ public sealed class ZoneReader
         // wildly out-of-range indices (same class of bug as the vpos/uvs sizing fix in UFrag.cs).
         var indices = legacyUFrag.indices.AsSpan(0, (int)legacyUFrag.metadata.indexCount).ToArray();
 
+        // Real per-vertex normals/tangents, decoded from the same packed 11:11:10 words
+        // VertexFormat0/1 use (see UFrag.ReadVertices). Handedness (tangent W) is derived from UV
+        // gradients exactly like the Moby/Tie path does (GeometryData -> GeometryMath), since the
+        // packed word carries none — ComputeTangents keeps the real decoded xyz and only adds W.
+        var normals = legacyUFrag.normals;
+        var tangents = GeometryMath.ComputeTangents(positions, uvs, normals, indices, legacyUFrag.tangents);
+
         IMaterial material = legacyUFrag.isOld
             ? _materialReader.GetMaterialByIndex(legacyUFrag.metadata.shaderIndex)
             : _materialReader.GetMaterialForLocalIndex(shaderTuids, legacyUFrag.metadata.shaderIndex);
@@ -183,8 +190,8 @@ public sealed class ZoneReader
         }
 
         return legacyUFrag.isOld
-            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius)
-            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius);
+            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents)
+            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents);
     }
 
     private List<IPlacedInstance<ITie>> ReadTieInstances(Objects.Zone legacyZone)

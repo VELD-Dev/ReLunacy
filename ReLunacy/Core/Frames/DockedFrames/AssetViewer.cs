@@ -146,6 +146,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             selectedMobyAsset = value;
             if (value != null) selectedTieAsset = null;
             selectedMesh = null;
+            exportNameOverride = "";
             IsDirty = true;
             RebuildSelectedAssetMaterials();
         }
@@ -160,10 +161,18 @@ public class AssetViewer : DockedFrame, ILevelListener
             selectedTieAsset = value;
             if (value != null) selectedMobyAsset = null;
             selectedMesh = null;
+            exportNameOverride = "";
             IsDirty = true;
             RebuildSelectedAssetMaterials();
         }
     }
+
+    // Lets the user rename an asset for export (textures/.bin/.gltf all take this name too — see
+    // ExportModel/GetExportName) instead of being stuck with the asset's raw internal name, which
+    // is routinely something like a full "levels/.../foo.entity.irb" path — not exactly what you
+    // want a Models Resource submission's files named after. Reset to blank (falls back to the
+    // asset's own default name) whenever the selection changes, above.
+    private string exportNameOverride = "";
 
     private AssetManager? assetManager;
     private string assetSearch = "";
@@ -673,16 +682,21 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (selectedMobyAsset != null)
         {
             var moby = selectedMobyAsset.Value.Moby;
-            
+            string mobyDefaultName = moby.Name ?? $"Moby_{moby.Id:X}";
+
             ImGui.Separator();
+            ImGui.SetNextItemWidth(200);
+            ImGui.InputTextWithHint("##export_name_moby", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", mobyDefaultName), ref exportNameOverride, 128);
+            ImGui.SameLine();
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
-                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(ObjExporter.Export, "obj", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
             
             ImGui.BeginGroup();
             ImGui.Text("Id");
@@ -743,14 +757,18 @@ public class AssetViewer : DockedFrame, ILevelListener
             ImGui.Separator();
             string tieAssetName = tie.Name ?? $"Tie_{tie.Id:X}";
             var tieGroups = new List<MeshGroup> { new(tieAssetName, tie.Meshes) };
+            ImGui.SetNextItemWidth(200);
+            ImGui.InputTextWithHint("##export_name_tie", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", tieAssetName), ref exportNameOverride, 128);
+            ImGui.SameLine();
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", tieAssetName, tieGroups);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(tieAssetName), tieGroups);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
-                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", tieAssetName, tieGroups, ownFolder: true);
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(tieAssetName), tieGroups, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", tieAssetName, tieGroups);
+                ExportModel(ObjExporter.Export, "obj", GetExportName(tieAssetName), tieGroups);
             
             ImGui.BeginGroup();
             ImGui.Text("Id");
@@ -789,6 +807,12 @@ public class AssetViewer : DockedFrame, ILevelListener
 
         ImGui.EndGroup();
     }
+
+    /// <summary>Blank exportNameOverride falls back to the asset's own default name; otherwise the
+    /// user's typed name is used verbatim (still gets sanitized for filesystem-illegal characters
+    /// by ExportModel below either way) — this is the one place that decides what name every
+    /// exported file (model, .bin, and every texture) ultimately gets built from.</summary>
+    private string GetExportName(string defaultName) => string.IsNullOrWhiteSpace(exportNameOverride) ? defaultName : exportNameOverride;
 
     /// <summary>
     /// Shared by every Moby/Tie export button — builds a sanitized output path under

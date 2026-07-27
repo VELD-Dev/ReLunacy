@@ -142,8 +142,20 @@ public class ImGuiController : IDisposable
 
         _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
 
+        // Both sampler variants are created up front and picked per frame (see RenderImDrawData)
+        // instead of recreating one set when the filtering setting changes — disposing a resource
+        // set that an in-flight frame still references is a GPU-lifetime hazard, and two tiny
+        // resource sets are cheaper than getting that dance right. This one shared sampler slot
+        // is what EVERY ImGui-drawn image goes through (texture previews, asset viewer, the 3D
+        // viewport blit itself), so this is the single switch point for UI-side filtering.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
+        _mainResourceSetLinear = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.LinearSampler));
     }
+
+    /// <summary>Synced every frame from EditorSettings.TextureFiltering (see LunaWindow.Update),
+    /// same live-toggle pattern as AssetManager.SetTextureFiltering for the 3D materials.</summary>
+    public void SetTextureFiltering(ReLunacy.Engine.Rendering.TextureFiltering filtering)
+        => _useLinearSampler = filtering == ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;
 
     public ImTextureRef GetOrCreateImGuiBinding(ResourceFactory factory, TextureView textureView)
     {

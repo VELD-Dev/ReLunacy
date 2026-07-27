@@ -74,9 +74,15 @@ public class EntityUFrag : Entity
             var normal = normals != null && normals.Length >= posIdx + 3
                 ? new Vector3(normals[posIdx], normals[posIdx + 1], normals[posIdx + 2])
                 : Vector3.UnitY;
+            // ZoneReader now supplies real decoded normals/tangents for UFrags (same packed
+            // 11:11:10 words as VertexFormat0/1 — see UFrag.ReadVertices), so these fallbacks are
+            // genuine edge-case guards, not the every-vertex default they used to be. The tangent
+            // fallback must stay a real (if arbitrary) unit vector, not Vector4.Zero:
+            // LitModelShaderSource's TBN construction normalizes the tangent, and normalizing a
+            // zero vector is NaN, which poisons the whole lighting calculation.
             var tangent = tangents != null && tangents.Length >= i * 4 + 4
                 ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
-                : Vector4.Zero;
+                : new Vector4(1f, 0f, 0f, 1f);
 
             vertices[i] = new Vertex3D(position, uv, uv, normal, tangent, Vector4.One);
         }

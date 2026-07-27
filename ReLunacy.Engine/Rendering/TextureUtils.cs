@@ -86,6 +86,55 @@ public static class TextureUtils
         };
     }
 
+    /// <summary>
+    /// This game's normal maps are NOT a standard tangent-space (nx,ny,nz) encoding — they store
+    /// partial derivatives instead: dx = -nx/nz, dy = -ny/nz. The game reconstructs the real
+    /// normal on the GPU in just two instructions: n = normalize(vec3(-dx, -dy, 1)) — storing the
+    /// slope directly (rather than a normalized direction) is what makes that cheap reconstruction
+    /// possible, and it also means multiple normal contributions can be combined by plain addition
+    /// in derivative space, unlike standard tangent-space normals which need a full reoriented-
+    /// normal blend to combine correctly.
+    ///
+    /// Modern engines/DCC tools (and glTF's own normalTexture) expect the conventional (nx,ny,nz)
+    /// encoding, so this reconstructs the real normal from the stored derivatives and repacks it
+    /// that way — for export only. ReLunacy's own live renderer (see AssetManager) still uploads
+    /// the raw, unconverted derivative bytes to the GPU untouched by this function, so a future lit
+    /// shader can do the exact same 2-instruction reconstruction the game itself does, for
+    /// fidelity, rather than trusting this repacked copy as ground truth.
+    ///
+    /// Confirmed layout: the two derivatives live in the decoded G and A channels — B is always
+    /// constant (255/100%), R unused, regardless of the source compression format (this matches
+    /// the common "DXT5nm"-style trick of putting normal-map data in Green and Alpha specifically,
+    /// since those are the two channels DXT5 compresses with the most independent precision).
+    /// dx=Alpha, dy=Green — confirmed against Negotiator/TextureEditor, a separate working
+    /// reverse-engineering tool for this exact game's formats (TextureHelper.BitmapFromDDS's DXT5
+    /// normal-map path reads p.A for dx and p.G for dy), not G=dx/A=dy as originally guessed here.
+    /// </summary>
+    public static byte[]? ReconstructNormalMap(ITexture texture, out int width, out int height)
+    {
+        byte[]? rgba = DecodeToRgba8888(texture, out width, out height);
+        if (rgba == null)
+            return null;
+
+        var result = new byte[rgba.Length];
+        int pixelCount = width * height;
+        for (int p = 0; p < pixelCount; p++)
+        {
+            int i = p * 4;
+            float dx = rgba[i + 3] / 255f * 2f - 1f; // A
+            float dy = rgba[i + 1] / 255f * 2f - 1f; // G
+
+            var n = Vector3.Normalize(new Vector3(-dx, -dy, 1f));
+
+            result[i + 0] = (byte)((n.X * 0.5f + 0.5f) * 255f);
+            result[i + 1] = (byte)((n.Y * 0.5f + 0.5f) * 255f);
+            result[i + 2] = (byte)((n.Z * 0.5f + 0.5f) * 255f);
+            result[i + 3] = 255;
+        }
+
+        return result;
+    }
+
     public static byte[] ARGB8888ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int PixelSize = 4;

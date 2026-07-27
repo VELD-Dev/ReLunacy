@@ -32,6 +32,19 @@ public class DecalAwareForwardRenderer : IRenderer
     private readonly List<Renderable> _translucentRenderables = [];
     private SimplePipelineDescription _pipelineDescription;
 
+    // Scene-wide, not per-renderable — only ever bound for materials whose Effect declares a
+    // "LightBuffer" layout (currently just LitModelShaderSource, via AssetManager's lit effect),
+    // checked by name in DrawPreparedRenderable rather than assumed, since GetBufferLayoutSlot
+    // throws KeyNotFoundException for any effect that doesn't declare it (every other effect in
+    // this engine, at least for now). Values default to a plain downward light — View3D pushes
+    // the real EditorSettings.LightDirection/LightColor/Ambient in every frame, same pattern as
+    // Camera.FarPlane/VolumeWireThickness.
+    private readonly SimpleUniformBuffer<LightData> _lightBuffer;
+    public Vector3 LightDirection = new(-0.4f, -0.8f, 0.3f);
+    public Vector3 LightColor = Vector3.One;
+    public float Ambient = 0.15f;
+    public float SpecularPower = 32f;
+
     public GraphicsDevice GraphicsDevice { get; }
 
     public DecalAwareForwardRenderer(GraphicsDevice graphicsDevice)
@@ -41,6 +54,7 @@ public class DecalAwareForwardRenderer : IRenderer
         {
             PrimitiveTopology = PrimitiveTopology.TriangleList
         };
+        _lightBuffer = new SimpleUniformBuffer<LightData>(graphicsDevice, 1u, ShaderStages.Fragment);
     }
 
     public void DrawRenderable(Renderable renderable)
@@ -62,10 +76,42 @@ public class DecalAwareForwardRenderer : IRenderer
 
         _pipelineDescription.Outputs = output;
 
+        // Scene-wide, so this only needs updating once per frame rather than per-renderable like
+        // UpdateRenderableBuffer below — direction is normalized here rather than trusting the
+        // caller, since EditorSettings.LightDirection is a freely-edited ImGui field with no
+        // guarantee of unit length. Not the light-direction convention: a since-reverted attempt
+        // at negating it here didn't fix the "inverted everywhere" symptom, which pointed back at
+        // normal-map reconstruction instead (see LitModelShaderSource).
+        var lightData = new LightData
+        {
+            Direction = LightDirection.LengthSquared() > 0f ? Vector3.Normalize(LightDirection) : Vector3.UnitY,
+            Ambient = Ambient,
+            Color = LightColor,
+            // Clamped away from 0: pow(x, 0) is 1 everywhere, which would paint the entire scene
+            // with a full-strength "highlight" if the setting were dragged to zero.
+            SpecularPower = MathF.Max(SpecularPower, 1f),
+            CameraPosition = cam3D.Position,
+        };
+        _lightBuffer.SetValueDeferred(commandList, 0, ref lightData);
+
+        // Bliss's Material.IsDirty is cleared by the FIRST renderable that uploads it
+        // (Renderable.UpdateMaterialBuffer sets Material.IsDirty = false), so with this engine's
+        // shared cached materials (one Material instance across every mesh using that shader), a
+        // live material edit - e.g. AssetManager.SetParallaxMultiplier - would only ever reach one
+        // renderable per frame through the flag alone. Snapshot which materials are dirty BEFORE
+        // any upload clears the flag, and force the update for every renderable sharing them.
+        _dirtyMaterials.Clear();
         foreach (var renderable in _opaqueRenderables)
-            UpdateRenderableBuffer(commandList, renderable);
+            if (renderable.Material.IsDirty)
+                _dirtyMaterials.Add(renderable.Material);
         foreach (var renderable in _translucentRenderables)
-            UpdateRenderableBuffer(commandList, renderable);
+            if (renderable.Material.IsDirty)
+                _dirtyMaterials.Add(renderable.Material);
+
+        foreach (var renderable in _opaqueRenderables)
+            UpdateRenderableBuffer(commandList, renderable, _dirtyMaterials);
+        foreach (var renderable in _translucentRenderables)
+            UpdateRenderableBuffer(commandList, renderable, _dirtyMaterials);
 
         _pipelineDescription.DepthStencilState = DepthStencilStateDescription.DEPTH_ONLY_LESS_EQUAL;
         foreach (var renderable in _opaqueRenderables)
@@ -103,6 +149,18 @@ public class DecalAwareForwardRenderer : IRenderer
         }
 
         commandList.SetGraphicsResourceSet(renderable.Material.Effect.GetBufferLayoutSlot("MaterialBuffer"), renderable.GetMaterialBuffer().GetResourceSet(renderable.Material.Effect.GetBufferLayout("MaterialBuffer")));
+
+        // Only effects that actually declare LightBuffer (currently just AssetManager's lit
+        // effect) get it bound — GetBufferLayoutSlot/GetBufferLayout throw KeyNotFoundException
+        // for a name the effect never registered, so this can't be called unconditionally the
+        // way MatrixBuffer/TransformBuffer/MaterialBuffer are above.
+        foreach (var bufferLayout in renderable.Material.Effect.GetBufferLayouts())
+        {
+            if (bufferLayout.Name != "LightBuffer")
+                continue;
+            commandList.SetGraphicsResourceSet(renderable.Material.Effect.GetBufferLayoutSlot("LightBuffer"), _lightBuffer.GetResourceSet(bufferLayout));
+            break;
+        }
 
         foreach (SimpleTextureLayout textureLayout in renderable.Material.Effect.GetTextureLayouts())
         {
@@ -152,7 +210,10 @@ public class DecalAwareForwardRenderer : IRenderer
         }
     }
 
-    private static void UpdateRenderableBuffer(CommandList commandList, Renderable renderable)
+    // Reused across frames to avoid a per-frame allocation; only ever touched inside Draw.
+    private readonly HashSet<Bliss.CSharp.Materials.Material> _dirtyMaterials = [];
+
+    private static void UpdateRenderableBuffer(CommandList commandList, Renderable renderable, HashSet<Bliss.CSharp.Materials.Material> dirtyMaterials)
     {
         if (renderable.IsTransformBufferDirty)
             renderable.UpdateTransformBuffer(commandList);
@@ -160,9 +221,15 @@ public class DecalAwareForwardRenderer : IRenderer
             renderable.UpdateInstanceVertexBuffer(commandList);
         if (renderable.IsBoneBufferDirty)
             renderable.UpdateBoneBuffer(commandList);
-        if (renderable.IsMaterialBufferDirty)
+        // dirtyMaterials: see Draw - IsMaterialBufferDirty alone misses shared-material
+        // renderables once the first upload clears Material.IsDirty.
+        if (renderable.IsMaterialBufferDirty || dirtyMaterials.Contains(renderable.Material))
             renderable.UpdateMaterialBuffer(commandList);
     }
 
-    public void Dispose() => GC.SuppressFinalize(this);
+    public void Dispose()
+    {
+        _lightBuffer.Dispose();
+        GC.SuppressFinalize(this);
+    }
 }

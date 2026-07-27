@@ -10,6 +10,10 @@ internal class EditorSettingsFrame : Frame
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize;
 
     private readonly string[] AAoptions = ["Disabled", "x2", "x4", "x8", "x16", "x32"];
+    // Order must match the ReLunacy.Engine.Rendering.TextureFiltering enum (the combo index is
+    // cast straight to it).
+    private readonly string[] FilteringOptions = ["Nearest (Point)", "Bilinear"];
+    private int currentFiltering;
     private readonly string[] Languages;
     private int selectedLanguage;
     private int currLanguage;
@@ -62,6 +66,25 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_BackfaceCulling"), ref Program.Settings.BackfaceCulling);
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_BackfaceCullingHelp"));
+                // Same resync-every-frame pattern as currentMsaa above (see that comment) —
+                // applied live by Window.Update via AssetManager.SetTextureFiltering.
+                currentFiltering = (int)Program.Settings.TextureFiltering;
+                if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
+                    Program.Settings.TextureFiltering = (ReLunacy.Engine.Rendering.TextureFiltering)currentFiltering;
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_EnableLighting"), ref Program.Settings.EnableLighting);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
+                if (Program.Settings.EnableLighting)
+                {
+                    ImGui.Indent();
+                    ImGui.DragFloat3(LM.Get("GUI_Frame_EditorSettings_LightDirection"), ref Program.Settings.LightDirection, 0.01f, -1f, 1f, "%.2f");
+                    ImGui.ColorEdit3(LM.Get("GUI_Frame_EditorSettings_LightColor"), ref Program.Settings.LightColor);
+                    ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_LightAmbient"), ref Program.Settings.LightAmbient, 0f, 1f, "%.2f", ImGuiSliderFlags.AlwaysClamp);
+                    // Logarithmic: useful values cluster at the low end (8-64) but sharp
+                    // highlights need room up to 256.
+                    ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_LightSpecularPower"), ref Program.Settings.LightSpecularPower, 1f, 256f, "%.0f", ImGuiSliderFlags.AlwaysClamp | ImGuiSliderFlags.Logarithmic);
+                    ImGui.Unindent();
+                }
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     currLanguage = selectedLanguage;

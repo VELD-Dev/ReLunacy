@@ -18,6 +18,11 @@ public class UFrag : IDisposable, IMesh
     public float[] vpos { get; set; } = [];
     public uint[] indices { get; set; } = [];
     public float[] uvs { get; set; } = [];
+    // 3 floats per vertex, decoded from the same signed 11:11:10 packed words VertexFormat0/1 use
+    // (see PackedNormal) — tangent handedness (the 4th component) is derived later, in
+    // ZoneReader.ConvertUFrag, since the packed word spends all 32 bits on xyz.
+    public float[] normals { get; set; } = [];
+    public float[] tangents { get; set; } = [];
     public uint[] boneWeight { get; set; } = [];
     public uint[] vertToBonemap { get; set; } = [];
 
@@ -48,6 +53,8 @@ public class UFrag : IDisposable, IMesh
         // that buffer happened to be sitting past the real vertex count.
         vpos = new float[metadata.vertexCount * 3];
         uvs = new float[metadata.vertexCount * 2];
+        normals = new float[metadata.vertexCount * 3];
+        tangents = new float[metadata.vertexCount * 3];
         for (int i = 0; i < metadata.vertexCount; i++)
         {
             vpos[i * 3 + 0] = vertices[i].position.Item1;
@@ -55,6 +62,19 @@ public class UFrag : IDisposable, IMesh
             vpos[i * 3 + 2] = vertices[i].position.Item3;
             uvs[i * 2 + 0] = (float)vertices[i].UVs.Item1;
             uvs[i * 2 + 1] = (float)vertices[i].UVs.Item2;
+
+            // Same decode as VertexFormat0/1 (signed 11:11:10, X low bits) — the raw words were
+            // always read off disk (UFragVertex 0x10/0x14) but were dropped here until real
+            // lighting needed them, which left every UFrag lit as if all its faces pointed
+            // straight up (Vector3.UnitY fallback in EntityUFrag).
+            var n = PackedNormal.Decode(vertices[i].normal);
+            normals[i * 3 + 0] = n.X;
+            normals[i * 3 + 1] = n.Y;
+            normals[i * 3 + 2] = n.Z;
+            var t = PackedNormal.Decode(vertices[i].tangent);
+            tangents[i * 3 + 0] = t.X;
+            tangents[i * 3 + 1] = t.Y;
+            tangents[i * 3 + 2] = t.Z;
         }
     }
 

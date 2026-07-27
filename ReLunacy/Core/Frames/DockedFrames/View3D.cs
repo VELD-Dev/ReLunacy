@@ -25,7 +25,7 @@ public class View3D : DockedFrame
     private readonly GraphicsDevice graphicsDevice;
     private readonly CommandList commandList;
 
-    private readonly IRenderer renderer;
+    private readonly DecalAwareForwardRenderer renderer;
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
     private readonly ImmediateRenderer immediateRenderer;
@@ -84,6 +84,10 @@ public class View3D : DockedFrame
         EntityManager.Singleton.VolumeWireThickness = Program.Settings.VolumeWireThickness;
         EntityManager.Singleton.VolumeColor = Program.Settings.VolumeColor;
         EntityManager.Singleton.VolumeSelectedColor = Program.Settings.VolumeSelectedColor;
+        renderer.LightDirection = Program.Settings.LightDirection;
+        renderer.LightColor = Program.Settings.LightColor;
+        renderer.Ambient = Program.Settings.LightAmbient;
+        renderer.SpecularPower = Program.Settings.LightSpecularPower;
 
         UpdateWindowSize();
         Tick(deltaTime);

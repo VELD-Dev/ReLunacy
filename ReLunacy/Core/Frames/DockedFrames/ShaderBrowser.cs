@@ -176,6 +176,21 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Expensive"), shader.Expensive);
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_DetailMap"), shader.DetailMap);
 
+        // Live per-material parallax multiplier (default 1) — a reverse-engineering aid: tweak it
+        // on a shader while eyeing candidate values from the raw metadata hex dump below, to find
+        // which field (if any) the real game sources its parallax strength from. Runtime-only by
+        // design, nothing is persisted. Only shown when the material is actually built (i.e. the
+        // loaded region uses it) and the lit shader that consumes it is active.
+        var assetManager = LunaWindow.Instance.AssetManager;
+        if (assetManager != null && assetManager.TryGetParallaxMultiplier(shader.TUID, out float parallaxMultiplier))
+        {
+            ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_LiveTuningSection"));
+            if (!Program.Settings.EnableLighting)
+                ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_ParallaxNeedsLighting"));
+            if (ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_ParallaxMultiplier"), ref parallaxMultiplier, 0.05f, 0f, 64f, "%.2f"))
+                assetManager.SetParallaxMultiplier(shader.TUID, parallaxMultiplier);
+        }
+
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_RawMetadataSection"));
         ImGui.Checkbox(LM.Get("GUI_Frame_ShaderBrowser_ShowAsFloats"), ref showFloatInterpretation);
         if (shader.isOld && shader.metadataOld.HasValue)
