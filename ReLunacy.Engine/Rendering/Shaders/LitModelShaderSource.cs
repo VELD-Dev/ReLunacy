@@ -144,12 +144,17 @@ internal static class LitModelShaderSource
             // subtle while this channel's meaning is still "likely", not confirmed. If surface
             // relief visibly moves the WRONG way when orbiting, negate the offset.
             // maps[2].value is the per-material parallax multiplier (default 1), live-tunable
-            // from the ShaderBrowser - see AssetManager.SetParallaxMultiplier.
+            // from the ShaderBrowser - see AssetManager.SetParallaxMultiplier. Offset-LIMITED
+            // parallax (no division by viewDirTS.z): the classic divide amplifies the UV shift
+            // toward infinity at grazing view angles, which with a single tap shreds the
+            // albedo/normal sampling into blocky swimming artifacts (confirmed live: read as
+            // "pixelated artifacts over the albedo"). Dropping the divide caps the shift at
+            // height * scale texels no matter the angle - the standard single-tap-friendly form.
             vec3 viewDirTS = transpose(tbn) * viewDir;
             float height = texture(sampler2D(fProperties, fPropertiesSampler), fTexCoords).g;
             const float PARALLAX_SCALE = 0.02F;
             float parallaxScale = PARALLAX_SCALE * maps[2].value;
-            vec2 texCoords = fTexCoords - (viewDirTS.xy / max(viewDirTS.z, 0.35F)) * (height * parallaxScale);
+            vec2 texCoords = fTexCoords - viewDirTS.xy * (height * parallaxScale);
 
             vec4 texelColor = texture(sampler2D(fAlbedo, fAlbedoSampler), texCoords);
 
@@ -158,7 +163,13 @@ internal static class LitModelShaderSource
                     texelColor.a = 1.0F;
                     break;
                 case 1:
-                    if (texelColor.a < 0.99F) {
+                    // maps[0].value carries the material's own alphaClip threshold from the
+                    // game's shader metadata (see AssetManager.GetOrBuildMaterial), replacing a
+                    // hardcoded 0.99: that constant was invisible under point sampling (alpha is
+                    // mostly pure 0/255) but under bilinear filtering every softened edge texel
+                    // falls below 0.99 and gets discarded, eroding cutout foliage/decals into
+                    // sparse pixel speckle (confirmed live).
+                    if (texelColor.a < maps[0].value) {
                         discard;
                     }
                     break;

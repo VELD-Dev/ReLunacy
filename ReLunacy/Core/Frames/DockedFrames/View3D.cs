@@ -135,8 +135,13 @@ public class View3D : DockedFrame
         // whole 3D view (reported as "ties/world mirrored on X and Z") — removed, along with the
         // matching compensations it forced into PickEntityUnderCursor, GizmoController and
         // AxisGizmoRenderer.
+        var viewportBinding = Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture);
+        // The 3D viewport image follows the texture-filtering setting (matters whenever the blit
+        // isn't exactly 1:1); other ImGui images — texture previews etc. — deliberately stay
+        // point-sampled, see ImGuiController.SetBindingFiltering.
+        Core.LunaWindow.Instance.imGuiController.SetBindingFiltering(viewportBinding, Program.Settings.TextureFiltering);
         ImGui.Image(
-            Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
+            viewportBinding,
             new Vector2(renderTexture.Width, renderTexture.Height),
             Vector2.Zero,
             Vector2.One);

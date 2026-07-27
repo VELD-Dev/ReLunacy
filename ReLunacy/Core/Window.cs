@@ -444,10 +444,6 @@ public class LunaWindow : Disposable
         AssetManager?.SetBackfaceCulling(EditorSettings.BackfaceCulling);
         AssetManager?.SetLightingEnabled(EditorSettings.EnableLighting);
         AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
-        // UI-side counterpart of the AssetManager call above — covers everything drawn through
-        // ImGui (texture previews, asset viewer, the 3D viewport blit), which all sample through
-        // ImGuiController's one shared sampler slot.
-        imGuiController.SetTextureFiltering(EditorSettings.TextureFiltering);
 
         openFrames.RemoveAll(FrameMustClose);
 

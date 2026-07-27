@@ -155,8 +155,11 @@ public sealed class AssetManager : IDisposable
             blendState,
             renderMode);
 
+        // value = the game's own per-material alphaClip threshold (maps[0].value in
+        // LitModelShaderSource's Cutout branch) — the same field GltfExporter already trusts for
+        // glTF's alphaCutoff. Only meaningful for Cutout materials; harmless elsewhere.
         var albedo = material.AlbedoTexture != null ? GetOrBuildTexture(material.AlbedoTexture) : GlobalResource.DefaultModelTexture;
-        bMat.AddMaterialMap(new MaterialMapKey(MaterialMapType.Albedo), 0, new MaterialMap(albedo, ResolveSampler(albedo), color: Color.White));
+        bMat.AddMaterialMap(new MaterialMapKey(MaterialMapType.Albedo), 0, new MaterialMap(albedo, ResolveSampler(albedo), color: Color.White, value: material.AlphaClipThreshold));
 
         // Always added (not conditional on NormalTexture existing) so LitModelShaderSource's
         // texture layout always has something bound to it once lighting is enabled — see

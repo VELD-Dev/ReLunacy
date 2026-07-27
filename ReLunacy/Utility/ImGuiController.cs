@@ -29,10 +29,13 @@ public class ImGuiController : IDisposable
     private ResourceLayout _textureLayout = null!;
     private Pipeline _pipeline = null!;
     private ResourceSet _mainResourceSet = null!;
-    // See CreateDeviceResources / SetTextureFiltering — pre-built linear-sampler twin of
-    // _mainResourceSet, chosen per frame in RenderImDrawData.
+    // See CreateDeviceResources / SetBindingFiltering — pre-built linear-sampler twin of
+    // _mainResourceSet, chosen per draw command in RenderImDrawData for bindings registered in
+    // _linearBindings. Per-binding rather than global on purpose: the 3D viewport image should
+    // follow the editor's texture-filtering setting, while texture-inspection previews
+    // (TexturesExplorer etc.) must stay point-sampled so raw texel data remains legible.
     private ResourceSet _mainResourceSetLinear = null!;
-    private bool _useLinearSampler;
+    private readonly HashSet<nint> _linearBindings = [];
 
     private readonly Dictionary<int, (Texture Texture, TextureView View, ResourceSet ResourceSet)> _managedTextures = [];
 
@@ -146,20 +149,26 @@ public class ImGuiController : IDisposable
 
         _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
 
-        // Both sampler variants are created up front and picked per frame (see RenderImDrawData)
-        // instead of recreating one set when the filtering setting changes — disposing a resource
-        // set that an in-flight frame still references is a GPU-lifetime hazard, and two tiny
-        // resource sets are cheaper than getting that dance right. This one shared sampler slot
-        // is what EVERY ImGui-drawn image goes through (texture previews, asset viewer, the 3D
-        // viewport blit itself), so this is the single switch point for UI-side filtering.
+        // Both sampler variants are created up front and picked per draw command (see
+        // RenderImDrawData / SetBindingFiltering) instead of recreating one set when the filtering
+        // setting changes — disposing a resource set that an in-flight frame still references is
+        // a GPU-lifetime hazard, and two tiny resource sets are cheaper than getting that dance
+        // right.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
         _mainResourceSetLinear = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.LinearSampler));
     }
 
-    /// <summary>Synced every frame from EditorSettings.TextureFiltering (see LunaWindow.Update),
-    /// same live-toggle pattern as AssetManager.SetTextureFiltering for the 3D materials.</summary>
-    public void SetTextureFiltering(ReLunacy.Engine.Rendering.TextureFiltering filtering)
-        => _useLinearSampler = filtering == ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;
+    /// <summary>Opts a single ImGui texture binding in or out of linear sampling — used by View3D
+    /// to make the 3D viewport image follow EditorSettings.TextureFiltering while every other
+    /// ImGui image (texture previews etc.) stays point-sampled. Safe to call every frame.</summary>
+    public void SetBindingFiltering(ImTextureRef binding, ReLunacy.Engine.Rendering.TextureFiltering filtering)
+    {
+        nint id = (nint)binding.TexID;
+        if (filtering == ReLunacy.Engine.Rendering.TextureFiltering.Bilinear)
+            _linearBindings.Add(id);
+        else
+            _linearBindings.Remove(id);
+    }
 
     public ImTextureRef GetOrCreateImGuiBinding(ResourceFactory factory, TextureView textureView)
     {
@@ -502,7 +511,7 @@ public class ImGuiController : IDisposable
         cl.SetVertexBuffer(0, _vertexBuffer);
         cl.SetIndexBuffer(_indexBuffer, IndexFormat.UInt16);
         cl.SetPipeline(_pipeline);
-        cl.SetGraphicsResourceSet(0, _useLinearSampler ? _mainResourceSetLinear : _mainResourceSet);
+        cl.SetGraphicsResourceSet(0, _mainResourceSet);
 
         drawData.ScaleClipRects(io.DisplayFramebufferScale);
 
@@ -519,6 +528,11 @@ public class ImGuiController : IDisposable
                 var texId = imDrawCmdPtr.GetTexID();
                 var resourceSet = GetResourceSetForTexture(texId);
                 if (resourceSet != null) cl.SetGraphicsResourceSet(1, resourceSet);
+
+                // Per-binding sampler choice — see SetBindingFiltering. Set 0 also carries the
+                // projection buffer, which is identical in both variants, so swapping it per
+                // command only changes the sampler.
+                cl.SetGraphicsResourceSet(0, _linearBindings.Contains((nint)texId) ? _mainResourceSetLinear : _mainResourceSet);
 
                 cl.SetScissorRect(0,
                     (uint)imDrawCmdPtr.ClipRect.X,
