@@ -29,6 +29,10 @@ public class ImGuiController : IDisposable
     private ResourceLayout _textureLayout = null!;
     private Pipeline _pipeline = null!;
     private ResourceSet _mainResourceSet = null!;
+    // See CreateDeviceResources / SetTextureFiltering — pre-built linear-sampler twin of
+    // _mainResourceSet, chosen per frame in RenderImDrawData.
+    private ResourceSet _mainResourceSetLinear = null!;
+    private bool _useLinearSampler;
 
     private readonly Dictionary<int, (Texture Texture, TextureView View, ResourceSet ResourceSet)> _managedTextures = [];
 
@@ -498,7 +502,7 @@ public class ImGuiController : IDisposable
         cl.SetVertexBuffer(0, _vertexBuffer);
         cl.SetIndexBuffer(_indexBuffer, IndexFormat.UInt16);
         cl.SetPipeline(_pipeline);
-        cl.SetGraphicsResourceSet(0, _mainResourceSet);
+        cl.SetGraphicsResourceSet(0, _useLinearSampler ? _mainResourceSetLinear : _mainResourceSet);
 
         drawData.ScaleClipRects(io.DisplayFramebufferScale);
 
@@ -540,6 +544,7 @@ public class ImGuiController : IDisposable
         _textureLayout.Dispose();
         _pipeline.Dispose();
         _mainResourceSet.Dispose();
+        _mainResourceSetLinear.Dispose();
 
         foreach (var (_, managed) in _managedTextures)
         {
