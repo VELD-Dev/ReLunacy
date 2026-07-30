@@ -130,7 +130,7 @@ public class PropertyInspectorFrame : DockedFrame
             // compare it against a normal entity-space position) — negating the whole sum,
             // as this used to, also flipped the pull-back offset, pushing the camera away from
             // the entity along its forward vector instead of placing it just short of it.
-            v3d.Camera.Position = -SelectedEntity.Transform.Translation + v3d.Camera.GetForward() * 10;
+            v3d.Camera.Position = SelectedEntity.Transform.Translation + v3d.Camera.GetForward() * 10;
         }
         ImGui.SameLine();
         if (v3d != null)

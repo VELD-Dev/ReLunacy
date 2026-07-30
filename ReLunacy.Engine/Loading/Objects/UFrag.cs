@@ -18,6 +18,11 @@ public class UFrag : IDisposable, IMesh
     public float[] vpos { get; set; } = [];
     public uint[] indices { get; set; } = [];
     public float[] uvs { get; set; } = [];
+    /// <summary>Second UV set (UFragVertex.UVs2) — the LIGHTMAP UV channel. The captured game
+    /// shader samples its baked light colour and light direction maps (zone sections 0x5400 and
+    /// 0x5410) at a second UV, and this is it. Parsed off disk since the vertex format was first
+    /// implemented but discarded here until lighting needed it.</summary>
+    public float[] uvs2 { get; set; } = [];
     // 3 floats per vertex, decoded from the same signed 11:11:10 packed words VertexFormat0/1 use
     // (see PackedNormal) — tangent handedness (the 4th component) is derived later, in
     // ZoneReader.ConvertUFrag, since the packed word spends all 32 bits on xyz.
@@ -53,6 +58,7 @@ public class UFrag : IDisposable, IMesh
         // that buffer happened to be sitting past the real vertex count.
         vpos = new float[metadata.vertexCount * 3];
         uvs = new float[metadata.vertexCount * 2];
+        uvs2 = new float[metadata.vertexCount * 2];
         normals = new float[metadata.vertexCount * 3];
         tangents = new float[metadata.vertexCount * 3];
         for (int i = 0; i < metadata.vertexCount; i++)
@@ -62,6 +68,8 @@ public class UFrag : IDisposable, IMesh
             vpos[i * 3 + 2] = vertices[i].position.Item3;
             uvs[i * 2 + 0] = (float)vertices[i].UVs.Item1;
             uvs[i * 2 + 1] = (float)vertices[i].UVs.Item2;
+            uvs2[i * 2 + 0] = (float)vertices[i].UVs2.Item1;
+            uvs2[i * 2 + 1] = (float)vertices[i].UVs2.Item2;
 
             // Same decode as VertexFormat0/1 (signed 11:11:10, X low bits) — the raw words were
             // always read off disk (UFragVertex 0x10/0x14) but were dropped here until real

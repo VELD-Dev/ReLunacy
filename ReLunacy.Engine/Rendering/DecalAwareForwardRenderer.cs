@@ -44,6 +44,18 @@ public class DecalAwareForwardRenderer : IRenderer
     public Vector3 LightColor = Vector3.One;
     public float Ambient = 0.15f;
     public float SpecularPower = 32f;
+    // Averaged from the level's own cubemap at load; see LightData.EnvironmentColour. Intensity
+    // defaults to 0 so nothing changes until a level actually supplies one.
+    public Vector3 EnvironmentColour = Vector3.One;
+    public float EnvironmentIntensity;
+    // Live lightmap research controls — see LightData for what each one stands in for.
+    public Vector2 LightmapUVScale = Vector2.One;
+    public Vector2 LightmapUVOffset = Vector2.Zero;
+    public float BakedLightScale = 4f;
+    public float BakedBumpFade = 1f;
+    public bool BakedDebugView;
+    public Vector2 LightmapUVPivot = new(0.5f, 0.5f);
+    public float LightmapUVRotation;
 
     public GraphicsDevice GraphicsDevice { get; }
 
@@ -91,13 +103,22 @@ public class DecalAwareForwardRenderer : IRenderer
             // with a full-strength "highlight" if the setting were dragged to zero.
             SpecularPower = MathF.Max(SpecularPower, 1f),
             CameraPosition = cam3D.Position,
+            EnvironmentColour = EnvironmentColour,
+            EnvironmentIntensity = EnvironmentIntensity,
+            LightmapUVScale = LightmapUVScale,
+            LightmapUVOffset = LightmapUVOffset,
+            BakedLightScale = BakedLightScale,
+            BakedBumpFade = BakedBumpFade,
+            BakedDebugView = BakedDebugView ? 1f : 0f,
+            LightmapUVPivot = LightmapUVPivot,
+            LightmapUVRotation = LightmapUVRotation,
         };
         _lightBuffer.SetValueDeferred(commandList, 0, ref lightData);
 
         // Bliss's Material.IsDirty is cleared by the FIRST renderable that uploads it
         // (Renderable.UpdateMaterialBuffer sets Material.IsDirty = false), so with this engine's
         // shared cached materials (one Material instance across every mesh using that shader), a
-        // live material edit - e.g. AssetManager.SetParallaxMultiplier - would only ever reach one
+        // live material edit - e.g. AssetManager.SetParallax - would only ever reach one
         // renderable per frame through the flag alone. Snapshot which materials are dirty BEFORE
         // any upload clears the flag, and force the update for every renderable sharing them.
         _dirtyMaterials.Clear();

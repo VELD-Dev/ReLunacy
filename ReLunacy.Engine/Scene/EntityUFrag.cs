@@ -30,7 +30,12 @@ public class EntityUFrag : Entity
         var vertices = ConvertUFragToVertices(ufrag);
         var indices = ufrag.GetIndices();
 
-        var material = assetManager.GetOrBuildMaterial(ufrag.Material);
+        // Passing the lightmap index is what makes UFrags sharing a shader but not a lightmap get
+        // distinct Materials — see AssetManager.GetOrBuildMaterial. Until the 0x5400/0x5410
+        // textures are actually built and bound this only splits the cache; it is the seam the
+        // baked lighting hangs off, and getting it wrong later would silently give every UFrag one
+        // shared lightmap.
+        var material = assetManager.GetOrBuildMaterial(ufrag.Material, ufrag.LightmapIndex);
         UFragMesh = new Mesh<Vertex3D>(gd, material, new BasicMeshData(vertices, indices));
 
         // UFragVertex's raw per-vertex x/y/z are fixed-point shorts quantized ×256 on BOTH
@@ -60,6 +65,7 @@ public class EntityUFrag : Entity
         var uvs = ufrag.GetTextureCoordinates();
         var normals = ufrag.GetNormals();
         var tangents = ufrag.GetTangents();
+        var lightmapUVs = ufrag.GetLightmapUVs();
 
         int vertexCount = positions.Length / 3;
         var vertices = new Vertex3D[vertexCount];
@@ -84,7 +90,16 @@ public class EntityUFrag : Entity
                 ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
                 : new Vector4(1f, 0f, 0f, 1f);
 
-            vertices[i] = new Vertex3D(position, uv, uv, normal, tangent, Vector4.One);
+            // TexCoords2 is the LIGHTMAP UV set (UFragVertex.UVs2), not a copy of the base UV —
+            // the game samples its baked light colour/direction maps there. Falls back to the base
+            // UV when this UFrag has none, which keeps the attribute well-defined for every vertex
+            // rather than leaving it uninitialised; nothing samples it in that case anyway, since
+            // no lightmap is bound for an unlit UFrag.
+            var lightmapUV = lightmapUVs != null && lightmapUVs.Length >= uvIdx + 2
+                ? new Vector2(lightmapUVs[uvIdx], lightmapUVs[uvIdx + 1])
+                : uv;
+
+            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, Vector4.One);
         }
 
         return vertices;

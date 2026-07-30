@@ -124,7 +124,12 @@ public static class TextureUtils
             float dx = rgba[i + 3] / 255f * 2f - 1f; // A
             float dy = rgba[i + 1] / 255f * 2f - 1f; // G
 
-            var n = Vector3.Normalize(new Vector3(-dx, -dy, 1f));
+            // No sign flip — see LitModelShaderSource's normal section. The game's own captured
+            // fragment shader uses the sampled derivatives directly as (dx, dy, 1); negating them
+            // here (as this did) double-negates an already-negated ratio and inverts the relief on
+            // every exported normal map. Kept identical to the live shader's reconstruction on
+            // purpose: an export that disagrees with the viewport is worse than either convention.
+            var n = Vector3.Normalize(new Vector3(dx, dy, 1f));
 
             result[i + 0] = (byte)((n.X * 0.5f + 0.5f) * 255f);
             result[i + 1] = (byte)((n.Y * 0.5f + 0.5f) * 255f);

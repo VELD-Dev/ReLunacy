@@ -47,6 +47,18 @@ public sealed class MaterialReader
         return _textureCache.ToDictionary(kv => kv.Key, kv => (ITexture)kv.Value);
     }
 
+    /// <summary>Wraps zone lighting textures (0x5400 / 0x5410) into the engine-facing ITexture,
+    /// reusing the same format mapping and cache as every other texture. Returned as a LIST, not a
+    /// dictionary: these are addressed positionally by TieInstance.LightmapIndex, so order is the
+    /// identity and must be preserved exactly as read.</summary>
+    public IReadOnlyList<ITexture> WrapZoneLighting(IReadOnlyList<Textures.Texture> legacy)
+    {
+        var result = new List<ITexture>(legacy.Count);
+        foreach (var tex in legacy)
+            result.Add(WrapTexture(tex));
+        return result;
+    }
+
     public IMaterial GetMaterialByTuid(ulong tuid)
     {
         if (_materialCache.TryGetValue(tuid, out var cached))
@@ -65,7 +77,14 @@ public sealed class MaterialReader
             detail: shader.DetailMap != null ? WrapTexture(shader.DetailMap) : null,
             renderMode: ToRenderMode(shader.RenderingMode),
             alphaClipThreshold: GetAlphaClip(shader),
-            usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo));
+            usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo),
+            parallaxScale: GetParallaxScale(shader),
+            parallaxBias: GetParallaxBias(shader),
+            detailTiling: GetDetailTiling(shader),
+            detailNormalStrength: shader.isOld ? shader.metadataOld!.Value.detailNormalStrength : 0f,
+            detailSpecStrength: shader.isOld ? shader.metadataOld!.Value.detailSpecStrength : 0f,
+            detailAlbedoStrength: shader.isOld ? shader.metadataOld!.Value.detailAlbedoStrength : 0f,
+            usesDetailMap: UsesDetailMap(shader));
         material.Name = shader.name;
 
         _materialCache[tuid] = material;
@@ -150,6 +169,35 @@ public sealed class MaterialReader
 
     private static float GetAlphaClip(Shader shader) =>
         shader.isOld ? shader.metadataOld!.Value.alphaClip : shader.metadataNew!.Value.alphaClip;
+
+    // ShaderMetadataOld 0x50/0x54, feeding the captured game shader's height * scale + bias.
+    // Returned verbatim, sign included: which way relief appears to move is data, not something to
+    // correct here — if it comes out inverted the culprit is the tangent basis (see
+    // LitModelShaderSource's bitangent handedness), not this value.
+    // The new engine's metadata has no identified equivalent, so it gets 0/0, which disables
+    // parallax outright rather than substituting a made-up constant. The ShaderBrowser prints
+    // whatever was actually parsed, so "new-engine level, no parallax" stays visible rather than
+    // looking like a rendering regression.
+    private static float GetParallaxScale(Shader shader) =>
+        shader.isOld ? shader.metadataOld!.Value.parallaxScale : 0f;
+
+    private static float GetParallaxBias(Shader shader) =>
+        shader.isOld ? shader.metadataOld!.Value.parallaxBias : 0f;
+
+    /// <summary>Whether the material declares a detail map. Old engine reads the real feature flag
+    /// (metadata 0x10, InsomniaToolset's MaterialV1_5.useDetailMap). The new engine has no
+    /// identified equivalent byte, so it falls back to "a detail texture is referenced" — the
+    /// engine-version split is resolved here, where isOld is known, rather than leaving consumers
+    /// unable to tell a cleared flag from an absent one.</summary>
+    private static bool UsesDetailMap(Shader shader) =>
+        shader.isOld ? shader.metadataOld!.Value.UsesDetailMap : shader.DetailMap != null;
+
+    // ShaderMetadataOld 0x58. Returned raw, including 0 — the consumer (AssetManager) is what
+    // decides that 0 means "no identified tiling, fall back to 1", because a tiling of literally
+    // zero would collapse the whole detail map to a single texel and can't be what the field
+    // means. Kept as a separate decision there so this stays a plain read of the file.
+    private static float GetDetailTiling(Shader shader) =>
+        shader.isOld ? shader.metadataOld!.Value.detailTiling : 0f;
 
     // Per-material opacity (ShaderMetadata's decalOffsetCandidate/opacityCandidate at 0x48/0x4C)
     // was retracted — it explained flat dimming but not the spatial fade actually seen in-game.

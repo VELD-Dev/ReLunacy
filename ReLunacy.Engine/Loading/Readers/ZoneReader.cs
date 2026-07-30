@@ -189,9 +189,15 @@ public sealed class ZoneReader
             boundingRadius = legacyUFrag.metadata.boundingSphere.W;
         }
 
+        // Lightmap UVs are only meaningful alongside a lightmap index — a second UV set with
+        // nothing to sample is just wasted vertex bandwidth, and passing it anyway would make
+        // "has lightmap UVs" stop implying "is lightmapped" for every consumer downstream.
+        var lightmapIndex = legacyUFrag.metadata.lightmapIndex;
+        var lightmapUVs = legacyUFrag.metadata.HasLightmap && legacyUFrag.uvs2.Length > 0 ? legacyUFrag.uvs2 : null;
+
         return legacyUFrag.isOld
-            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents)
-            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents);
+            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata)
+            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata);
     }
 
     private List<IPlacedInstance<ITie>> ReadTieInstances(Objects.Zone legacyZone)
@@ -254,7 +260,12 @@ public sealed class ZoneReader
                     : i < tieNames?.Length ? legacyZone.zoneStream.ReadString(tieNames[i].offset) : $"Tie_{i:X}";
 
                 // Pass the raw matrix directly to avoid a lossy decompose-recompose round trip.
-                var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name);
+                // LightmapIndex: this instance's baked light colour + direction pair. Old engine
+                // only — see TieInstance.LightmapIndex for the measurements behind the offset.
+                var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name)
+                {
+                    LightmapIndex = legacyZone.isOld ? legacyInstance.LightmapIndex : TieInstance.NoLightmap,
+                };
                 tieInstances.Add(placedInstance);
             }
         }

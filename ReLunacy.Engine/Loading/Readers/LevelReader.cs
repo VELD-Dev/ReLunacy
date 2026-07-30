@@ -89,7 +89,10 @@ public sealed class LevelReader
             isOldEngine: _fileManager.isOld,
             debugReader: _debugReader,
             allTextures: allTextures,
-            shaders: _textureShaderLoader.Shaders);
+            shaders: _textureShaderLoader.Shaders,
+            zoneLightmaps: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps),
+            zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
+            environmentAverage: _textureShaderLoader.EnvironmentAverage);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -125,6 +128,17 @@ public sealed class LevelData
     /// </summary>
     public IReadOnlyDictionary<ulong, Shader> Shaders { get; }
 
+    /// <summary>Baked light colour / light direction textures (main.dat sections 0x5400 / 0x5410),
+    /// POSITIONALLY indexed: entry X of each belongs to the instance whose lightmap index is X —
+    /// see TieInstance.LightmapIndex. The two lists always have equal length in real data.
+    /// Empty on the new engine, whose pixel data lives in lighting.dat and isn't wired up.</summary>
+    public IReadOnlyList<Assets.Interfaces.ITexture> ZoneLightmaps { get; }
+    public IReadOnlyList<Assets.Interfaces.ITexture> ZoneDirectionals { get; }
+
+    /// <summary>Flat approximation of the level's environment cubemap — see
+    /// TextureShaderLoader.EnvironmentAverage. Null when the level has none.</summary>
+    public System.Numerics.Vector3? EnvironmentAverage { get; }
+
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
@@ -133,7 +147,10 @@ public sealed class LevelData
         bool isOldEngine,
         DebugReader debugReader,
         IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture>? allTextures = null,
-        IReadOnlyDictionary<ulong, Shader>? shaders = null)
+        IReadOnlyDictionary<ulong, Shader>? shaders = null,
+        IReadOnlyList<Assets.Interfaces.ITexture>? zoneLightmaps = null,
+        IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
+        System.Numerics.Vector3? environmentAverage = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -143,5 +160,8 @@ public sealed class LevelData
         DebugReader = debugReader;
         AllTextures = allTextures ?? new Dictionary<ulong, Assets.Interfaces.ITexture>();
         Shaders = shaders ?? new Dictionary<ulong, Shader>();
+        ZoneLightmaps = zoneLightmaps ?? [];
+        ZoneDirectionals = zoneDirectionals ?? [];
+        EnvironmentAverage = environmentAverage;
     }
 }

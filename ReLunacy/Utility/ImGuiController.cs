@@ -29,13 +29,6 @@ public class ImGuiController : IDisposable
     private ResourceLayout _textureLayout = null!;
     private Pipeline _pipeline = null!;
     private ResourceSet _mainResourceSet = null!;
-    // See CreateDeviceResources / SetBindingFiltering — pre-built linear-sampler twin of
-    // _mainResourceSet, chosen per draw command in RenderImDrawData for bindings registered in
-    // _linearBindings. Per-binding rather than global on purpose: the 3D viewport image should
-    // follow the editor's texture-filtering setting, while texture-inspection previews
-    // (TexturesExplorer etc.) must stay point-sampled so raw texel data remains legible.
-    private ResourceSet _mainResourceSetLinear = null!;
-    private readonly HashSet<nint> _linearBindings = [];
 
     private readonly Dictionary<int, (Texture Texture, TextureView View, ResourceSet ResourceSet)> _managedTextures = [];
 
@@ -149,25 +142,16 @@ public class ImGuiController : IDisposable
 
         _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
 
-        // Both sampler variants are created up front and picked per draw command (see
-        // RenderImDrawData / SetBindingFiltering) instead of recreating one set when the filtering
-        // setting changes — disposing a resource set that an in-flight frame still references is
-        // a GPU-lifetime hazard, and two tiny resource sets are cheaper than getting that dance
-        // right.
+        // Point-sampled for ALL ImGui drawing, deliberately: texture-inspection previews
+        // (TexturesExplorer etc.) must show raw texels, and the 3D viewport image is blitted 1:1
+        // (its render texture is sized to the viewport), so filtering it would be a no-op anyway.
+        // Scene texture filtering lives entirely on the 3D side — see
+        // AssetManager.SetTextureFiltering. A previous attempt to make this per-binding (rebinding
+        // resource set 0 inside the per-command loop below) was suspected during a GPUVM-fault
+        // investigation and reverted, but never confirmed as the cause — the fault was in fact the
+        // lit effect's descriptor set numbering, see AssetManager.BuildLitModelEffect. Restoring
+        // the per-binding sampler here is probably safe; it just hasn't been retried since.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
-        _mainResourceSetLinear = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.LinearSampler));
-    }
-
-    /// <summary>Opts a single ImGui texture binding in or out of linear sampling — used by View3D
-    /// to make the 3D viewport image follow EditorSettings.TextureFiltering while every other
-    /// ImGui image (texture previews etc.) stays point-sampled. Safe to call every frame.</summary>
-    public void SetBindingFiltering(ImTextureRef binding, ReLunacy.Engine.Rendering.TextureFiltering filtering)
-    {
-        nint id = (nint)binding.TexID;
-        if (filtering == ReLunacy.Engine.Rendering.TextureFiltering.Bilinear)
-            _linearBindings.Add(id);
-        else
-            _linearBindings.Remove(id);
     }
 
     public ImTextureRef GetOrCreateImGuiBinding(ResourceFactory factory, TextureView textureView)
@@ -529,11 +513,6 @@ public class ImGuiController : IDisposable
                 var resourceSet = GetResourceSetForTexture(texId);
                 if (resourceSet != null) cl.SetGraphicsResourceSet(1, resourceSet);
 
-                // Per-binding sampler choice — see SetBindingFiltering. Set 0 also carries the
-                // projection buffer, which is identical in both variants, so swapping it per
-                // command only changes the sampler.
-                cl.SetGraphicsResourceSet(0, _linearBindings.Contains((nint)texId) ? _mainResourceSetLinear : _mainResourceSet);
-
                 cl.SetScissorRect(0,
                     (uint)imDrawCmdPtr.ClipRect.X,
                     (uint)imDrawCmdPtr.ClipRect.Y,
@@ -558,7 +537,6 @@ public class ImGuiController : IDisposable
         _textureLayout.Dispose();
         _pipeline.Dispose();
         _mainResourceSet.Dispose();
-        _mainResourceSetLinear.Dispose();
 
         foreach (var (_, managed) in _managedTextures)
         {

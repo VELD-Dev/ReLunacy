@@ -14,6 +14,7 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     public float Scale { get; init; }
     public ushort Group { get; init; }
     public float DisplayDistance { get; init; } = -1f;
+    public ushort LightmapIndex { get; init; } = 0xFFFF;
 
     private readonly Matrix4x4? _rawMatrix;
 

@@ -26,6 +26,17 @@ public class View3D : DockedFrame
     private readonly CommandList commandList;
 
     private readonly DecalAwareForwardRenderer renderer;
+
+    // Live lightmap research controls, driven by the UFrag Inspector. They live on the renderer
+    // (it owns the LightBuffer) and are surfaced here because View3D is what holds the renderer.
+    // See LightData for what each one stands in for; none of them is a game value.
+    public Vector2 LightmapUVScale { get => renderer.LightmapUVScale; set => renderer.LightmapUVScale = value; }
+    public Vector2 LightmapUVOffset { get => renderer.LightmapUVOffset; set => renderer.LightmapUVOffset = value; }
+    public float BakedLightScale { get => renderer.BakedLightScale; set => renderer.BakedLightScale = value; }
+    public float BakedBumpFade { get => renderer.BakedBumpFade; set => renderer.BakedBumpFade = value; }
+    public bool BakedDebugView { get => renderer.BakedDebugView; set => renderer.BakedDebugView = value; }
+    public Vector2 LightmapUVPivot { get => renderer.LightmapUVPivot; set => renderer.LightmapUVPivot = value; }
+    public float LightmapUVRotation { get => renderer.LightmapUVRotation; set => renderer.LightmapUVRotation = value; }
     public Cam3D Camera { get; private set; }
     private RenderTexture2D renderTexture;
     private readonly ImmediateRenderer immediateRenderer;
@@ -89,6 +100,21 @@ public class View3D : DockedFrame
         renderer.Ambient = Program.Settings.LightAmbient;
         renderer.SpecularPower = Program.Settings.LightSpecularPower;
 
+        // Flat stand-in for the level's environment cubemap (see LevelData.EnvironmentAverage).
+        // The game's cubemap reflection is additive and independent of the lightmap, which is what
+        // keeps its baked shadows off pure black; without it ours fall to exactly albedo * 0.
+        // Intensity stays 0 when the level has no cubemap, so nothing changes for those.
+        // Intensity is deliberately far below 1: the averaged colour folds the cubemap's alpha in
+        // as a LINEAR weight, but in the game alpha is an HDR EXPONENT (rgb * exp2(a*scale+bias))
+        // whose constants we can't source — treating a mid alpha as "half strength" instead of the
+        // small exp2 result it really encodes overestimates the fill several times over. At 1.0
+        // that added ~0.45 linear (~0.7 after gamma) to every specular surface, washing the whole
+        // scene to desaturated white (confirmed live). This is the knob to tune against the real
+        // game; the right long-term fix is decoding the exponent, not raising this.
+        var env = Core.LunaWindow.Instance.Level?.EnvironmentAverage;
+        renderer.EnvironmentColour = env ?? Vector3.One;
+        renderer.EnvironmentIntensity = env.HasValue ? 0.12f : 0f;
+
         UpdateWindowSize();
         Tick(deltaTime);
 
@@ -135,13 +161,8 @@ public class View3D : DockedFrame
         // whole 3D view (reported as "ties/world mirrored on X and Z") — removed, along with the
         // matching compensations it forced into PickEntityUnderCursor, GizmoController and
         // AxisGizmoRenderer.
-        var viewportBinding = Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture);
-        // The 3D viewport image follows the texture-filtering setting (matters whenever the blit
-        // isn't exactly 1:1); other ImGui images — texture previews etc. — deliberately stay
-        // point-sampled, see ImGuiController.SetBindingFiltering.
-        Core.LunaWindow.Instance.imGuiController.SetBindingFiltering(viewportBinding, Program.Settings.TextureFiltering);
         ImGui.Image(
-            viewportBinding,
+            Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
             new Vector2(renderTexture.Width, renderTexture.Height),
             Vector2.Zero,
             Vector2.One);

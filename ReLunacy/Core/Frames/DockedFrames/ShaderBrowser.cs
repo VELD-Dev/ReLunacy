@@ -15,9 +15,11 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// <summary>
 /// Reverse-engineering tool: lists every shader (material) the loaded level parsed, and for the
 /// selected one shows its raw renderingMode byte, alphaClip, decoded texture references, and a
-/// hex dump of every still-unidentified byte range (ShaderMetadataOld/New's Unk1/Unk2/Unk3) —
-/// nothing here is hidden behind the IMaterial abstraction the renderer uses, since the whole
-/// point is to see what the file actually contains, not what we've already decided it means.
+/// hex dump of every still-unidentified byte range (ShaderMetadataOld/New's Unk fields) — nothing
+/// here is hidden behind the IMaterial abstraction the renderer uses, since the whole point is to
+/// see what the file actually contains, not what we've already decided it means. Those ranges are
+/// deliberately kept as few and as LONG as the known fields allow: an unknown split at a boundary
+/// that isn't real hides any multi-word value straddling it.
 /// </summary>
 public class ShaderBrowser : DockedFrame, ILevelListener
 {
@@ -88,6 +90,26 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         renderModeFilter = null;
         selectedShader = -1;
         usageResults = null;
+    }
+
+    // ShaderMetadataOld 0x50/0x54. The new engine's metadata has no identified equivalent — see
+    // MaterialReader.GetParallaxScale, which returns 0 there for the same reason.
+    private static float MetadataParallaxScale(Shader shader) =>
+        shader.isOld && shader.metadataOld.HasValue ? shader.metadataOld.Value.parallaxScale : 0f;
+
+    private static float MetadataParallaxBias(Shader shader) =>
+        shader.isOld && shader.metadataOld.HasValue ? shader.metadataOld.Value.parallaxBias : 0f;
+
+    // Old-engine only; new-engine metadata has no identified detail fields (see MaterialReader).
+    private static float MetadataDetailFloat(Shader shader, Func<ShaderMetadataOld, float> select) =>
+        shader.isOld && shader.metadataOld.HasValue ? select(shader.metadataOld.Value) : 0f;
+
+    // Matches AssetManager's own 0-means-absent fallback, so Reset lands on exactly what a fresh
+    // material build would produce rather than on a literal 0 that collapses the map to one texel.
+    private static float MetadataDetailTiling(Shader shader)
+    {
+        float tiling = shader.isOld && shader.metadataOld.HasValue ? shader.metadataOld.Value.detailTiling : 0f;
+        return tiling != 0f ? tiling : Engine.Rendering.AssetManager.DefaultDetailTiling;
     }
 
     private static string RenderModeLabel(byte value) =>
@@ -176,19 +198,68 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Expensive"), shader.Expensive);
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_DetailMap"), shader.DetailMap);
 
-        // Live per-material parallax multiplier (default 1) — a reverse-engineering aid: tweak it
-        // on a shader while eyeing candidate values from the raw metadata hex dump below, to find
-        // which field (if any) the real game sources its parallax strength from. Runtime-only by
-        // design, nothing is persisted. Only shown when the material is actually built (i.e. the
-        // loaded region uses it) and the lit shader that consumes it is active.
+        // Live per-material parallax scale/bias — a reverse-engineering aid: the game's own shader
+        // computes height * scale + bias from two per-material constants, so these are the two
+        // numbers to hunt for in the raw metadata hex dump below. Type a candidate pair in here
+        // (ctrl+click a drag to enter an exact value) and watch the surface. Deliberately
+        // unclamped and shown at float precision so a value read straight out of the dump can be
+        // used verbatim — a wide range is the whole point, and the sign is part of what's being
+        // searched for. Runtime-only, nothing is persisted. Only shown when the material is
+        // actually built (i.e. the loaded region uses it).
         var assetManager = LunaWindow.Instance.AssetManager;
-        if (assetManager != null && assetManager.TryGetParallaxMultiplier(shader.TUID, out float parallaxMultiplier))
+        if (assetManager != null && assetManager.TryGetParallax(shader.TUID, out float parallaxScale, out float parallaxBias))
         {
             ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_LiveTuningSection"));
             if (!Program.Settings.EnableLighting)
                 ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_ParallaxNeedsLighting"));
-            if (ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_ParallaxMultiplier"), ref parallaxMultiplier, 0.05f, 0f, 64f, "%.2f"))
-                assetManager.SetParallaxMultiplier(shader.TUID, parallaxMultiplier);
+
+            // What the loader actually parsed out of the metadata, shown verbatim next to the live
+            // controls. The 0x50/0x54 identification is a hypothesis: if these read as 0 across
+            // every material, parallax legitimately does nothing, and without this line that is
+            // indistinguishable from a rendering regression. New-engine shaders have no identified
+            // parallax fields at all and always report 0/0 (see MaterialReader.GetParallaxScale).
+            ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_ParallaxFromFile", MetadataParallaxScale(shader), MetadataParallaxBias(shader)));
+
+            // min == max == 0 is ImGui's own spelling for "unbounded" — passing float.MinValue /
+            // float.MaxValue instead overflows the internal (max - min) range calculation to
+            // infinity and leaves the drag inert. Unbounded is deliberate: the sign is part of
+            // what's being searched for, and a candidate straight out of the dump can be any
+            // magnitude.
+            bool changed = ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_ParallaxScale"), ref parallaxScale, 0.001f, 0f, 0f, "%.6f");
+            changed |= ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_ParallaxBias"), ref parallaxBias, 0.001f, 0f, 0f, "%.6f");
+            if (changed)
+                assetManager.SetParallax(shader.TUID, parallaxScale, parallaxBias);
+
+            // Back to what the FILE says, not to a hardcoded constant — the point of the sliders is
+            // to deviate from the parsed value and come back to it.
+            if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##parallax_reset"))
+                assetManager.SetParallax(shader.TUID, MetadataParallaxScale(shader), MetadataParallaxBias(shader));
+
+            // The game weights each detail channel by its own fragment constant; none of the three
+            // is located in ShaderMetadata yet, so these start at a neutral 1 and are here to be
+            // hunted the same way parallax was. Detail only shows up at all where the expensive
+            // map's alpha (the detail mask) is non-zero.
+            if (assetManager.TryGetDetailStrengths(shader.TUID, out float detailNormal, out float detailSpec, out float detailTiling))
+            {
+                bool detailChanged = ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailNormalStrength"), ref detailNormal, 0.01f, 0f, 0f, "%.4f");
+                // Clamped 0..1, unlike the others: this one rides a byte-quantised colour channel
+                // now that slots 6/7 carry the baked lighting textures.
+                detailChanged |= ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailSpecStrength"), ref detailSpec, 0.01f, 0f, 1f, "%.4f");
+                // Detail maps are authored to tile above the base map's frequency; the real
+                // multiplier isn't in the captured fragment shader (it arrives pre-tiled in a
+                // vertex interpolant), so this is the knob for finding what it should be.
+                detailChanged |= ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailTiling"), ref detailTiling, 0.1f, 0f, 0f, "%.3f");
+                if (detailChanged)
+                    assetManager.SetDetailStrengths(shader.TUID, detailNormal, detailSpec, detailTiling);
+
+                // Resets to what a fresh material build produces: normal/spec/tiling from the file,
+                // albedo pinned off (see AssetManager.ForcedDetailAlbedoStrength).
+                if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##detail_reset"))
+                    assetManager.SetDetailStrengths(shader.TUID,
+                        MetadataDetailFloat(shader, static m => m.detailNormalStrength),
+                        MetadataDetailFloat(shader, static m => m.detailSpecStrength),
+                        MetadataDetailTiling(shader));
+            }
         }
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_RawMetadataSection"));
@@ -196,20 +267,33 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (shader.isOld && shader.metadataOld.HasValue)
         {
             var meta = shader.metadataOld.Value;
+            // Raw byte AND decoded flags, deliberately both: the bit walk direction is a
+            // convention inherited from InsomniaToolset's x86 build (see ShaderMetadataOld.flags).
+            // Comparing "Detail" here against whether DetailMap above is actually present, across
+            // a few materials, is what confirms or reverses it.
+            ImGui.Text($"0x10 flags: 0x{meta.flags:X2} (binary {Convert.ToString(meta.flags, 2).PadLeft(8, '0')})");
+            ImGui.Text($"     Spec:{meta.UsesSpecular} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
             ImGui.Text($"0x12 Class: {meta.Class}");
             DrawHexDump("Unk1", 0x13, meta.Unk1);
-            DrawHexDump("Unk2", 0x24, meta.Unk2);
-            DrawHexDump("Unk4", 0x48, meta.Unk4);
-            DrawHexDump("Unk3a", 0x50, meta.Unk3a);
+            // Printed as a float as well as hex: this is the candidate slot for the detail-strength
+            // triple starting one float earlier (0x24/0x28/0x2C instead of 0x28/0x2C/0x30), so it
+            // needs to be directly comparable against the three below.
+            DrawHexDump("Unk2a", 0x24, meta.Unk2a);
+            ImGui.Text($"0x28 detailNormalStrength: {meta.detailNormalStrength:0.######}");
+            ImGui.Text($"0x2C detailSpecStrength:   {meta.detailSpecStrength:0.######}");
+            ImGui.Text($"0x30 detailAlbedoStrength: {meta.detailAlbedoStrength:0.######}");
+            DrawHexDump("Unk2b", 0x34, meta.Unk2b);
+            ImGui.Text($"0x50 parallaxScale: {meta.parallaxScale:0.######}");
+            ImGui.Text($"0x54 parallaxBias:  {meta.parallaxBias:0.######}");
+            ImGui.Text($"0x58 detailTiling:  {meta.detailTiling:0.######}");
+            DrawHexDump("Unk3", 0x5C, meta.Unk3);
         }
         else if (!shader.isOld && shader.metadataNew.HasValue)
         {
             var meta = shader.metadataNew.Value;
             DrawHexDump("Unk1", 0x0C, meta.Unk1);
             DrawHexDump("Unk2", 0x22, meta.Unk2);
-            DrawHexDump("Unk3a", 0x34, meta.Unk3a);
-            DrawHexDump("Unk4", 0x48, meta.Unk4);
-            DrawHexDump("Unk3b", 0x50, meta.Unk3b);
+            DrawHexDump("Unk3", 0x34, meta.Unk3);
         }
 
         ImGui.Separator();
@@ -309,12 +393,16 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         // Every 4-byte-aligned position reinterpreted as a big-endian float32 — this file format
         // is PS3/PowerPC (big-endian throughout, see StreamHelper.Endianness.Big), so a naive
-        // BitConverter read would silently byte-swap every value. Aligned to the start of this
-        // array, not to the file's absolute offset — if the real field turns out to start at an
-        // odd byte, this won't show it, but 4-byte alignment is the overwhelmingly common case for
-        // game data structures and keeps this from being an unreadable wall of every byte offset.
+        // BitConverter read would silently byte-swap every value. Alignment is to the FILE's
+        // absolute offset, not to the start of this array: several of these ranges begin at an
+        // unaligned offset (e.g. 0x13, 0x22), and a float field in the real structure sits on a
+        // real 4-byte boundary, so aligning to the array start would show every such value split
+        // across two entries. If a field turns out to start at an unaligned byte this still won't
+        // show it, but 4-byte alignment is the overwhelmingly common case for game data structures
+        // and keeps this from being an unreadable wall of every byte offset.
         var floatSb = new StringBuilder();
-        for (int i = 0; i + 3 < data.Length; i += 4)
+        int firstAligned = (4 - (baseOffset & 3)) & 3;
+        for (int i = firstAligned; i + 3 < data.Length; i += 4)
         {
             float f = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(data.AsSpan(i, 4));
             floatSb.Append($"  {baseOffset + i:X4}: {f,14:0.000000}\n");
