@@ -4,6 +4,8 @@ using ReLunacy.Engine.Rendering;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
+using SharpGLTF.Memory;
+using SharpGLTF.Schema2;
 using SharpGLTF.Scenes;
 using SharpGLTF.Transforms;
 using AlphaMode = SharpGLTF.Materials.AlphaMode;
@@ -15,43 +17,142 @@ using Vertex = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, Vertex
 using SkinnedMeshBuilder = MeshBuilder<MaterialBuilder, VertexPositionNormalTangent, VertexTexture1, VertexJoints4>;
 using SkinnedVertex = VertexBuilder<VertexPositionNormalTangent, VertexTexture1, VertexJoints4>;
 
-/// <summary>Exports engine meshes as a single-file .glb — one group (e.g. a Moby's bangle, or a
-/// Tie's whole mesh list) becomes one glTF mesh/node, so bangles stay distinct submeshes instead
-/// of being flattened into a single blob.</summary>
+/// <summary>Exports engine meshes as glTF — one group (e.g. a Moby's bangle, or a Tie's whole mesh
+/// list) becomes one glTF mesh/node, so bangles stay distinct submeshes instead of being flattened
+/// into a single blob. Two output modes share the same scene-building logic (<see
+/// cref="BuildModel"/>) and only differ in how the result is written to disk: <see cref="Export"/>
+/// packs everything (geometry, textures) into one self-contained .glb; <see
+/// cref="ExportGltfSeparate"/> writes a loose .gltf JSON + .bin buffer + separate texture image
+/// files in the same folder — the layout sites like The Models Resource expect a submission to be
+/// in, since it lets a submission be inspected/re-textured file-by-file instead of needing to be
+/// unpacked from a binary blob first.</summary>
 public static class GltfExporter
 {
     public static void Export(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
     {
+        var (model, _) = BuildModel(modelName, groups, skeleton, onProgress);
+        model.SaveGLB(filePath);
+    }
+
+    /// <summary>Same geometry/material data as <see cref="Export"/>, written as a loose .gltf +
+    /// .bin + PNG textures instead of one packed .glb — see the class-level comment for why. All
+    /// resources land in <paramref name="filePath"/>'s own directory (SharpGLTF's
+    /// ResourceWriteMode.SatelliteFile default naming), so callers should give this its own
+    /// dedicated output folder rather than one shared with other exports. Every derived texture
+    /// image is named after <paramref name="modelName"/> (the same name the caller put in
+    /// filePath) plus a type suffix — _a albedo, _n normal, _mr/_spec/_em the metallic-roughness/
+    /// specular/emissive images split out of the "expensive" texture — and, when a material has
+    /// more than one distinct shader (e.g. a multi-bangle Moby), later materials get a "_matN"
+    /// disambiguator so filenames never collide. The RAW, unmodified "expensive"/detail source
+    /// textures — which glTF has no direct channel for and which <see cref="ApplyExpensiveChannels"/>
+    /// only ever consumes, never re-exposes whole — are written separately afterward as plain
+    /// reference images (_ex / _d), not wired into the glTF material at all, so a submission still
+    /// carries the game's actual original textures alongside the derived PBR ones.</summary>
+    public static void ExportGltfSeparate(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
+    {
+        var (model, textureNames) = BuildModel(modelName, groups, skeleton, onProgress, textureBaseName: modelName);
+        model.SaveGLTF(filePath, new WriteSettings { ImageWriting = ResourceWriteMode.SatelliteFile });
+
+        if (textureNames != null)
+            WriteRawReferenceTextures(Path.GetDirectoryName(filePath) ?? ".", groups, textureNames);
+    }
+
+    /// <summary>Picks one name per distinct material (by first-encounter order across every group's
+    /// meshes) for <see cref="ExportGltfSeparate"/>'s texture naming — the first/most common case
+    /// (a single-material asset) gets exactly <paramref name="baseName"/>, so its textures come out
+    /// named baseName_a.png etc. with no surprise suffix; only assets with more than one distinct
+    /// material (e.g. a Moby whose bangles use different shaders) get "_matN" appended to keep
+    /// every material's textures from overwriting each other in the same output folder.</summary>
+    private static Dictionary<ulong, string> AssignTextureNames(IReadOnlyList<MeshGroup> groups, string baseName)
+    {
+        var names = new Dictionary<ulong, string>();
+        foreach (var group in groups)
+        {
+            foreach (var mesh in group.Meshes)
+            {
+                if (names.ContainsKey(mesh.Material.Id))
+                    continue;
+                names[mesh.Material.Id] = names.Count == 0 ? baseName : $"{baseName}_mat{names.Count + 1}";
+            }
+        }
+        return names;
+    }
+
+    /// <summary>Writes each distinct material's raw, unmodified PropertiesTexture ("expensive") and
+    /// DetailTexture straight to disk as {name}_ex.png / {name}_d.png — see
+    /// <see cref="ExportGltfSeparate"/>'s doc comment for why these bypass the glTF material
+    /// entirely instead of being wired into a channel: neither has a natural glTF slot (the
+    /// properties texture gets split three ways, the detail texture gets baked into other images),
+    /// so there's no channel to attach a "raw, unsplit" copy to without corrupting what that
+    /// channel is supposed to mean.</summary>
+    private static void WriteRawReferenceTextures(string outputDirectory, IReadOnlyList<MeshGroup> groups, Dictionary<ulong, string> textureNames)
+    {
+        var written = new HashSet<ulong>();
+        foreach (var group in groups)
+        {
+            foreach (var mesh in group.Meshes)
+            {
+                var material = mesh.Material;
+                if (!written.Add(material.Id) || !textureNames.TryGetValue(material.Id, out var name))
+                    continue;
+
+                if (material.PropertiesTexture != null)
+                {
+                    var png = TextureEncoding.DecodeToPng(material.PropertiesTexture);
+                    if (png != null)
+                        File.WriteAllBytes(Path.Combine(outputDirectory, $"{name}_ex.png"), png);
+                }
+
+                if (material.DetailTexture != null)
+                {
+                    var png = TextureEncoding.DecodeToPng(material.DetailTexture);
+                    if (png != null)
+                        File.WriteAllBytes(Path.Combine(outputDirectory, $"{name}_d.png"), png);
+                }
+            }
+        }
+    }
+
+    private static (ModelRoot Model, Dictionary<ulong, string>? TextureNames) BuildModel(string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton, Action<float>? onProgress, string? textureBaseName = null)
+    {
         var sceneBuilder = new SceneBuilder();
         var materialCache = new Dictionary<ulong, MaterialBuilder>();
+        var textureNames = textureBaseName != null ? AssignTextureNames(groups, textureBaseName) : null;
 
         int totalMeshes = groups.Sum(g => g.Meshes.Count);
         int processedMeshes = 0;
 
+        // A skeleton with a single bone (just its own root, no children) has no real hierarchy to
+        // speak of — it's not "the model is animated/skinned," it's one identity-transform node
+        // that ConvertSkeleton still happens to produce for some non-animated Mobys. Exporting that
+        // as a one-bone armature just adds a pointless skin/joint to the glTF for a model that,
+        // for every purpose that matters to an export, has no skeleton — so it's treated the same
+        // as skeleton == null below rather than only gating on nullness.
+        bool hasRealSkeleton = skeleton != null && skeleton.Bones.Count > 1;
+
         // Built once and reused for every group below — every mesh of a skinned asset shares the
         // exact same bind-pose joint hierarchy, since bind pose is a property of the asset, not of
         // any one submesh.
-        (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]? jointBindings = skeleton != null ? BuildSkinnedJoints(skeleton) : null;
+        (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]? jointBindings = hasRealSkeleton ? BuildSkinnedJoints(skeleton!) : null;
 
         foreach (var group in groups)
         {
             string name = string.IsNullOrEmpty(group.Name) ? modelName : group.Name;
             void ReportProgress() => onProgress?.Invoke(++processedMeshes / (float)totalMeshes);
 
-            if (skeleton != null && jointBindings != null)
+            if (hasRealSkeleton && jointBindings != null)
             {
-                var meshBuilder = BuildSkinnedMeshBuilder(name, group.Meshes, materialCache, skeleton.RootBoneIndex, ReportProgress);
+                var meshBuilder = BuildSkinnedMeshBuilder(name, group.Meshes, materialCache, skeleton!.RootBoneIndex, textureNames, ReportProgress);
                 sceneBuilder.AddSkinnedMesh(meshBuilder, jointBindings);
             }
             else
             {
-                var meshBuilder = BuildMeshBuilder(name, group.Meshes, materialCache, ReportProgress);
+                var meshBuilder = BuildMeshBuilder(name, group.Meshes, materialCache, textureNames, ReportProgress);
                 sceneBuilder.AddRigidMesh(meshBuilder, Matrix4x4.Identity);
             }
         }
 
-        var model = sceneBuilder.ToGltf2();
-        model.SaveGLB(filePath);
+        return (sceneBuilder.ToGltf2(), textureNames);
     }
 
     /// <summary>
@@ -61,13 +162,13 @@ public static class GltfExporter
     /// nodes, which is how LevelExporter gets true instancing for a Moby/Tie asset placed many
     /// times across a level, instead of duplicating its geometry per instance.
     /// </summary>
-    public static IMeshBuilder<MaterialBuilder> BuildMeshBuilder(string name, IReadOnlyList<IMesh> meshes, Dictionary<ulong, MaterialBuilder> materialCache, Action? onMeshBuilt = null)
+    public static IMeshBuilder<MaterialBuilder> BuildMeshBuilder(string name, IReadOnlyList<IMesh> meshes, Dictionary<ulong, MaterialBuilder> materialCache, Dictionary<ulong, string>? textureNames = null, Action? onMeshBuilt = null)
     {
         var meshBuilder = new MeshBuilder(name);
 
         foreach (var mesh in meshes)
         {
-            var materialBuilder = GetOrBuildMaterial(mesh.Material, materialCache);
+            var materialBuilder = GetOrBuildMaterial(mesh.Material, materialCache, textureNames);
             var primitive = meshBuilder.UsePrimitive(materialBuilder);
 
             var positions = mesh.Geometry.GetVertexPositions();
@@ -111,13 +212,13 @@ public static class GltfExporter
     /// null, or an all-zero-weight vertex) falls back to a full-weight binding on the skeleton's
     /// root bone, so it still renders exactly at its authored position in the bind pose rather than
     /// collapsing to the origin (glTF has no "unskinned vertex inside a skinned mesh" concept).</summary>
-    public static IMeshBuilder<MaterialBuilder> BuildSkinnedMeshBuilder(string name, IReadOnlyList<IMesh> meshes, Dictionary<ulong, MaterialBuilder> materialCache, int rootBoneIndex, Action? onMeshBuilt = null)
+    public static IMeshBuilder<MaterialBuilder> BuildSkinnedMeshBuilder(string name, IReadOnlyList<IMesh> meshes, Dictionary<ulong, MaterialBuilder> materialCache, int rootBoneIndex, Dictionary<ulong, string>? textureNames = null, Action? onMeshBuilt = null)
     {
         var meshBuilder = new SkinnedMeshBuilder(name);
 
         foreach (var mesh in meshes)
         {
-            var materialBuilder = GetOrBuildMaterial(mesh.Material, materialCache);
+            var materialBuilder = GetOrBuildMaterial(mesh.Material, materialCache, textureNames);
             var primitive = meshBuilder.UsePrimitive(materialBuilder);
 
             var positions = mesh.Geometry.GetVertexPositions();
@@ -243,10 +344,12 @@ public static class GltfExporter
         return m;
     }
 
-    private static MaterialBuilder GetOrBuildMaterial(IMaterial material, Dictionary<ulong, MaterialBuilder> cache)
+    private static MaterialBuilder GetOrBuildMaterial(IMaterial material, Dictionary<ulong, MaterialBuilder> cache, Dictionary<ulong, string>? textureNames = null)
     {
         if (cache.TryGetValue(material.Id, out var cached))
             return cached;
+
+        string? texName = textureNames?.GetValueOrDefault(material.Id);
 
         var builder = new MaterialBuilder(material.Name ?? $"Material_{material.Id:X}") { DoubleSided = true };
 
@@ -259,19 +362,22 @@ public static class GltfExporter
         {
             albedoRgba = TextureUtils.DecodeToRgba8888(material.AlbedoTexture, out albedoWidth, out albedoHeight);
             if (albedoRgba != null)
-                builder.WithBaseColor(TextureEncoding.EncodeRgbaToPng(albedoRgba, albedoWidth, albedoHeight));
+                builder.WithBaseColor(NamedImage(TextureEncoding.EncodeRgbaToPng(albedoRgba, albedoWidth, albedoHeight), texName, "_a"));
         }
 
-        byte[]? detailRgba = null;
-        int detailWidth = 0, detailHeight = 0;
-        if (material.DetailTexture != null)
-            detailRgba = TextureUtils.DecodeToRgba8888(material.DetailTexture, out detailWidth, out detailHeight);
+        if (material.NormalTexture != null)
+        {
+            // Not a plain format pass-through: this game's normal maps store partial derivatives
+            // (dx=-nx/nz, dy=-ny/nz), not standard tangent-space (nx,ny,nz) values — see
+            // TextureUtils.ReconstructNormalMap for the reconstruction and why it only applies
+            // here, not to the live renderer's own GPU texture upload (AssetManager).
+            var normalRgba = TextureUtils.ReconstructNormalMap(material.NormalTexture, out int normalWidth, out int normalHeight);
+            if (normalRgba != null)
+                builder.WithNormal(NamedImage(TextureEncoding.EncodeRgbaToPng(normalRgba, normalWidth, normalHeight), texName, "_n"), 1.0f);
+        }
 
-        if (material.NormalTexture != null || detailRgba != null)
-            ApplyNormalWithDetail(material.NormalTexture, detailRgba, detailWidth, detailHeight, builder);
-
-        if (material.PropertiesTexture != null || detailRgba != null)
-            ApplyExpensiveChannels(material.PropertiesTexture, albedoRgba, albedoWidth, albedoHeight, detailRgba, detailWidth, detailHeight, builder);
+        if (material.PropertiesTexture != null)
+            ApplyExpensiveChannels(material.PropertiesTexture, albedoRgba, albedoWidth, albedoHeight, builder, texName);
 
         var alphaMode = material.RenderMode switch
         {
@@ -292,35 +398,25 @@ public static class GltfExporter
     /// The "expensive"/properties texture packs specular (R), metallic (G) and emissive intensity
     /// (B) into one image — not a layout any glTF texture slot accepts directly, so each channel
     /// gets split out into its own properly-shaped image: metallic into a synthesized
-    /// metallicRoughnessTexture (metallic in B per glTF convention; roughness in G is now sourced
-    /// from the detail map's confirmed B channel, tiled — see <see cref="SampleDetailTiled"/> —
-    /// falling back to a constant mid-value only when no detail map is present at all), specular
-    /// into KHR_materials_specular's specularTexture (strength in A), and emissive — the B channel
-    /// is only ever an *intensity*, the actual glow color is the material's own albedo — into an
-    /// RGB texture built by scaling each albedo texel by its co-located intensity texel
-    /// (nearest-neighbor if the two textures aren't the same resolution). Specular/emissive are
-    /// skipped entirely when there's no properties texture (a detail-only material has no source
-    /// data for either).
+    /// metallicRoughnessTexture (metallic in B per glTF convention; no source roughness data, so G
+    /// is filled with a constant mid-value), specular into KHR_materials_specular's
+    /// specularTexture (strength in A), and emissive — the B channel is only ever an *intensity*,
+    /// the actual glow color is the material's own albedo — into an RGB texture built by scaling
+    /// each albedo texel by its co-located intensity texel (nearest-neighbor if the two textures
+    /// aren't the same resolution).
     /// </summary>
-    private static void ApplyExpensiveChannels(ITexture? propertiesTexture, byte[]? albedoRgba, int albedoWidth, int albedoHeight, byte[]? detailRgba, int detailWidth, int detailHeight, MaterialBuilder builder)
+    private static void ApplyExpensiveChannels(ITexture? propertiesTexture, byte[]? albedoRgba, int albedoWidth, int albedoHeight, MaterialBuilder builder, string? texName = null)
     {
-        byte[]? rgba = null;
-        int width = 0, height = 0;
-        if (propertiesTexture != null)
-            rgba = TextureUtils.DecodeToRgba8888(propertiesTexture, out width, out height);
-
-        if (rgba == null && detailRgba == null)
+        if (propertiesTexture == null)
             return;
 
+        var rgba = TextureUtils.DecodeToRgba8888(propertiesTexture, out int width, out int height);
         if (rgba == null)
-        {
-            width = detailWidth;
-            height = detailHeight;
-        }
+            return;
 
         var metallicRoughness = new byte[width * height * 4];
-        byte[]? specular = rgba != null ? new byte[width * height * 4] : null;
-        byte[]? emissive = rgba != null ? new byte[width * height * 4] : null;
+        var specular = new byte[width * height * 4];
+        var emissive = new byte[width * height * 4];
         bool hasAlbedo = albedoRgba != null && albedoWidth > 0 && albedoHeight > 0;
 
         for (int y = 0; y < height; y++)
@@ -328,146 +424,65 @@ public static class GltfExporter
             for (int x = 0; x < width; x++)
             {
                 int i = (y * width + x) * 4;
-                byte metallicValue = rgba != null ? rgba[i + 1] : (byte)0;
-
-                byte roughnessValue = 128; // no detail map at all — constant mid-value fallback
-                if (detailRgba != null)
-                {
-                    float u = (x + 0.5f) / width;
-                    float v = (y + 0.5f) / height;
-                    var (_, _, db) = SampleDetailTiled(detailRgba, detailWidth, detailHeight, u, v);
-                    roughnessValue = db;
-                }
+                byte specularValue = rgba[i + 0];
+                byte metallicValue = rgba[i + 1];
+                byte emissiveIntensity = rgba[i + 2];
 
                 metallicRoughness[i + 0] = 0;
-                metallicRoughness[i + 1] = roughnessValue;
+                metallicRoughness[i + 1] = 128; // no source roughness data — constant mid-value fallback
                 metallicRoughness[i + 2] = metallicValue;
                 metallicRoughness[i + 3] = 255;
 
-                if (rgba != null)
+                specular[i + 0] = 255;
+                specular[i + 1] = 255;
+                specular[i + 2] = 255;
+                specular[i + 3] = specularValue;
+
+                byte albedoR = 255, albedoG = 255, albedoB = 255;
+                if (hasAlbedo)
                 {
-                    byte specularValue = rgba[i + 0];
-                    byte emissiveIntensity = rgba[i + 2];
-
-                    specular![i + 0] = 255;
-                    specular[i + 1] = 255;
-                    specular[i + 2] = 255;
-                    specular[i + 3] = specularValue;
-
-                    byte albedoR = 255, albedoG = 255, albedoB = 255;
-                    if (hasAlbedo)
-                    {
-                        int ai = ((y * albedoHeight / height) * albedoWidth + x * albedoWidth / width) * 4;
-                        albedoR = albedoRgba![ai + 0];
-                        albedoG = albedoRgba[ai + 1];
-                        albedoB = albedoRgba[ai + 2];
-                    }
-
-                    emissive![i + 0] = (byte)(albedoR * emissiveIntensity / 255);
-                    emissive[i + 1] = (byte)(albedoG * emissiveIntensity / 255);
-                    emissive[i + 2] = (byte)(albedoB * emissiveIntensity / 255);
-                    emissive[i + 3] = 255;
+                    int ai = ((y * albedoHeight / height) * albedoWidth + x * albedoWidth / width) * 4;
+                    albedoR = albedoRgba![ai + 0];
+                    albedoG = albedoRgba[ai + 1];
+                    albedoB = albedoRgba[ai + 2];
                 }
+
+                emissive[i + 0] = (byte)(albedoR * emissiveIntensity / 255);
+                emissive[i + 1] = (byte)(albedoG * emissiveIntensity / 255);
+                emissive[i + 2] = (byte)(albedoB * emissiveIntensity / 255);
+                emissive[i + 3] = 255;
             }
         }
 
-        builder.WithMetallicRoughness(TextureEncoding.EncodeRgbaToPng(metallicRoughness, width, height), metallic: null, roughness: null);
-
-        if (specular != null && emissive != null)
-        {
-            builder.WithSpecularFactor(TextureEncoding.EncodeRgbaToPng(specular, width, height), 1.0f);
-            // rgb must be an explicit Vector3.One, not null: MaterialBuilder.WithEmissive(image, rgb:
-            // null, ...) never calls the rgb-factor overload at all (see its source — it's guarded by
-            // `if (rgb.HasValue)`), so glTF's emissiveFactor is left at its spec default of (0,0,0).
-            // That means finalEmissive = emissiveTexture * emissiveFactor = emissiveTexture * 0 — the
-            // baked albedo-times-intensity texture below was correct but had zero visible effect in
-            // the actual exported file. Verified empirically (decompiled + reproduced with a synthetic
-            // export/reload round-trip) before fixing, not assumed from the method signature.
-            builder.WithEmissive(TextureEncoding.EncodeRgbaToPng(emissive, width, height), rgb: Vector3.One, strength: 1.0f);
-        }
+        builder.WithMetallicRoughness(NamedImage(TextureEncoding.EncodeRgbaToPng(metallicRoughness, width, height), texName, "_mr"), metallic: null, roughness: null);
+        builder.WithSpecularFactor(NamedImage(TextureEncoding.EncodeRgbaToPng(specular, width, height), texName, "_spec"), 1.0f);
+        // rgb must be an explicit Vector3.One, not null: MaterialBuilder.WithEmissive(image, rgb:
+        // null, ...) never calls the rgb-factor overload at all (see its source — it's guarded by
+        // `if (rgb.HasValue)`), so glTF's emissiveFactor is left at its spec default of (0,0,0).
+        // That means finalEmissive = emissiveTexture * emissiveFactor = emissiveTexture * 0 — the
+        // baked albedo-times-intensity texture below was correct but had zero visible effect in
+        // the actual exported file. Verified empirically (decompiled + reproduced with a synthetic
+        // export/reload round-trip) before fixing, not assumed from the method signature.
+        builder.WithEmissive(NamedImage(TextureEncoding.EncodeRgbaToPng(emissive, width, height), texName, "_em"), rgb: Vector3.One, strength: 1.0f);
     }
 
-    /// <summary>Combines the base NormalTexture with DetailTexture's R/G channels (a second,
-    /// tangent-space normal map sampled at a tiled UV — see <see cref="SampleDetailTiled"/>) into
-    /// one glTF normal texture, since glTF has no native slot for a second normal map. Uses a UDN
-    /// (partial-derivative) blend — the two normals' XY components add, Z is taken from the base
-    /// normal, and the result is renormalized — cheap and close enough for a detail-scale effect
-    /// given the tiling factor itself is already a placeholder. Baked at the base NormalTexture's
-    /// resolution when present, otherwise at DetailTexture's own resolution with a flat "up" base
-    /// normal.</summary>
-    private static void ApplyNormalWithDetail(ITexture? normalTexture, byte[]? detailRgba, int detailWidth, int detailHeight, MaterialBuilder builder)
+    /// <summary>Wraps raw PNG bytes in an ImageBuilder with an explicit name/write-filename when
+    /// <paramref name="baseName"/> is given (ExportGltfSeparate's per-material texture naming —
+    /// see AssignTextureNames), otherwise returns the bytes as-is and lets the implicit byte[] to
+    /// ImageBuilder conversion auto-name it (the .glb path, where the name is never user-visible).
+    /// AlternateWriteFileName (not Name) is what SharpGLTF's satellite-file writer actually reads
+    /// for the on-disk filename — confirmed via decompile (Schema2.Image._WriteToSatellite) rather
+    /// than assumed from the property name alone. The ".*" suffix defers the real extension (always
+    /// ".png" here, from TextureEncoding.EncodeRgbaToPng, but this doesn't hardcode that) to
+    /// SharpGLTF itself.</summary>
+    private static ImageBuilder NamedImage(byte[] png, string? baseName, string suffix)
     {
-        byte[]? baseRgba = null;
-        int width = 0, height = 0;
-        if (normalTexture != null)
-            baseRgba = TextureUtils.DecodeToRgba8888(normalTexture, out width, out height);
+        if (baseName == null)
+            return png;
 
-        if (baseRgba == null && detailRgba == null)
-            return;
-
-        if (baseRgba == null)
-        {
-            width = detailWidth;
-            height = detailHeight;
-        }
-
-        var combined = new byte[width * height * 4];
-
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                int i = (y * width + x) * 4;
-
-                Vector3 baseNormal = Vector3.UnitZ;
-                if (baseRgba != null)
-                {
-                    baseNormal = new Vector3(
-                        baseRgba[i + 0] / 255f * 2f - 1f,
-                        baseRgba[i + 1] / 255f * 2f - 1f,
-                        baseRgba[i + 2] / 255f * 2f - 1f);
-                }
-
-                Vector3 result = baseNormal;
-                if (detailRgba != null)
-                {
-                    float u = (x + 0.5f) / width;
-                    float v = (y + 0.5f) / height;
-                    var (dr, dg, _) = SampleDetailTiled(detailRgba, detailWidth, detailHeight, u, v);
-                    float dnx = dr / 255f * 2f - 1f;
-                    float dny = dg / 255f * 2f - 1f;
-
-                    result = baseRgba != null
-                        ? Vector3.Normalize(new Vector3(baseNormal.X + dnx, baseNormal.Y + dny, baseNormal.Z))
-                        : Vector3.Normalize(new Vector3(dnx, dny, MathF.Sqrt(MathF.Max(0f, 1f - dnx * dnx - dny * dny))));
-                }
-
-                combined[i + 0] = (byte)((result.X * 0.5f + 0.5f) * 255f);
-                combined[i + 1] = (byte)((result.Y * 0.5f + 0.5f) * 255f);
-                combined[i + 2] = (byte)((result.Z * 0.5f + 0.5f) * 255f);
-                combined[i + 3] = 255;
-            }
-        }
-
-        builder.WithNormal(TextureEncoding.EncodeRgbaToPng(combined, width, height), 1.0f);
-    }
-
-    // Real per-shader tiling scale hasn't been located in ShaderMetadata's still-unidentified byte
-    // ranges — this is a placeholder repeat factor (a common in-engine detail-map tiling order of
-    // magnitude) used only so the confirmed channel layout can be baked in now rather than left
-    // unused. Replace once the real value is found.
-    private const float PlaceholderDetailTiling = 4.0f;
-
-    private static (byte r, byte g, byte b) SampleDetailTiled(byte[] detailRgba, int detailWidth, int detailHeight, float u, float v)
-    {
-        u = (u * PlaceholderDetailTiling) % 1f;
-        v = (v * PlaceholderDetailTiling) % 1f;
-        if (u < 0f) u += 1f;
-        if (v < 0f) v += 1f;
-
-        int x = Math.Clamp((int)(u * detailWidth), 0, detailWidth - 1);
-        int y = Math.Clamp((int)(v * detailHeight), 0, detailHeight - 1);
-        int i = (y * detailWidth + x) * 4;
-        return (detailRgba[i + 0], detailRgba[i + 1], detailRgba[i + 2]);
+        string name = $"{baseName}{suffix}";
+        var image = ImageBuilder.From(new MemoryImage(png), name);
+        image.AlternateWriteFileName = $"{name}.*";
+        return image;
     }
 }

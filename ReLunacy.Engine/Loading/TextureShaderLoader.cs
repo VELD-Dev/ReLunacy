@@ -154,6 +154,98 @@ public sealed class TextureShaderLoader
             bool hasOverride = (tex.highmipsMetadatasOld?.Count ?? 0) > 0;
             tex.ReadTexture(hasOverride && texstream is not null ? texstream : textures);
         }
+
+        LoadZoneLightingSection(main, textures, ZoneLightmapSectionId, ZoneLightmaps);
+        LoadZoneLightingSection(main, textures, ZoneDirectionalSectionId, ZoneDirectionals);
+        LoadEnvironmentCubemapAverage(main);
+    }
+
+    public const uint CubemapSectionId = 0x5920;
+
+    /// <summary>Average colour of the level's environment cubemap, or null when there isn't one.
+    /// An APPROXIMATION on purpose: the game reflects a real cubemap, but its contents in metropolis
+    /// are a near-uniform grey, so a single colour captures almost all of what it contributes
+    /// without needing a samplerCube binding or the exact face/mip layout (which is not pinned down
+    /// — with 6 mips a face is 5460 bytes, not 4096, so the ordering still has to be established).
+    /// </summary>
+    public System.Numerics.Vector3? EnvironmentAverage { get; private set; }
+
+    /// <summary>Reads the cubemap reference at section 0x5920 and averages it.
+    /// Two things about this are unlike every other texture here. Its pixel data lives in MAIN.DAT
+    /// itself, not textures.dat — reading the offset against textures.dat lands in an index buffer.
+    /// And its RGB is a near-white greyscale MANTISSA with the real variation carried in alpha as a
+    /// shared HDR exponent (see the captured shader: envColour = rgb * exp2(a * scale + bias)).
+    /// The exponent's scale/bias are fragment constants we cannot source, so alpha is folded in as a
+    /// plain 0..1 weight rather than decoded — enough for an average, not a substitute for the real
+    /// decode.</summary>
+    private void LoadEnvironmentCubemapAverage(IGFile main)
+    {
+        var section = main.QuerySection(CubemapSectionId);
+        if (section.id != CubemapSectionId || section.count == 0) return;
+
+        main.sh.Seek(section.offset);
+        var meta = TextureMetadataOld.Read(main.sh);
+        int face = (int)(meta.Width * meta.Height * 4);
+        if (face <= 0 || meta.offset + face * 6 > main.sh.BaseStream.Length) return;
+
+        var pixels = main.sh.ReadFromOffset(face * 6, meta.offset);
+        double r = 0, g = 0, b = 0, weight = 0;
+        for (int i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            // Stored A,R,G,B — confirmed by alpha being the only channel that varies.
+            double a = pixels[i] / 255.0;
+            r += pixels[i + 1] / 255.0 * a;
+            g += pixels[i + 2] / 255.0 * a;
+            b += pixels[i + 3] / 255.0 * a;
+            weight += 1;
+        }
+        if (weight == 0) return;
+
+        EnvironmentAverage = new System.Numerics.Vector3((float)(r / weight), (float)(g / weight), (float)(b / weight));
+        Console.WriteLine($"Environment cubemap: {meta.Width}x{meta.Height}, average fill {EnvironmentAverage}");
+    }
+
+    public const uint ZoneLightmapSectionId = 0x5400;
+    public const uint ZoneDirectionalSectionId = 0x5410;
+
+    /// <summary>Baked light COLOUR per lightmapped instance (main.dat section 0x5400). Indexed
+    /// positionally by TieInstance.LightmapIndex — entry X of this list and of ZoneDirectionals
+    /// belong to the same instance. Empty on the new engine (see LoadZoneLightingSection).</summary>
+    public readonly List<Texture> ZoneLightmaps = [];
+
+    /// <summary>Baked light DIRECTION, tangent space (main.dat section 0x5410), same indexing as
+    /// ZoneLightmaps. InsomniaToolset names this section "ShadowMap"; that is wrong — the game
+    /// shader dots it with a tangent-space normal and divides by its .z, a directional-lightmap
+    /// operation.</summary>
+    public readonly List<Texture> ZoneDirectionals = [];
+
+    /// <summary>Reads a zone lighting section. These use the identical 0x20-byte layout as regular
+    /// textures (0x5200), with pixel data in textures.dat, so they go through exactly the same
+    /// Texture/ReadTexture path — that shared layout is why this is cheap.
+    /// Old engine only: on the new engine the pixel data moves to lighting.dat behind an
+    /// assetlookup resource, which isn't wired up here.
+    /// Entries are added even when a read fails, so this list stays POSITIONALLY aligned with the
+    /// indices that reference it — dropping a bad entry would silently shift every later index.
+    /// </summary>
+    private static void LoadZoneLightingSection(IGFile main, StreamHelper textures, uint sectionId, List<Texture> into)
+    {
+        var section = main.QuerySection(sectionId);
+        if (section.id != sectionId || section.count == 0) return;
+
+        for (uint i = 0; i < section.count; i++)
+        {
+            main.sh.Seek(section.offset + TextureMetadataOld.Size * i);
+            var tex = new Texture(main.sh, true);
+            try
+            {
+                tex.ReadTexture(textures);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: zone lighting texture 0x{sectionId:X4}[{i}] failed to read: {ex.Message}");
+            }
+            into.Add(tex);
+        }
     }
 
     private void LoadShadersNew()

@@ -3,7 +3,66 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
-## [v0.04](https://github.com/VELD-Dev/ReLunacy/releases/0.04) - DD-MM-2025
+## [v0.04.1](https://github.com/VELD-Dev/ReLunacy/releases/0.04.1) - 30-07-2026
+
+[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.04..0.04.1)
+
+### Lighting (the big one)
+
+ReLunacy can finally render levels **lit**, instead of showing raw unlit textures. The new shader is a
+reproduction of the game's own fragment shader, reverse-engineered from a real capture of Tools of
+Destruction running in RPCS3, so it's not an approximation of "what looks nice", it's the game's
+actual maths. **It's a first step to a replica of ToD** *(and QfB)* **visuals !**
+
+- Added an optional **lit renderer**, off by default: enable it in `Editor Settings` > `Lighting (experimental)`.
+- **Baked lightmaps on terrain (UFrags)**: the game's baked light colour and light direction atlases are
+  now loaded, bound and sampled, through the terrain's own second UV set. This is what carries all of
+  the level's baked shadows and coloured bounce light.
+- **Normal maps** are now composed the way the game does it (as partial derivatives, added together
+  rather than blended), and their inverted orientation has been fixed, in the renderer *and* in glTF export.
+- **Parallax / height offset**, using the scale and bias values read from each shader's own metadata.
+- **Detail maps** are now applied, contributing both normal detail and specular, with the per-shader
+  tiling factor read from the shader metadata. Worth noting that the detail map is still experimental and might look
+  very weird in some cases.
+- **Environment/ambient approximation** averaged from the level's own cubemap. (very experimental)
+- Materials are now cached per instance rather than per shader, so terrain fragments that share a
+  shader but have different bakes no longer collapse onto one shared lightmap.
+
+#### Lighting limitations, please read
+
+- **Lighting is currently only supported on Ratchet & Clank: Tools of Destruction and Quest For Booty.**
+  Post-ACiT levels store their baked lighting data somewhere else, which hasn't been reversed yet, so
+  using lighting on them will definitely look wrong. Resistance: Fall of Man is untested but should work.
+- **Ties are not lightmapped yet.** Tie instances do carry a bake index, but their lightmap UVs haven't
+  been located yet (they live outside the tie vertex record, in a separate vertex stream), so ties
+  currently render without their baked lighting. Work in progress.
+- **There are still a very few artifacts on UFrag lightmaps.** Some UFrags might be rendered unlit or with weird
+  colors. I'm still investigating this.
+- **There is no dynamic lighting, on purpose**: in this game every shadow is baked, so the scene light
+  direction / colour / specular power settings only affect geometry that has no bake of its own. Once
+  the lighting will be done, only the mobys will have dynamic shadows and yet, not all of them. (following
+  the original game's shading)
+
+### Other changes
+
+- Added a **texture filtering** setting for the 3D view: bilinear by default (what the PS3 actually does),
+  with point/nearest still selectable for pixel-peeping raw texel data.
+- Texture previews in the UI (Texture Explorer, thumbnails) are now sampled linearly instead of looking blocky.
+  (may change in the future)
+- `Shader Browser`: added live-editable parallax scale/bias and detail map tiling & strengths, plus a raw
+  shader metadata hex dump with a big-endian float view, to help reverse the remaining unknown fields.
+- `Asset View`: added export buttons for **Moby and Tie** assets, and a separate `.gltf` export option
+  (writing the `.gltf` + `.bin` + textures into its own folder) alongside the existing single-file `.glb`.
+- `Asset View`: added a new **UFrags** tab. Terrain fragments can now be browsed, previewed, exported, and
+  their baked lighting inspected individually; lightmap index, UV rectangle, and both atlases with the
+  fragment's UV island drawn on top of them. UFrags are the only asset type whose bake can be inspected
+  out of context, since each one is its own single placement.
+- `Instance Properties`: "teleport camera to entity" now places the camera just short of the selected
+  entity instead of pushing it past/away from it.
+- Fixed tie instance data not being read at all on old-engine levels, which silently discarded each
+  instance's baked lighting index.
+
+## [v0.04](https://github.com/VELD-Dev/ReLunacy/releases/0.04) - 26-07-2026
 
 [View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.03..0.04)
 - Rewrote entirely the file reading library. Reading speeds have been significantly improved, especially on old-engine levels.

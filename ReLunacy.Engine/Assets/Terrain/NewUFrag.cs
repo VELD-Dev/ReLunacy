@@ -16,6 +16,9 @@ public sealed class NewUFrag : IUFrag
     private readonly float[] _uvs;
     private readonly float[]? _normals;
     private readonly float[]? _tangents;
+    // Second UV set = lightmap UVs, and the per-instance index selecting this UFrag's entry in the
+    // zone's baked light colour (0x5400) / light direction (0x5410) lists. See IUFrag.
+    private readonly float[]? _lightmapUVs;
     private readonly uint[] _indices;
     private readonly Vector3 _anchor;
     private readonly Vector3 _boundingCenter;
@@ -32,6 +35,9 @@ public sealed class NewUFrag : IUFrag
         float? boundingRadius = null,
         float[]? normals = null,
         float[]? tangents = null,
+        float[]? lightmapUVs = null,
+        ushort lightmapIndex = Loading.Objects.UFragMetadata.NoLightmap,
+        Loading.Objects.UFragMetadata? metadata = null,
         string? name = null)
     {
         Id = id;
@@ -42,6 +48,9 @@ public sealed class NewUFrag : IUFrag
         Material = material ?? throw new ArgumentNullException(nameof(material));
         _normals = normals;
         _tangents = tangents;
+        _lightmapUVs = lightmapUVs;
+        LightmapIndex = lightmapIndex;
+        Metadata = metadata;
         _anchor = anchor;
         IsLoaded = true;
 
@@ -81,6 +90,9 @@ public sealed class NewUFrag : IUFrag
 
     public float[] GetVertexPositions() => _positions;
     public float[] GetTextureCoordinates() => _uvs;
+    public float[]? GetLightmapUVs() => _lightmapUVs;
+    public ushort LightmapIndex { get; init; }
+    public Loading.Objects.UFragMetadata? Metadata { get; init; }
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
     public uint[] GetIndices() => _indices;

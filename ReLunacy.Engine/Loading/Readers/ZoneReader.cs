@@ -146,6 +146,13 @@ public sealed class ZoneReader
         // wildly out-of-range indices (same class of bug as the vpos/uvs sizing fix in UFrag.cs).
         var indices = legacyUFrag.indices.AsSpan(0, (int)legacyUFrag.metadata.indexCount).ToArray();
 
+        // Real per-vertex normals/tangents, decoded from the same packed 11:11:10 words
+        // VertexFormat0/1 use (see UFrag.ReadVertices). Handedness (tangent W) is derived from UV
+        // gradients exactly like the Moby/Tie path does (GeometryData -> GeometryMath), since the
+        // packed word carries none — ComputeTangents keeps the real decoded xyz and only adds W.
+        var normals = legacyUFrag.normals;
+        var tangents = GeometryMath.ComputeTangents(positions, uvs, normals, indices, legacyUFrag.tangents);
+
         IMaterial material = legacyUFrag.isOld
             ? _materialReader.GetMaterialByIndex(legacyUFrag.metadata.shaderIndex)
             : _materialReader.GetMaterialForLocalIndex(shaderTuids, legacyUFrag.metadata.shaderIndex);
@@ -182,9 +189,15 @@ public sealed class ZoneReader
             boundingRadius = legacyUFrag.metadata.boundingSphere.W;
         }
 
+        // Lightmap UVs are only meaningful alongside a lightmap index — a second UV set with
+        // nothing to sample is just wasted vertex bandwidth, and passing it anyway would make
+        // "has lightmap UVs" stop implying "is lightmapped" for every consumer downstream.
+        var lightmapIndex = legacyUFrag.metadata.lightmapIndex;
+        var lightmapUVs = legacyUFrag.metadata.HasLightmap && legacyUFrag.uvs2.Length > 0 ? legacyUFrag.uvs2 : null;
+
         return legacyUFrag.isOld
-            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius)
-            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius);
+            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata)
+            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata);
     }
 
     private List<IPlacedInstance<ITie>> ReadTieInstances(Objects.Zone legacyZone)
@@ -247,7 +260,12 @@ public sealed class ZoneReader
                     : i < tieNames?.Length ? legacyZone.zoneStream.ReadString(tieNames[i].offset) : $"Tie_{i:X}";
 
                 // Pass the raw matrix directly to avoid a lossy decompose-recompose round trip.
-                var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name);
+                // LightmapIndex: this instance's baked light colour + direction pair. Old engine
+                // only — see TieInstance.LightmapIndex for the measurements behind the offset.
+                var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name)
+                {
+                    LightmapIndex = legacyZone.isOld ? legacyInstance.LightmapIndex : TieInstance.NoLightmap,
+                };
                 tieInstances.Add(placedInstance);
             }
         }
