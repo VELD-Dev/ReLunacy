@@ -21,6 +21,18 @@ public struct UFragMetadata : ILunaSerializable
     public byte[] Unk2;
     public ushort shaderIndex;
     public byte[] Unk3;
+
+    /// <summary>This UFrag's entry in the zone's baked light colour (0x5400) and light direction
+    /// (0x5410) lists — a shared ATLAS, not a private bake: 1377 of metropolis's 1987 UFrags are
+    /// lightmapped across just 23 atlases, each UFrag occupying its own island via UFragVertex.UVs2.
+    /// 0xFFFF = none (610 UFrags). Read from old-engine offset 0x4E; see the constructor.
+    /// Supersedes an earlier reading at 0x52, which was 0xFFFF for every UFrag in the level and so
+    /// made terrain look unlit — it was taken from ReLunacy-Ymir on trust and never held up here.
+    /// </summary>
+    public ushort lightmapIndex;
+
+    public const ushort NoLightmap = 0xFFFF;
+    public readonly bool HasLightmap => lightmapIndex != NoLightmap;
     // New engine only
     public Vector3 newEnginePos;
     public byte[] Unk3b;
@@ -43,6 +55,17 @@ public struct UFragMetadata : ILunaSerializable
             // Old-engine indexOffset is a vertex count, not a byte offset.
             indexOffset = sh.ReadUInt32(recordBase + 0x40) * sizeof(ushort);
             Unk3 = sh.ReadFromOffset(0x0E, recordBase + 0x52);
+            // 0x4E, not 0x52. Terrain shares ATLASES rather than taking one bake each, so this
+            // index has low cardinality — which is why earlier scans looking for a dense per-UFrag
+            // index missed it entirely.
+            // Verified on metropolis: 23 distinct values across 1987 UFrags (610 are 0xFFFF), and
+            // every one of the 23 resolves to a 256x256 or 128x128 A8R8G8B8 entry in BOTH 0x5400
+            // and 0x5410, in three contiguous runs. A field that wasn't this index would land on
+            // one of the 85 large entries about 5% of the time; this lands 23/23.
+            // Those atlases being A8R8G8B8 also matters: unlike the DXT1 per-tie bakes they carry a
+            // real alpha channel, so the "alpha = monochrome specular light" reading is genuinely
+            // populated for terrain.
+            lightmapIndex = sh.ReadUInt16(recordBase + 0x4E);
             sh.Seek(recordBase + 0x60);
             position = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
             sh.Seek(recordBase + 0x60);
@@ -62,6 +85,10 @@ public struct UFragMetadata : ILunaSerializable
             boundingSphere = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
             indexOffset = sh.ReadUInt32(recordBase + 0x40);
             Unk3 = sh.ReadFromOffset(0x1E, recordBase + 0x52);
+            // New engine keeps its lightmap/directional indices in zone section 0x6400 (one 0x10
+            // entry per UFrag, lightmapindex at 0x06 and directionalindex at 0x08 — see Ymir), not
+            // in this record. Not parsed yet, so no baked lighting is claimed for these.
+            lightmapIndex = NoLightmap;
             sh.Seek(recordBase + 0x70);
             newEnginePos = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
             Unk3b = sh.ReadFromOffset(0x04, recordBase + 0x7C);

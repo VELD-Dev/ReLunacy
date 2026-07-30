@@ -66,6 +66,59 @@ public record struct TieAsset
     public uint verticesCount;
 }
 
+/// <summary>Terrain fragment, listed alongside Mobys and Ties even though it is not an "asset" in
+/// the same sense — UFrags are not instanced, so each one IS its own single placement.
+///
+/// That is exactly why they belong here: a UFrag's bake is unambiguous. A Tie's lightmap depends on
+/// which instance you are looking at (one Tie asset, many placements, a different bake index each),
+/// so there is no context-free answer to "what does this asset's lightmap look like"; for a UFrag
+/// there is. It is currently the only asset type whose baked lighting can be inspected on its own.
+///
+/// Holds no Bliss Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
+/// (see ResolveUFragMesh), so what is previewed is byte-identical to what the 3D view draws,
+/// lightmap material and all, with no second copy to keep in sync or dispose.</summary>
+public record struct UFragAsset
+{
+    public UFragAsset(ulong zoneId, int index, IUFrag ufrag)
+    {
+        ZoneId = zoneId;
+        Index = index;
+        UFrag = ufrag;
+        var positions = ufrag.GetVertexPositions();
+        verticesCount = (uint)(positions.Length / 3);
+        triangleCount = (uint)(ufrag.GetIndices().Length / 3);
+
+        // Measured off the geometry, NOT from GetBoundingRadius(): old-engine UFrags don't have a
+        // decodable radius in their record (boundingSphere.W at 0x6C reads NaN for all 1987 UFrags in
+        // metropolis, which is why ZoneReader substitutes a flat 2.5f). A constant is useless for
+        // framing a preview, and these are raw fixed-point x256 units, so both values stay in that
+        // space and get descaled with the rest of the transform.
+        Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+        for (int i = 0; i + 2 < positions.Length; i += 3)
+        {
+            var p = new Vector3(positions[i], positions[i + 1], positions[i + 2]);
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+        localCentre = verticesCount > 0 ? (min + max) * 0.5f : Vector3.Zero;
+        localRadius = verticesCount > 0 ? (max - min).Length() * 0.5f : 0f;
+        ushort lm = ufrag.LightmapIndex;
+        UFragName = $"UFrag {index} (lm {(lm == ReLunacy.Engine.Loading.Objects.UFragMetadata.NoLightmap ? "-" : lm.ToString())})";
+    }
+
+    public ulong ZoneId;
+    public int Index;
+    public IUFrag UFrag;
+    public string UFragName;
+    public uint verticesCount;
+    public uint triangleCount;
+    /// <summary>Geometric centre and radius in RAW fixed-point x256 units — divide by 256 for world units.</summary>
+    public Vector3 localCentre;
+    public float localRadius;
+
+    public readonly bool HasLightmap => UFrag.LightmapIndex != ReLunacy.Engine.Loading.Objects.UFragMetadata.NoLightmap;
+}
+
 public class AssetViewer : DockedFrame, ILevelListener
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
@@ -130,6 +183,16 @@ public class AssetViewer : DockedFrame, ILevelListener
     private List<Renderable> cachedRenderables = [];
     public List<MobyAsset> mobyAssets = [];
     public List<TieAsset> tieAssets = [];
+    public List<UFragAsset> ufragAssets = [];
+
+    // UFrag-tab state. The lightmapped/not split is the first question worth asking of any UFrag and
+    // eyeballing "lm -" across ~2000 rows doesn't scale, so it gets its own filter rather than
+    // reusing the Used/Unused one above — that one is meaningless here, since a UFrag is its own
+    // single placement and is therefore always "used".
+    private bool? ufragLightmapFilter;
+    private bool ufragShowUVOverlay = true;
+    private bool ufragShowUVWireframe = true;
+    private bool ufragShowFloatInterpretation;
     private bool isDirty = true;
     public bool IsDirty
     {
@@ -146,6 +209,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             selectedMobyAsset = value;
             if (value != null) selectedTieAsset = null;
             selectedMesh = null;
+            exportNameOverride = "";
             IsDirty = true;
             RebuildSelectedAssetMaterials();
         }
@@ -158,12 +222,36 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedTieAsset = value;
-            if (value != null) selectedMobyAsset = null;
+            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; }
             selectedMesh = null;
+            exportNameOverride = "";
             IsDirty = true;
             RebuildSelectedAssetMaterials();
         }
     }
+
+    private UFragAsset? selectedUFragAsset;
+    public UFragAsset? SelectedUFragAsset
+    {
+        get => selectedUFragAsset;
+        set
+        {
+            selectedUFragAsset = value;
+            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; }
+            selectedMesh = null;
+            exportNameOverride = "";
+            IsDirty = true;
+            RebuildSelectedAssetMaterials();
+            if (value != null) FrameUFragInPreview(value.Value);
+        }
+    }
+
+    // Lets the user rename an asset for export (textures/.bin/.gltf all take this name too — see
+    // ExportModel/GetExportName) instead of being stuck with the asset's raw internal name, which
+    // is routinely something like a full "levels/.../foo.entity.irb" path — not exactly what you
+    // want a Models Resource submission's files named after. Reset to blank (falls back to the
+    // asset's own default name) whenever the selection changes, above.
+    private string exportNameOverride = "";
 
     private AssetManager? assetManager;
     private string assetSearch = "";
@@ -222,10 +310,14 @@ public class AssetViewer : DockedFrame, ILevelListener
     {
         selectedMobyAsset = null;
         selectedTieAsset = null;
+        selectedUFragAsset = null;
         selectedMesh = null;
         RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
+        // UFragAsset holds an IUFrag owned by the level being torn down, and the preview borrows the
+        // scene entity's mesh — both die with the level, so the list must not outlive it.
+        ufragAssets.Clear();
         usedMobyIds.Clear();
         usedTieIds.Clear();
         cachedRenderables.Clear();
@@ -257,6 +349,20 @@ public class AssetViewer : DockedFrame, ILevelListener
             {
                 if (ties.TryGetValue(tuid, out var tie))
                     tieAssets.Add(new(tieModel, tie));
+            }
+        }
+
+        // UFrags come off the level's zones rather than AssetManager: they are not shared assets
+        // keyed by TUID like Mobys/Ties, they belong to the zone that parsed them, and the (zone,
+        // index) pair is the only stable way to name one.
+        ufragAssets.Clear();
+        var level = LunaWindow.Instance.Level;
+        if (level != null)
+        {
+            foreach (var (zoneId, zone) in level.Zones)
+            {
+                for (int i = 0; i < zone.UFrags.Count; i++)
+                    ufragAssets.Add(new UFragAsset(zoneId, i, zone.UFrags[i]));
             }
         }
 
@@ -295,6 +401,12 @@ public class AssetViewer : DockedFrame, ILevelListener
             var seen = new HashSet<ulong>();
             foreach (var mesh in selectedTieAsset.Value.Tie.Meshes)
                 AddMaterial(seen, selectedTieMaterials, mesh.Material);
+        }
+        else if (selectedUFragAsset != null)
+        {
+            // A UFrag is one mesh with one shader, so it reuses the Tie list rather than needing its
+            // own — the shader grid renders whatever is in there.
+            AddMaterial(new HashSet<ulong>(), selectedTieMaterials, selectedUFragAsset.Value.UFrag.Material);
         }
     }
 
@@ -390,6 +502,37 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (ImGui.Selectable($"{label}##tie_{asset.Tie.Id:X}", isSelected))
             SelectedTieAsset = asset;
         if (!isUsed) ImGui.PopStyleColor();
+    }
+
+    /// <summary>Lightmapped / not, the UFrag tab's own filter. Separate from Used/Unused above, which
+    /// is meaningless for terrain: a UFrag is its own single placement, so it is always "used".</summary>
+    private void RenderUFragFilterControl()
+    {
+        int filter = ufragLightmapFilter switch { null => 0, true => 1, false => 2 };
+        ImGui.RadioButton($"{LM.Get("GUI_Common_FilterAll")}##ufrag_f", ref filter, 0);
+        ImGui.SameLine();
+        ImGui.RadioButton(LM.Get("GUI_Frame_AssetViewer_UFragFilterLit"), ref filter, 1);
+        ImGui.SameLine();
+        ImGui.RadioButton(LM.Get("GUI_Frame_AssetViewer_UFragFilterUnlit"), ref filter, 2);
+        ufragLightmapFilter = filter switch { 1 => true, 2 => false, _ => null };
+    }
+
+    private IEnumerable<UFragAsset> FilteredUFragAssets() => ufragLightmapFilter switch
+    {
+        true => ufragAssets.Where(a => a.HasLightmap),
+        false => ufragAssets.Where(a => !a.HasLightmap),
+        _ => ufragAssets,
+    };
+
+    private void RenderUFragLeaf(UFragAsset asset)
+    {
+        // Identity is (zone, index), not an asset id — UFrags aren't keyed by TUID, and index alone
+        // repeats across zones.
+        bool isSelected = selectedUFragAsset is { } sel && sel.ZoneId == asset.ZoneId && sel.Index == asset.Index;
+        if (!asset.HasLightmap) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+        if (ImGui.Selectable($"{asset.UFragName}##ufrag_{asset.ZoneId}_{asset.Index}", isSelected))
+            SelectedUFragAsset = asset;
+        if (!asset.HasLightmap) ImGui.PopStyleColor();
     }
 
     /// <summary>Selects the moby with the given asset id, e.g. when jumping here from the Texture Explorer's "used by" list. Returns false if it isn't in the currently transmitted set.</summary>
@@ -497,9 +640,10 @@ public class AssetViewer : DockedFrame, ILevelListener
             {
                 SelectedMobyAsset = null;
                 SelectedTieAsset = null;
+                SelectedUFragAsset = null;
             }
             ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
-            ImGui.InputTextWithHint("##asset_viewer_search", LM.Get("GUI_Frame_AssetViewer_SearchHint", mobyAssets.Count + tieAssets.Count), ref assetSearch, 128);
+            ImGui.InputTextWithHint("##asset_viewer_search", LM.Get("GUI_Frame_AssetViewer_SearchHint", mobyAssets.Count + tieAssets.Count + ufragAssets.Count), ref assetSearch, 128);
             RenderUsageFilterControl();
 
             if (ImGui.BeginTabBar(LM.Get("GUI_Frame_AssetViewer_Tab")))
@@ -550,6 +694,26 @@ public class AssetViewer : DockedFrame, ILevelListener
                     ImGui.EndTabItem();
                 }
 
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_UFragTab")))
+                {
+                    RenderUFragFilterControl();
+                    if (ImGui.BeginChild("asset_viewer_ufrag_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+                    {
+                        // Flat list, no BuildHierarchy: UFrag names are synthesized ("UFrag 12 (lm
+                        // 780)"), not "/"-separated asset paths, so there is no folder tree to build.
+                        foreach (var ufrag in FilteredUFragAssets())
+                        {
+                            if (!string.IsNullOrWhiteSpace(assetSearch) &&
+                                !ufrag.UFragName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            RenderUFragLeaf(ufrag);
+                        }
+                    }
+                    ImGui.EndChild();
+
+                    ImGui.EndTabItem();
+                }
+
                 ImGui.EndTabBar();
             }
         }
@@ -577,7 +741,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             // read on top of the mesh, not get hidden behind it when bones sit inside the model.
             immediateRenderer.Begin(commandList, renderTexture.Framebuffer.OutputDescription, depthStencilState: DepthStencilStateDescription.DISABLED);
 
-            if (selectedMobyAsset == null && selectedTieAsset == null)
+            if (selectedMobyAsset == null && selectedTieAsset == null && selectedUFragAsset == null)
             {
                 if (IsDirty || cubeRenderable is null)
                 {
@@ -614,6 +778,21 @@ public class AssetViewer : DockedFrame, ILevelListener
                     {
                         foreach (var mesh in selectedTieAsset.Value.Model.Meshes)
                             cachedRenderables.Add(new Renderable(mesh, new Transform { Rotation = Quaternion.Identity, Scale = Vector3.One, Translation = Vector3.Zero }));
+                    }
+                    else if (selectedUFragAsset != null && ResolveUFragMesh(selectedUFragAsset.Value) is { } ufragMesh)
+                    {
+                        // Scale matches EntityUFrag exactly (raw positions are fixed-point x256 on both
+                        // engines) rather than being normalised per UFrag to fit the viewport. A
+                        // per-selection scale would silently change the apparent lighting from one
+                        // UFrag to the next - specular and the normal-map derivatives are not
+                        // scale-invariant - and comparing bakes across UFrags is what this tab is for.
+                        // The camera moves instead; see FrameUFragInPreview.
+                        cachedRenderables.Add(new Renderable(ufragMesh, new Transform
+                        {
+                            Rotation = Quaternion.Identity,
+                            Scale = Vector3.One / 256f,
+                            Translation = -selectedUFragAsset.Value.localCentre / 256f,
+                        }));
                     }
 
                     IsDirty = false;
@@ -673,13 +852,21 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (selectedMobyAsset != null)
         {
             var moby = selectedMobyAsset.Value.Moby;
-            
+            string mobyDefaultName = moby.Name ?? $"Moby_{moby.Id:X}";
+
             ImGui.Separator();
+            ImGui.SetNextItemWidth(200);
+            ImGui.InputTextWithHint("##export_name_moby", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", mobyDefaultName), ref exportNameOverride, 128);
+            ImGui.SameLine();
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", moby.Name ?? $"Moby_{moby.Id:X}", GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(ObjExporter.Export, "obj", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
             
             ImGui.BeginGroup();
             ImGui.Text("Id");
@@ -740,11 +927,18 @@ public class AssetViewer : DockedFrame, ILevelListener
             ImGui.Separator();
             string tieAssetName = tie.Name ?? $"Tie_{tie.Id:X}";
             var tieGroups = new List<MeshGroup> { new(tieAssetName, tie.Meshes) };
+            ImGui.SetNextItemWidth(200);
+            ImGui.InputTextWithHint("##export_name_tie", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", tieAssetName), ref exportNameOverride, 128);
+            ImGui.SameLine();
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", tieAssetName, tieGroups);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(tieAssetName), tieGroups);
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(tieAssetName), tieGroups, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", tieAssetName, tieGroups);
+                ExportModel(ObjExporter.Export, "obj", GetExportName(tieAssetName), tieGroups);
             
             ImGui.BeginGroup();
             ImGui.Text("Id");
@@ -772,6 +966,10 @@ public class AssetViewer : DockedFrame, ILevelListener
                 tieUsageResults = FindTieInstances(tie.Id);
             RenderUsageResults(tieUsageResults, "tie_usage");
         }
+        else if (selectedUFragAsset != null)
+        {
+            RenderUFragPanel(selectedUFragAsset.Value);
+        }
         }
         ImGui.EndChild();
 
@@ -784,17 +982,29 @@ public class AssetViewer : DockedFrame, ILevelListener
         ImGui.EndGroup();
     }
 
+    /// <summary>Blank exportNameOverride falls back to the asset's own default name; otherwise the
+    /// user's typed name is used verbatim (still gets sanitized for filesystem-illegal characters
+    /// by ExportModel below either way) — this is the one place that decides what name every
+    /// exported file (model, .bin, and every texture) ultimately gets built from.</summary>
+    private string GetExportName(string defaultName) => string.IsNullOrWhiteSpace(exportNameOverride) ? defaultName : exportNameOverride;
+
     /// <summary>
-    /// Shared by both the Moby and Tie export buttons — builds a sanitized output path under
+    /// Shared by every Moby/Tie export button — builds a sanitized output path under
     /// EditorPath/Exported/Models (asset names routinely contain path-like characters, e.g.
     /// "levels/great_clock_a/entities/.../foo.entity.irb", which would otherwise be interpreted
     /// as subdirectories) and hands off to ExportRunner for the actual background export + progress
     /// modal + result modal (shared with the whole-level export in GameBrowserFrame/FileMenuDraw).
     /// </summary>
-    private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null)
+    /// <param name="ownFolder">True for exporters that write more than one file alongside the
+    /// main one (e.g. GltfExporter.ExportGltfSeparate's .bin + texture PNGs) — puts the asset in
+    /// its own Exported/Models/&lt;name&gt;/ folder instead of dropping several loose files
+    /// directly into Exported/Models next to every other asset's exports.</param>
+    private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, bool ownFolder = false)
     {
         string safeName = ExportPaths.SanitizeFileName(assetName);
-        string directory = Path.Combine(Program.EditorPath, "Exported", "Models");
+        string directory = ownFolder
+            ? Path.Combine(Program.EditorPath, "Exported", "Models", safeName)
+            : Path.Combine(Program.EditorPath, "Exported", "Models");
         string path = Path.Combine(directory, $"{safeName}.{extension}");
 
         ExportRunner.Run(LM.Get("GUI_Frame_AssetViewer_ExportingTitle"), path, directory,
@@ -805,6 +1015,310 @@ public class AssetViewer : DockedFrame, ILevelListener
     /// bangles as distinct submeshes/nodes on export instead of flattening the whole Moby into a
     /// single mesh, since bangles are independently toggleable parts (see RenderModelMap above),
     /// not interchangeable LOD/skin variants.</summary>
+    /// <summary>The scene entity's own already-built GPU mesh for this UFrag, or null if the level
+    /// produced no entity for it. Borrowed, never owned: building a second Mesh here would duplicate
+    /// the vertex buffer AND detach the preview from the material the 3D view actually renders with —
+    /// including its bound lightmap atlases, which is the whole point of previewing a UFrag.</summary>
+    private static Bliss.CSharp.Geometry.Meshes.IMesh? ResolveUFragMesh(UFragAsset asset) =>
+        EntityManager.Singleton.AllEntities().OfType<EntityUFrag>()
+            .FirstOrDefault(e => ReferenceEquals(e.UFrag, asset.UFrag))?.UFragMesh;
+
+    /// <summary>Pulls the camera back far enough to frame the selected UFrag. Necessary because the
+    /// mesh keeps its true 1/256 scale (see the renderable build) and UFrags vary from a few world
+    /// units across to tens — a fixed camera distance shows either a speck or the inside of a wall.
+    /// Clamped under the camera's 100f far plane so a large chunk can't land entirely beyond it.</summary>
+    private void FrameUFragInPreview(UFragAsset asset)
+    {
+        float radius = MathF.Max(asset.localRadius / 256f, 0.01f);
+        float distance = Math.Clamp(radius * 2.5f, 0.05f, 80f);
+        Camera.Target = Vector3.Zero;
+        Camera.Position = new Vector3(0f, radius * 0.35f, -distance);
+    }
+
+    /// <summary>Export payload for a UFrag: one mesh, one shader. Positions are descaled by 256 to
+    /// world units, and the placement ANCHOR is deliberately not applied — the export is asset-local,
+    /// matching Moby/Tie export, so a UFrag lands at the origin rather than wherever it sits in the
+    /// level. Real normals/tangents are passed through so GeometryData doesn't recompute them from
+    /// triangles when the file already told us (its tangent handedness is still derived, as always).</summary>
+    private static List<MeshGroup> GetUFragGroups(UFragAsset asset, string name)
+    {
+        var ufrag = asset.UFrag;
+        var raw = ufrag.GetVertexPositions();
+        var positions = new float[raw.Length];
+        for (int i = 0; i < raw.Length; i++) positions[i] = raw[i] / 256f;
+
+        var geometry = new ReLunacy.Engine.Assets.Geometry.GeometryData(
+            id: (ulong)asset.Index,
+            positions: positions,
+            uvs: ufrag.GetTextureCoordinates(),
+            indices: ufrag.GetIndices(),
+            normals: ufrag.GetNormals(),
+            tangents: ufrag.GetTangents());
+
+        return [new MeshGroup(name, new IMesh[] { new ReLunacy.Engine.Assets.Geometry.Mesh(geometry, ufrag.Material, name) })];
+    }
+
+    private void RenderUFragPanel(UFragAsset asset)
+    {
+        var ufrag = asset.UFrag;
+        string defaultName = $"UFrag_{asset.ZoneId:X}_{asset.Index}";
+
+        ImGui.Separator();
+        ImGui.SetNextItemWidth(200);
+        ImGui.InputTextWithHint("##export_name_ufrag", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", defaultName), ref exportNameOverride, 128);
+        ImGui.SameLine();
+        ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
+
+        string exportName = GetExportName(defaultName);
+        if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
+            ExportModel(GltfExporter.Export, "glb", exportName, GetUFragGroups(asset, exportName));
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
+            ExportModel(GltfExporter.ExportGltfSeparate, "gltf", exportName, GetUFragGroups(asset, exportName), ownFolder: true);
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
+            ExportModel(ObjExporter.Export, "obj", exportName, GetUFragGroups(asset, exportName));
+        ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_UFragExportNote"));
+
+        ImGui.BeginGroup();
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragEngine"));
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragAnchor"));
+        ImGui.Text("Vertices");
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragTriangles"));
+        ImGui.EndGroup();
+        ImGui.SameLine();
+        ImGui.BeginGroup();
+        ImGui.Text(ufrag.IsOldEngine ? "Old" : "New");
+        ImGui.Text(ufrag.GetAnchor().ToString("0.###"));
+        ImGui.Text(asset.verticesCount.ToString());
+        ImGui.Text(asset.triangleCount.ToString());
+        ImGui.EndGroup();
+        ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragZone", asset.ZoneId.ToString("X"), asset.Index));
+
+        if (ResolveUFragMesh(asset) == null)
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragNoPreview"));
+
+        RenderUFragBakedSection(asset);
+
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
+        if (ImGui.BeginChild("ufrag_shaders", new Vector2(ImGui.GetContentRegionAvail().X, 90f), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+            RenderShaderGrid(selectedTieMaterials, "ufrag_shader_grid");
+        ImGui.EndChild();
+
+        ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_RawMetadataSection"));
+        ImGui.Checkbox(LM.Get("GUI_Frame_ShaderBrowser_ShowAsFloats"), ref ufragShowFloatInterpretation);
+        if (ufrag.Metadata is not { } meta)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragNoMetadata"));
+            return;
+        }
+        ImGui.Text($"0x40 indexOffset:   {meta.indexOffset}");
+        ImGui.Text($"0x44 vertexOffset:  {meta.vertexOffset}");
+        ImGui.Text($"0x48 indexCount:    {meta.indexCount}");
+        ImGui.Text($"0x4A vertexCount:   {meta.vertexCount}");
+        ImGui.Text($"0x4E lightmapIndex: {meta.lightmapIndex}");
+        ImGui.Text($"0x50 shaderIndex:   {meta.shaderIndex}");
+        DrawUFragHexDump("Unk1", 0x00, meta.Unk1);
+        DrawUFragHexDump("Unk2", 0x4C, meta.Unk2);
+        DrawUFragHexDump("Unk3", 0x52, meta.Unk3);
+        if (meta.Unk4 is { Length: > 0 }) DrawUFragHexDump("Unk4", 0x6C, meta.Unk4);
+        if (meta.Unk3b is { Length: > 0 }) DrawUFragHexDump("Unk3b", 0x7C, meta.Unk3b);
+    }
+
+    /// <summary>The baked-lighting readout: which atlas entry this UFrag resolves to, the UV rectangle
+    /// its vertices occupy, and the atlases themselves with the UV island drawn on top.
+    ///
+    /// The rect and the overlay separate the two failure modes that look identical on screen — a UFrag
+    /// rendering black because its atlas region genuinely IS black, versus because it is addressing the
+    /// wrong region. That distinction is what caught the UVs2 decode bug (islands were landing about
+    /// two texels wide, see UFragVertex.UVs2), so it stays even though that particular bug is fixed.</summary>
+    private void RenderUFragBakedSection(UFragAsset asset)
+    {
+        var ufrag = asset.UFrag;
+        ImGui.SeparatorText(LM.Get("GUI_Frame_AssetViewer_UFragLightmapSection"));
+
+        ushort lm = ufrag.LightmapIndex;
+        ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragLightmapIndex",
+            asset.HasLightmap ? lm.ToString() : LM.Get("GUI_Frame_ShaderBrowser_None")));
+
+        var lmUVs = ufrag.GetLightmapUVs();
+        if (lmUVs == null || lmUVs.Length < 2)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragNoLightmapUVs"));
+        }
+        else
+        {
+            float minU = float.MaxValue, maxU = float.MinValue, minV = float.MaxValue, maxV = float.MinValue;
+            for (int i = 0; i + 1 < lmUVs.Length; i += 2)
+            {
+                minU = MathF.Min(minU, lmUVs[i]); maxU = MathF.Max(maxU, lmUVs[i]);
+                minV = MathF.Min(minV, lmUVs[i + 1]); maxV = MathF.Max(maxV, lmUVs[i + 1]);
+            }
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragUVRect", minU, maxU, minV, maxV));
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragUVExtent", maxU - minU, maxV - minV));
+            if (minU < -0.001f || maxU > 1.001f || minV < -0.001f || maxV > 1.001f)
+                ImGui.TextColored(new Vector4(1f, 0.5f, 0.3f, 1f), LM.Get("GUI_Frame_AssetViewer_UFragUVOutOfRange"));
+        }
+
+        if (!asset.HasLightmap) return;
+
+        // Preview-local, so these can be swept while looking at one UFrag without disturbing the 3D
+        // view. They drive THIS frame's own renderer instance, which is also why the UV overlay below
+        // reads its transform from the same place: the overlay has to describe the shader that drew
+        // the image next to it, or it lies.
+        if (renderer is DecalAwareForwardRenderer lit)
+        {
+            ImGui.SeparatorText(LM.Get("GUI_Frame_AssetViewer_UFragPreviewSection"));
+            if (!Program.Settings.EnableLighting)
+                ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragNeedsLighting"));
+
+            ImGui.DragFloat(LM.Get("GUI_Frame_AssetViewer_UFragBakedScale"), ref lit.BakedLightScale, 0.05f, 0f, 64f, "%.2f");
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_UFragBakedScaleHelp"));
+            ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_UFragDebugView"), ref lit.BakedDebugView);
+            ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_UFragDebugViewHelp"));
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##ufrag_preview_reset"))
+            {
+                lit.BakedLightScale = 4f;
+                lit.BakedDebugView = false;
+            }
+        }
+
+        var am = LunaWindow.Instance.AssetManager;
+        if (am == null) return;
+
+        ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_UFragShowUVOverlay"), ref ufragShowUVOverlay);
+        if (ufragShowUVOverlay)
+        {
+            ImGui.SameLine();
+            ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_UFragShowUVWireframe"), ref ufragShowUVWireframe);
+        }
+
+        const float size = 256f;
+        if (lm < am.ZoneLightmaps.Count && am.ZoneLightmaps[lm] is { } colour)
+        {
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragLightColour"));
+            var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, colour.DeviceTexture);
+            ImGui.Image(ptr, new(size, size), Vector2.UnitY, Vector2.UnitX);
+            if (ufragShowUVOverlay)
+                DrawUFragUVOverlay(ufrag, ImGui.GetItemRectMin(), size, colour);
+        }
+        if (lm < am.ZoneDirectionals.Count && am.ZoneDirectionals[lm] is { } dir)
+        {
+            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_UFragLightDirection"));
+            var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, dir.DeviceTexture);
+            ImGui.Image(ptr, new(size, size), Vector2.UnitY, Vector2.UnitX);
+        }
+    }
+
+    /// <summary>Projects this UFrag's lightmap UVs onto the atlas image just drawn.</summary>
+    private void DrawUFragUVOverlay(IUFrag ufrag, Vector2 origin, float size, Texture2D atlas)
+    {
+        var uvs = ufrag.GetLightmapUVs();
+        if (uvs == null || uvs.Length < 6) return;
+
+        // Read from THIS frame's renderer, not View3D's — the overlay must describe the shader that
+        // produced the preview beside it. Identity in normal use; the fields exist as research knobs.
+        var lit = renderer as DecalAwareForwardRenderer;
+        Vector2 scale = lit?.LightmapUVScale ?? Vector2.One;
+        Vector2 offset = lit?.LightmapUVOffset ?? Vector2.Zero;
+        Vector2 pivot = lit?.LightmapUVPivot ?? new Vector2(0.5f, 0.5f);
+        float rotDeg = lit?.LightmapUVRotation ?? 0f;
+        float sin = MathF.Sin(rotDeg * MathF.PI / 180f);
+        float cos = MathF.Cos(rotDeg * MathF.PI / 180f);
+
+        // Must match LitModelShaderSource exactly: rotate about the pivot, then scale, then offset.
+        Vector2 Transform(float u, float v)
+        {
+            var c = new Vector2(u, v) - pivot;
+            var r = new Vector2(c.X * cos - c.Y * sin, c.X * sin + c.Y * cos) + pivot;
+            return r * scale + offset;
+        }
+
+        // The atlas is drawn with uv0=(0,1)/uv1=(1,0), i.e. V-FLIPPED, so v=1 is at the top of the
+        // image. Screen Y therefore uses (1 - v) — forgetting this silently mirrors the overlay.
+        Vector2 ToScreen(Vector2 uv) => new(origin.X + uv.X * size, origin.Y + (1f - uv.Y) * size);
+
+        var draw = ImGui.GetWindowDrawList();
+        uint colPoint = ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 1f, 0.4f, 0.95f));
+        uint colWire = ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 1f, 0.4f, 0.35f));
+        uint colRect = ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 0.85f, 0.2f, 0.9f));
+
+        draw.PushClipRect(origin, origin + new Vector2(size, size), true);
+
+        if (ufragShowUVWireframe)
+        {
+            // Capped: a UFrag can carry thousands of triangles and ImGui's draw list is not the place
+            // to spend them. A subsample still shows the island's shape and winding.
+            var indices = ufrag.GetIndices();
+            int triCount = indices.Length / 3;
+            int step = Math.Max(1, triCount / 1500);
+            for (int t = 0; t < triCount; t += step)
+            {
+                int i0 = (int)indices[t * 3], i1 = (int)indices[t * 3 + 1], i2 = (int)indices[t * 3 + 2];
+                if (i0 * 2 + 1 >= uvs.Length || i1 * 2 + 1 >= uvs.Length || i2 * 2 + 1 >= uvs.Length) continue;
+                draw.AddTriangle(
+                    ToScreen(Transform(uvs[i0 * 2], uvs[i0 * 2 + 1])),
+                    ToScreen(Transform(uvs[i1 * 2], uvs[i1 * 2 + 1])),
+                    ToScreen(Transform(uvs[i2 * 2], uvs[i2 * 2 + 1])), colWire, 1f);
+            }
+        }
+
+        float minU = float.MaxValue, maxU = float.MinValue, minV = float.MaxValue, maxV = float.MinValue;
+        int vertStep = Math.Max(1, (uvs.Length / 2) / 2000);
+        for (int i = 0; i + 1 < uvs.Length; i += 2 * vertStep)
+        {
+            var uv = Transform(uvs[i], uvs[i + 1]);
+            minU = MathF.Min(minU, uv.X); maxU = MathF.Max(maxU, uv.X);
+            minV = MathF.Min(minV, uv.Y); maxV = MathF.Max(maxV, uv.Y);
+            draw.AddCircleFilled(ToScreen(uv), 1.5f, colPoint);
+        }
+
+        // Bounding box last so it sits above the points.
+        draw.AddRect(ToScreen(new Vector2(minU, maxV)), ToScreen(new Vector2(maxU, minV)), colRect, 0f, ImDrawFlags.None, 1.5f);
+        draw.PopClipRect();
+
+        // In TEXELS, because that is the unit the implausibility shows up in: a terrain chunk mapping
+        // to a handful of texels cannot resolve a baked shadow no matter where it lands.
+        ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragIslandTexels",
+            (maxU - minU) * atlas.Width, (maxV - minV) * atlas.Height, atlas.Width, atlas.Height));
+    }
+
+    private void DrawUFragHexDump(string label, int baseOffset, byte[]? data)
+    {
+        if (data == null || data.Length == 0)
+        {
+            ImGui.Text($"{label}: ({LM.Get("GUI_Frame_ShaderBrowser_Empty")})");
+            return;
+        }
+
+        ImGui.Text($"{label} (0x{baseOffset:X2}, {data.Length} bytes):");
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < data.Length; i += 16)
+        {
+            sb.Append($"  {baseOffset + i:X4}: ");
+            int lineEnd = Math.Min(i + 16, data.Length);
+            for (int j = i; j < lineEnd; j++)
+                sb.Append($"{data[j]:X2} ");
+            sb.Append('\n');
+        }
+        ImGui.TextUnformatted(sb.ToString());
+
+        if (!ufragShowFloatInterpretation || data.Length < 4)
+            return;
+
+        // Big-endian, and aligned to the FILE's absolute offset rather than this array's start — a real
+        // float field sits on a real 4-byte boundary, so aligning to the array splits every value.
+        var floatSb = new System.Text.StringBuilder();
+        int firstAligned = (4 - (baseOffset & 3)) & 3;
+        for (int i = firstAligned; i + 3 < data.Length; i += 4)
+        {
+            float f = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(data.AsSpan(i, 4));
+            floatSb.Append($"  {baseOffset + i:X4}: {f,14:0.000000}\n");
+        }
+        ImGui.TextUnformatted(floatSb.ToString());
+    }
+
     private static List<MeshGroup> GetMobyGroups(IMoby moby) =>
         moby.Bangles.Select((bangle, i) => new MeshGroup(string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name, bangle.Meshes)).ToList();
 

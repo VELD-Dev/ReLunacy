@@ -142,6 +142,15 @@ public class ImGuiController : IDisposable
 
         _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
 
+        // Point-sampled for ALL ImGui drawing, deliberately: texture-inspection previews
+        // (TexturesExplorer etc.) must show raw texels, and the 3D viewport image is blitted 1:1
+        // (its render texture is sized to the viewport), so filtering it would be a no-op anyway.
+        // Scene texture filtering lives entirely on the 3D side — see
+        // AssetManager.SetTextureFiltering. A previous attempt to make this per-binding (rebinding
+        // resource set 0 inside the per-command loop below) was suspected during a GPUVM-fault
+        // investigation and reverted, but never confirmed as the cause — the fault was in fact the
+        // lit effect's descriptor set numbering, see AssetManager.BuildLitModelEffect. Restoring
+        // the per-binding sampler here is probably safe; it just hasn't been retried since.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
     }
 

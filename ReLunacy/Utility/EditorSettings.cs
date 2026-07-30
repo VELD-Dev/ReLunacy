@@ -59,6 +59,21 @@ public class EditorSettings
     // the nightly branch. Independent of which build the user is actually running — someone on a
     // stable build can still opt into nightly update notifications and vice versa.
     public UpdateChannel UpdateChannel;
+    // First real lighting pass for the live renderer (see LitModelShaderSource) — everything else
+    // is unlit. Opt-in default off, same "experimental until proven" reasoning as BackfaceCulling
+    // above, since this is genuinely new/unverified rendering code, not a rebuild of something
+    // already trusted.
+    public bool EnableLighting;
+    public Vector3 LightDirection;
+    public Vector3 LightColor;
+    public float LightAmbient;
+    // Scene-wide Phong specular exponent — a scene setting rather than per-material data because
+    // this game's texture format carries no per-pixel specular-power channel (see
+    // LitModelShaderSource's header comment).
+    public float LightSpecularPower;
+    // Scene-wide default texture filtering for the 3D view (AssetManager also supports per-texture
+    // overrides for future use — see AssetManager.SetTextureFiltering(textureId, filtering)).
+    public ReLunacy.Engine.Rendering.TextureFiltering TextureFiltering;
 
     [JsonIgnore]
     public float CamFOVRad => CamFOV * (MathF.PI / 180f);
@@ -104,6 +119,14 @@ public class EditorSettings
         LegacyRenderingMode = false;
         BackfaceCulling = false;
         UpdateChannel = UpdateChannel.Stable;
+        EnableLighting = false;
+        LightDirection = new Vector3(-0.4f, -0.8f, 0.3f);
+        LightColor = Vector3.One;
+        LightAmbient = 0.15f;
+        LightSpecularPower = 32f;
+        // Bilinear by default: it's what the game itself does on PS3, and the reason this
+        // setting exists at all — Point remains selectable for pixel-peeping raw texel data.
+        TextureFiltering = ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;
 #else

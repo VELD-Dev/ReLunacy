@@ -442,6 +442,8 @@ public class LunaWindow : Disposable
         // the Settings frame and toggle the checkbox once first.
         EntityManager.Singleton.FrustumCullingEnabled = EditorSettings.FrustrumCulling;
         AssetManager?.SetBackfaceCulling(EditorSettings.BackfaceCulling);
+        AssetManager?.SetLightingEnabled(EditorSettings.EnableLighting);
+        AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
 
         openFrames.RemoveAll(FrameMustClose);
 

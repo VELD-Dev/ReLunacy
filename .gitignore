@@ -12,3 +12,4 @@ recovery
 # Other files
 *.rdc  # RenderDoc captures
 .claude/
+dev/
