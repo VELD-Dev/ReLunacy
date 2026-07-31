@@ -14,11 +14,23 @@ public record struct ShaderMetadataOld : ILunaSerializable
     [FileOffset(0x04)] public uint normal;
     [FileOffset(0x08)] public uint expensive;
     [FileOffset(0x0C)] public uint detailMap;
-    // Material feature flags. Identified from InsomniaToolset's MaterialV1_5 (shader.hpp, same
-    // section ID 0x5000), whose field layout maps onto this struct offset-for-offset: four texture
-    // references at 0x00-0x0F, this flags byte at 0x10, blendMode (our renderingMode) at 0x11.
-    // Its declared bits are, in order: unkFlag, useSpecular, useGlossiness, useNormalMap,
+    // Material feature flags. Field POSITION identified from InsomniaToolset's MaterialV1_5
+    // (shader.hpp, same section ID 0x5000), whose layout maps onto this struct offset-for-offset:
+    // four texture references at 0x00-0x0F, this flags byte at 0x10, blendMode (our renderingMode)
+    // at 0x11. Its declared bits are, in order: unkFlag, useSpecular, useGlossiness, useNormalMap,
     // useDetailMap, then 3 spare.
+    //
+    // The NAMES are Insomniac's own, and "useSpecular" is wrong. Their WWS post-mortem for this
+    // exact game (dev/Ratchet_and_Clank_WWS_Debrief_Feb_08.pdf, "Shader Usage Controls") lists the
+    // toggles they shipped as: "Which attributes (NORMAL, GLOSS, PARALLAX, DETAIL MAP) are disabled
+    // for this use of the shader." Four attributes, and specular is not among them — parallax is.
+    // Gloss, normal and detail map all line up with the other three bits, so the odd one out is the
+    // one InsomniaToolset guessed at. Hence UsesParallax below.
+    //
+    // Same source explains WHY this byte exists at all: there is ONE "standard shader template",
+    // and every material is that template with some attributes switched off. So these bits are not
+    // decoration — they are the permutation key, and a renderer that honours them reproduces the
+    // game's material variants without needing a shader per variant.
     [FileOffset(0x10)] public byte flags;
 
     // Bit positions assume the least-significant-first allocation InsomniaToolset's own (x86)
@@ -29,7 +41,10 @@ public record struct ShaderMetadataOld : ILunaSerializable
     // the decoded flags, so on any level exactly one bit will track "this material has a detail
     // texture". If UsesDetailMap disagrees with DetailMap being non-null across materials, the
     // walk is reversed and these shift to 7-minus.
-    public readonly bool UsesSpecular => (flags & 0x02) != 0;
+    // The same trick pins UsesParallax independently: this struct already carries parallaxScale at
+    // 0x50, so on any level this bit should track parallaxScale != 0. If it tracks something else,
+    // the parallax toggle is one of the other bits (unkFlag at 0x01 being the obvious alternative).
+    public readonly bool UsesParallax => (flags & 0x02) != 0;
     public readonly bool UsesGlossiness => (flags & 0x04) != 0;
     public readonly bool UsesNormalMap => (flags & 0x08) != 0;
     public readonly bool UsesDetailMap => (flags & 0x10) != 0;

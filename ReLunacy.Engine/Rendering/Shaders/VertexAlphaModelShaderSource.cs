@@ -71,7 +71,11 @@ internal static class VertexAlphaModelShaderSource
                     texelColor.a = 1.0F;
                     break;
                 case 1:
-                    if (texelColor.a < 0.99F) {
+                    // Same clip rule as LitModelShaderSource - read the material's own threshold
+                    // instead of the 0.99 constant that used to be here, and compare with <= so a
+                    // threshold of 0 (old engine, which clips at zero) still discards fully
+                    // transparent texels. See MaterialReader.GetAlphaClip.
+                    if (texelColor.a <= maps[0].value) {
                         discard;
                     }
                     break;

@@ -165,15 +165,14 @@ public sealed class ZoneReader
         float boundingRadius;
         if (legacyUFrag.isOld)
         {
-            // Old engine's real placement anchor hasn't been located yet — position and
-            // boundingSphere share the same fixed-point ×256 field, so anchor and boundingCenter
-            // coincide here, same as before this split existed.
-            var rawCenter = new Vector3(legacyUFrag.metadata.boundingSphere.X, legacyUFrag.metadata.boundingSphere.Y, legacyUFrag.metadata.boundingSphere.Z);
-            anchor = rawCenter / 256f;
-            boundingCenter = anchor;
-            // Radius isn't reliably decodable from this field for old-engine UFrags; fixed
-            // fallback matches the last confirmed-working implementation (see EntityUFrag).
-            boundingRadius = 2.5f;
+            // Anchor comes from the fixed-point ×256 field at 0x60; the bounding sphere is its own
+            // field at 0x30/0x3C and is already world-space (see UFragMetadata, which verifies the
+            // radius against each UFrag's own vertices). These are no longer the same field, so the
+            // radius is real instead of the 2.5f constant every old UFrag used to get — that
+            // constant under-reported chunks up to 89 units across and culled them far too early.
+            anchor = legacyUFrag.metadata.position / 256f;
+            boundingCenter = new Vector3(legacyUFrag.metadata.boundingSphere.X, legacyUFrag.metadata.boundingSphere.Y, legacyUFrag.metadata.boundingSphere.Z);
+            boundingRadius = legacyUFrag.metadata.boundingSphere.W;
         }
         else
         {

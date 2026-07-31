@@ -15,14 +15,23 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 public record struct TextureObject
 {
-    public TextureObject(ITexture texture, Texture2D tex2d)
+    public TextureObject(ITexture texture, Texture2D tex2d, int index)
     {
         Texture = texture;
+        Index = index;
         TexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
         BlissTexture = tex2d;
     }
 
     public readonly string? TextureName => Texture.Name;
+
+    /// <summary>Position in the level's texture table, counted in load order. This is the number
+    /// the file formats reference textures BY — foliage's 0xA200 record, for instance, picks its
+    /// texture with a small integer, not with a TUID or a pointer — so it stays visible even when a
+    /// debug name was recovered, since the name is what a human recognises and this is what the
+    /// data actually says.</summary>
+    public readonly int Index;
+
     public readonly ITexture Texture;
     public readonly Texture2D BlissTexture;
     public readonly ImTextureRef TexturePtr;
@@ -67,10 +76,15 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     public void TransmitTextures(AssetManager assetManager)
     {
         textureObjects.Clear();
+        // The counter advances for EVERY source texture, including ones with no built Texture2D to
+        // show — skipping those would silently renumber everything after them, and the whole point
+        // of the index is that it matches the position the file formats reference.
+        int index = 0;
         foreach (var (id, tex) in assetManager.SourceTextures)
         {
             if (assetManager.BuiltTextures.TryGetValue(id, out var tex2d))
-                textureObjects.Add(new(tex, tex2d));
+                textureObjects.Add(new(tex, tex2d, index));
+            index++;
         }
 
         usedTextureIds = ComputeUsedTextureIds();
@@ -282,9 +296,15 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             _ => textureObjects,
         };
 
-        return string.IsNullOrWhiteSpace(inputText)
-            ? objects
-            : objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(inputText)) return objects;
+
+        // A bare number matches the index exactly, so typing "1" finds texture #1 rather than
+        // every name containing a 1 — that's the only way to look a texture up when all you have
+        // is the number some other structure referenced it by. Anything else searches names.
+        if (int.TryParse(inputText.Trim(), out int wantedIndex))
+            return objects.Where(t => t.Index == wantedIndex);
+
+        return objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
     }
 
     protected override void Render(double deltaTime)
@@ -328,7 +348,15 @@ public class TexturesExplorer : DockedFrame, ILevelListener
 
                     bool isUsed = usedTextureIds.Contains(texobj.Texture.Id);
                     if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-                    ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
+                    // texobj.Index, never the loop counter: `i` walks the FILTERED list, so with a
+                    // search or usage filter active it labelled textures with whatever position
+                    // they happened to land on that frame.
+                    ImGui.Text($"#{texobj.Index}");
+                    if (texobj.TextureName is { Length: > 0 } name)
+                    {
+                        ImGui.SameLine();
+                        ImGui.TextWrapped(name.Split('/')[^1]);
+                    }
                     if (!isUsed) ImGui.PopStyleColor();
 
                     ImGui.NextColumn();
@@ -386,6 +414,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 }
                 ImGui.Separator();
                 ImGui.BeginGroup();
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureIndex"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureName"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureCompressionType"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureDimensions"));
@@ -393,7 +422,11 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 ImGui.EndGroup();
                 ImGui.SameLine();
                 ImGui.BeginGroup();
-                ImGui.Text(selection.TextureName ?? $"Tex_{selectedTexture}");
+                // Both numbers, because they answer different questions: Index is the position the
+                // file formats reference a texture by, Id is where its metadata record physically
+                // sits (the old engine uses the record's own offset in main.dat as its id).
+                ImGui.Text($"{selection.Index}  (id 0x{selection.Texture.Id:X})");
+                ImGui.Text(selection.TextureName is { Length: > 0 } n ? n : $"Tex_{selection.Index}");
                 ImGui.Text(selection.Texture.Format.ToString());
                 ImGui.Text($"{selection.Texture.Width}x{selection.Texture.Height}");
                 ImGui.Text($"{selection.BlissTexture.Images[0].Data.Length / 1000f}KB");
@@ -404,7 +437,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
 
-                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selectedTexture) + ".raw"), selection.Texture.GetPixelData());
+                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".raw"), selection.Texture.GetPixelData());
                 }
                 ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
@@ -414,7 +447,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                         Directory.CreateDirectory(path);
 
                     var clone = (Image)selection.BlissTexture.Images[0].Clone();
-                    clone.SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selectedTexture) + ".png"));
+                    clone.SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".png"));
                 }
                 ImGui.Separator();
                 if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindUsages")))

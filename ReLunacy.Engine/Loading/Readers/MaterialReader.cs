@@ -167,8 +167,28 @@ public sealed class MaterialReader
         }
     }
 
+    /// <summary>Old engine has NO alpha-clip threshold — it cuts at zero. ShaderMetadataOld's 0x20
+    /// is not this field, and using it as one wrecked every cutout surface in the game.
+    ///
+    /// Cross-tabbed 0x20 against the renderingMode byte over metropolis's 631 old-engine shaders:
+    ///     Cutout     14 shaders, alphaClip = 1.0 on ALL FOURTEEN, no exceptions
+    ///     Opaque    426 at 1.0, 44 at a fraction (0.64, 0.80, 0.878, 0.902, ...)
+    ///     SoftEdge   28 at 1.0, 14 at 0.0
+    /// A clip threshold cannot be 1.0 on every single material that clips — that discards all but
+    /// perfectly opaque texels — and the fractional values land on OPAQUE materials, where a
+    /// threshold means nothing at all. Whatever 0x20 is (per-material opacity is the standing
+    /// suspicion, previously retracted for other reasons — see UsesVertexAlphaCandidate), it is
+    /// not this. Old engine therefore gets a zero threshold and the shader discards on `&lt;=`.
+    ///
+    /// This is also the whole of the "blocky cutout edges" problem. Every one of those 14 Cutout
+    /// materials is DXT5, which stores alpha as two endpoints interpolated across a 4x4 block, so
+    /// demanding alpha == 1.0 exactly kept only the texels sitting at an endpoint — a mask aligned
+    /// to compression blocks. The edges were the DXT5 block grid, not a filtering artifact.
+    ///
+    /// New engine keeps reading its own field at 0x30; it has not been shown to have the same
+    /// problem, and inventing a zero there would be an unforced change.</summary>
     private static float GetAlphaClip(Shader shader) =>
-        shader.isOld ? shader.metadataOld!.Value.alphaClip : shader.metadataNew!.Value.alphaClip;
+        shader.isOld ? 0f : shader.metadataNew!.Value.alphaClip;
 
     // ShaderMetadataOld 0x50/0x54, feeding the captured game shader's height * scale + bias.
     // Returned verbatim, sign included: which way relief appears to move is data, not something to
