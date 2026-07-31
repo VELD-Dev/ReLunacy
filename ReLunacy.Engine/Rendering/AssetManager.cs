@@ -55,6 +55,7 @@ public sealed class AssetManager : IDisposable
     private readonly Dictionary<ulong, TextureFiltering> _perTextureFiltering = [];
     private readonly Dictionary<Texture2D, ulong> _builtTextureIds = [];
     private Effect? _vertexAlphaModelEffect;
+    private Effect? _billboardModelEffect;
     private Effect? _litModelEffect;
     // Flat "no perturbation" fallback for LitModelShaderSource's normal map slot, which every
     // material now gets a MaterialMap entry for (see GetOrBuildMaterial) even when the source has
@@ -75,7 +76,58 @@ public sealed class AssetManager : IDisposable
     // and left the far side visible (backface culling looked "inside out" — confirmed by the user
     // after enabling it). Same CullMode.Back as DEFAULT, just the winding flipped.
     private static readonly RasterizerStateDescription BackfaceCullState = new(
-        FaceCullMode.Back, PolygonFillMode.Solid, FrontFace.CounterClockwise, true, false);
+        FaceCullMode.Back, PolygonFillMode.Solid, FrontFace.CounterClockwise, depthClipEnabled: true,
+        depthBias: 0, slopeScaledDepthBias: 0f, depthBiasClamp: 0f, scissorTestEnabled: false);
+
+    // POLYGON OFFSET FOR NON-OPAQUE SURFACES, copied from the game rather than tuned. RenderDoc's
+    // rasterizer state for an overlay draw (dev/RasterizerState_OverlayTranslucency.png) reads:
+    //     Depth Bias        -86.9685      Slope-Scaled Bias  -0.33972      Clamp  0.0
+    // which is why the game's decals and overlays never cut into the surface they sit on. Without
+    // it a coplanar overlay passes the depth test only where float precision happens to land in
+    // its favour, and gets sliced everywhere else.
+    // DepthBias is an INT here (Veldrith follows D3D12's integer count of depth units, where Vulkan
+    // takes a float), so -86.9685 becomes -87 - a difference of 0.03 units out of 2^24, around
+    // 2e-9 of the depth range, i.e. nothing.
+    // BOTH terms matter. The constant one handles surfaces facing the camera; the slope-scaled one
+    // is what keeps a decal in front at grazing angles, and is exactly what a fixed vertex-space Z
+    // nudge cannot reproduce - which is why no shader-side workaround was taken while this was
+    // unavailable.
+    // THE TWO TERMS ARE ONE NUMBER. 86.9685 / 0.33972 = 256.0 (0.33972 * 256 = 86.96832, and the
+    // remainder is RenderDoc's display rounding). 256 is this engine's fixed-point unit everywhere
+    // else - UFrag anchors, vertex positions - so both parameters almost certainly come from a
+    // single authored offset in engine units, with the constant term being its depth-unit form.
+    // Two consequences worth knowing before anyone re-derives this:
+    //   - if the bias ever turns out to vary, it varies as ONE scalar, and these two constants
+    //     should become (k, k * 256) rather than two independent knobs;
+    //   - it is NOT stored per material. All 631 shader records on metropolis were scanned for
+    //     either value, at every float offset, with a 1% tolerance: no matches anywhere. The old
+    //     "decal offset" suspect at ShaderMetadataOld 0x48 is not it either - it is 1.0 or 0.0 on
+    //     most materials, which is a multiplier's distribution, not an offset's.
+    // So this is engine-global state (one polygon-offset setup for the whole non-opaque pass),
+    // which is exactly how it is applied here.
+    private const int OverlayDepthBias = -87;
+    private const float OverlaySlopeScaledDepthBias = -0.33972f;
+
+    private static readonly RasterizerStateDescription BiasedCullNoneState = new(
+        FaceCullMode.None, PolygonFillMode.Solid, FrontFace.CounterClockwise, depthClipEnabled: true,
+        depthBias: OverlayDepthBias, slopeScaledDepthBias: OverlaySlopeScaledDepthBias,
+        depthBiasClamp: 0f, scissorTestEnabled: false);
+
+    private static readonly RasterizerStateDescription BiasedBackfaceCullState = new(
+        FaceCullMode.Back, PolygonFillMode.Solid, FrontFace.CounterClockwise, depthClipEnabled: true,
+        depthBias: OverlayDepthBias, slopeScaledDepthBias: OverlaySlopeScaledDepthBias,
+        depthBiasClamp: 0f, scissorTestEnabled: false);
+
+    /// <summary>Rasterizer state for a material, biased when it is not opaque. Gated on RenderMode
+    /// rather than on the source RenderingMode byte so every blending path gets it - Overlay,
+    /// Additive, Blended and Soft-Edge all end up here, which matches the note that the game draws
+    /// every non-opaque surface in a separate, offset pass.</summary>
+    private RasterizerStateDescription RasterizerStateFor(RenderMode renderMode)
+    {
+        bool biased = renderMode == RenderMode.Translucent;
+        if (_backfaceCulling) return biased ? BiasedBackfaceCullState : BackfaceCullState;
+        return biased ? BiasedCullNoneState : RasterizerStateDescription.CULL_NONE;
+    }
 
     public IReadOnlyDictionary<ulong, Texture2D> BuiltTextures => _textureCache;
     public IReadOnlyDictionary<ulong, ITexture> SourceTextures => _sourceTextures;
@@ -208,7 +260,7 @@ public sealed class AssetManager : IDisposable
 
         var bMat = new Material(
             SelectEffect(material),
-            _backfaceCulling ? BackfaceCullState : RasterizerStateDescription.CULL_NONE,
+            RasterizerStateFor(renderMode),
             blendState,
             renderMode);
 
@@ -328,6 +380,45 @@ public sealed class AssetManager : IDisposable
     // files so every other material (the overwhelming majority) is completely unaffected.
     private Effect GetVertexAlphaModelEffect() => _vertexAlphaModelEffect ??= BuildVertexAlphaModelEffect();
 
+    /// <summary>Camera-facing sprite effect for foliage. Deliberately NOT reachable through
+    /// SelectEffect: nothing about a material says "this is a billboard", it is a property of the
+    /// GEOMETRY (foliage packs a shared anchor into the position and the corner offset into
+    /// TexCoords2), so routing by material would silently billboard any mesh that happened to use
+    /// a foliage shader. EntityFoliage asks for it explicitly.</summary>
+    public Bliss.CSharp.Materials.Material GetOrBuildBillboardMaterial(IMaterial? material)
+    {
+        // Foliage is always double-sided and always blended: both of metropolis's foliage shaders
+        // are RenderingMode.Blended, and a billboard has no meaningful facing to cull against.
+        // Translucent also puts it in DecalAwareForwardRenderer's second pass, which is where the
+        // game draws every non-opaque surface.
+        var billboard = new Bliss.CSharp.Materials.Material(
+            GetBillboardModelEffect(),
+            BiasedCullNoneState,
+            BlendStateDescription.SINGLE_ALPHA_BLEND,
+            RenderMode.Translucent);
+
+        var albedo = material?.AlbedoTexture != null ? GetOrBuildTexture(material.AlbedoTexture) : GlobalResource.DefaultModelTexture;
+        billboard.AddMaterialMap(
+            new MaterialMapKey(MaterialMapType.Albedo), 0,
+            new MaterialMap(albedo, ResolveSampler(albedo), color: Color.White, value: material?.AlphaClipThreshold ?? 0f));
+
+        return billboard;
+    }
+
+    private Effect GetBillboardModelEffect() => _billboardModelEffect ??= BuildBillboardModelEffect();
+
+    // Identical layout to BuildVertexAlphaModelEffect - see the ordering note on the lit effect for
+    // why buffers must take contiguous slots from 0 with textures immediately after.
+    private Effect BuildBillboardModelEffect()
+    {
+        var effect = new Effect(_gd, BillboardModelShaderSource.Vertex, BillboardModelShaderSource.Fragment, new CrossCompileOptions(), []);
+        effect.AddBufferLayout("MatrixBuffer", 0u, SimpleBufferType.Uniform, ShaderStages.Vertex);
+        effect.AddBufferLayout("TransformBuffer", 1u, SimpleBufferType.Uniform, ShaderStages.Vertex);
+        effect.AddBufferLayout("MaterialBuffer", 2u, SimpleBufferType.Uniform, ShaderStages.Fragment);
+        effect.AddTextureLayout(MaterialMapType.Albedo.GetName(), 3u);
+        return effect;
+    }
+
     private Effect BuildVertexAlphaModelEffect()
     {
         var effect = new Effect(_gd, VertexAlphaModelShaderSource.Vertex, VertexAlphaModelShaderSource.Fragment, new CrossCompileOptions(), []);
@@ -430,9 +521,11 @@ public sealed class AssetManager : IDisposable
         if (_backfaceCulling == enabled) return;
         _backfaceCulling = enabled;
 
-        var state = enabled ? BackfaceCullState : RasterizerStateDescription.CULL_NONE;
+        // Per material, not one shared state: toggling culling must not drop the depth bias off
+        // the non-opaque ones, which would silently bring back overlay z-fighting whenever this
+        // setting was touched. RasterizerStateFor keeps both axes in one place.
         foreach (var material in _materialCache.Values)
-            material.RasterizerState = state;
+            material.RasterizerState = RasterizerStateFor(material.RenderMode);
     }
 
     // Live scene-wide filtering toggle, same pattern as SetBackfaceCulling/SetLightingEnabled:
@@ -686,6 +779,8 @@ public sealed class AssetManager : IDisposable
 
         _vertexAlphaModelEffect?.Dispose();
         _vertexAlphaModelEffect = null;
+        _billboardModelEffect?.Dispose();
+        _billboardModelEffect = null;
         _litModelEffect?.Dispose();
         _litModelEffect = null;
 

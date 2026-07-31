@@ -148,7 +148,8 @@ public sealed class SelectionOutlineRenderer : IDisposable
         // assets (see the class comment above), same reason the main renderer uses CULL_NONE.
         var rasterizerState = new RasterizerStateDescription(
             FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
-            depthClipEnabled: true, scissorTestEnabled: false);
+            depthClipEnabled: true, depthBias: 0, slopeScaledDepthBias: 0f, depthBiasClamp: 0f,
+            scissorTestEnabled: false);
 
         var stampStencil = new StencilBehaviorDescription(StencilOperation.Keep, StencilOperation.Replace, StencilOperation.Keep, ComparisonKind.Always);
         var maskDepthStencil = new DepthStencilStateDescription

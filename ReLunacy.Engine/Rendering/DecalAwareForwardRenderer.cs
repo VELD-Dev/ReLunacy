@@ -141,6 +141,11 @@ public class DecalAwareForwardRenderer : IRenderer
         // No depth WRITE for translucent/decal geometry — depth TEST still applies (so decals
         // still occlude correctly behind opaque geometry in front of them), it just stops
         // polluting the depth buffer against the near-coplanar surface it's blending onto.
+        //
+        // The other half of matching the game here is POLYGON OFFSET, and it lives on the MATERIAL
+        // rather than in this method - see AssetManager.RasterizerStateFor, which biases every
+        // Translucent material with the values read off a capture of a real overlay draw. It is
+        // per-material because Bliss carries rasterizer state on Material, not on the pass.
         _pipelineDescription.DepthStencilState = DepthStencilStateDescription.DEPTH_ONLY_LESS_EQUAL_READ;
         foreach (var renderable in _translucentRenderables)
             DrawPreparedRenderable(commandList, cam3D, renderable);

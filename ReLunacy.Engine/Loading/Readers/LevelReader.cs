@@ -16,12 +16,14 @@ public sealed class LevelReader
     private MobyReader _mobyReader = null!;
     private TieReader _tieReader = null!;
     private ZoneReader _zoneReader = null!;
+    private FoliageReader _foliageReader = null!;
     private RegionReader _regionReader = null!;
 
     private Dictionary<ulong, Assets.Mobys.Moby>? _mobys;
     private Dictionary<ulong, Assets.Ties.Tie>? _ties;
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
+    private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
 
     public LevelReader(FileManager fileManager)
     {
@@ -74,6 +76,14 @@ public sealed class LevelReader
             _region.Zones = [.. _zones!.Values];
         }
 
+        // Foliage is independent of everything above (its own asset section and its own instance
+        // section), so it loads regardless of which of the mobys/ties/zones flags are set. Old
+        // engine only - FoliageReader returns empty on new-engine files rather than reading
+        // old-engine offsets out of them.
+        progressCallback?.Invoke("Loading Foliage...", 0.9f);
+        _foliageReader = new FoliageReader(_fileManager);
+        _foliages = _foliageReader.ReadAll();
+
         progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above — see MaterialReader.GetAllTextures.
@@ -92,12 +102,14 @@ public sealed class LevelReader
             shaders: _textureShaderLoader.Shaders,
             zoneLightmaps: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps),
             zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
-            environmentAverage: _textureShaderLoader.EnvironmentAverage);
+            environmentAverage: _textureShaderLoader.EnvironmentAverage,
+            foliages: _foliages);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
+    public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
     public Assets.Levels.Region? Region => _region;
 }
 
@@ -139,6 +151,11 @@ public sealed class LevelData
     /// TextureShaderLoader.EnvironmentAverage. Null when the level has none.</summary>
     public System.Numerics.Vector3? EnvironmentAverage { get; }
 
+    /// <summary>Foliage card sets and their placements (main.dat 0xA200 / 0x9340). Empty on the new
+    /// engine, whose foliage sections are a different revision and aren't parsed. See
+    /// Loading.Objects.FoliageMetadata.</summary>
+    public IReadOnlyList<Assets.Foliage.Foliage> Foliages { get; }
+
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
@@ -150,7 +167,8 @@ public sealed class LevelData
         IReadOnlyDictionary<ulong, Shader>? shaders = null,
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneLightmaps = null,
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
-        System.Numerics.Vector3? environmentAverage = null)
+        System.Numerics.Vector3? environmentAverage = null,
+        IReadOnlyList<Assets.Foliage.Foliage>? foliages = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -163,5 +181,6 @@ public sealed class LevelData
         ZoneLightmaps = zoneLightmaps ?? [];
         ZoneDirectionals = zoneDirectionals ?? [];
         EnvironmentAverage = environmentAverage;
+        Foliages = foliages ?? [];
     }
 }

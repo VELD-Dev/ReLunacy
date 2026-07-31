@@ -12,6 +12,7 @@
     <PackageReference Include="Bliss" Version="1.6.15" />
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
     <PackageReference Include="TinyBCSharp" Version="0.1.2" />
+    <PackageReference Include="Veldrith" Version="1.2.19" />
   </ItemGroup>
 
   <ItemGroup>
