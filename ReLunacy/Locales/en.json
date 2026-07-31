@@ -209,6 +209,7 @@
         "GUI_Frame_TextureExplorer_Preview_TextureBufferSize": "Buffer Size",
         "GUI_Frame_TextureExplorer_Preview_TextureCompressionType": "Compression Format",
         "GUI_Frame_TextureExplorer_Preview_TextureDimensions": "Dimensions",
+        "GUI_Frame_TextureExplorer_Preview_TextureIndex": "Index",
         "GUI_Frame_TextureExplorer_Preview_TextureName": "Name",
         "GUI_Frame_TextureExplorer_Preview_TextureSizeOnDisk": "Size on Disk",
         "GUI_Frame_TextureExplorer_SearchHint": "Search among {0} textures...",

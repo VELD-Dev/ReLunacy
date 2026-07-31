@@ -272,7 +272,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             // Comparing "Detail" here against whether DetailMap above is actually present, across
             // a few materials, is what confirms or reverses it.
             ImGui.Text($"0x10 flags: 0x{meta.flags:X2} (binary {Convert.ToString(meta.flags, 2).PadLeft(8, '0')})");
-            ImGui.Text($"     Spec:{meta.UsesSpecular} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
+            // Parallax, not specular — see ShaderMetadataOld.UsesParallax. Printed next to
+            // parallaxScale below so the two can be compared across materials, which is what
+            // confirms the bit.
+            ImGui.Text($"     Parallax:{meta.UsesParallax} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
             ImGui.Text($"0x12 Class: {meta.Class}");
             DrawHexDump("Unk1", 0x13, meta.Unk1);
             // Printed as a float as well as hex: this is the candidate slot for the detail-strength

@@ -66,13 +66,22 @@ public struct UFragMetadata : ILunaSerializable
             // real alpha channel, so the "alpha = monochrome specular light" reading is genuinely
             // populated for terrain.
             lightmapIndex = sh.ReadUInt16(recordBase + 0x4E);
+            // Placement anchor, fixed-point x256 — ZoneReader divides. (0x6C, the float that would
+            // follow it, is NaN on every UFrag in metropolis, so this is a Vector3 field and not a
+            // sphere; reading a radius there is what forced the old 2.5f fallback.)
             sh.Seek(recordBase + 0x60);
             position = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
-            sh.Seek(recordBase + 0x60);
+            // REAL bounding sphere: centre at 0x30 and radius at 0x3C, both plain world-space
+            // floats needing no x256 decode. Verified against each UFrag's own decoded vertices on
+            // metropolis (all 1987): the radius at 0x3C matches the sphere those vertices actually
+            // describe to a median relative error of 0.0001, with 99.7% inside 10%, it is never
+            // negative, and it spans 0.303..89.194 — so the 2.5f constant this replaces was wrong
+            // for essentially every UFrag and made frustum culling drop large terrain chunks early.
+            // The centre agrees with the anchor above to a median of 0.0025 world units (the two
+            // describe the same point; 0x30 just carries full float precision instead of 1/256).
+            sh.Seek(recordBase + 0x30);
             boundingSphere = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
             Unk4 = sh.ReadFromOffset(0x14, recordBase + 0x6C);
-            // Old engine's real grid anchor hasn't been located yet — fall back to the
-            // bounding-sphere position, same as before this field existed.
             newEnginePos = position;
             Unk3b = [];
         }

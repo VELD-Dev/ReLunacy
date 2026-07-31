@@ -632,6 +632,7 @@ public sealed class AssetManager : IDisposable
         var normals = geometry.GetNormals();
         var tangents = geometry.GetTangents();
         var vertexAlpha = useVertexAlpha ? geometry.GetVertexAlphaCandidates() : null;
+        var lightmapUVs = geometry.GetLightmapUVs();
 
         int vertexCount = positions.Length / 3;
         var vertices = new Vertex3D[vertexCount];
@@ -646,8 +647,16 @@ public sealed class AssetManager : IDisposable
                 ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
                 : new Vector4(1f, 0f, 0f, 1f);
 
+            // Second UV channel is the LIGHTMAP UV set where the geometry has one (ties do; see
+            // IGeometry.GetLightmapUVs). Falling back to the base UV keeps the attribute
+            // well-defined for everything else, and is harmless because no lightmap is bound for
+            // those draws — mirrors EntityUFrag.ConvertUFragToVertices.
+            var lmUV = lightmapUVs != null && lightmapUVs.Length >= i * 2 + 2
+                ? new Vector2(lightmapUVs[i * 2], lightmapUVs[i * 2 + 1])
+                : uv;
+
             float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
-            vertices[i] = new Vertex3D(pos, uv, uv, n, tan, new Vector4(1f, 1f, 1f, alpha));
+            vertices[i] = new Vertex3D(pos, uv, lmUV, n, tan, new Vector4(1f, 1f, 1f, alpha));
         }
 
         return vertices;

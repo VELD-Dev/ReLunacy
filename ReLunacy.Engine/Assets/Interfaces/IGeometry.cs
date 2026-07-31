@@ -13,6 +13,14 @@ public interface IGeometry : IAsset
     /// how it's derived, including why `w` is always computed rather than read from source data.</summary>
     float[]? GetTangents();
 
+    /// <summary>Per-vertex LIGHTMAP UV, 2 floats per vertex, or null when this geometry has none.
+    /// Baked lighting is sampled here, not at GetTextureCoordinates() — the game's own tie vertex
+    /// program routes this attribute to tc0.zw and its base UV to tc0.xy (see
+    /// Loading.Vertices.TieLightmapUV). Currently supplied by ties only; UFrags carry their
+    /// equivalent through IUFrag.GetLightmapUVs() instead, since they don't go through
+    /// GeometryData.</summary>
+    float[]? GetLightmapUVs();
+
     /// <summary>Per-vertex decode of VertexFormat0's boneIndex-as-alpha candidate (see
     /// Material.UsesVertexAlphaCandidate) — null for geometry that doesn't carry it. Not
     /// necessarily meaningful data even when non-null; callers gate use on the material flag.</summary>

@@ -193,6 +193,7 @@ public static class LevelExporter
         public float[] GetVertexPositions() => ufrag.GetVertexPositions();
         public float[] GetTextureCoordinates() => ufrag.GetTextureCoordinates();
         public float[]? GetNormals() => ufrag.GetNormals();
+        public float[]? GetLightmapUVs() => ufrag.GetLightmapUVs();
 
         // UFrag terrain carries no baked tangent (or, on some readers, even normal) data — derive
         // both from the triangle/UV data itself via the same fallback GeometryData uses for

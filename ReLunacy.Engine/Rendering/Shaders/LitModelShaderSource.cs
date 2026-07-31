@@ -234,13 +234,14 @@ internal static class LitModelShaderSource
                     texelColor.a = 1.0F;
                     break;
                 case 1:
-                    // maps[0].value carries the material's own alphaClip threshold from the
-                    // game's shader metadata (see AssetManager.GetOrBuildMaterial), replacing a
-                    // hardcoded 0.99: that constant was invisible under point sampling (alpha is
-                    // mostly pure 0/255) but under bilinear filtering every softened edge texel
-                    // falls below 0.99 and gets discarded, eroding cutout foliage/decals into
-                    // sparse pixel speckle (confirmed live).
-                    if (texelColor.a < maps[0].value) {
+                    // maps[0].value carries the material's alphaClip threshold from
+                    // AssetManager.GetOrBuildMaterial. On the OLD engine that is 0 and the game
+                    // clips at zero - see MaterialReader.GetAlphaClip for why the metadata field
+                    // that used to feed this is not a threshold at all.
+                    // The comparison is <=, not <, and that matters: at a threshold of 0 a strict
+                    // < can never be true, so nothing would ever be discarded and cutout surfaces
+                    // would render as opaque quads.
+                    if (texelColor.a <= maps[0].value) {
                         discard;
                     }
                     break;
