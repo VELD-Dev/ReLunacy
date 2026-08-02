@@ -21,4 +21,19 @@ public static class ShellUtils
         psi.ArgumentList.Add(directoryPath);
         Process.Start(psi);
     }
+
+    /// <summary>Opens a URL in the user's default browser. UseShellExecute lets the OS resolve the
+    /// default handler; failures (e.g. no browser, sandboxed environment) are logged rather than
+    /// thrown so a bad link in rendered changelog text can't crash the UI.</summary>
+    public static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception e)
+        {
+            LunaLog.LogWarn($"Failed to open URL '{url}': {e.Message}");
+        }
+    }
 }

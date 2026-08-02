@@ -84,6 +84,27 @@ public static class ImGuiPlus
         ImGui.Image(textureId, size);
     }
 
+    /// <summary>A clickable, underlined text link that opens <paramref name="url"/> in the browser
+    /// on click and shows a hand cursor + URL tooltip on hover. Behaves as a single inline item, so
+    /// SameLine works around it.</summary>
+    public static void Hyperlink(string label, string url)
+    {
+        var color = new Vector4(0.35f, 0.65f, 1f, 1f);
+        ImGui.TextColored(color, label);
+
+        var min = ImGui.GetItemRectMin();
+        var max = ImGui.GetItemRectMax();
+        ImGui.GetWindowDrawList().AddLine(new Vector2(min.X, max.Y - 1f), new Vector2(max.X, max.Y - 1f), ImGui.GetColorU32(color));
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+            ImGui.SetTooltip(url);
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                ShellUtils.OpenUrl(url);
+        }
+    }
+
     public static void CenteredText(string label, float pivot = 0.5f)
     {
         float horizontalSize = ImGui.CalcTextSize(label).X;

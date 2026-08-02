@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Numerics;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -17,14 +16,18 @@ public class UpdateInfoFrame : Modal
     private readonly string newVersionLabel;
     private readonly DateTime releaseDate;
     private readonly bool isNightly;
+    private readonly string? changelog;
+    private readonly IReadOnlyList<CommitInfo>? commits;
 
-    public UpdateInfoFrame(string url, string newVersionLabel, DateTime releaseDate, bool isNightly = false)
+    public UpdateInfoFrame(string url, string newVersionLabel, DateTime releaseDate, bool isNightly = false, string? changelog = null, IReadOnlyList<CommitInfo>? commits = null)
     {
         FrameName = LM.Get("GUI_Frame_UpdateInfo_Title");
         link = url;
         this.newVersionLabel = newVersionLabel;
         this.releaseDate = releaseDate;
         this.isNightly = isNightly;
+        this.changelog = changelog;
+        this.commits = commits;
     }
 
     protected override void Render(double deltaTime)
@@ -48,12 +51,45 @@ public class UpdateInfoFrame : Modal
                 : LM.Get("GUI_Frame_UpdateInfo_MinutesAgo", (int)diff.TotalMinutes);
         ImGui.Text(LM.Get("GUI_Frame_UpdateInfo_Released", ago, releaseDate.ToString("dd/MM/yyyy HH:mm:ss")));
 
+        if (!string.IsNullOrWhiteSpace(changelog))
+        {
+            ImGui.Spacing();
+            ImGui.SeparatorText(LM.Get("GUI_Frame_UpdateInfo_Changelog"));
+            ImGui.Spacing();
+
+            // Fixed-size scrolling region so a long release body doesn't grow the auto-resizing
+            // modal past the screen; the markdown wraps to this child's width.
+            if (ImGui.BeginChild("changelog", new Vector2(560, 300), ImGuiChildFlags.Borders))
+                MarkdownRenderer.Render(changelog);
+            ImGui.EndChild();
+        }
+
+        if (commits is { Count: > 0 })
+        {
+            ImGui.Spacing();
+            ImGui.SeparatorText(LM.Get("GUI_Frame_UpdateInfo_Commits", commits.Count));
+            ImGui.Spacing();
+
+            if (ImGui.BeginChild("commits", new Vector2(560, 160), ImGuiChildFlags.Borders))
+            {
+                foreach (var commit in commits)
+                {
+                    ImGui.Bullet();
+                    ImGui.SameLine();
+                    ImGuiPlus.Hyperlink(commit.ShortSha, commit.Url);
+                    ImGui.SameLine();
+                    ImGui.TextWrapped(commit.Message);
+                }
+            }
+            ImGui.EndChild();
+        }
+
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
 
         if (ImGuiPlus.CenteredButton(LM.Get("GUI_Frame_UpdateInfo_Download"), new Vector2(150, 40)))
-            Process.Start(new ProcessStartInfo(link) { UseShellExecute = true });
+            ShellUtils.OpenUrl(link);
 
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Common_CloseWord")))

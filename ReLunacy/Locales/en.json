@@ -225,6 +225,8 @@
         "GUI_Frame_UpdateInfo_HoursAgo": "{0} hour(s) ago",
         "GUI_Frame_UpdateInfo_MinutesAgo": "{0} minute(s) ago",
         "GUI_Frame_UpdateInfo_Download": "Download update",
+        "GUI_Frame_UpdateInfo_Changelog": "Changelog",
+        "GUI_Frame_UpdateInfo_Commits": "Commits in this update ({0})",
         "GUI_Frame_View3D": "3D View",
         "GUI_LoadLevelModal_Title": "Loading level",
         "GUI_MenuItem_CheckUpdates": "Check for updates",
