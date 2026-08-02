@@ -24,6 +24,7 @@ public sealed class LevelReader
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
+    private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
 
     public LevelReader(FileManager fileManager)
     {
@@ -84,6 +85,9 @@ public sealed class LevelReader
         _foliageReader = new FoliageReader(_fileManager);
         _foliages = _foliageReader.ReadAll();
 
+        // Old engine only (section 0x5920). Independent of geometry, same as foliage.
+        _cubemaps = new CubemapReader(_fileManager).ReadAll();
+
         progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above — see MaterialReader.GetAllTextures.
@@ -103,13 +107,15 @@ public sealed class LevelReader
             zoneLightmaps: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps),
             zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
-            foliages: _foliages);
+            foliages: _foliages,
+            cubemaps: _cubemaps);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
+    public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
     public Assets.Levels.Region? Region => _region;
 }
 
@@ -156,6 +162,10 @@ public sealed class LevelData
     /// Loading.Objects.FoliageMetadata.</summary>
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages { get; }
 
+    /// <summary>Environment cubemap(s), old-engine section 0x5920 (see Loading.Readers.CubemapReader).
+    /// Usually one; empty when the level ships only a stub record (kerchu city) or on the new engine.</summary>
+    public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps { get; }
+
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
@@ -168,7 +178,8 @@ public sealed class LevelData
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneLightmaps = null,
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
         System.Numerics.Vector3? environmentAverage = null,
-        IReadOnlyList<Assets.Foliage.Foliage>? foliages = null)
+        IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,
+        IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -182,5 +193,6 @@ public sealed class LevelData
         ZoneDirectionals = zoneDirectionals ?? [];
         EnvironmentAverage = environmentAverage;
         Foliages = foliages ?? [];
+        Cubemaps = cubemaps ?? [];
     }
 }

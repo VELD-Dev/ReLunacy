@@ -175,6 +175,49 @@ public sealed class AssetManager : IDisposable
         ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional");
         if (ZoneLightmaps.Count != 0)
             Console.WriteLine($"Zone lighting: {ZoneLightmaps.Count} light-colour and {ZoneDirectionals.Count} light-direction textures built.");
+
+        BuildEnvironmentCubemap(level);
+    }
+
+    // The level's environment cubemap as a GPU samplerCube, for the lit shader's reflection term.
+    // Always non-null once constructed: a level with no cubemap gets a 1x1 grey fallback so the lit
+    // effect's declared set 10 is never bound to nothing (an unbound descriptor set is undefined
+    // behaviour — the same class of fault BuildLitModelEffect documents). See CubemapReader for the
+    // face format and LitModelShaderSource for how it's sampled.
+    private Veldrith.Texture? _environmentCubemap;
+    public Veldrith.TextureView? EnvironmentCubemapView { get; private set; }
+
+    private void BuildEnvironmentCubemap(LevelData level)
+    {
+        var cubemap = level.Cubemaps.Count > 0 ? level.Cubemaps[0] : null;
+        int size = cubemap?.FaceSize ?? 1;
+        var factory = _gd.ResourceFactory;
+
+        var tex = factory.CreateTexture(Veldrith.TextureDescription.Texture2D(
+            (uint)size, (uint)size, 1, 6, Veldrith.PixelFormat.R8G8B8A8UNorm,
+            Veldrith.TextureUsage.Sampled | Veldrith.TextureUsage.Cubemap));
+
+        // Face order is the file's own +X,-X,+Y,-Y,+Z,-Z, which is exactly the cube array-layer
+        // order Vulkan expects, so layer index == face index with no remap.
+        for (uint f = 0; f < 6; f++)
+        {
+            byte[] rgba = (cubemap != null && f < cubemap.Faces.Count
+                ? TextureUtils.DecodeToRgba8888(cubemap.Faces[(int)f], out _, out _)
+                : null) ?? FallbackCubeFace(size);
+            _gd.UpdateTexture(tex, rgba, 0, 0, 0, (uint)size, (uint)size, 1, 0, f);
+        }
+
+        _environmentCubemap = tex;
+        EnvironmentCubemapView = factory.CreateTextureView(tex);
+    }
+
+    private static byte[] FallbackCubeFace(int size)
+    {
+        // Mid-grey, mid-alpha. Only ever sampled when a real cubemap is absent, in which case the
+        // renderer's EnvironmentIntensity is 0 and this contributes nothing regardless.
+        var data = new byte[size * size * 4];
+        Array.Fill(data, (byte)128);
+        return data;
     }
 
     /// <summary>Baked lighting is ON for TERRAIN. UFrags index a shared atlas via
@@ -466,6 +509,10 @@ public sealed class AssetManager : IDisposable
         effect.AddTextureLayout("fDetail", 7u);
         effect.AddTextureLayout("fLightColour", 8u);
         effect.AddTextureLayout("fLightDir", 9u);
+        // The environment cubemap (samplerCube). Last texture slot, keeping the buffers-0..3 then
+        // textures-4..N ordering the pipeline layout depends on. Bound scene-wide by
+        // DecalAwareForwardRenderer (not a per-material MaterialMap), same as LightBuffer.
+        effect.AddTextureLayout("fEnvCube", 10u);
         return effect;
     }
 
@@ -783,6 +830,11 @@ public sealed class AssetManager : IDisposable
         _billboardModelEffect = null;
         _litModelEffect?.Dispose();
         _litModelEffect = null;
+
+        EnvironmentCubemapView?.Dispose();
+        EnvironmentCubemapView = null;
+        _environmentCubemap?.Dispose();
+        _environmentCubemap = null;
 
         Mobys.Clear();
         Ties.Clear();

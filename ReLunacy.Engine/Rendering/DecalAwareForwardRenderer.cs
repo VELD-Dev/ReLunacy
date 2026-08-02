@@ -48,6 +48,14 @@ public class DecalAwareForwardRenderer : IRenderer
     // defaults to 0 so nothing changes until a level actually supplies one.
     public Vector3 EnvironmentColour = Vector3.One;
     public float EnvironmentIntensity;
+    // Debug: draw the raw cubemap reflection on everything (see LightData.ReflectionDebugView).
+    public bool ReflectionDebugView;
+    // The level's environment cubemap (AssetManager.EnvironmentCubemapView), sampled by the lit
+    // effect for reflections. Scene-wide like LightBuffer — bound below for any effect that declares
+    // the "fEnvCube" texture layout. View3D pushes this each frame, same pattern as EnvironmentColour.
+    public TextureView? EnvironmentCubemap;
+    private ResourceSet? _envCubeSet;
+    private TextureView? _envCubeSetView;
     // Live lightmap research controls — see LightData for what each one stands in for.
     public Vector2 LightmapUVScale = Vector2.One;
     public Vector2 LightmapUVOffset = Vector2.Zero;
@@ -103,6 +111,7 @@ public class DecalAwareForwardRenderer : IRenderer
             // with a full-strength "highlight" if the setting were dragged to zero.
             SpecularPower = MathF.Max(SpecularPower, 1f),
             CameraPosition = cam3D.Position,
+            ReflectionDebugView = this.ReflectionDebugView ? 1f : 0f,
             EnvironmentColour = EnvironmentColour,
             EnvironmentIntensity = EnvironmentIntensity,
             LightmapUVScale = LightmapUVScale,
@@ -203,6 +212,24 @@ public class DecalAwareForwardRenderer : IRenderer
             }
         }
 
+        // The environment cubemap is a single scene-wide texture, not a per-material MaterialMap, so
+        // it can't go through the loop above (which binds by matching MaterialMapKeys). Bound here
+        // for any effect that declares "fEnvCube" — currently just the lit effect — mirroring how
+        // LightBuffer is handled. Skipped entirely for effects that don't declare it (GetTextureLayout
+        // throws for an unknown name, so this must stay guarded by the declared-layout check).
+        if (EnvironmentCubemap != null)
+        {
+            foreach (SimpleTextureLayout textureLayout in renderable.Material.Effect.GetTextureLayouts())
+            {
+                if (textureLayout.Name != "fEnvCube")
+                    continue;
+                commandList.SetGraphicsResourceSet(
+                    renderable.Material.Effect.GetTextureLayoutSlot("fEnvCube"),
+                    GetEnvCubeResourceSet(textureLayout));
+                break;
+            }
+        }
+
         renderable.Material.Effect.Apply(commandList, renderable.Material);
 
         if (renderable.Mesh.IndexCount != 0)
@@ -236,6 +263,25 @@ public class DecalAwareForwardRenderer : IRenderer
         }
     }
 
+    // Builds (and caches) the resource set binding the current EnvironmentCubemap into the lit
+    // effect's set 10 (textureCube + sampler). Rebuilt only when the view itself changes — i.e. once
+    // per level load, not per frame. LinearSampler gives smooth reflections; a cube view clamps at
+    // face edges by construction, so the sampler's address mode is irrelevant.
+    private ResourceSet GetEnvCubeResourceSet(SimpleTextureLayout layout)
+    {
+        if (EnvironmentCubemap == null)
+            return null;
+        
+        if (_envCubeSet != null && ReferenceEquals(_envCubeSetView, EnvironmentCubemap))
+            return _envCubeSet;
+
+        _envCubeSet?.Dispose();
+        _envCubeSet = GraphicsDevice.ResourceFactory.CreateResourceSet(
+            new ResourceSetDescription(layout.Layout, EnvironmentCubemap, GraphicsDevice.LinearSampler));
+        _envCubeSetView = EnvironmentCubemap;
+        return _envCubeSet;
+    }
+
     // Reused across frames to avoid a per-frame allocation; only ever touched inside Draw.
     private readonly HashSet<Bliss.CSharp.Materials.Material> _dirtyMaterials = [];
 
@@ -256,6 +302,7 @@ public class DecalAwareForwardRenderer : IRenderer
     public void Dispose()
     {
         _lightBuffer.Dispose();
+        _envCubeSet?.Dispose();
         GC.SuppressFinalize(this);
     }
 }

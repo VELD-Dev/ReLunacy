@@ -182,7 +182,22 @@ public class Texture
         }
     }
 
-    private static int MortonSwizzle(int index, int width, int height)
+    /// <summary>Un-swizzles a linear buffer of Morton/GCM-swizzled pixels into row-major order.
+    /// Shared with CubemapReader, whose faces use the same swizzle even though their metadata's
+    /// linear bit reads set — see that reader. dst[MortonSwizzle(i)] = src[i], mirroring the
+    /// instance <see cref="Unswizzle(StreamHelper)"/> above but operating on an in-memory buffer.</summary>
+    internal static byte[] Deswizzle(ReadOnlySpan<byte> src, int width, int height, int pixelSize)
+    {
+        var dst = new byte[width * height * pixelSize];
+        for (int i = 0; i < width * height; i++)
+        {
+            int index = MortonSwizzle(i, width, height);
+            src.Slice(i * pixelSize, pixelSize).CopyTo(dst.AsSpan(pixelSize * index));
+        }
+        return dst;
+    }
+
+    internal static int MortonSwizzle(int index, int width, int height)
     {
         // The row-stride multiplier below must be the ORIGINAL width, not the loop-shifted copy —
         // `width` gets shifted down to 1 by the end of the loop below (that's how it tracks when

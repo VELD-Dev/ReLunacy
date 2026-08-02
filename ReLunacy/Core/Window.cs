@@ -396,6 +396,8 @@ public class LunaWindow : Disposable
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
+            ImGui.Separator();
+            RenderMenuDraw.ReflectionControls();
             ImGui.EndMenu();
         }
 

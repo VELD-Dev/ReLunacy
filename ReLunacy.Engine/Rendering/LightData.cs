@@ -21,7 +21,10 @@ public struct LightData
     public Vector3 Color;
     public float SpecularPower;
     public Vector3 CameraPosition;
-    private readonly float _padding;
+    /// <summary>&gt;0.5 renders the raw cubemap reflection (envColour) on every surface, ungated by
+    /// specIntensity/EnvironmentIntensity, so the near-invisible reflection can be seen and its axis
+    /// orientation checked. Occupies uCameraPosition's std140 tail slot (was a reserved pad).</summary>
+    public float ReflectionDebugView;
     /// <summary>Flat stand-in for the environment cubemap, averaged from the level's own (see
     /// TextureShaderLoader.EnvironmentAverage). The game's specular term is additive and
     /// independent of the lightmap, so it is what keeps baked shadows from reaching pure black;
