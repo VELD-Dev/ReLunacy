@@ -259,6 +259,7 @@ public class LunaWindow : Disposable
 
         AssetManager = new AssetManager(Level, GraphicsDevice);
         EntityManager.Singleton.LoadRegion(Level.Region, AssetManager, GraphicsDevice);
+        EntityManager.Singleton.LoadFoliage(Level.Foliages, AssetManager, GraphicsDevice);
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
@@ -395,6 +396,8 @@ public class LunaWindow : Disposable
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
+            ImGui.Separator();
+            RenderMenuDraw.ReflectionControls();
             ImGui.EndMenu();
         }
 

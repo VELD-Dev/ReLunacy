@@ -714,6 +714,17 @@ public class AssetViewer : DockedFrame, ILevelListener
                     ImGui.EndTabItem();
                 }
 
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_FoliageTab")))
+                {
+                    if (ImGui.BeginChild("asset_viewer_foliage_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+                    {
+                        RenderFoliageList();
+                    }
+                    ImGui.EndChild();
+
+                    ImGui.EndTabItem();
+                }
+
                 ImGui.EndTabBar();
             }
         }
@@ -1721,4 +1732,64 @@ public class AssetViewer : DockedFrame, ILevelListener
         renderTexture.Resize((uint)RenderFrameSize.Width, (uint)RenderFrameSize.Height);
         Camera.Resize((uint)RenderFrameSize.Width, (uint)RenderFrameSize.Height);
     }
+
+    /// <summary>Foliage inspector. Read-only and deliberately raw: every number here is either
+    /// straight out of the file or one step from it, because foliage is still being reverse
+    /// engineered and a prettied-up view would hide the two things worth watching - whether the UVs
+    /// really land on quadrant boundaries, and whether the LOD ranges partition the card set.</summary>
+    private void RenderFoliageList()
+    {
+        var level = LunaWindow.Instance.Level;
+        if (level == null || level.Foliages.Count == 0)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_NoFoliage"));
+            return;
+        }
+
+        foreach (var foliage in level.Foliages)
+        {
+            if (!string.IsNullOrWhiteSpace(assetSearch) &&
+                !(foliage.Name ?? "").Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!ImGui.TreeNode($"{foliage.Name}##foliage{foliage.Id}")) continue;
+
+            var meta = foliage.Metadata;
+            ImGui.Text($"Sprites: {foliage.Sprites.Count}   Placements: {foliage.Placements.Count}");
+            // TextureIndex is shown raw on purpose - it is 0/1 while the real foliage textures are
+            // #1286/#1287, and nothing in the files connects them yet (see FoliageMetadata).
+            ImGui.Text($"foliageId: {meta.FoliageId}   textureIndex: {meta.TextureIndex} (unresolved)");
+            ImGui.Text($"corner data @0x{meta.SpriteCornerOffset:X}   anchor data @0x{meta.SpriteAnchorOffset:X}   (vertices.dat 0x9000)");
+
+            if (ImGui.TreeNode($"Sprite LODs##foliagelod{foliage.Id}"))
+            {
+                for (int i = 0; i < meta.SpriteLodRanges.Length; i++)
+                {
+                    var r = meta.SpriteLodRanges[i];
+                    if (r.CornerCount <= 0) continue;
+                    ImGui.Text($"LOD {i}: corners [{r.CornerBegin}..{r.CornerEnd})  =  {r.SpriteCount} card(s)   distance {r.Distance:0.###}");
+                }
+                ImGui.TreePop();
+            }
+
+            if (ImGui.TreeNode($"Cards##foliagecards{foliage.Id}"))
+            {
+                // Capped: a card set can run to hundreds and every one draws eight numbers. The
+                // list is for spot-checking the decode, not for browsing all of them.
+                int shown = 0;
+                foreach (var card in foliage.Sprites)
+                {
+                    if (shown++ >= 64) { ImGui.TextDisabled($"... {foliage.Sprites.Count - 64} more"); break; }
+                    ImGui.Text($"[LOD {card.Lod}] anchor ({card.Anchor.X:0.###}, {card.Anchor.Y:0.###}, {card.Anchor.Z:0.###})  packed {card.Packed.Item1:X2} {card.Packed.Item2:X2}");
+                    for (int k = 0; k < card.CornerOffsets.Length; k++)
+                        ImGui.Text($"    corner {k}: offset ({card.CornerOffsets[k].X:0.###}, {card.CornerOffsets[k].Y:0.###})   uv ({card.Uvs[k].X:0.###}, {card.Uvs[k].Y:0.###})");
+                    ImGui.Separator();
+                }
+                ImGui.TreePop();
+            }
+
+            ImGui.TreePop();
+        }
+    }
+
 }

@@ -133,7 +133,9 @@ public class ImGuiController : IDisposable
         var pipelineDescription = new GraphicsPipelineDescription(
             BlendStateDescription.SINGLE_ALPHA_BLEND,
             new DepthStencilStateDescription(false, false, ComparisonKind.Always),
-            new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, true, true),
+            new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
+                depthClipEnabled: true, depthBias: 0, slopeScaledDepthBias: 0f, depthBiasClamp: 0f,
+                scissorTestEnabled: true),
             PrimitiveTopology.TriangleList,
             shaderSet,
             [_layout, _textureLayout],

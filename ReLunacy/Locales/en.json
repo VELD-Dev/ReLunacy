@@ -214,6 +214,10 @@
         "GUI_Frame_TextureExplorer_Preview_TextureSizeOnDisk": "Size on Disk",
         "GUI_Frame_TextureExplorer_SearchHint": "Search among {0} textures...",
         "GUI_Frame_TextureExplorer_SearchLabel": "Search",
+        "GUI_Frame_TextureExplorer_Cubemaps": "Cubemaps ({0})",
+        "GUI_Frame_TextureExplorer_Cubemap_Exposure": "Exposure",
+        "GUI_Frame_TextureExplorer_Cubemap_Info": "Faces: {0}px x {1}",
+        "GUI_Frame_TextureExplorer_Cubemap_ExportCross": "Export cross (PNG)",
         "GUI_Frame_UpdateInfo_Title": "Update Available!",
         "GUI_Frame_UpdateInfo_StableAvailable": "A new update for ReLunacy is available!",
         "GUI_Frame_UpdateInfo_NightlyAvailable": "A newer nightly build of ReLunacy is available!",
@@ -225,6 +229,8 @@
         "GUI_Frame_UpdateInfo_HoursAgo": "{0} hour(s) ago",
         "GUI_Frame_UpdateInfo_MinutesAgo": "{0} minute(s) ago",
         "GUI_Frame_UpdateInfo_Download": "Download update",
+        "GUI_Frame_UpdateInfo_Changelog": "Changelog",
+        "GUI_Frame_UpdateInfo_Commits": "Commits in this update ({0})",
         "GUI_Frame_View3D": "3D View",
         "GUI_LoadLevelModal_Title": "Loading level",
         "GUI_MenuItem_CheckUpdates": "Check for updates",
@@ -274,6 +280,8 @@
         "GUI_Overlay_VramUsage": "VRAM Usage",
         "GUI_TransformTools_Rotation": "Rotation",
         "GUI_TransformTools_Scale": "Scale",
-        "GUI_TransformTools_Translation": "Translation"
+        "GUI_TransformTools_Translation": "Translation",
+        "GUI_Frame_AssetViewer_FoliageTab": "Foliage",
+        "GUI_Frame_AssetViewer_NoFoliage": "This level has no foliage (old engine only)."
     }
 }

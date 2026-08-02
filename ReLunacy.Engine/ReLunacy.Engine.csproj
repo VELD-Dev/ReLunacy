@@ -12,10 +12,21 @@
     <PackageReference Include="Bliss" Version="1.6.15" />
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
     <PackageReference Include="TinyBCSharp" Version="0.1.2" />
+    <PackageReference Include="Veldrith" Version="1.2.19" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LibreFios\LibreFios\LibreFios.csproj" />
+  </ItemGroup>
+
+  <!-- Engine shader assets. Copied into the host app's output Shaders/ folder (they flow through
+       the project reference), fusing with ReLunacy's own Shaders/ there — see ShaderAsset, which
+       resolves both from that single output location. -->
+  <ItemGroup>
+    <Content Include="Shaders\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Shaders\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
   </ItemGroup>
 
 </Project>

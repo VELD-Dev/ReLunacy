@@ -47,6 +47,7 @@
     <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.2.10-prerelease" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
     <PackageReference Include="NativeFileDialogSharp" Version="0.6.0-alpha" />
+    <PackageReference Include="Veldrith" Version="1.2.19" />
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 

@@ -113,7 +113,8 @@ public sealed class PickingRenderer : IDisposable
         // read back.
         var rasterizerState = new RasterizerStateDescription(
             FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
-            depthClipEnabled: true, scissorTestEnabled: true);
+            depthClipEnabled: true, depthBias: 0, slopeScaledDepthBias: 0f, depthBiasClamp: 0f,
+            scissorTestEnabled: true);
 
         var pipelineDescription = new GraphicsPipelineDescription(
             BlendStateDescription.SINGLE_DISABLED,

@@ -18,6 +18,7 @@ public class EntityManager : IDisposable
     public bool renderMobys = true;
     public bool renderTies = true;
     public bool renderUFrags = true;
+    public bool renderFoliage = true;
     public bool renderVolumes = true;
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
@@ -51,20 +52,42 @@ public class EntityManager : IDisposable
     public int UFragsCount => Regions.Sum(r => r.UFragsCount);
     public int ZonesCount => Regions.Sum(r => r.ZonesCount);
 
+    /// <summary>Foliage placements, flat rather than under a region: foliage lives in its own
+    /// asset/instance sections with no zone or region membership recorded anywhere in the file, so
+    /// inventing a parent would be a guess. See Loading.Readers.FoliageReader.</summary>
+    public List<EntityFoliage> Foliage { get; } = [];
+
     public void LoadRegion(Region? region, AssetManager am, GraphicsDevice gd)
     {
         if (region is null) return;
         Regions.Add(new EntityRegion(region, am, gd));
     }
 
+    public void LoadFoliage(IReadOnlyList<Assets.Foliage.Foliage> foliages, AssetManager am, GraphicsDevice gd)
+    {
+        foreach (var foliage in foliages)
+        {
+            foreach (var placement in foliage.Placements)
+                Foliage.Add(new EntityFoliage(foliage, placement, null, am, gd));
+        }
+
+        if (Foliage.Count != 0)
+            Console.WriteLine($"Foliage: {Foliage.Count} entity/entities built (LOD {EntityFoliage.BuiltLod}).");
+    }
+
     public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
         foreach (var region in Regions)
             region.Draw(renderer, od, cl, camera, immediateRenderer);
+
+        foreach (var foliage in Foliage)
+            foliage.Draw(renderer, od, cl, camera, immediateRenderer);
     }
 
     public IEnumerable<Entity> AllEntities()
     {
+        foreach (var e in Foliage) yield return e;
+
         foreach (var region in Regions)
         {
             foreach (var e in region.MobyInstances.Entities) yield return e;

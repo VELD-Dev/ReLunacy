@@ -6,6 +6,11 @@ using ReLunacy.Core.Frames.Modals;
 
 namespace ReLunacy.Utility;
 
+/// <summary>One commit in the range between the running build and the available update, as listed
+/// by GitHub's compare API. <see cref="Message"/> is only the summary line; <see cref="ShortSha"/>
+/// links to the full commit at <see cref="Url"/>.</summary>
+public readonly record struct CommitInfo(string ShortSha, string Message, string Url);
+
 // Recreated after the LibLunacy/Bliss merge deleted the old implementation (see git history for
 // the pre-rewrite version this is loosely based on) — now channel-aware per EditorSettings.
 //
@@ -56,6 +61,7 @@ public static class UpdateChecker
         string? tag = (string?)data["tag_name"];
         string? url = (string?)data["html_url"];
         string? publishedAt = (string?)data["published_at"];
+        string? body = (string?)data["body"];
         if (tag == null || url == null || publishedAt == null) return;
 
         if (!TryParseVersion(tag, out var newVersion) || !TryParseVersion(ProgramInfo.Version, out var currentVersion))
@@ -67,7 +73,11 @@ public static class UpdateChecker
         if (newVersion > currentVersion)
         {
             LunaLog.LogInfo($"A stable update is available: v{tag}");
-            LunaWindow.Instance.AddFrame(new UpdateInfoFrame(url, tag, DateTime.Parse(publishedAt, CultureInfo.InvariantCulture)));
+            // Commits between the running release's tag and the new one. If the current tag can't
+            // be found on the remote (never happens for a real published build), this comes back
+            // empty and the frame just omits the section.
+            var commits = await FetchCommitsAsync(client, ProgramInfo.Version, tag);
+            LunaWindow.Instance.AddFrame(new UpdateInfoFrame(url, tag, DateTime.Parse(publishedAt, CultureInfo.InvariantCulture), changelog: body, commits: commits));
         }
         else
         {
@@ -88,6 +98,7 @@ public static class UpdateChecker
         var data = JObject.Parse(await response.Content.ReadAsStringAsync());
 
         string? url = (string?)data["html_url"];
+        string? body = (string?)data["body"];
         var assets = data["assets"] as JArray;
         if (url == null || assets == null || assets.Count == 0) return;
 
@@ -117,10 +128,58 @@ public static class UpdateChecker
         }
 
         LunaLog.LogInfo($"A nightly update is available: {assetName}");
+        // Nightly builds have no changelog body, so the commit list IS the "what's new". Compare
+        // from this build's own commit when it knows it (a real nightly binary — stamped by the
+        // workflow), otherwise from the latest stable tag so a stable user checking the nightly
+        // channel still gets a meaningful range.
+        string baseRef = NightlyBuildInfo.CommitHash ?? ProgramInfo.Version;
+        var commits = await FetchCommitsAsync(client, baseRef, remoteCommit);
         LunaWindow.Instance.AddFrame(new UpdateInfoFrame(
             url, assetName,
             publishedAt != null ? DateTime.Parse(publishedAt, CultureInfo.InvariantCulture) : DateTime.Now,
-            isNightly: true));
+            isNightly: true, changelog: body, commits: commits));
+    }
+
+    /// <summary>Lists the commits in (baseRef, headRef] via GitHub's compare API. baseRef/headRef
+    /// may be tags or commit SHAs. Returns newest-first; any failure (unknown ref, offline, rate
+    /// limit) is logged and yields an empty list so the update frame simply hides the section
+    /// rather than failing the whole update check.</summary>
+    private static async Task<List<CommitInfo>> FetchCommitsAsync(HttpClient client, string baseRef, string headRef)
+    {
+        var result = new List<CommitInfo>();
+        if (string.IsNullOrEmpty(baseRef) || string.IsNullOrEmpty(headRef)) return result;
+
+        try
+        {
+            var response = await client.GetAsync($"{RepoApiBase}/compare/{baseRef}...{headRef}");
+            if (!response.IsSuccessStatusCode)
+            {
+                LunaLog.LogWarn($"Could not list commits {baseRef}...{headRef}: {(int)response.StatusCode} {response.ReasonPhrase}");
+                return result;
+            }
+
+            var data = JObject.Parse(await response.Content.ReadAsStringAsync());
+            if (data["commits"] is not JArray commits) return result;
+
+            foreach (var commit in commits)
+            {
+                string sha = (string?)commit["sha"] ?? "";
+                string message = (string?)commit["commit"]?["message"] ?? "";
+                string commitUrl = (string?)commit["html_url"] ?? "";
+                // Commit messages are "summary\n\nbody"; only the summary line is wanted here.
+                string summary = message.Split('\n', 2)[0].Trim();
+                result.Add(new CommitInfo(sha.Length >= 7 ? sha[..7] : sha, summary, commitUrl));
+            }
+
+            // GitHub returns the range oldest-first; show the newest commit at the top.
+            result.Reverse();
+        }
+        catch (Exception e)
+        {
+            LunaLog.LogWarn($"Failed to list commits {baseRef}...{headRef}: {e.Message}");
+        }
+
+        return result;
     }
 
     private static string? ExtractCommitHash(string assetName)

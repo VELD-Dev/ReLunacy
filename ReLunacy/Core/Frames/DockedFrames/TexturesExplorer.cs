@@ -1,6 +1,7 @@
 using Bliss.CSharp.Images;
 using Bliss.CSharp.Textures;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Assets.Cubemaps;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.Mobys;
 using ReLunacy.Engine.Assets.Ties;
@@ -55,6 +56,34 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     // when a channel-preview button is clicked, must be disposed before being replaced/dropped.
     private Texture2D? channelPreviewTexture;
 
+    // Environment cubemaps (section 0x5920). Their faces aren't in AssetManager's texture table, so
+    // the preview textures here are built and owned by this frame (see BuildCubemapFace/RebuildCubemap).
+    private readonly List<CubemapObject> cubemapObjects = [];
+
+    // The cubemap's real signal is a shared HDR exponent in the alpha channel, so a plain RGB view
+    // reads as near-white — HDR exposes rgb * 2^((a-128)/16 * exposure) tonemapped, which is what
+    // actually shows the environment. The single channels are the raw decoded bytes, grayscale.
+    private enum CubemapChannel { Hdr, Rgb, R, G, B, A }
+
+    private sealed class CubemapObject(Cubemap cubemap)
+    {
+        public readonly Cubemap Cubemap = cubemap;
+        public float Exposure = 1f;
+        public CubemapChannel Channel = CubemapChannel.Hdr;
+        public bool Dirty = true;
+        public readonly Texture2D?[] FaceTextures = new Texture2D?[cubemap.Faces.Count];
+        public readonly ImTextureRef[] FacePtrs = new ImTextureRef[cubemap.Faces.Count];
+
+        public void DisposeFaces()
+        {
+            for (int i = 0; i < FaceTextures.Length; i++)
+            {
+                FaceTextures[i]?.Dispose();
+                FaceTextures[i] = null;
+            }
+        }
+    }
+
     private enum UsageFilter { All, Used, Unused }
     private UsageFilter textureUsageFilter = UsageFilter.All;
 
@@ -90,6 +119,18 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         usedTextureIds = ComputeUsedTextureIds();
     }
 
+    private void TransmitCubemaps()
+    {
+        foreach (var obj in cubemapObjects) obj.DisposeFaces();
+        cubemapObjects.Clear();
+
+        var level = LunaWindow.Instance.Level;
+        if (level == null) return;
+
+        foreach (var cubemap in level.Cubemaps)
+            cubemapObjects.Add(new CubemapObject(cubemap)); // face textures built lazily on first render
+    }
+
     /// <summary>textureObjects wraps AssetManager-owned Texture2Ds that are about to be disposed —
     /// drop the reference before that happens rather than leaving a stale/dangling entry showing.</summary>
     public void OnLevelUnloading()
@@ -101,6 +142,9 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         relatedShaders = null;
         channelPreviewTexture?.Dispose();
         channelPreviewTexture = null;
+
+        foreach (var obj in cubemapObjects) obj.DisposeFaces();
+        cubemapObjects.Clear();
     }
 
     /// <summary>Rebuilds selectedTexturePtr as a grayscale view of a single channel of the
@@ -117,6 +161,158 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         channelPreviewTexture?.Dispose();
         channelPreviewTexture = new Texture2D(LunaWindow.Instance.GraphicsDevice, image, true);
         selectedTexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, channelPreviewTexture.DeviceTexture);
+    }
+
+    // Cross cell (row, col) for each face, parallel to Cubemap.FaceNames (+X,-X,+Y,-Y,+Z,-Z) — a
+    // standard horizontal cross, the same arrangement the RenderDoc reference used.
+    private static readonly (int Row, int Col)[] CrossCells =
+        [(1, 2), (1, 0), (0, 1), (2, 1), (1, 1), (1, 3)];
+
+    private void RenderCubemaps()
+    {
+        if (cubemapObjects.Count == 0) return;
+        if (!ImGui.CollapsingHeader(LM.Get("GUI_Frame_TextureExplorer_Cubemaps", cubemapObjects.Count), ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        string[] channelLabels = ["HDR", "RGB", "R", "G", "B", "A"];
+
+        for (int ci = 0; ci < cubemapObjects.Count; ci++)
+        {
+            var obj = cubemapObjects[ci];
+            ImGui.PushID(ci);
+
+            for (int i = 0; i < channelLabels.Length; i++)
+            {
+                if (i > 0) ImGui.SameLine();
+                if (ImGui.RadioButton(channelLabels[i], (int)obj.Channel == i))
+                {
+                    obj.Channel = (CubemapChannel)i;
+                    obj.Dirty = true;
+                }
+            }
+
+            if (obj.Channel == CubemapChannel.Hdr)
+            {
+                float exposure = obj.Exposure;
+                ImGui.SetNextItemWidth(220);
+                if (ImGui.SliderFloat(LM.Get("GUI_Frame_TextureExplorer_Cubemap_Exposure"), ref exposure, 0.1f, 4f))
+                {
+                    obj.Exposure = exposure;
+                    obj.Dirty = true;
+                }
+            }
+
+            if (obj.Dirty) RebuildCubemap(obj);
+
+            for (int f = 0; f < obj.Cubemap.Faces.Count; f++)
+            {
+                if (f > 0) ImGui.SameLine();
+                ImGui.BeginGroup();
+                if (obj.FaceTextures[f] != null)
+                    ImGui.Image(obj.FacePtrs[f], new Vector2(96, 96), Vector2.UnitY, Vector2.UnitX);
+                else
+                    ImGui.Dummy(new Vector2(96, 96));
+                ImGui.Text(Cubemap.FaceNames[f]);
+                ImGui.EndGroup();
+            }
+
+            ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Cubemap_Info", obj.Cubemap.FaceSize, obj.Cubemap.Faces.Count));
+            if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Cubemap_ExportCross")))
+                ExportCubemapCross(obj);
+
+            ImGui.PopID();
+            ImGui.Separator();
+        }
+    }
+
+    private static void RebuildCubemap(CubemapObject obj)
+    {
+        obj.Dirty = false;
+        var gd = LunaWindow.Instance.GraphicsDevice;
+
+        for (int f = 0; f < obj.Cubemap.Faces.Count; f++)
+        {
+            obj.FaceTextures[f]?.Dispose();
+            obj.FaceTextures[f] = null;
+
+            byte[]? rgba = BuildCubemapFace(obj.Cubemap.Faces[f], obj.Channel, obj.Exposure, out int w, out int h);
+            if (rgba == null) continue;
+
+            obj.FaceTextures[f] = new Texture2D(gd, new Image(w, h, rgba), false);
+            obj.FacePtrs[f] = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(gd.ResourceFactory, obj.FaceTextures[f]!.DeviceTexture);
+        }
+    }
+
+    /// <summary>Decodes one cubemap face and applies the current view mode. HDR reconstructs the
+    /// probe's brightness from the alpha exponent (rgb * 2^((a-128)/16 * exposure)) and tonemaps it;
+    /// the single-channel modes are the raw decoded bytes shown grayscale, same as the texture
+    /// channel preview.</summary>
+    private static byte[]? BuildCubemapFace(ITexture face, CubemapChannel channel, float exposure, out int w, out int h)
+    {
+        byte[]? rgba = ReLunacy.Engine.Rendering.TextureUtils.DecodeToRgba8888(face, out w, out h);
+        if (rgba == null) return null;
+
+        var result = new byte[rgba.Length];
+        for (int i = 0; i < rgba.Length; i += 4)
+        {
+            byte r = rgba[i], g = rgba[i + 1], b = rgba[i + 2], a = rgba[i + 3];
+            switch (channel)
+            {
+                case CubemapChannel.Hdr:
+                    float e = MathF.Pow(2f, (a - 128) / 16f * exposure);
+                    result[i + 0] = Tonemap(r / 255f * e);
+                    result[i + 1] = Tonemap(g / 255f * e);
+                    result[i + 2] = Tonemap(b / 255f * e);
+                    result[i + 3] = 255;
+                    break;
+                case CubemapChannel.Rgb:
+                    result[i + 0] = r; result[i + 1] = g; result[i + 2] = b; result[i + 3] = 255;
+                    break;
+                default:
+                    byte v = channel switch
+                    {
+                        CubemapChannel.R => r,
+                        CubemapChannel.G => g,
+                        CubemapChannel.B => b,
+                        _ => a,
+                    };
+                    result[i + 0] = v; result[i + 1] = v; result[i + 2] = v; result[i + 3] = 255;
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // Reinhard tonemap + gamma, so HDR values above 1 roll off instead of clipping flat white.
+    private static byte Tonemap(float c)
+    {
+        c = c / (1f + c);
+        return (byte)(Math.Clamp(MathF.Pow(c, 1f / 2.2f), 0f, 1f) * 255f);
+    }
+
+    private static void ExportCubemapCross(CubemapObject obj)
+    {
+        int fs = obj.Cubemap.FaceSize;
+        var cross = new byte[4 * fs * 3 * fs * 4]; // 4x3 grid of faces, RGBA, transparent by default
+
+        for (int f = 0; f < obj.Cubemap.Faces.Count; f++)
+        {
+            byte[]? face = BuildCubemapFace(obj.Cubemap.Faces[f], obj.Channel, obj.Exposure, out int w, out int h);
+            if (face == null || w != fs || h != fs) continue;
+
+            var (row, col) = CrossCells[f];
+            for (int y = 0; y < fs; y++)
+            {
+                int srcRow = y * fs * 4;
+                int dstRow = ((row * fs + y) * (4 * fs) + col * fs) * 4;
+                Array.Copy(face, srcRow, cross, dstRow, fs * 4);
+            }
+        }
+
+        var path = Path.Combine(Program.EditorPath, "Extracted");
+        if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+        new Image(4 * fs, 3 * fs, cross).SaveAsPng(Path.Combine(path, $"Cubemap_{obj.Cubemap.Id:X}_cross.png"));
     }
 
     /// <summary>Same "referenced by a loaded Moby/Tie/UFrag material" definition as
@@ -156,6 +352,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     {
         if (LunaWindow.Instance.AssetManager != null)
             TransmitTextures(LunaWindow.Instance.AssetManager);
+        TransmitCubemaps();
     }
 
     /// <summary>Selects the texture with the given asset id, e.g. when jumping here from another frame. Returns false if it isn't in the currently transmitted set.</summary>
@@ -309,6 +506,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
 
     protected override void Render(double deltaTime)
     {
+        RenderCubemaps();
+
         ImGui.InputTextWithHint(LM.Get("GUI_Frame_TextureExplorer_SearchLabel"), LM.Get("GUI_Frame_TextureExplorer_SearchHint", textureObjects.Count), ref inputText, 128);
 
         int filter = (int)textureUsageFilter;

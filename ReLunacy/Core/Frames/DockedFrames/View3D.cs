@@ -35,6 +35,10 @@ public class View3D : DockedFrame
     public float BakedLightScale { get => renderer.BakedLightScale; set => renderer.BakedLightScale = value; }
     public float BakedBumpFade { get => renderer.BakedBumpFade; set => renderer.BakedBumpFade = value; }
     public bool BakedDebugView { get => renderer.BakedDebugView; set => renderer.BakedDebugView = value; }
+    // Cubemap reflection: strength of the (normally near-invisible) reflection term, and a debug
+    // view that shows the raw reflection on everything. See LitModelShaderSource's ENVIRONMENT FILL.
+    public float ReflectionIntensity { get; set; } = 0.12f;
+    public bool ReflectionDebugView { get => renderer.ReflectionDebugView; set => renderer.ReflectionDebugView = value; }
     public Vector2 LightmapUVPivot { get => renderer.LightmapUVPivot; set => renderer.LightmapUVPivot = value; }
     public float LightmapUVRotation { get => renderer.LightmapUVRotation; set => renderer.LightmapUVRotation = value; }
     public Cam3D Camera { get; private set; }
@@ -104,16 +108,17 @@ public class View3D : DockedFrame
         // The game's cubemap reflection is additive and independent of the lightmap, which is what
         // keeps its baked shadows off pure black; without it ours fall to exactly albedo * 0.
         // Intensity stays 0 when the level has no cubemap, so nothing changes for those.
-        // Intensity is deliberately far below 1: the averaged colour folds the cubemap's alpha in
-        // as a LINEAR weight, but in the game alpha is an HDR EXPONENT (rgb * exp2(a*scale+bias))
-        // whose constants we can't source — treating a mid alpha as "half strength" instead of the
-        // small exp2 result it really encodes overestimates the fill several times over. At 1.0
-        // that added ~0.45 linear (~0.7 after gamma) to every specular surface, washing the whole
-        // scene to desaturated white (confirmed live). This is the knob to tune against the real
-        // game; the right long-term fix is decoding the exponent, not raising this.
+        // Intensity is deliberately far below 1: the cubemap decode can produce HDR values, and at
+        // full strength the additive term washes the scene out quickly. This is the remaining knob
+        // for matching the game's final exposure/specular scale.
         var env = Core.LunaWindow.Instance.Level?.EnvironmentAverage;
         renderer.EnvironmentColour = env ?? Vector3.One;
-        renderer.EnvironmentIntensity = env.HasValue ? 0.12f : 0f;
+        renderer.EnvironmentIntensity = env.HasValue ? ReflectionIntensity : 0f;
+        // The real cubemap the lit shader samples for reflections, in place of the flat average
+        // above. AssetManager always provides one (a 1x1 fallback when the level has none), so the
+        // lit effect's set 10 is always bound; EnvironmentIntensity being 0 above is what keeps a
+        // fallback from contributing. See AssetManager.BuildEnvironmentCubemap.
+        renderer.EnvironmentCubemap = Core.LunaWindow.Instance.AssetManager?.EnvironmentCubemapView;
 
         UpdateWindowSize();
         Tick(deltaTime);
