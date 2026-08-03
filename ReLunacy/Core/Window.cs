@@ -373,6 +373,7 @@ public class LunaWindow : Disposable
         {
             ViewMenuDraw.ShowOverlay();
             ImGui.Separator();
+            ViewMenuDraw.ShowLevelData();
             ViewMenuDraw.ShowView3D();
             ViewMenuDraw.ShowAssetViewer();
             ViewMenuDraw.ShowTextureExplorer();

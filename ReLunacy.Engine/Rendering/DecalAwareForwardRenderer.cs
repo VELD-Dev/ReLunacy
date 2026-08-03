@@ -50,6 +50,17 @@ public class DecalAwareForwardRenderer : IRenderer
     public float EnvironmentIntensity;
     // Debug: draw the raw cubemap reflection on everything (see LightData.ReflectionDebugView).
     public bool ReflectionDebugView;
+    // Fresnel F0 for the cubemap reflection (see LightData.ReflectionBase). 0 = specular-map-gated.
+    public float ReflectionBase;
+    // The level's analytic lighting environment (section 0x8b00), pushed by View3D from
+    // LevelData.LightingEnvironment. Lights undecoded (non-baked) surfaces with the game's own
+    // sun/ambient. HasLightingEnvironment stays false for levels without one (flat fallback).
+    public bool HasLightingEnvironment;
+    public Vector3 EnvDirection0 = Vector3.UnitY;
+    public Vector3 EnvDirection1 = Vector3.UnitY;
+    public Vector3 EnvAmbient;
+    public Vector3 EnvLight0Colour;
+    public Vector3 EnvLight1Colour;
     // The level's environment cubemap (AssetManager.EnvironmentCubemapView), sampled by the lit
     // effect for reflections. Scene-wide like LightBuffer — bound below for any effect that declares
     // the "fEnvCube" texture layout. View3D pushes this each frame, same pattern as EnvironmentColour.
@@ -112,6 +123,7 @@ public class DecalAwareForwardRenderer : IRenderer
             SpecularPower = MathF.Max(SpecularPower, 1f),
             CameraPosition = cam3D.Position,
             ReflectionDebugView = this.ReflectionDebugView ? 1f : 0f,
+            ReflectionBase = ReflectionBase,
             EnvironmentColour = EnvironmentColour,
             EnvironmentIntensity = EnvironmentIntensity,
             LightmapUVScale = LightmapUVScale,
@@ -121,6 +133,12 @@ public class DecalAwareForwardRenderer : IRenderer
             BakedDebugView = BakedDebugView ? 1f : 0f,
             LightmapUVPivot = LightmapUVPivot,
             LightmapUVRotation = LightmapUVRotation,
+            EnvHasLighting = HasLightingEnvironment ? 1f : 0f,
+            EnvDirection0 = EnvDirection0,
+            EnvDirection1 = EnvDirection1,
+            EnvAmbient = EnvAmbient,
+            EnvLight0Colour = EnvLight0Colour,
+            EnvLight1Colour = EnvLight1Colour,
         };
         _lightBuffer.SetValueDeferred(commandList, 0, ref lightData);
 

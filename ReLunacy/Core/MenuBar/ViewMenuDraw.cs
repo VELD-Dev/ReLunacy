@@ -25,6 +25,18 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new View3D(LunaWindow.Instance.GraphicsDevice));
     }
 
+    internal static void ShowLevelData()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LevelDataFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LevelData"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<LevelDataFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new LevelDataFrame());
+    }
+
     internal static void ShowEntityExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<BasicEntityExplorer>();

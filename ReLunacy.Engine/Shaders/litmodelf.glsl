@@ -30,10 +30,23 @@ layout(std140, set = 3, binding = 0) uniform LightBuffer {
     float uBakedLightScale;
     float uBakedBumpFade;
     float uBakedDebugView;
-    float _reserved1;
+    float uReflectionBase;
     vec2 uLightmapUVPivot;
     float uLightmapUVRotation;
     float _reserved2;
+    // The level's analytic lighting environment (section 0x8b00): two directional lights and an
+    // ambient, the game's OWN sun/ambient rather than the editor's fabricated one. Used for surfaces
+    // with no decoded bake (which on metropolis is everything). uEnvHasLighting gates the fallback.
+    vec3 uEnvDirection0;
+    float uEnvHasLighting;
+    vec3 uEnvDirection1;
+    float _padding4;
+    vec3 uEnvAmbient;
+    float _padding5;
+    vec3 uEnvLight0Colour;
+    float _padding6;
+    vec3 uEnvLight1Colour;
+    float _padding7;
 };
 
 layout (set = 4, binding = 0) uniform texture2D fAlbedo;
@@ -404,27 +417,22 @@ void main() {
     // Baked lighting replaces the dynamic sun entirely where present - they are two
     // answers to the same question, and summing them would double-light the scene.
     // Emissive stays INSIDE the light term either way, so it multiplies by albedo.
-    // THE GAME HAS NO DYNAMIC LIGHT. Every static surface's lighting is baked - either into
-    // a lightmap (0x5400/0x5410, the hasBaked path above) or per-VERTEX for geometry without
-    // one; only the player character gets computed shadows. So there is no directional sun
-    // to evaluate here, and fabricating one actively misrepresents the game: it lit the
-    // surfaces we haven't decoded with invented shading, which is why untextured-looking
-    // greys appeared next to correctly-baked terrain.
-    // Surfaces WITHOUT a decoded bake therefore get a flat editor fill (uAmbient) rather
-    // than a fake N.L - honest about being undecoded instead of pretending to be lit. The
-    // real value for them is the per-vertex modulator the captured vertex program builds as
-    //     tc1.x = fract(abs(in_pos.w) * vc[1].zw).x * vc[11].z
-    // where in_pos.w is the 4th short after the position: UFragVertex.unk, and the same slot
-    // ties call VertexFormat0.boneIndex. The fragment program then uses it as
-    // albedo = albedoScale * baseColour, i.e. it IS the vertex-baked light.
-    // Corroborated by Insomniac's own WWS debrief (Feb 08, dev/Ratchet_and_Clank_WWS_-
-    // Debrief_Feb_08.pdf), which states outright that their baked lighting is a MIX of
-    // lightmaps and per-vertex data. So the geometry carrying no lightmap index is not
-    // broken or unfinished - it is the other half of the intended system, and a complete
-    // implementation needs both paths. Decoding it
-    // needs vc[1].zw and vc[11].zw from a vertex-constants capture; fract() implies the
-    // field packs more than one value, so guessing is not viable.
-    vec3 undecodedFill = vec3(uAmbient);
+    // Surfaces WITHOUT a decoded bake are lit by the level's ANALYTIC LIGHTING ENVIRONMENT
+    // (section 0x8b00): an ambient plus two directional lights - the game's OWN sun/ambient,
+    // uploaded into the fragment constant bank at runtime and confirmed against a capture (see
+    // LightingEnvironmentReader). This corrects a long-standing wrong assumption here that "the game
+    // has no dynamic light / no analytic light data in the level files" - it does, this is it. The
+    // fabricated editor sun is only the fallback now (uEnvHasLighting = 0 for levels without one).
+    // N.L per light; directions are stored pointing toward the light.
+    // Still NOT the whole story: the game also modulates undecoded surfaces by a per-vertex baked
+    // term (tc1.x = fract(abs(in_pos.w) * vc[1].zw).x * vc[11].z, from UFragVertex.unk /
+    // VertexFormat0.boneIndex - the WWS debrief confirms baked lighting is a MIX of lightmaps and
+    // per-vertex data), which needs a vertex-constants capture to decode. But this is the game's
+    // real light rig rather than an invented one.
+    vec3 envDiffuse = uEnvAmbient
+        + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0F)
+        + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0F);
+    vec3 undecodedFill = mix(vec3(uAmbient), envDiffuse, uEnvHasLighting);
     vec3 lighting = mix(undecodedFill, bakedDiffuseLight, hasBaked) + emissiveIntensity;
 
     // The game modulates specular by the baked light buffer's ALPHA (monochrome specular
@@ -456,7 +464,16 @@ void main() {
     vec4 envTexel = texture(samplerCube(fEnvCube, fEnvCubeSampler), reflDir);
     float envExposure = exp2((envTexel.a * 255.0F - 128.0F) / 16.0F);
     vec3 envColour = envTexel.rgb * envExposure;
-    vec3 envFill = envColour * specularTint * uEnvironmentIntensity * specIntensity * bakedSpecLight;
+    // Reflectivity: the material's own specular map PLUS a Schlick-Fresnel base, so the environment
+    // reflects on flat surfaces too - this game reads as reflective almost everywhere, not only on
+    // specular-mapped texels. uReflectionBase is the head-on reflectance F0: 0 collapses to the old
+    // "specular map only" behaviour, up to 1 is a near-mirror everywhere; grazing angles always rise
+    // toward full reflection regardless. The cube is sampled at mip 0 (it has no mip chain), so the
+    // reflection is perfectly sharp - roughness 0 - which is what the game shows.
+    float NdotV = clamp(dot(worldNormal, viewDir), 0.0F, 1.0F);
+    float fresnel = uReflectionBase + (1.0F - uReflectionBase) * pow(1.0F - NdotV, 5.0F);
+    float reflectivity = clamp(specIntensity + fresnel, 0.0F, 1.0F);
+    vec3 envFill = envColour * specularTint * uEnvironmentIntensity * reflectivity * bakedSpecLight;
     // The dynamic sun's Phong highlight is gated OFF where a bake exists, same rule as the
     // diffuse term: the game's specular on baked surfaces IS the cubemap reflection (which
     // envFill stands in for), not a directional-light lobe. Leaving both on double-counted

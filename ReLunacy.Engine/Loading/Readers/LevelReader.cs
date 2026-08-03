@@ -25,6 +25,7 @@ public sealed class LevelReader
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
+    private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
 
     public LevelReader(FileManager fileManager)
     {
@@ -88,6 +89,9 @@ public sealed class LevelReader
         // Old engine only (section 0x5920). Independent of geometry, same as foliage.
         _cubemaps = new CubemapReader(_fileManager).ReadAll();
 
+        // Old-engine analytic lighting environment (section 0x8b00) — the game's real sun/ambient.
+        _lightingEnvironment = new LightingEnvironmentReader(_fileManager).Read();
+
         progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above — see MaterialReader.GetAllTextures.
@@ -108,7 +112,8 @@ public sealed class LevelReader
             zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
             foliages: _foliages,
-            cubemaps: _cubemaps);
+            cubemaps: _cubemaps,
+            lightingEnvironment: _lightingEnvironment);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -116,6 +121,7 @@ public sealed class LevelReader
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
+    public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
     public Assets.Levels.Region? Region => _region;
 }
 
@@ -166,6 +172,11 @@ public sealed class LevelData
     /// Usually one; empty when the level ships only a stub record (kerchu city) or on the new engine.</summary>
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps { get; }
 
+    /// <summary>The level's analytic lighting environment (old-engine section 0x8b00): the game's
+    /// real sun/ambient directions and colours. Null on the new engine or a level without it. See
+    /// Loading.Readers.LightingEnvironmentReader.</summary>
+    public Assets.Lighting.LightingEnvironment? LightingEnvironment { get; }
+
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
@@ -179,7 +190,8 @@ public sealed class LevelData
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
         System.Numerics.Vector3? environmentAverage = null,
         IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,
-        IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null)
+        IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null,
+        Assets.Lighting.LightingEnvironment? lightingEnvironment = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -194,5 +206,6 @@ public sealed class LevelData
         EnvironmentAverage = environmentAverage;
         Foliages = foliages ?? [];
         Cubemaps = cubemaps ?? [];
+        LightingEnvironment = lightingEnvironment;
     }
 }

@@ -39,6 +39,7 @@ public class View3D : DockedFrame
     // view that shows the raw reflection on everything. See LitModelShaderSource's ENVIRONMENT FILL.
     public float ReflectionIntensity { get; set; } = 0.12f;
     public bool ReflectionDebugView { get => renderer.ReflectionDebugView; set => renderer.ReflectionDebugView = value; }
+    public float ReflectionBase { get => renderer.ReflectionBase; set => renderer.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => renderer.LightmapUVPivot; set => renderer.LightmapUVPivot = value; }
     public float LightmapUVRotation { get => renderer.LightmapUVRotation; set => renderer.LightmapUVRotation = value; }
     public Cam3D Camera { get; private set; }
@@ -99,11 +100,6 @@ public class View3D : DockedFrame
         EntityManager.Singleton.VolumeWireThickness = Program.Settings.VolumeWireThickness;
         EntityManager.Singleton.VolumeColor = Program.Settings.VolumeColor;
         EntityManager.Singleton.VolumeSelectedColor = Program.Settings.VolumeSelectedColor;
-        renderer.LightDirection = Program.Settings.LightDirection;
-        renderer.LightColor = Program.Settings.LightColor;
-        renderer.Ambient = Program.Settings.LightAmbient;
-        renderer.SpecularPower = Program.Settings.LightSpecularPower;
-
         // Flat stand-in for the level's environment cubemap (see LevelData.EnvironmentAverage).
         // The game's cubemap reflection is additive and independent of the lightmap, which is what
         // keeps its baked shadows off pure black; without it ours fall to exactly albedo * 0.
@@ -119,6 +115,23 @@ public class View3D : DockedFrame
         // lit effect's set 10 is always bound; EnvironmentIntensity being 0 above is what keeps a
         // fallback from contributing. See AssetManager.BuildEnvironmentCubemap.
         renderer.EnvironmentCubemap = Core.LunaWindow.Instance.AssetManager?.EnvironmentCubemapView;
+
+        // The game's own analytic lighting (section 0x8b00) for non-baked surfaces, in place of the
+        // fabricated editor sun. Null on levels without one, in which case the shader keeps the flat
+        // ambient fallback. See LightingEnvironmentReader / LitModelShaderSource.
+        var lightEnv = Core.LunaWindow.Instance.Level?.LightingEnvironment;
+        renderer.HasLightingEnvironment = lightEnv != null;
+        if (lightEnv != null)
+        {
+            // Map the variable-length light list into the shader's two fixed slots; an absent light
+            // gets a zero colour so it contributes nothing (see LitModelShaderSource).
+            renderer.EnvAmbient = lightEnv.Ambient;
+            var lights = lightEnv.Lights;
+            renderer.EnvLight0Colour = lights.Count > 0 ? lights[0].Colour : Vector3.Zero;
+            renderer.EnvDirection0 = lights.Count > 0 ? lights[0].Direction : Vector3.UnitY;
+            renderer.EnvLight1Colour = lights.Count > 1 ? lights[1].Colour : Vector3.Zero;
+            renderer.EnvDirection1 = lights.Count > 1 ? lights[1].Direction : Vector3.UnitY;
+        }
 
         UpdateWindowSize();
         Tick(deltaTime);

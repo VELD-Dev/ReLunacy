@@ -58,5 +58,12 @@ internal static class RenderMenuDraw
         ImGui.SetNextItemWidth(120);
         if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.2f"))
             view.ReflectionIntensity = intensity;
+
+        // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a
+        // near-mirror everywhere. The game reads as reflective almost everywhere, so raise this.
+        float reflBase = view.ReflectionBase;
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionBase"), ref reflBase, 0f, 1f, "%.2f"))
+            view.ReflectionBase = reflBase;
     }
 }

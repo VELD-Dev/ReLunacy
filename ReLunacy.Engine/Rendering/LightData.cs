@@ -50,7 +50,11 @@ public struct LightData
     /// <summary>&gt;0.5 renders the raw baked light colour instead of shading, so "why is this
     /// black" splits into bake-is-black vs shading-kills-it at a glance.</summary>
     public float BakedDebugView;
-    private readonly float _padding2;
+    /// <summary>Head-on reflectance (Fresnel F0) for the cubemap reflection: 0 = reflect only where
+    /// the material's specular map says to (the faithful default), rising to 1 = near-mirror on every
+    /// surface. Grazing angles always reflect fully regardless. See LitModelShaderSource's ENVIRONMENT
+    /// FILL. Occupies the std140 slot after uBakedDebugView (was a reserved pad).</summary>
+    public float ReflectionBase;
 
     /// <summary>Pivot the lightmap UV rotation turns about, in UV space. Adjustable rather than
     /// fixed at the atlas centre on purpose: these are ATLAS coordinates, so rotating about (0.5,
@@ -62,4 +66,20 @@ public struct LightData
     /// offset. Research control — the game has no such rotation.</summary>
     public float LightmapUVRotation;
     private readonly float _padding3;
+
+    // The level's analytic lighting environment (main.dat section 0x8b00), the game's own sun/ambient
+    // — see Assets.Lighting.LightingEnvironment and the shader's undecoded-surface lighting. Two
+    // directional lights (Direction0/1 + Colour1/2) plus an ambient (Colour0). EnvHasLighting is >0.5
+    // only when the level actually supplied one; otherwise the shader falls back to the flat editor
+    // ambient. Each Vector3+float pair is one std140 16-byte block, same rule as the pairs above.
+    public Vector3 EnvDirection0;
+    public float EnvHasLighting;
+    public Vector3 EnvDirection1;
+    private readonly float _padding4;
+    public Vector3 EnvAmbient;   // Colour0
+    private readonly float _padding5;
+    public Vector3 EnvLight0Colour;   // Colour1
+    private readonly float _padding6;
+    public Vector3 EnvLight1Colour;   // Colour2
+    private readonly float _padding7;
 }
