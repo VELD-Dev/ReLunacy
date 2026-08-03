@@ -28,7 +28,7 @@ internal static class ViewMenuDraw
     internal static void ShowLevelData()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LevelDataFrame>();
-        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LevelData"), "", frameAlreadyOpen, true))
+        if (!ImGui.MenuItem(ImGuiPlus.Label(Icons.Map, LM.Get("GUI_Frame_LevelData")), "", frameAlreadyOpen, true))
             return;
 
         if (frameAlreadyOpen)

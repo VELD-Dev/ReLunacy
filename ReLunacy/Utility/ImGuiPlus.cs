@@ -105,6 +105,17 @@ public static class ImGuiPlus
         }
     }
 
+    /// <summary>Combines a Font Awesome glyph (see <see cref="Icons"/>) and text into one label with
+    /// a small gap, for use as a button/menu-item/header label — e.g.
+    /// <c>ImGui.MenuItem(ImGuiPlus.Label(Icons.FolderOpen, "Open level"))</c>. The icon is merged
+    /// into the default font, so it just renders inline with the text.</summary>
+    public static string Label(string icon, string text) => $"{icon}  {text}";
+
+    /// <summary>An icon-only button. <paramref name="id"/> keeps ImGui's label-based identity unique
+    /// when several buttons share the same glyph — pass something stable and distinct per button.</summary>
+    public static bool IconButton(string icon, string id, Vector2? size = null) =>
+        size is { } s ? ImGui.Button($"{icon}##{id}", s) : ImGui.Button($"{icon}##{id}");
+
     public static void CenteredText(string label, float pivot = 0.5f)
     {
         float horizontalSize = ImGui.CalcTextSize(label).X;

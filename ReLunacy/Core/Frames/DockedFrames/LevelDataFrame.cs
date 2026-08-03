@@ -1,6 +1,7 @@
 using System.Numerics;
 using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Scene;
+using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
@@ -32,10 +33,10 @@ public class LevelDataFrame : DockedFrame
             return;
         }
 
-        if (ImGui.CollapsingHeader(LM.Get("GUI_Frame_LevelData_Overview"), ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader(ImGuiPlus.Label(Icons.Info, LM.Get("GUI_Frame_LevelData_Overview")), ImGuiTreeNodeFlags.DefaultOpen))
             RenderOverview(level);
 
-        if (ImGui.CollapsingHeader(LM.Get("GUI_Frame_LevelData_Lighting"), ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader(ImGuiPlus.Label(Icons.Lightbulb, LM.Get("GUI_Frame_LevelData_Lighting")), ImGuiTreeNodeFlags.DefaultOpen))
             RenderLighting(level);
     }
 

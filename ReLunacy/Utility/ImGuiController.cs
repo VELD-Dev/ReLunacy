@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Bliss.CSharp.Interact;
 using Bliss.CSharp.Interact.Keyboards;
 using Bliss.CSharp.Interact.Mice;
@@ -69,14 +70,21 @@ public class ImGuiController : IDisposable
             if (File.Exists(fontAwesomePath))
             {
                 var config = ImGui.ImFontConfig();
-                config.MergeMode = true;
+                config.MergeMode = true;        // fold the icons into the default font's glyph space
                 config.PixelSnapH = true;
-                config.GlyphMinAdvanceX = 13f;
-                ushort[] ranges = [0xf000, 0xf9ff, 0];
-                fixed (ushort* rangesPtr = ranges)
-                {
-                    io.Fonts.AddFontFromFileTTF(fontAwesomePath, 13f, config);
-                }
+                config.GlyphMinAdvanceX = 13f;  // uniform advance so icons align in a column
+
+                // Font Awesome 6 icons live in the Private Use Area (0xE000-0xF8FF in this build).
+                // TWO reasons the old attempt silently failed: this ImGui is compiled with 32-bit
+                // ImWchar so ranges are uint (not ushort), AND the pinned array was never actually
+                // passed to AddFontFromFileTTF. The ranges pointer must OUTLIVE this call — ImGui
+                // keeps it and reads it lazily at atlas-build time — so it's allocated unmanaged and
+                // intentionally never freed (a one-time 12-byte leak, not per-frame). See Utility.Icons.
+                uint* iconRanges = (uint*)NativeMemory.Alloc((nuint)(3 * sizeof(uint)));
+                iconRanges[0] = 0xE000u;
+                iconRanges[1] = 0xF8FFu;
+                iconRanges[2] = 0u;
+                io.Fonts.AddFontFromFileTTF(fontAwesomePath, 13f, config, iconRanges);
                 config.Destroy();
             }
         }
