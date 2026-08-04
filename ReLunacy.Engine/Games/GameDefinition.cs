@@ -12,10 +12,8 @@ public enum GameId
 
 public sealed record GameDefinition(GameId Id, string DisplayName, bool IsOldEngine, IReadOnlyList<string> KnownLevels);
 
-// Level names are intentionally empty for now — fill in KnownLevels per game to enable
-// GameLibraryScanner's game-identification match. Detection/browsing itself works without
-// them (any folder or archive that looks like a level is still found), it just can't yet
-// tell you WHICH of the 6 games a USRDIR belongs to.
+// TODO: Add all Ratchet & Clank level names
+// TODO: Add Resistance games and their levels
 public static class GameDefinitions
 {
     public static readonly IReadOnlyList<GameDefinition> All =

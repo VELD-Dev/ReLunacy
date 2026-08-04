@@ -132,7 +132,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     public MouseGrabHandler mmbghandler = new() { mouseButton = Bliss.CSharp.Interact.Mice.MouseButton.Middle };
     private readonly GraphicsDevice graphicsDevice;
     private RenderTexture2D renderTexture;
-    private readonly IRenderer renderer;
+    private readonly DecalAwareForwardRenderer renderer;
     private readonly ImmediateRenderer immediateRenderer;
     private readonly PickingRenderer pickingRenderer;
     public readonly CommandList commandList;
@@ -809,6 +809,14 @@ public class AssetViewer : DockedFrame, ILevelListener
                     IsDirty = false;
                     LunaLog.LogDebug($"Updated {cachedRenderables.Count} renderables");
                 }
+
+                // The mesh materials are the shared AssetManager's, so with lighting enabled they use
+                // the lit effect, which declares the environment cubemap at set 10. This preview has
+                // its OWN renderer, distinct from View3D's, so it must bind the cube too — otherwise
+                // that descriptor set is left unbound and the GPU faults (segfault) the moment a lit
+                // mesh draws. AssetManager always provides a view (a 1x1 fallback when the level has
+                // no cubemap). See DecalAwareForwardRenderer / AssetManager.BuildLitModelEffect.
+                renderer.EnvironmentCubemap = assetManager?.EnvironmentCubemapView;
 
                 foreach (var renderable in cachedRenderables)
                     renderer.DrawRenderable(renderable);
