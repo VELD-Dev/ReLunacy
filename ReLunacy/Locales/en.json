@@ -177,6 +177,7 @@
         "GUI_Frame_ShaderBrowser_AlphaSection": "Alpha / Blend",
         "GUI_Frame_ShaderBrowser_RenderingMode": "renderingMode byte: {0}",
         "GUI_Frame_ShaderBrowser_FilterRenderMode": "Filter by render mode",
+        "GUI_Frame_ShaderBrowser_FilterUsage": "Filter by usage",
         "GUI_Frame_ShaderBrowser_AlphaClip": "alphaClip: {0}",
         "GUI_Frame_ShaderBrowser_AlphaKillCandidate": "AlphaKillCandidate (unverified): {0}",
         "GUI_Frame_ShaderBrowser_Unknown": "UNKNOWN",

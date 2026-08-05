@@ -40,6 +40,13 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     // rebuilt whenever the shader list changes, not per frame.
     private readonly List<(byte value, int count)> renderModeCounts = [];
 
+    // null = no filter; true = only shaders some loaded Moby/Tie/UFrag actually draws; false = only
+    // the ones nothing draws (foliage/effect/UI/cut-content records). See usedShaderTuids.
+    private bool? usedFilter;
+    // TUIDs of every shader reachable from this level's rendered geometry — rebuilt when the shader
+    // list changes, so the used/unused filter (and the per-row tag) is a set lookup, not a scan.
+    private readonly HashSet<ulong> usedShaderTuids = [];
+
     // Off by default (the hex dump alone is the more compact, general-purpose view) — toggled on
     // when hunting for a specific numeric value, e.g. a per-material decal-offset bias, across the
     // still-unidentified Unk byte ranges.
@@ -63,6 +70,22 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             .GroupBy(s => (byte)s.RenderingMode)
             .OrderBy(g => g.Key)
             .Select(g => (g.Key, g.Count())));
+
+        // A shader is "used" iff some loaded Moby/Tie/UFrag mesh resolved its material to that TUID.
+        // Computed once here rather than per row: the Shaders dictionary also carries records no
+        // rendered geometry references (cut content, effects, and — the reason this filter exists —
+        // foliage), and telling those apart from the drawn set is exactly what the filter surfaces.
+        usedShaderTuids.Clear();
+        foreach (var moby in level.Mobys.Values)
+            foreach (var bangle in moby.Bangles)
+                foreach (var mesh in bangle.Meshes)
+                    usedShaderTuids.Add(mesh.Material.Id);
+        foreach (var tie in level.Ties.Values)
+            foreach (var mesh in tie.Meshes)
+                usedShaderTuids.Add(mesh.Material.Id);
+        foreach (var zone in level.Zones.Values)
+            foreach (var ufrag in zone.UFrags)
+                usedShaderTuids.Add(ufrag.Material.Id);
     }
 
     public void OnLevelLoaded()
@@ -87,7 +110,9 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     {
         shaders.Clear();
         renderModeCounts.Clear();
+        usedShaderTuids.Clear();
         renderModeFilter = null;
+        usedFilter = null;
         selectedShader = -1;
         usageResults = null;
     }
@@ -124,10 +149,13 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (renderModeFilter.HasValue)
             result = result.Where(s => (byte)s.RenderingMode == renderModeFilter.Value);
 
+        if (usedFilter.HasValue)
+            result = result.Where(s => usedShaderTuids.Contains(s.TUID) == usedFilter.Value);
+
         if (!string.IsNullOrWhiteSpace(inputText))
             result = result.Where(s =>
                 (!string.IsNullOrEmpty(s.name) && s.name.Contains(inputText, StringComparison.OrdinalIgnoreCase)) ||
-                s.TUID.ToString("X").Contains(inputText, StringComparison.OrdinalIgnoreCase));
+                s.TUID.ToString().Contains(inputText, StringComparison.OrdinalIgnoreCase));
 
         return result;
     }
@@ -150,6 +178,26 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             ImGui.EndCombo();
         }
 
+        string usagePreview = usedFilter switch
+        {
+            true => LM.Get("GUI_Common_FilterUsed"),
+            false => LM.Get("GUI_Common_FilterUnused"),
+            null => LM.Get("GUI_Common_FilterAll"),
+        };
+        if (ImGui.BeginCombo(LM.Get("GUI_Frame_ShaderBrowser_FilterUsage"), usagePreview))
+        {
+            // Counted within the shader list (not usedShaderTuids.Count) so the two rows always add
+            // up to the total — a used TUID with no matching shader record would otherwise inflate it.
+            int usedCount = shaders.Count(s => usedShaderTuids.Contains(s.TUID));
+            if (ImGui.Selectable(LM.Get("GUI_Common_FilterAll"), usedFilter == null))
+                usedFilter = null;
+            if (ImGui.Selectable($"{LM.Get("GUI_Common_FilterUsed")} — {usedCount}", usedFilter == true))
+                usedFilter = true;
+            if (ImGui.Selectable($"{LM.Get("GUI_Common_FilterUnused")} — {shaders.Count - usedCount}", usedFilter == false))
+                usedFilter = false;
+            ImGui.EndCombo();
+        }
+
         var filtered = FilteredShaders().ToList();
 
         if (ImGui.BeginChild("shader_list", new(ImGui.GetContentRegionAvail().X / 3, ImGui.GetContentRegionAvail().Y), ImGuiChildFlags.Borders))
@@ -157,7 +205,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             foreach (var shader in filtered)
             {
                 bool isSelected = selectedShader >= 0 && selectedShader < shaders.Count && ReferenceEquals(shaders[selectedShader], shader);
-                string label = string.IsNullOrEmpty(shader.name) ? shader.TUID.ToString("X") : shader.name;
+                string label = string.IsNullOrEmpty(shader.name) ? shader.TUID.ToString() : shader.name;
                 if (ImGui.Selectable($"{label}##shader_{shader.TUID:X}", isSelected))
                 {
                     selectedShader = shaders.IndexOf(shader);
@@ -182,7 +230,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     private void DrawShaderDetail(Shader shader)
     {
         ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_Name", string.IsNullOrEmpty(shader.name) ? "-" : shader.name));
-        ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_Tuid", shader.TUID.ToString("X")));
+        ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_Tuid", shader.TUID.ToString()));
         ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_Engine", shader.isOld ? "Old" : "New"));
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_AlphaSection"));
