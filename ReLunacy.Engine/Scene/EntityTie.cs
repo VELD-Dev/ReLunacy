@@ -115,6 +115,7 @@ public class EntityTie : Entity
         foreach (var renderable in cachedRenderables)
             renderer.DrawRenderable(renderable);
 
+        Diagnostics.FrameProfiler.AddCounter("Tie draws", cachedRenderables.Count);
         EntitiesRenderedThisFrame++;
     }
 }

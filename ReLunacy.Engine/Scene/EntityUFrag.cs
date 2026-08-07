@@ -38,6 +38,12 @@ public class EntityUFrag : Entity
         var material = assetManager.GetOrBuildMaterial(ufrag.Material, ufrag.LightmapIndex);
         UFragMesh = new Mesh<Vertex3D>(gd, material, new BasicMeshData(vertices, indices));
 
+        // New-renderer geometry registry (Stage 11+): UFrags build their mesh here rather than via
+        // AssetManager.BuildModel, so register it too or the raw-Vulkan renderer never sees UFrag
+        // geometry. Keyed by this mesh instance; interleaved pos+uv+normal. See VulkanSceneCapture.
+        if (vertices.Length > 0 && indices.Length >= 3)
+            Rendering.Vulkan.VulkanSceneCapture.Register(UFragMesh, Rendering.AssetManager.InterleaveForVk(vertices), indices);
+
         // UFragVertex's raw per-vertex x/y/z are fixed-point shorts quantized ×256 on BOTH
         // engines (master's UFragVertex/OldUFragVertex structs are laid out identically — no
         // engine-specific scale) — using Scale = Vector3.One for new engine was rendering every
@@ -131,6 +137,7 @@ public class EntityUFrag : Entity
         foreach (var renderable in cachedRenderables)
             renderer.DrawRenderable(renderable);
 
+        Diagnostics.FrameProfiler.AddCounter("UFrag draws", cachedRenderables.Count);
         EntitiesRenderedThisFrame++;
     }
 

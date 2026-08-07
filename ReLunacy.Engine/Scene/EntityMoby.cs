@@ -5,6 +5,7 @@ using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using Bliss.CSharp.Transformations;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Engine.Rendering;
 using Veldrith;
 
@@ -62,7 +63,13 @@ public class EntityMoby : Entity
 
         // camera.Position is stored negated relative to world/entity positions (same convention
         // used throughout the editor — see PropertyInspectorFrame's distance-to-entity readout).
-        if (EntityManager.Singleton.MobyDistanceCullingEnabled && DisplayDistance >= 0 && Vector3.Distance(sphereCenter, -camera.Position) > DisplayDistance) return;
+        // DisplayDistance is already normalized so < 0 means unlimited (RegionReader); a finite,
+        // positive value is a real in-game cull radius.
+        if (EntityManager.Singleton.MobyDistanceCullingEnabled && DisplayDistance >= 0 && Vector3.Distance(sphereCenter, -camera.Position) > DisplayDistance)
+        {
+            FrameProfiler.AddCounter("Mobys distance-culled", 1);
+            return;
+        }
 
         if (Models is null) return;
 
@@ -81,6 +88,7 @@ public class EntityMoby : Entity
         foreach (var renderable in cachedRenderables)
             renderer.DrawRenderable(renderable);
 
+        FrameProfiler.AddCounter("Moby draws", cachedRenderables.Count);
         EntitiesRenderedThisFrame++;
     }
 }

@@ -3,6 +3,7 @@ using Bliss.CSharp.Camera.Dim3;
 using Bliss.CSharp.Graphics.Rendering.Renderers;
 using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using ReLunacy.Engine.Assets.Levels;
+using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Engine.Rendering;
 using Veldrith;
 
@@ -22,14 +23,15 @@ public class EntityManager : IDisposable
     public bool renderVolumes = true;
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
-    /// <summary>Skip drawing Mobys past their in-game display distance (read from the level's own
-    /// gameplay data). Defaults OFF, unlike <see cref="FrustumCullingEnabled"/> — the game only
-    /// relies on a short display distance because its camera stays near the player, but the
-    /// editor's free-fly camera has no such guarantee, so a real, fairly common in-game value
-    /// (many old-engine instances sit around 64 units) reads as "this Moby just isn't loading" the
-    /// moment the camera is anywhere else. Toggle on from the Render menu when specifically
-    /// checking what the game itself would render at the current camera position.</summary>
-    public bool MobyDistanceCullingEnabled = false;
+    /// <summary>Skip drawing Mobys past their in-game display distance (the per-instance display_dist
+    /// read from the level's own gameplay data — see MobyInstanceOld/New, normalized so ≤0 = unlimited
+    /// in RegionReader). Defaults ON: it matches what the game actually renders and is the single
+    /// biggest lever on Moby draw-call count, which dominates the CPU-bound scene-record cost on dense
+    /// levels. The trade-off is the editor's free-fly camera — the game keeps display distances short
+    /// because its camera hugs the player, so flying far from / high above the level culls Mobys that
+    /// would be visible in-game only from up close. Toggle off from the Render menu for a full-level
+    /// overview.</summary>
+    public bool MobyDistanceCullingEnabled = true;
     /// <summary>Absolute world-unit thickness of the edge geometry EntityVolume builds (see
     /// Primitives.CreateWireEdge) — the same for every volume regardless of its own size. This
     /// same geometry is both the visible wireframe box and its own GPU pick target — a solid pick
@@ -77,6 +79,15 @@ public class EntityManager : IDisposable
 
     public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
     {
+        // Reset here (once) so the per-entity AddCounters below accumulate clean per-frame totals.
+        // "* draws" = renderables (i.e. draw calls) contributed by each entity type AFTER culling —
+        // the composition that decides whether the next win is instancing or more culling.
+        FrameProfiler.SetCounter("Mobys distance-culled", 0);
+        FrameProfiler.SetCounter("Moby draws", 0);
+        FrameProfiler.SetCounter("Tie draws", 0);
+        FrameProfiler.SetCounter("UFrag draws", 0);
+        FrameProfiler.SetCounter("Foliage draws", 0);
+
         foreach (var region in Regions)
             region.Draw(renderer, od, cl, camera, immediateRenderer);
 

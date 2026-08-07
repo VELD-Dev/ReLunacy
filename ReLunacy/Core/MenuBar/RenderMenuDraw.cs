@@ -24,6 +24,12 @@ internal static class RenderMenuDraw
         EntityManager.Singleton.renderUFrags = !EntityManager.Singleton.renderUFrags;
     }
 
+    internal static void ShowFoliage()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderFoliage"), "", EntityManager.Singleton.renderFoliage, !Program.Settings.LegacyRenderingMode)) return;
+        EntityManager.Singleton.renderFoliage = !EntityManager.Singleton.renderFoliage;
+    }
+
     internal static void ShowVolumes()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes, !Program.Settings.LegacyRenderingMode)) return;

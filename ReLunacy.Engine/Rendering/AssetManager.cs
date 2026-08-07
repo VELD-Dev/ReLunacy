@@ -263,9 +263,50 @@ public sealed class AssetManager : IDisposable
             var mesh = meshes[i];
             var material = GetOrBuildMaterial(mesh.Material);
             var vertices = ConvertGeometryToVertices(mesh.Geometry, mesh.Material.UsesVertexAlphaCandidate);
-            bMeshes[i] = new Mesh<Vertex3D>(_gd, material, new BasicMeshData(vertices, mesh.Geometry.GetIndices()));
+            var indices = mesh.Geometry.GetIndices();
+
+            var bMesh = new Mesh<Vertex3D>(_gd, material, new BasicMeshData(vertices, indices));
+
+            // New-renderer Stage 11+: register this mesh's raw geometry (interleaved pos+uv+normal +
+            // indices) keyed by the Bliss mesh instance, so the raw-Vulkan renderer — which can't reach
+            // Veldrith's mesh buffers — can upload it and resolve each scene instance's IMesh back to
+            // its geometry. No effect on the normal render path.
+            if (vertices.Length > 0 && indices.Length >= 3)
+                Vulkan.VulkanSceneCapture.Register(bMesh, InterleaveForVk(vertices), indices);
+
+            bMeshes[i] = bMesh;
         }
         return new Model(_gd, bMeshes, null, []);
+    }
+
+    /// <summary>Packs a Bliss Vertex3D[] into the raw-Vulkan renderer's interleaved layout: position
+    /// xyz, texcoord uv, normal xyz (8 floats/vertex — see VulkanSceneCapture.FloatsPerVertex).</summary>
+    internal static float[] InterleaveForVk(Bliss.CSharp.Graphics.VertexTypes.Vertex3D[] vertices)
+    {
+        var data = new float[vertices.Length * Vulkan.VulkanSceneCapture.FloatsPerVertex];
+        for (int v = 0; v < vertices.Length; v++)
+        {
+            int o = v * Vulkan.VulkanSceneCapture.FloatsPerVertex;
+            data[o + 0] = vertices[v].Position.X;
+            data[o + 1] = vertices[v].Position.Y;
+            data[o + 2] = vertices[v].Position.Z;
+            data[o + 3] = vertices[v].TexCoords.X;
+            data[o + 4] = vertices[v].TexCoords.Y;
+            data[o + 5] = vertices[v].Normal.X;
+            data[o + 6] = vertices[v].Normal.Y;
+            data[o + 7] = vertices[v].Normal.Z;
+            data[o + 8] = vertices[v].Tangent.X;
+            data[o + 9] = vertices[v].Tangent.Y;
+            data[o + 10] = vertices[v].Tangent.Z;
+            data[o + 11] = vertices[v].Tangent.W;
+            data[o + 12] = vertices[v].TexCoords2.X;
+            data[o + 13] = vertices[v].TexCoords2.Y;
+            data[o + 14] = vertices[v].Color.X;
+            data[o + 15] = vertices[v].Color.Y;
+            data[o + 16] = vertices[v].Color.Z;
+            data[o + 17] = vertices[v].Color.W;
+        }
+        return data;
     }
 
     /// <summary>lightmapIndex: this instance's entry in the zone's baked-lighting lists (see
@@ -500,7 +541,12 @@ public sealed class AssetManager : IDisposable
     {
         var effect = new Effect(_gd, LitModelShaderSource.Vertex, LitModelShaderSource.Fragment, new CrossCompileOptions(), []);
         effect.AddBufferLayout("MatrixBuffer", 0u, SimpleBufferType.Uniform, ShaderStages.Vertex);
-        effect.AddBufferLayout("TransformBuffer", 1u, SimpleBufferType.Uniform, ShaderStages.Vertex);
+        // Slot 1 is the per-object world transform. Unlike the unlit effects (a per-draw uniform), the
+        // lit vertex shader reads it from a storage buffer indexed by gl_InstanceIndex — see
+        // litmodelv.glsl's InstanceTransforms — so DecalAwareForwardRenderer can upload every visible
+        // transform once and issue instanced draws. The layout is declared MANUALLY here (Bliss does
+        // not reflect it from the shader), so the name/type/slot MUST match the shader exactly.
+        effect.AddBufferLayout("InstanceTransforms", 1u, SimpleBufferType.StructuredReadOnly, ShaderStages.Vertex);
         effect.AddBufferLayout("MaterialBuffer", 2u, SimpleBufferType.Uniform, ShaderStages.Fragment);
         effect.AddBufferLayout("LightBuffer", 3u, SimpleBufferType.Uniform, ShaderStages.Fragment);
         effect.AddTextureLayout(MaterialMapType.Albedo.GetName(), 4u);

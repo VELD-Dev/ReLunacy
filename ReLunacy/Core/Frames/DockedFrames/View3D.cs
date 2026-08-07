@@ -10,6 +10,7 @@ using Bliss.CSharp.Textures;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
+using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using Veldrith;
@@ -84,6 +85,121 @@ public class View3D : DockedFrame
         selectionOutlineRenderer = new SelectionOutlineRenderer(gd);
 
         renderTexture = new RenderTexture2D(gd, 300u, 300u, true, (TextureSampleCount)Program.Settings.MSAA_Level);
+
+        // New-renderer Stage 8 (Docs/NewRenderer.md): opt-in via RELUNACY_VK_STAGE1=1. Created lazily
+        // in Render() once the asset system has captured a real mesh (VulkanSceneCapture) — it uploads
+        // that geometry into its own buffers and renders it, verifying by readback (display deferred
+        // with the flicker fix). Inert otherwise; wrapped so a failure never affects the normal path.
+        _vkEnabled = Environment.GetEnvironmentVariable("RELUNACY_VK_STAGE1") == "1";
+    }
+
+    private readonly bool _vkEnabled;
+    private int _vkForceOffFrames; // frames spent forcing Bliss culling off so a full unculled frame populates cachedRenderables before capture
+    private Engine.Rendering.Vulkan.VulkanRenderer? _vkStage;
+
+    // Assembles the raw-Vulkan scene from the geometry registry (VulkanSceneCapture) and the live
+    // per-instance world transforms (Entity.GetPickableMeshes, populated once the scene has drawn).
+    // Only geometries actually referenced by an instance are included, remapped to a compact index.
+    // Returns null until instances exist, so the caller retries on a later frame.
+    private (List<float[]> verts, List<uint[]> idx, List<Engine.Rendering.Vulkan.VkMaterialDesc> materials, List<(int geo, int mat, System.Numerics.Matrix4x4 world, System.Numerics.Vector4 sphere)> instances, Veldrith.Texture? envCube)? BuildVkScene()
+    {
+        if (Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData.Count == 0)
+            return null;
+
+        var verts = new List<float[]>();
+        var idx = new List<uint[]>();
+        var materials = new List<Engine.Rendering.Vulkan.VkMaterialDesc>();
+        var instances = new List<(int, int, System.Numerics.Matrix4x4, System.Numerics.Vector4)>();
+        var geoRemap = new Dictionary<int, int>();
+        var matRemap = new Dictionary<Bliss.CSharp.Materials.Material, int>(ReferenceEqualityComparer.Instance);
+
+        // Per-renderable (not per-mesh): a lit tie shares one IMesh across placements but carries a
+        // per-instance material with that placement's lightmap textures — so material is keyed per
+        // renderable while geometry stays keyed per mesh. Each also carries the entity's world bounding
+        // sphere (the game's own) for frustum culling.
+        foreach (var entity in Engine.Scene.EntityManager.Singleton.AllEntities())
+        {
+            foreach (var (mesh, material, world, sphere) in entity.GetRenderablesForVk())
+            {
+                if (!Engine.Rendering.Vulkan.VulkanSceneCapture.TryGet(mesh, out int gi))
+                    continue;
+                if (!geoRemap.TryGetValue(gi, out int geoSlot))
+                {
+                    geoSlot = verts.Count;
+                    verts.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]);
+                    idx.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.Indices[gi]);
+                    geoRemap[gi] = geoSlot;
+                }
+                if (!matRemap.TryGetValue(material, out int matSlot))
+                {
+                    matSlot = materials.Count;
+                    materials.Add(new Engine.Rendering.Vulkan.VkMaterialDesc
+                    {
+                        Albedo = TexOf(material, new Bliss.CSharp.Materials.MaterialMapKey(Bliss.CSharp.Materials.MaterialMapType.Albedo)),
+                        Normal = TexOf(material, new Bliss.CSharp.Materials.MaterialMapKey(Bliss.CSharp.Materials.MaterialMapType.Normal)),
+                        Props = TexOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fProperties")),
+                        LightColour = TexOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fLightColour")),
+                        LightDir = TexOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fLightDir")),
+                        // fLightColour's value slot is the "this material has a real bake" flag.
+                        HasBaked = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fLightColour")),
+                        ParallaxScale = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fParallaxScale")),
+                        ParallaxBias = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fParallaxBias")),
+                        AlphaThreshold = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey(Bliss.CSharp.Materials.MaterialMapType.Albedo)),
+                        RenderMode = material.RenderMode switch
+                        {
+                            Bliss.CSharp.Graphics.Rendering.RenderMode.Cutout => 1f,      // alpha-clip
+                            Bliss.CSharp.Graphics.Rendering.RenderMode.Translucent => 2f, // alpha-blended
+                            _ => 0f,                                                       // opaque
+                        },
+                    });
+                    matRemap[material] = matSlot;
+                }
+                instances.Add((geoSlot, matSlot, world, sphere));
+            }
+        }
+
+        if (instances.Count == 0)
+            return null;
+        // Scene-wide environment cubemap for reflections (AssetManager always provides one — a 1x1
+        // fallback when the level has none). The renderer reflects against it in the env-fill term.
+        var envCube = Core.LunaWindow.Instance.AssetManager?.EnvironmentCubemapView?.Target;
+        return (verts, idx, materials, instances, envCube);
+    }
+
+    // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
+    // per volume), handed to the VK renderer to draw as depth-tested thin-box edges — same geometry the
+    // pick target uses. Rebuilt every frame so selection colour, edits and the Render>Volumes toggle all
+    // take effect immediately without touching the static scene capture.
+    private readonly List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color)> _vkVolumes = new();
+    private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color)> BuildVolumeList()
+    {
+        _vkVolumes.Clear();
+        var em = Engine.Scene.EntityManager.Singleton;
+        if (em.renderVolumes)
+            foreach (var region in em.Regions)
+                foreach (var e in region.Volumes.Entities)
+                    if (e is Engine.Scene.EntityVolume v && v.allowRender)
+                    {
+                        var color = v.VolumeColour;
+                        foreach (var edge in v.GetWorldEdgeTransforms())
+                            _vkVolumes.Add((edge, color));
+                    }
+        return _vkVolumes;
+    }
+
+    // A material map's texture as a Veldrith texture, for the raw-Vulkan renderer to sample. Every
+    // material has albedo/normal/properties/fLightColour/fLightDir maps (AssetManager provides
+    // defaults), so these are normally non-null; null is handled by the renderer.
+    private static Veldrith.Texture? TexOf(Bliss.CSharp.Materials.Material mat, Bliss.CSharp.Materials.MaterialMapKey key)
+    {
+        try { return mat.GetMaterialMap(key)?.Texture?.DeviceTexture; }
+        catch { return null; }
+    }
+
+    private static float ValueOf(Bliss.CSharp.Materials.Material mat, Bliss.CSharp.Materials.MaterialMapKey key)
+    {
+        try { return mat.GetMaterialMap(key)?.Value ?? 0f; }
+        catch { return 0f; }
     }
 
     protected override void Render(double deltaTime)
@@ -136,6 +252,40 @@ public class View3D : DockedFrame
         UpdateWindowSize();
         Tick(deltaTime);
 
+        // New-renderer Stage 12 (Docs/NewRenderer.md): once the scene has drawn at least once (so its
+        // instances are known), assemble the WHOLE scene from the geometry registry + EntityManager's
+        // live per-instance world transforms and hand it to the raw-Vulkan renderer, which records one
+        // indexed draw per instance ONCE and replays it into a display texture with the LIVE camera.
+        // Lazy + retried each frame until instances exist. When active, the panel shows its output.
+        if (_vkEnabled && _vkStage == null)
+        {
+            // BuildVkScene reads cachedRenderables, which entities only populate when they pass Bliss's
+            // frustum/distance cull (EntityTie.Draw et al. return BEFORE building it). Two traps make a
+            // one-shot disable fail: Window.Update resets FrustumCullingEnabled from settings EVERY
+            // frame, and the level can finish loading at any time. So FORCE culling off on every
+            // pre-capture frame (overriding Window), and wait for at least one full unculled Bliss frame
+            // to populate every entity before capturing the WHOLE level. The VK renderer does its own
+            // per-frame frustum culling afterwards.
+            Engine.Scene.EntityManager.Singleton.FrustumCullingEnabled = false;
+            Engine.Scene.EntityManager.Singleton.MobyDistanceCullingEnabled = false;
+            if (++_vkForceOffFrames >= 2)
+            {
+                try
+                {
+                    var scene = BuildVkScene();
+                    if (scene is { } s)
+                        _vkStage = new Engine.Rendering.Vulkan.VulkanRenderer(graphicsDevice, s.verts, s.idx, s.materials, s.instances, s.envCube, renderTexture.Width, renderTexture.Height);
+                }
+                catch (Exception e) { LunaLog.LogError($"[VkRenderer] init failed: {e.Message}"); _vkStage = null; }
+            }
+        }
+
+        // "3D Record" = the CPU cost of building this frame's scene command list (culling checks,
+        // per-entity DrawRenderable calls, the outline pass). "3D Submit" below is the cost of
+        // handing that list to the GPU. Splitting them is what tells apart a CPU that spends its
+        // time recording draws from one that stalls on submission — the core question for this view,
+        // which is where the bulk of the app's per-frame GPU work originates.
+        var record = FrameProfiler.Sample("3D Record");
         commandList.Begin();
         commandList.SetFramebuffer(renderTexture.Framebuffer);
         commandList.ClearColorTarget(0, new RgbaFloat(0, 0, 0, 1));
@@ -146,9 +296,36 @@ public class View3D : DockedFrame
         Camera.Begin(commandList);
         Camera.Update(deltaTime);
 
+        // Replay the raw-Vulkan scene AFTER Camera.Update so its view matrix (GetView, rebuilt here)
+        // matches Camera.Position: Tick moves the camera before both, but GetView is only recomputed in
+        // Update, so sampling earlier gave a view one frame behind the position — reflections/parallax
+        // (which use uCameraPosition) then ran "ahead" of the geometry. Now both are the same frame.
+        if (_vkStage != null)
+        {
+            try { _vkStage.Frame(Camera.GetView() * Camera.GetProjection(), renderer.BuildLightData(Camera.Position), BuildVolumeList(), EntityManager.Singleton.VolumeWireThickness); }
+            catch (Exception e) { LunaLog.LogError($"[VkRenderer] frame failed: {e.Message}"); _vkStage = null; }
+        }
+
         immediateRenderer.Begin(commandList, renderTexture.Framebuffer.OutputDescription);
-        EntityManager.Singleton.Draw(renderer, renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
-        renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
+        // "Scene Enqueue" = walking every entity, culling it, and pushing its meshes into the
+        // renderer's batch (renderer.DrawRenderable). "Renderer Flush" (renderer.Draw, instrumented
+        // internally into Sort / Buffer Update / Draw Record) is where those batched renderables
+        // actually become GPU commands. This split is what tells apart "too much per-entity CPU
+        // work" from "too many draw calls".
+        // When the raw-Vulkan renderer owns the scene (Stage 12+), skip the entire Bliss scene path —
+        // walking/culling every entity and re-recording 10k+ draws each frame was the whole bottleneck,
+        // and its output isn't even displayed anymore (the panel shows the VK texture). The VK renderer
+        // replays its pre-recorded command buffer for ~one submit instead. NOTE: this also drops the
+        // Bliss-drawn overlays (volume wireframes) and freezes cachedRenderables — acceptable for now
+        // (overlays/gizmos render to the hidden Bliss texture regardless); they'll be ported to the VK
+        // path, along with live per-instance transform updates for editing, in a later stage.
+        if (_vkStage == null)
+        {
+            using (FrameProfiler.Sample("Scene Enqueue"))
+                EntityManager.Singleton.Draw(renderer, renderTexture.Framebuffer.OutputDescription, commandList, Camera, immediateRenderer);
+            using (FrameProfiler.Sample("Renderer Flush"))
+                renderer.Draw(commandList, renderTexture.Framebuffer.OutputDescription);
+        }
 
         // Drawn after the main opaque pass (not from inside Entity.Draw) since the inflated-hull
         // outline technique needs real scene depth already written to correctly clip to the rim.
@@ -171,7 +348,10 @@ public class View3D : DockedFrame
         Camera.End();
 
         commandList.End();
-        graphicsDevice.SubmitCommands(commandList);
+        record.Dispose();
+
+        using (FrameProfiler.Sample("3D Submit"))
+            graphicsDevice.SubmitCommands(commandList);
 
         var viewportPos = ImGui.GetCursorScreenPos();
         // No UV flip needed: the render texture already comes out right-side up and correctly
@@ -179,8 +359,11 @@ public class View3D : DockedFrame
         // whole 3D view (reported as "ties/world mirrored on X and Z") — removed, along with the
         // matching compensations it forced into PickEntityUnderCursor, GizmoController and
         // AxisGizmoRenderer.
+        // When the raw-Vulkan renderer is active it renders the scene into its own display texture
+        // (Stage 12) — show that instead of the Bliss render texture so we can see/fly its output.
+        var displayTexture = _vkStage?.ColorTexture ?? renderTexture.ColorTexture;
         ImGui.Image(
-            Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, renderTexture.ColorTexture),
+            Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, displayTexture),
             new Vector2(renderTexture.Width, renderTexture.Height),
             Vector2.Zero,
             Vector2.One);
@@ -284,6 +467,9 @@ public class View3D : DockedFrame
     {
         renderTexture.Resize((uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height);
         Camera.Resize((uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height);
+        // Keep the raw-Vulkan display texture (Stage 12) matched to the panel so ImGui shows it 1:1.
+        try { _vkStage?.Resize(graphicsDevice, (uint)FrameContentRegion.Width, (uint)FrameContentRegion.Height); }
+        catch (Exception e) { LunaLog.LogError($"[VkRenderer] Stage 12 resize failed: {e.Message}"); _vkStage = null; }
     }
 
     public void HandleShortcuts()

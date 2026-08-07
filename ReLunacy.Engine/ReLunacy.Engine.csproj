@@ -13,6 +13,10 @@
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
     <PackageReference Include="TinyBCSharp" Version="0.1.2" />
     <PackageReference Include="Veldrith" Version="1.2.19" />
+    <!-- Raw Vulkan for the new from-scratch renderer (Docs/NewRenderer.md). Pinned to exactly the
+         version Veldrith uses so the handles GraphicsDevice.GetVulkanInfo() returns are the same
+         Vortice types we consume. -->
+    <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 
   <ItemGroup>

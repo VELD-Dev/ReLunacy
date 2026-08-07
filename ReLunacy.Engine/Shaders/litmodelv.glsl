@@ -5,8 +5,14 @@ layout(std140, set = 0, binding = 0) uniform MatrixBuffer {
     mat4x4 uView;
 };
 
-layout(std140, set = 1, binding = 0) uniform TransformBuffer {
-    mat4x4 uTransformation;
+// Per-object world transforms for the whole batch, indexed by gl_InstanceIndex. Replaces the old
+// per-draw TransformBuffer uniform: the renderer uploads every visible instance's matrix ONCE into
+// this storage buffer and issues instanced draws, so there is no per-draw descriptor bind. The
+// matrix bytes are System.Numerics.Matrix4x4 uploaded as-is (no transpose), same convention the old
+// uniform used, so the maths below is unchanged. Named InstanceTransforms so the renderer detects an
+// instanced effect by this buffer's presence.
+layout(std430, set = 1, binding = 0) readonly buffer InstanceTransforms {
+    mat4x4 uTransforms[];
 };
 
 layout (location = 0) in vec3 vPosition;
@@ -28,6 +34,10 @@ layout (location = 5) out vec3 fWorldPos;
 layout (location = 6) out vec2 fTexCoords2;
 
 void main() {
+    // This draw's slice of the batch: gl_InstanceIndex = firstInstance (set per batch by the
+    // renderer) + the instance within the draw.
+    mat4x4 uTransformation = uTransforms[gl_InstanceIndex];
+
     fTexCoords = vTexCoords;
     fTexCoords2 = vTexCoords2;
     fColor = vColor;

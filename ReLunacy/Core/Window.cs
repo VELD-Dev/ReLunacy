@@ -13,6 +13,7 @@ using ReLunacy.Core.Frames;
 using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Rendering;
@@ -123,11 +124,26 @@ public class LunaWindow : Disposable
                 continue;
 
             Time.Update();
-            MainWindow.PumpEvents();
-            Input.Begin();
 
-            imGuiController.Update((float)Time.Delta);
-            Update(Time.Delta);
+            // Only instrument when something is actually displaying the breakdown — the scopes are
+            // cheap (a Stopwatch read each) but there is no reason to pay even that when nothing
+            // reads it. Read one frame ahead of BeginFrame is fine: toggling the frame on simply
+            // starts collecting on the next frame.
+            FrameProfiler.Enabled =
+                IsAnyFrameOpened<ProfilerFrame>() || (Overlay.showOverlay && Overlay.ShowProfiler);
+            FrameProfiler.BeginFrame();
+
+            using (FrameProfiler.Sample("Events"))
+            {
+                MainWindow.PumpEvents();
+                Input.Begin();
+            }
+
+            using (FrameProfiler.Sample("ImGui NewFrame"))
+                imGuiController.Update((float)Time.Delta);
+
+            using (FrameProfiler.Sample("Update"))
+                Update(Time.Delta);
 
             fixedUpdateTimer += Time.Delta;
             while (fixedUpdateTimer >= fixedUpdateTimeStep)
@@ -136,9 +152,12 @@ public class LunaWindow : Disposable
                 fixedUpdateTimer -= fixedUpdateTimeStep;
             }
 
-            Draw(graphicsDevice, CommandList);
+            using (FrameProfiler.Sample("Draw"))
+                Draw(graphicsDevice, CommandList);
+
             AfterUpdate();
             Input.End();
+            FrameProfiler.EndFrame();
         }
 
         LunaLog.LogInfo("Shutting down...");
@@ -380,6 +399,7 @@ public class LunaWindow : Disposable
             ViewMenuDraw.ShowShaderBrowser();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
+            ViewMenuDraw.ShowProfiler();
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();
             ViewMenuDraw.ShowPSArcExplorer();
@@ -393,6 +413,7 @@ public class LunaWindow : Disposable
             RenderMenuDraw.ShowMobys();
             RenderMenuDraw.ShowTies();
             RenderMenuDraw.ShowUFrags();
+            RenderMenuDraw.ShowFoliage();
             RenderMenuDraw.ShowVolumes();
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
@@ -467,30 +488,36 @@ public class LunaWindow : Disposable
 
     protected virtual void Draw(GraphicsDevice graphicsDevice, CommandList commandList)
     {
-        commandList.Begin();
-        commandList.SetFramebuffer(FullScreenTexture.Framebuffer);
-        commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
-        commandList.ClearDepthStencil(1.0f);
+        using (FrameProfiler.Sample("ImGui Render"))
+        {
+            commandList.Begin();
+            commandList.SetFramebuffer(FullScreenTexture.Framebuffer);
+            commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
+            commandList.ClearDepthStencil(1.0f);
 
-        imGuiController.Render(graphicsDevice, commandList);
+            imGuiController.Render(graphicsDevice, commandList);
 
-        commandList.End();
-        graphicsDevice.SubmitCommands(commandList);
+            commandList.End();
+            graphicsDevice.SubmitCommands(commandList);
+        }
 
-        commandList.Begin();
+        using (FrameProfiler.Sample("Composite"))
+        {
+            commandList.Begin();
 
-        if (FullScreenTexture.SampleCount != TextureSampleCount.Count1)
-            commandList.ResolveTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
-        else
-            commandList.CopyTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
+            if (FullScreenTexture.SampleCount != TextureSampleCount.Count1)
+                commandList.ResolveTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
+            else
+                commandList.CopyTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
 
-        commandList.SetFramebuffer(graphicsDevice.SwapchainFramebuffer);
-        commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
+            commandList.SetFramebuffer(graphicsDevice.SwapchainFramebuffer);
+            commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
 
-        FullScreenRenderer.Draw(commandList, FinalFullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
+            FullScreenRenderer.Draw(commandList, FinalFullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
 
-        commandList.End();
-        graphicsDevice.SubmitCommands(commandList);
+            commandList.End();
+            graphicsDevice.SubmitCommands(commandList);
+        }
         // Veldrith's Vulkan backend only signals a render-finished semaphore before presenting
         // when the present queue differs from the graphics queue — on a shared queue (the common
         // case on desktop GPUs), SwapBuffers's vkQueuePresentKHR call waits on nothing at all, so
@@ -499,8 +526,15 @@ public class LunaWindow : Disposable
         // 3D viewport and the GUI since both are already composited into this image by here).
         // WaitForIdle was previously called before this Submit instead of after, which only waited
         // on the *prior* frame's work and left this exact gap uncovered.
-        graphicsDevice.WaitForIdle();
-        graphicsDevice.SwapBuffers();
+        //
+        // This is also the frame's single most diagnostic number: WaitForIdle blocks the CPU until
+        // the GPU has drained everything submitted above, so its duration is the GPU tail (see
+        // FrameProfiler's class summary). If this phase dominates the frame, the bottleneck is the
+        // GPU or this forced full sync — not CPU submission.
+        using (FrameProfiler.Sample(FrameProfiler.GpuWaitPhase))
+            graphicsDevice.WaitForIdle();
+        using (FrameProfiler.Sample(FrameProfiler.PresentPhase))
+            graphicsDevice.SwapBuffers();
     }
 
     protected virtual void OnClose() { }

@@ -78,6 +78,29 @@ public abstract class Entity : IDisposable
         return results;
     }
 
+    /// <summary>Like <see cref="GetPickableMeshes"/> but keeps each renderable's MATERIAL — needed by
+    /// the raw-Vulkan renderer for per-instance materials, above all lit ties, whose lightmap textures
+    /// live on a per-placement Renderable material (EntityTie builds
+    /// <c>new Renderable(mesh, Transform, perInstanceMaterial)</c>), not on the shared mesh's material.
+    /// Populated from the last Draw() call; same per-instance transform handling as GetPickableMeshes.</summary>
+    public IEnumerable<(Bliss.CSharp.Geometry.Meshes.IMesh mesh, Bliss.CSharp.Materials.Material material, Matrix4x4 world, Vector4 sphere)> GetRenderablesForVk()
+    {
+        // The game's own per-entity world bounding sphere (xyz centre, w radius) — the exact one Bliss's
+        // frustum cull uses (see EntityTie.Draw et al.). Shared across the entity's renderables, so the
+        // raw-Vulkan renderer culls at entity granularity like the game rather than from a looser
+        // per-mesh AABB sphere.
+        var sphere = WorldBoundingSphere;
+        var results = new List<(Bliss.CSharp.Geometry.Meshes.IMesh, Bliss.CSharp.Materials.Material, Matrix4x4, Vector4)>();
+        foreach (var renderable in cachedRenderables)
+        {
+            var transforms = renderable.GetTransforms();
+            int count = (int)renderable.InstanceCount;
+            for (int i = 0; i < count; i++)
+                results.Add((renderable.Mesh, renderable.Material, transforms[i].GetMatrix(), sphere));
+        }
+        return results;
+    }
+
     public virtual void DrawBoundingSphere(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
     {
         var sphere = WorldBoundingSphere;

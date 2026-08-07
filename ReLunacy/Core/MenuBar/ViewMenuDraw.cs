@@ -37,6 +37,18 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new LevelDataFrame());
     }
 
+    internal static void ShowProfiler()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ProfilerFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_Profiler"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ProfilerFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new ProfilerFrame());
+    }
+
     internal static void ShowEntityExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<BasicEntityExplorer>();

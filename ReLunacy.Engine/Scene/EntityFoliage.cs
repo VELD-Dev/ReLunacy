@@ -145,6 +145,7 @@ public class EntityFoliage : Entity
         foreach (var renderable in cachedRenderables)
             renderer.DrawRenderable(renderable);
 
+        Diagnostics.FrameProfiler.AddCounter("Foliage draws", cachedRenderables.Count);
         EntitiesRenderedThisFrame++;
     }
 }

@@ -164,6 +164,20 @@ public class EntityVolume : Entity
         RebuildEdgeRenderable();
     }
 
+    /// <summary>The 12 world matrices of this volume's wireframe edges — each places/stretches the
+    /// shared unit-length edge mesh (see RecomputeEdgeTransforms / ComposeEdgeTransform). The raw-Vulkan
+    /// renderer draws the same thin-box edge geometry at these, so its wireframe matches the pick target
+    /// exactly (and honours VolumeWireThickness). Same composition as the Renderables: local * Transform.</summary>
+    public IEnumerable<Matrix4x4> GetWorldEdgeTransforms()
+    {
+        var vol = Transform.GetMatrix();
+        foreach (var e in _edgeTransforms)
+            yield return e.GetMatrix() * vol;
+    }
+
+    /// <summary>Current wireframe colour (RGBA, 0..1): the selected or unselected volume tint.</summary>
+    public Vector4 VolumeColour => selected ? EntityManager.Singleton.VolumeSelectedColor : EntityManager.Singleton.VolumeColor;
+
     /// <summary>Recomputes the 12 per-edge local Transforms (position/orientation/length) from the
     /// current <see cref="scale"/> — each edge is a unit-length instance of
     /// <see cref="SharedEdgeMesh"/> stretched along its own local X (see
