@@ -36,17 +36,17 @@
 
 | Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs | Foliages | Particles | Volumes & Triggers |
 |---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:------:|:--------:|:---------:|:------------------:|
-| Resistance: Fall Of Man               |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance 2                          |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: A Crack In Time      |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance: Retribution               |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: All 4 One            |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance 3                          |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Full Frontal Assault |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance: Burning Skies             |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Into the Nexus       |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
+| Resistance: Fall Of Man               |      Old+      |    🚧    |    🚧    |         🚧         |   🚧   |  🚧   |   🚧   |   ❌    |    ❌     |     ❌     |         🚧          |
+| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Resistance 2                          |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Ratchet & Clank: A Crack In Time      |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Resistance: Retribution               |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Ratchet & Clank: All 4 One            |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Resistance 3                          |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Ratchet & Clank: Full Frontal Assault |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Resistance: Burning Skies             |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
+| Ratchet & Clank: Into the Nexus       |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅   |   ❌    |    ❌     |     ❌     |         ✅          |
 
 Notes:
 - **¹** : Textures are supported but some artifacts remain.
