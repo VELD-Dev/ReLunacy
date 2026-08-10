@@ -16,3 +16,4 @@ LocalPackages/
 *.rdc  # RenderDoc captures
 .claude/
 dev/
+/nuget.config
