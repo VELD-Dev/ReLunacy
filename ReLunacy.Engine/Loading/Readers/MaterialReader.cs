@@ -76,14 +76,14 @@ public sealed class MaterialReader
             properties: shader.Expensive != null ? WrapTexture(shader.Expensive) : null,
             detail: shader.DetailMap != null ? WrapTexture(shader.DetailMap) : null,
             renderMode: ToRenderMode(shader.RenderingMode),
+            // The game's own 0-6 mode, carried raw for renderers that implement its real RSX states
+            // (see IMaterial.GameRenderMode). Values outside 0-6 aren't render modes — clamp to Opaque.
+            gameRenderMode: (byte)shader.RenderingMode <= 6 ? (byte)shader.RenderingMode : (byte)0,
             alphaClipThreshold: GetAlphaClip(shader),
             usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo),
             parallaxScale: GetParallaxScale(shader),
             parallaxBias: GetParallaxBias(shader),
             detailTiling: GetDetailTiling(shader),
-            detailNormalStrength: shader.isOld ? shader.metadataOld!.Value.detailNormalStrength : 0f,
-            detailSpecStrength: shader.isOld ? shader.metadataOld!.Value.detailSpecStrength : 0f,
-            detailAlbedoStrength: shader.isOld ? shader.metadataOld!.Value.detailAlbedoStrength : 0f,
             usesDetailMap: UsesDetailMap(shader));
         material.Name = shader.name;
 
@@ -228,8 +228,12 @@ public sealed class MaterialReader
     // says whether a given mesh's ambiguous vertex field means bone index, vertex alpha, or vertex
     // color (not yet found). Until that's identified, this is the one condition confirmed to
     // correlate: a blending render mode with no albedo alpha to source transparency from.
+    // Opacity comes from the albedo's own alpha whenever it HAS one; the per-vertex alpha is the
+    // fallback for a transparency-using material whose albedo has no alpha channel to source it from.
+    // Applies to every non-Opaque mode, not just a subset: Scunge and Additive blend just as much as
+    // Overlay/Soft-Edge/Blended do, and Cutout tests alpha, so all of them need somewhere to read it.
     private static bool UsesVertexAlphaCandidate(RenderingMode mode, ITexture? albedo) =>
-        mode is RenderingMode.Overlay or RenderingMode.SoftEdge or RenderingMode.Blended && !HasAlphaChannel(albedo);
+        mode != RenderingMode.Opaque && !HasAlphaChannel(albedo);
 
     // A1R5G5B5/RGBA4 carry real (if low-precision) alpha bits, same as A8R8G8B8/DXT3/DXT5 —
     // included here for the same reason those are: UsesVertexAlphaCandidate should only kick in

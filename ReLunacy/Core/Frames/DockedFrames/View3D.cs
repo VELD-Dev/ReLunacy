@@ -133,6 +133,10 @@ public class View3D : DockedFrame
                 if (!matRemap.TryGetValue(material, out int matSlot))
                 {
                     matSlot = materials.Count;
+                    byte vkMode = 0;
+                    bool vkVertexAlpha = false;
+                    var am = Core.LunaWindow.Instance.AssetManager;
+                    if (am != null) am.TryGetVkMaterialInfo(material, out vkMode, out vkVertexAlpha);
                     materials.Add(new Engine.Rendering.Vulkan.VkMaterialDesc
                     {
                         Albedo = TexOf(material, new Bliss.CSharp.Materials.MaterialMapKey(Bliss.CSharp.Materials.MaterialMapType.Albedo)),
@@ -145,13 +149,12 @@ public class View3D : DockedFrame
                         ParallaxScale = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fParallaxScale")),
                         ParallaxBias = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fParallaxBias")),
                         AlphaThreshold = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey(Bliss.CSharp.Materials.MaterialMapType.Albedo)),
-                        UsesVertexAlpha = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fVertexAlpha")),
-                        RenderMode = material.RenderMode switch
-                        {
-                            Bliss.CSharp.Graphics.Rendering.RenderMode.Cutout => 1f,      // alpha-clip
-                            Bliss.CSharp.Graphics.Rendering.RenderMode.Translucent => 2f, // alpha-blended
-                            _ => 0f,                                                       // opaque
-                        },
+                        // The game's own 0-6 mode + vertex-alpha flag. These come from AssetManager's
+                        // side table, not a MaterialMap: Bliss only has 8 map slots and they are all
+                        // used, so a 9th silently fails to register and reads back as 0 (which made
+                        // every material look Opaque and turned all transparency off).
+                        GameRenderMode = vkMode,
+                        UsesVertexAlpha = vkVertexAlpha ? 1f : 0f,
                     });
                     matRemap[material] = matSlot;
                 }

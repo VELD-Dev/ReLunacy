@@ -18,8 +18,25 @@ public struct VkMaterialDesc
     public float ParallaxScale;
     public float ParallaxBias;
     public float AlphaThreshold;
-    public float RenderMode; // 0 = opaque, 1 = cutout (alpha-clip)
+    /// <summary>The GAME's rendering mode (0 Opaque, 1 Overlay, 2 Additive, 3 Scunge, 4 Cutout,
+    /// 5 Soft-Edge, 6 Blended) — the renderer implements each one's real RSX blend/depth/alpha state.
+    /// See IMaterial.GameRenderMode and dev/chatgpt-eboot-{1,2,3}.txt.</summary>
+    public float GameRenderMode;
     public float UsesVertexAlpha; // 1 = opacity comes from the per-vertex alpha, not the albedo's alpha
+}
+
+/// <summary>The game's rendering modes (ShaderMetadataOld 0x11), with the RSX states the EBOOT reverse
+/// established for each (dev/chatgpt-eboot-{1,2,3}.txt). Overlay/Scunge/Blended all alpha-blend but are
+/// NOT interchangeable; Additive is SrcAlpha/One (adds light); Soft-Edge is genuinely two passes.</summary>
+public enum GameRenderMode : byte
+{
+    Opaque = 0,   // blend off, depth write on, no alpha test
+    Overlay = 1,  // SrcAlpha/OneMinusSrcAlpha, no depth write, polygon offset (decal)
+    Additive = 2, // SrcAlpha/One, no depth write
+    Scunge = 3,   // SrcAlpha/OneMinusSrcAlpha, no depth write
+    Cutout = 4,   // depth write on, alpha test GEQUAL 128/255
+    SoftEdge = 5, // pass 1: depth-only prepass, alpha test ~128/255; pass 2: blended, alpha test 4/255
+    Blended = 6,  // SrcAlpha/OneMinusSrcAlpha, no depth write, sorted back-to-front
 }
 
 /// <summary>Geometry registry bridging the asset system to the from-scratch renderer (Docs/NewRenderer.md,

@@ -170,9 +170,11 @@ public class EntityVolume : Entity
     /// exactly (and honours VolumeWireThickness). Same composition as the Renderables: local * Transform.</summary>
     public IEnumerable<Matrix4x4> GetWorldEdgeTransforms()
     {
-        var vol = Transform.GetMatrix();
+        // _edgeTransforms are ALREADY world transforms: ComposeEdgeTransform folds this volume's own
+        // Transform in when it builds them. Composing again here would apply the volume's placement
+        // twice and offset every box.
         foreach (var e in _edgeTransforms)
-            yield return e.GetMatrix() * vol;
+            yield return e.GetMatrix();
     }
 
     /// <summary>Current wireframe colour (RGBA, 0..1): the selected or unselected volume tint.</summary>

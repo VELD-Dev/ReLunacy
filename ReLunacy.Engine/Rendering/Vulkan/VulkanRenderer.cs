@@ -98,7 +98,10 @@ void shade(out vec3 litColor, out float litAlpha) {
     float height = texture(uProps, fUV).g * uMat0.y + uMat0.z;
     vec2 uv = fUV + viewDirTS.xy * height;
     vec4 albedoTex = texture(uAlbedo, uv);
-    if (uMat1.x > 0.5 && uMat1.x < 1.5 && albedoTex.a <= uMat0.w) discard; // cutout
+    // Alpha test, GEQUAL against the mode's hardcoded reference (uMat0.w; 0 = no test). Cutout uses
+    // 128/255, the blended paths 4/255 - see dev/chatgpt-eboot-{2,3,5}.txt. Sourced like litAlpha below.
+    float testAlpha = uMat1.y > 0.5 ? fColor.a : albedoTex.a;
+    if (uMat0.w > 0.0 && testAlpha < uMat0.w) discard;
     vec4 nrmSample = texture(uNormal, uv);
     vec2 derivativeSum = vec2(nrmSample.a * 2.0 - 1.0, nrmSample.g * 2.0 - 1.0);
     vec3 worldNormal = normalize(tbn * normalize(vec3(derivativeSum, 1.0)));
@@ -154,6 +157,11 @@ void main() {
     accum = vec4(c * a, a) * w;
     reveal = a;
 }";
+    // Additive (mode 2): the pipeline blends SrcAlpha/One, so the shader just outputs the lit colour and
+    // its alpha (which scales the contribution). No OIT needed - addition is order-independent already.
+    private const string FragmentAdditiveGlsl = LitFragCommon + @"
+layout(location = 0) out vec4 o;
+void main() { vec3 c; float a; shade(c, a); o = vec4(c, a); }";
     private const string ResolveVertexGlsl = @"#version 450
 void main() {
     vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
@@ -195,9 +203,13 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly int[] _drawVertexOffset;
     private readonly int[] _drawMatSlot;
     private readonly Vector4[] _matPC0;
-    private readonly float[] _matRenderMode;
+    private readonly float[] _matRenderMode;   // the game's mode 0-6 (pushed as uMat1.x)
     private readonly float[] _matVertexAlpha;
-    private readonly int _translucentStart;
+    private readonly float[] _matAlphaRef;     // per-mode alpha-test reference (GEQUAL), 0 = no test
+    // Bucket boundaries in the mode-sorted instance list: [0,_overStart) opaque+cutout,
+    // [_overStart,_addStart) over-blended (WBOIT), [_addStart,_softStart) additive,
+    // [_softStart,_instanceCount) soft-edge (drawn twice: depth prepass + WBOIT).
+    private readonly int _overStart, _addStart, _softStart;
 
     // Frustum culling: static per-instance world bounding spheres, plus per-frame scratch. The visible
     // lists hold indices into the sorted static arrays, ordered (so material-run batching still holds);
@@ -209,7 +221,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly int[] _chunkCounts;
     private readonly int[] _visibleOpaque;
     private readonly int[] _visibleTranslucent;
-    private int _visOpaqueCount, _visTransCount;
+    private readonly int[] _visibleAdditive;
+    private readonly int[] _visibleSoftEdge;
+    private int _visOpaqueCount, _visTransCount, _visAddCount, _visSoftCount;
 
     private uint _width, _height;
     private readonly Texture _envCube;
@@ -227,9 +241,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private VkImageView[] _texViews = [];
     private VkDescriptorSet[] _matSets = [];
     private VkRenderPass _rpOpaque, _rpAccum, _rpResolve;
-    private VkShaderModule _vs, _fsOpaque, _fsAccum, _resolveVs, _resolveFs, _volumeVs, _volumeFs;
+    private VkShaderModule _vs, _fsOpaque, _fsAccum, _fsAdditive, _resolveVs, _resolveFs, _volumeVs, _volumeFs;
     private VkPipelineLayout _layout, _resolveLayout, _volumeLayout;
     private VkPipeline _pipelineOpaque, _pipelineAccum, _pipelineResolve, _volumePipeline;
+    private VkPipeline _pipelineSoftEdgeDepth, _pipelineAdditive;
 
     // Thin-box edge geometry (a unit-length cross of two thin quads, matching Primitives.CreateWireEdge:
     // 8 verts, 12 tri indices; thickness-dependent, host-mapped so it rebuilds when the setting changes)
@@ -264,11 +279,25 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _matPC0 = new Vector4[materials.Count];
         _matRenderMode = new float[materials.Count];
         _matVertexAlpha = new float[materials.Count];
+        _matAlphaRef = new float[materials.Count];
         for (int i = 0; i < materials.Count; i++)
         {
-            _matPC0[i] = new Vector4(materials[i].HasBaked, materials[i].ParallaxScale, materials[i].ParallaxBias, materials[i].AlphaThreshold);
-            _matRenderMode[i] = materials[i].RenderMode;
+            var mode = (GameRenderMode)(byte)materials[i].GameRenderMode;
+            // Alpha-test references are HARDCODED per mode by the engine, not per material — the old
+            // ShaderMetadata 0x20 "alphaClip" turned out to be an RGB parameter, not a threshold
+            // (dev/chatgpt-eboot-{4,5}.txt). Cutout clips at 128/255; the blended paths clip at 4/255
+            // purely to skip fully-transparent texels.
+            float alphaRef = mode switch
+            {
+                GameRenderMode.Cutout => 128f / 255f,
+                GameRenderMode.SoftEdge => 4f / 255f,   // pass 2 (the depth prepass uses 128/255, below)
+                GameRenderMode.Overlay or GameRenderMode.Additive => 4f / 255f,
+                _ => 0f,
+            };
+            _matPC0[i] = new Vector4(materials[i].HasBaked, materials[i].ParallaxScale, materials[i].ParallaxBias, alphaRef);
+            _matRenderMode[i] = materials[i].GameRenderMode;
             _matVertexAlpha[i] = materials[i].UsesVertexAlpha;
+            _matAlphaRef[i] = alphaRef;
         }
 
         int geoCount = geomVerts.Count;
@@ -295,16 +324,27 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             Array.Copy(ix, 0, mergedIdx, (int)io, ix.Length); io += (uint)ix.Length;
         }
 
-        // Instances: opaque/cutout first, then translucent; sorted by material within each span.
-        var matTranslucent = new bool[materials.Count];
-        for (int i = 0; i < materials.Count; i++) matTranslucent[i] = materials[i].RenderMode > 1.5f;
+        // Bucket each material by the game's render mode, then order instances bucket-major (and by
+        // material within a bucket, so each material's descriptor set still binds once per run):
+        //   0 OPAQUE     modes Opaque + Cutout (+ Soft-Edge's depth prepass, drawn from bucket 3)
+        //   1 OVER       modes Overlay/Scunge/Blended + Soft-Edge colour pass -> WBOIT accumulate
+        //   2 ADDITIVE   mode Additive (SrcAlpha/One) -> its own additive pass
+        //   3 SOFTEDGE   mode Soft-Edge: drawn TWICE (depth prepass in the opaque pass, then WBOIT)
+        var matBucket = new int[materials.Count];
+        for (int i = 0; i < materials.Count; i++)
+            matBucket[i] = (GameRenderMode)(byte)materials[i].GameRenderMode switch
+            {
+                GameRenderMode.Opaque or GameRenderMode.Cutout => 0,
+                GameRenderMode.Additive => 2,
+                GameRenderMode.SoftEdge => 3,
+                _ => 1, // Overlay, Scunge, Blended
+            };
         var order = new int[_instanceCount];
         for (int i = 0; i < _instanceCount; i++) order[i] = i;
         Array.Sort(order, (a, b) =>
         {
-            int ta = matTranslucent[instances[a].mat] ? 1 : 0;
-            int tb = matTranslucent[instances[b].mat] ? 1 : 0;
-            return ta != tb ? ta - tb : instances[a].mat.CompareTo(instances[b].mat);
+            int ba = matBucket[instances[a].mat], bb = matBucket[instances[b].mat];
+            return ba != bb ? ba - bb : instances[a].mat.CompareTo(instances[b].mat);
         });
 
         _drawIndexCount = new uint[_instanceCount];
@@ -314,7 +354,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _instCenter = new Vector3[_instanceCount];
         _instRadius = new float[_instanceCount];
         var worlds = new Matrix4x4[_instanceCount];
-        int translucentStart = _instanceCount;
+        int overStart = _instanceCount, addStart = _instanceCount, softStart = _instanceCount;
         for (int i = 0; i < _instanceCount; i++)
         {
             var (g, mat, world, sphere) = instances[order[i]];
@@ -326,14 +366,22 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             // The game's own world bounding sphere (Entity.WorldBoundingSphere): xyz centre, w radius.
             _instCenter[i] = new Vector3(sphere.X, sphere.Y, sphere.Z);
             _instRadius[i] = sphere.W;
-            if (matTranslucent[mat] && i < translucentStart) translucentStart = i;
+            int bucket = matBucket[mat];
+            if (bucket >= 1 && i < overStart) overStart = i;
+            if (bucket >= 2 && i < addStart) addStart = i;
+            if (bucket >= 3 && i < softStart) softStart = i;
         }
-        _translucentStart = translucentStart;
+        // Empty buckets collapse to the following bucket's start so every range stays well-ordered.
+        _softStart = softStart;
+        _addStart = Math.Min(addStart, _softStart);
+        _overStart = Math.Min(overStart, _addStart);
 
         // Per-frame culling scratch (no per-frame allocation).
         _cullScratch = new int[_instanceCount];
         _visibleOpaque = new int[_instanceCount];
         _visibleTranslucent = new int[_instanceCount];
+        _visibleAdditive = new int[_instanceCount];
+        _visibleSoftEdge = new int[_instanceCount];
         _chunkCounts = new int[Environment.ProcessorCount];
 
         var poolInfo = new VkCommandPoolCreateInfo { flags = VkCommandPoolCreateFlags.ResetCommandBuffer, queueFamilyIndex = _ctx.GraphicsQueueFamilyIndex };
@@ -354,7 +402,21 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreateTargets(graphicsDevice);
         // Command buffer is recorded per-frame in Frame() (only the visible, frustum-culled draws).
 
-        Console.WriteLine($"[VkRenderer] Stage 14f init OK - scene: {geoCount} geometries, {materials.Count} materials, {_instanceCount} draws ({_translucentStart} opaque + {_instanceCount - _translucentStart} translucent/OIT) recorded once, into a {_width}x{_height} texture.");
+        // Per-mode material census: shows whether each game render mode actually reaches the renderer,
+        // and how many of its materials take opacity from the vertex alpha rather than the albedo.
+        var modeCensus = new int[7];
+        var modeVertexAlpha = new int[7];
+        foreach (var m in materials)
+        {
+            int mi = Math.Clamp((int)m.GameRenderMode, 0, 6);
+            modeCensus[mi]++;
+            if (m.UsesVertexAlpha > 0.5f) modeVertexAlpha[mi]++;
+        }
+        string[] modeNames = ["Opaque", "Overlay", "Additive", "Scunge", "Cutout", "SoftEdge", "Blended"];
+        var census = string.Join(", ", Enumerable.Range(0, 7)
+            .Where(m => modeCensus[m] > 0)
+            .Select(m => $"{modeNames[m]}={modeCensus[m]}" + (modeVertexAlpha[m] > 0 ? $"({modeVertexAlpha[m]} vtxA)" : "")));
+        Console.WriteLine($"[VkRenderer] Stage 15 init OK - {geoCount} geometries, {materials.Count} materials, {_instanceCount} draws. Buckets: {_overStart} opaque/cutout, {_addStart - _overStart} over-blended, {_softStart - _addStart} additive, {_instanceCount - _softStart} soft-edge. Materials by mode: {census}. Into a {_width}x{_height} texture.");
     }
 
     private void UploadGeometry(float[] mergedVerts, uint[] mergedIdx)
@@ -590,6 +652,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _vs = Module(VertexGlsl, ShaderStages.Vertex);
         _fsOpaque = Module(FragmentOpaqueGlsl, ShaderStages.Fragment);
         _fsAccum = Module(FragmentAccumGlsl, ShaderStages.Fragment);
+        _fsAdditive = Module(FragmentAdditiveGlsl, ShaderStages.Fragment);
         _resolveVs = Module(ResolveVertexGlsl, ShaderStages.Vertex);
         _resolveFs = Module(ResolveFragmentGlsl, ShaderStages.Fragment);
 
@@ -662,6 +725,40 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
             var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &emptyVertexInput, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNoneR, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _resolveLayout, renderPass = _rpResolve, subpass = 0 };
             VkPipeline p; Check(_api.vkCreateGraphicsPipelines(default, 1, &info, &p), "vkCreateGraphicsPipelines(resolve)"); _pipelineResolve = p;
+        }
+
+        // Soft-Edge depth prepass (mode 5, pass 1): alpha-tested depth-only draw into the opaque pass -
+        // colour writes OFF, depth write ON. This is what makes soft-edge geometry occlude correctly
+        // before its blended colour pass; a plain alpha blend (what we did before) looks wrong.
+        {
+            VkPipelineShaderStageCreateInfo* stages = stackalloc VkPipelineShaderStageCreateInfo[2];
+            stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _vs, pName = entry };
+            stages[1] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Fragment, module = _fsOpaque, pName = entry };
+            var depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = true, depthCompareOp = VkCompareOp.LessOrEqual };
+            var noColor = new VkPipelineColorBlendAttachmentState { blendEnable = false, colorWriteMask = 0 };
+            var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &noColor };
+            var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &litVertexInput, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _layout, renderPass = _rpOpaque, subpass = 0 };
+            VkPipeline p; Check(_api.vkCreateGraphicsPipelines(default, 1, &info, &p), "vkCreateGraphicsPipelines(softEdgeDepth)"); _pipelineSoftEdgeDepth = p;
+        }
+
+        // Additive (mode 2): SrcAlpha/One - the surface ADDS light to what's behind it, so it must not
+        // go through the over-blend WBOIT path. Additive blending is commutative, so it needs no sorting;
+        // drawn depth-tested (no write) straight into the opaque colour after everything else.
+        {
+            VkPipelineShaderStageCreateInfo* stages = stackalloc VkPipelineShaderStageCreateInfo[2];
+            stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _vs, pName = entry };
+            stages[1] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Fragment, module = _fsAdditive, pName = entry };
+            var depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = false, depthCompareOp = VkCompareOp.LessOrEqual };
+            var add = new VkPipelineColorBlendAttachmentState
+            {
+                blendEnable = true,
+                srcColorBlendFactor = VkBlendFactor.SrcAlpha, dstColorBlendFactor = VkBlendFactor.One, colorBlendOp = VkBlendOp.Add,
+                srcAlphaBlendFactor = VkBlendFactor.Zero, dstAlphaBlendFactor = VkBlendFactor.One, alphaBlendOp = VkBlendOp.Add,
+                colorWriteMask = mask,
+            };
+            var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &add };
+            var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &litVertexInput, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _layout, renderPass = _rpOpaque, subpass = 0 };
+            VkPipeline p; Check(_api.vkCreateGraphicsPipelines(default, 1, &info, &p), "vkCreateGraphicsPipelines(additive)"); _pipelineAdditive = p;
         }
 
         // Volumes: line-list wireframe cube, depth-tested + writing (occluded by opaque scene), drawn in
@@ -776,7 +873,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         clearsO[1] = new VkClearValue { depthStencil = new VkClearDepthStencilValue(1f, 0) };
         var rpO = new VkRenderPassBeginInfo { renderPass = _rpOpaque, framebuffer = _fbOpaque, renderArea = area, clearValueCount = 2, pClearValues = clearsO };
         _api.vkCmdBeginRenderPass(_cmd, &rpO, VkSubpassContents.Inline);
+        // Opaque + Cutout, then Soft-Edge's alpha-tested DEPTH PREPASS (colour writes off) so its
+        // geometry occludes correctly, then Additive (SrcAlpha/One, depth-tested, no write), then the
+        // editor's volume wireframes. Translucent over-blending happens in the WBOIT pass below.
         DrawVisible(_pipelineOpaque, _visibleOpaque, _visOpaqueCount);
+        DrawVisible(_pipelineSoftEdgeDepth, _visibleSoftEdge, _visSoftCount, softEdgeDepthPrepass: true);
+        DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
         DrawVolumes();
         _api.vkCmdEndRenderPass(_cmd);
 
@@ -786,7 +888,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 0f, 0f, 0f) };
         var rpA = new VkRenderPassBeginInfo { renderPass = _rpAccum, framebuffer = _fbAccum, renderArea = area, clearValueCount = 2, pClearValues = clearsA };
         _api.vkCmdBeginRenderPass(_cmd, &rpA, VkSubpassContents.Inline);
+        // Over-blended modes (Overlay/Scunge/Blended) plus Soft-Edge's colour pass — all order-
+        // independent through WBOIT, which also gives Blended its back-to-front result for free.
         DrawVisible(_pipelineAccum, _visibleTranslucent, _visTransCount);
+        DrawVisible(_pipelineAccum, _visibleSoftEdge, _visSoftCount);
         _api.vkCmdEndRenderPass(_cmd);
 
         // Pass 3: RESOLVE -> composite over the opaque colour (fullscreen triangle).
@@ -826,7 +931,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         }
     }
 
-    private void DrawVisible(VkPipeline pipeline, int[] visible, int count)
+    private void DrawVisible(VkPipeline pipeline, int[] visible, int count, bool softEdgeDepthPrepass = false)
     {
         if (count == 0) return;
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, pipeline);
@@ -839,7 +944,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 boundMat = _drawMatSlot[i];
                 VkDescriptorSet ms = _matSets[boundMat];
                 _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _layout, 1, 1, &ms, 0, null);
-                Vector4* pc = stackalloc Vector4[2] { _matPC0[boundMat], new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], 0f, 0f) };
+                var pc0 = _matPC0[boundMat];
+                // Soft-Edge pass 1 clips at 128/255 (the material's stored ref is pass 2's 4/255).
+                if (softEdgeDepthPrepass) pc0.W = 128f / 255f;
+                Vector4* pc = stackalloc Vector4[2] { pc0, new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], 0f, 0f) };
                 _api.vkCmdPushConstants(_cmd, _layout, VkShaderStageFlags.Fragment, 0, 32, pc);
             }
             _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
@@ -859,8 +967,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         using (Diagnostics.FrameProfiler.Sample("Vk Cull"))
         {
             ExtractFrustumPlanes(viewProj);
-            _visOpaqueCount = CullRange(0, _translucentStart, _visibleOpaque);
-            _visTransCount = CullRange(_translucentStart, _instanceCount, _visibleTranslucent);
+            _visOpaqueCount = CullRange(0, _overStart, _visibleOpaque);
+            _visTransCount = CullRange(_overStart, _addStart, _visibleTranslucent);
+            _visAddCount = CullRange(_addStart, _softStart, _visibleAdditive);
+            _visSoftCount = CullRange(_softStart, _instanceCount, _visibleSoftEdge);
         }
         using (Diagnostics.FrameProfiler.Sample("Vk Record"))
             RecordCommands();
@@ -875,8 +985,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
         _ctx.BackendInfo.OverrideImageLayout(_colorTex, (uint)VkImageLayout.ShaderReadOnlyOptimal);
 
-        if (!_loggedInit) { _loggedInit = true; Console.WriteLine($"[VkRenderer] Stage 14f: culling live - {_visOpaqueCount}/{_translucentStart} opaque + {_visTransCount}/{_instanceCount - _translucentStart} translucent visible frame 1."); }
-        Diagnostics.FrameProfiler.SetCounter("Vk visible draws", _visOpaqueCount + _visTransCount);
+        if (!_loggedInit) { _loggedInit = true; Console.WriteLine($"[VkRenderer] Stage 15: frame 1 visible - {_visOpaqueCount} opaque/cutout, {_visTransCount} over-blended, {_visAddCount} additive, {_visSoftCount} soft-edge."); }
+        Diagnostics.FrameProfiler.SetCounter("Vk visible draws", _visOpaqueCount + _visTransCount + _visAddCount + _visSoftCount);
         Diagnostics.FrameProfiler.SetCounter("Vk total draws", _instanceCount);
     }
 
@@ -991,12 +1101,15 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyPipeline(_pipelineAccum);
         _api.vkDestroyPipeline(_pipelineResolve);
         _api.vkDestroyPipeline(_volumePipeline);
+        _api.vkDestroyPipeline(_pipelineSoftEdgeDepth);
+        _api.vkDestroyPipeline(_pipelineAdditive);
         _api.vkDestroyPipelineLayout(_layout);
         _api.vkDestroyPipelineLayout(_resolveLayout);
         _api.vkDestroyPipelineLayout(_volumeLayout);
         _api.vkDestroyShaderModule(_vs);
         _api.vkDestroyShaderModule(_fsOpaque);
         _api.vkDestroyShaderModule(_fsAccum);
+        _api.vkDestroyShaderModule(_fsAdditive);
         _api.vkDestroyShaderModule(_resolveVs);
         _api.vkDestroyShaderModule(_resolveFs);
         _api.vkDestroyShaderModule(_volumeVs);

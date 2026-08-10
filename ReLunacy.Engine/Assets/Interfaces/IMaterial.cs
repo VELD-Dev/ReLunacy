@@ -24,6 +24,15 @@ public interface IMaterial : IAsset
     // ShaderMetadata yet, so consumers sample it at the base UV.
     ITexture? DetailTexture { get; }
     RenderMode RenderMode { get; }
+
+    /// <summary>The game's OWN rendering mode byte (ShaderMetadataOld 0x11): 0 Opaque, 1 Overlay,
+    /// 2 Additive, 3 Scunge, 4 Cutout, 5 Soft-Edge, 6 Blended. <see cref="RenderMode"/> above is a
+    /// lossy 4-value simplification of this — it cannot express Additive's SrcAlpha/One, Overlay's
+    /// polygon offset, or Soft-Edge's two-pass depth-prepass. Renderers that want the game's real
+    /// blend/depth/alpha states use THIS; see dev/chatgpt-eboot-{1,2,3}.txt for the EBOOT reverse
+    /// that established each mode's exact RSX state.</summary>
+    byte GameRenderMode { get; }
+
     float AlphaClipThreshold { get; }
 
     // Per-material parallax remap, applied as height * ParallaxScale + ParallaxBias exactly as the
@@ -40,12 +49,11 @@ public interface IMaterial : IAsset
     // MaterialReader.GetDetailTiling for how that is distinguished from a real zero.
     float DetailTiling { get; }
 
-    // Per-channel detail-map strengths, from ShaderMetadataOld 0x28/0x2C/0x30 — HYPOTHESISED
-    // offsets, see that struct. DetailAlbedoStrength is parsed and surfaced for verification but
-    // deliberately NOT applied by the renderer; see AssetManager.GetOrBuildMaterial.
-    float DetailNormalStrength { get; }
-    float DetailSpecStrength { get; }
-    float DetailAlbedoStrength { get; }
+    // (There are no per-channel detail-map strengths here. The floats previously read as
+    // DetailNormalStrength/DetailSpecStrength/DetailAlbedoStrength at ShaderMetadataOld 0x28/0x2C/0x30
+    // were misplaced — 0x20/0x24/0x28 is an RGB parameter triple, proven by the EBOOT reverse
+    // (dev/chatgpt-eboot-{4,5}.txt) — so they have been removed rather than left feeding the shader
+    // values that mean something else entirely.)
 
     // The material's own "this shader uses a detail map" flag, from the feature bitfield at
     // ShaderMetadataOld 0x10 (InsomniaToolset's MaterialV1_5.useDetailMap). This is authoritative

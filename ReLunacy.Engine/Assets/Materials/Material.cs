@@ -14,13 +14,12 @@ public sealed class Material : IMaterial
     public ITexture? DetailTexture { get; init; }
 
     public RenderMode RenderMode { get; init; }
+    /// <summary>The game's own rendering-mode byte (0-6) — see IMaterial.GameRenderMode.</summary>
+    public byte GameRenderMode { get; init; }
     public float AlphaClipThreshold { get; init; }
     public float ParallaxScale { get; init; }
     public float ParallaxBias { get; init; }
     public float DetailTiling { get; init; }
-    public float DetailNormalStrength { get; init; }
-    public float DetailSpecStrength { get; init; }
-    public float DetailAlbedoStrength { get; init; }
     public bool UsesDetailMap { get; init; }
 
     // True when this material's render mode blends (Overlay/SoftEdge/Blended — the game's
@@ -38,7 +37,7 @@ public sealed class Material : IMaterial
         AlphaClipThreshold = 0.5f;
     }
 
-    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, ITexture? detail = null, RenderMode renderMode = RenderMode.Opaque, float alphaClipThreshold = 0.01f, bool usesVertexAlphaCandidate = false, float parallaxScale = 0f, float parallaxBias = 0f, float detailTiling = 0f, float detailNormalStrength = 0f, float detailSpecStrength = 0f, float detailAlbedoStrength = 0f, bool usesDetailMap = false)
+    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, ITexture? detail = null, RenderMode renderMode = RenderMode.Opaque, byte gameRenderMode = 0, float alphaClipThreshold = 0.01f, bool usesVertexAlphaCandidate = false, float parallaxScale = 0f, float parallaxBias = 0f, float detailTiling = 0f, bool usesDetailMap = false)
     {
         return new Material(id)
         {
@@ -47,14 +46,12 @@ public sealed class Material : IMaterial
             PropertiesTexture = properties,
             DetailTexture = detail,
             RenderMode = renderMode,
+            GameRenderMode = gameRenderMode,
             AlphaClipThreshold = alphaClipThreshold,
             UsesVertexAlphaCandidate = usesVertexAlphaCandidate,
             ParallaxScale = parallaxScale,
             ParallaxBias = parallaxBias,
             DetailTiling = detailTiling,
-            DetailNormalStrength = detailNormalStrength,
-            DetailSpecStrength = detailSpecStrength,
-            DetailAlbedoStrength = detailAlbedoStrength,
             UsesDetailMap = usesDetailMap
         };
     }

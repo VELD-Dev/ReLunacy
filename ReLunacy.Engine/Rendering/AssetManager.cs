@@ -37,13 +37,33 @@ public sealed class AssetManager : IDisposable
     // nothing that existed before this distinction pays for it.
     private readonly Dictionary<(ulong ShaderId, ushort LightmapIndex), Material> _materialCache = [];
     // Every built variant of a given shader TUID. The live-tuning API (SetParallax,
-    // SetDetailStrengths) is addressed by TUID because that is what the ShaderBrowser lists, so it
+    // SetDetailTiling) is addressed by TUID because that is what the ShaderBrowser lists, so it
     // has to reach all of a shader's lightmap variants rather than just one.
     private readonly Dictionary<ulong, List<Material>> _materialsByShader = [];
     // Parallel to _materialCache, keyed the same way — the built Material has no way to ask "was
     // I sourced from a vertex-alpha material," but SetLightingEnabled needs that to pick the right
     // effect when swapping back to unlit, so the original IMaterial is kept alongside the built one.
     private readonly Dictionary<ulong, IMaterial> _sourceMaterials = [];
+    // Per-built-material data for the raw-Vulkan renderer: the game's own rendering mode (0-6) and
+    // whether opacity comes from the per-vertex alpha. Bliss's 8 MaterialMap slots are all used, so
+    // this rides a side table keyed by the built Material rather than a 9th slot that cannot exist.
+    private readonly Dictionary<Material, (byte GameRenderMode, bool UsesVertexAlpha)> _vkMaterialInfo =
+        new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The game's rendering mode (0 Opaque, 1 Overlay, 2 Additive, 3 Scunge, 4 Cutout,
+    /// 5 Soft-Edge, 6 Blended) and vertex-alpha flag for a built material. See IMaterial.GameRenderMode
+    /// and dev/chatgpt-eboot-1..3.txt for what each mode's real RSX state is.</summary>
+    public bool TryGetVkMaterialInfo(Material bMat, out byte gameRenderMode, out bool usesVertexAlpha)
+    {
+        if (_vkMaterialInfo.TryGetValue(bMat, out var info))
+        {
+            (gameRenderMode, usesVertexAlpha) = info;
+            return true;
+        }
+        gameRenderMode = 0;
+        usesVertexAlpha = false;
+        return false;
+    }
     private bool _backfaceCulling;
     private bool _lightingEnabled;
     // Scene-wide default filtering plus per-texture overrides (keyed by texture TUID) — samplers
@@ -403,30 +423,22 @@ public sealed class AssetManager : IDisposable
         // B = additive albedo brightness, A = additive specular intensity, the whole fetch gated by
         // the expensive map's alpha. See IMaterial.DetailTexture.
         //
-        // SLOT BUDGET: MaterialData has exactly 8 map slots, and binding the two baked-lighting
-        // textures below needs two of them. Two were freed rather than routing those textures
-        // around the MaterialMap system entirely:
-        //   - detailAlbedoStrength is gone. It was pinned to 0 anyway (every non-zero value washes
-        //     surfaces toward white), so a slot carrying a constant zero was pure waste. The
-        //     dataflow is still documented in LitModelShaderSource if it's ever revived.
-        //   - detailSpecStrength moved from its own slot into this map's COLOUR .r channel. Colour
-        //     is byte-quantised 0..1, which is fine for a 0..1 strength at 1/255 granularity, and
-        //     unlike parallax scale/bias it can't legitimately be negative or large.
-        // detailNormalStrength keeps this map's value slot.
+        // There are NO per-channel detail strengths: the floats previously read as
+        // detailNormalStrength/detailSpecStrength/detailAlbedoStrength (ShaderMetadataOld
+        // 0x28/0x2C/0x30) were misplaced onto what the EBOOT reverse proves is an RGB parameter triple
+        // (dev/chatgpt-eboot-{4,5}.txt), so they've been removed. The map's value slot carries the
+        // "this material actually uses its detail map" flag instead; the real per-channel scaling
+        // constants the game applies are still unsourced.
         //
         // Requires BOTH a detail texture and the material's own useDetailMap flag (metadata 0x10,
         // see IMaterial.UsesDetailMap) — declaring the map and enabling it are separate things, and
         // a texture reference left in the slot by an unused authoring path shouldn't switch the
-        // whole detail path on. No detail means zero strengths, so it contributes nothing
-        // regardless of what is bound; no placeholder detail texture is invented for it, the
-        // already-existing default model texture just stands in to keep set 7 bound.
+        // whole detail path on. No placeholder detail texture is invented; the already-existing
+        // default model texture just stands in to keep the set bound.
         bool hasDetail = material.DetailTexture != null && material.UsesDetailMap;
         var detail = hasDetail ? GetOrBuildTexture(material.DetailTexture!) : GlobalResource.DefaultModelTexture;
-        float specStrength = hasDetail ? Math.Clamp(material.DetailSpecStrength, 0f, 1f) : 0f;
         bMat.AddMaterialMap(new MaterialMapKey("fDetail"), 5, new MaterialMap(
-            detail, ResolveSampler(detail),
-            color: new Color((byte)(specStrength * 255f), 0, 0, 255),
-            value: hasDetail ? material.DetailNormalStrength : 0f));
+            detail, ResolveSampler(detail), value: hasDetail ? 1f : 0f));
 
         // BAKED LIGHTING (the game's own, from zone sections 0x5400 / 0x5410) — per-INSTANCE, which
         // is why the material cache is keyed on the lightmap index. fLightColour's value slot
@@ -449,7 +461,10 @@ public sealed class AssetManager : IDisposable
         // channel — see MaterialReader.UsesVertexAlphaCandidate). The albedo of such materials decodes
         // to a meaningless alpha, so the VK shader SELECTS vertex vs texture alpha on this flag rather
         // than multiplying them.
-        bMat.AddMaterialMap(new MaterialMapKey("fVertexAlpha"), 8, new MaterialMap(value: material.UsesVertexAlphaCandidate ? 1f : 0f));
+        // Data the raw-Vulkan renderer needs that does NOT fit in a MaterialMap: Bliss has exactly 8
+        // map slots (0-7) and all are spoken for above, so adding more silently fails to register and
+        // reads back as 0. Kept in a side table keyed by the built material instead.
+        _vkMaterialInfo[bMat] = (material.GameRenderMode, material.UsesVertexAlphaCandidate);
 
         _materialCache[cacheKey] = bMat;
         _sourceMaterials[material.Id] = material;
@@ -654,9 +669,6 @@ public sealed class AssetManager : IDisposable
     // them is the expensive map's alpha, which BC1 decodes as 255 on every DXT1 expensive map (see
     // TextureUtils' Bc1Decoder). At strength 1 that means a full 1.0 lift added to linear albedo,
     // a full 1.0 added to specular intensity, and a +-1 perturbation added to derivatives already
-    // in +-1 — the same scene-wide wash the retracted alpha-as-roughness reading produced. Starting
-    // at 0 keeps these a hunting tool: dial one up on one material and see what the map does.
-    public const float DefaultDetailStrength = 0f;
 
 
     // Fallback only, for materials whose metadata has no identified tiling (new engine, or a
@@ -697,41 +709,28 @@ public sealed class AssetManager : IDisposable
         return false;
     }
 
-    /// <summary>Live per-material detail-map strengths — normal (the R,G derivative perturbation),
-    /// specular (A) and albedo (B), matching the game's detailNormalStrength /
-    /// detailSpecStrength / detailAlbedoStrength fragment constants. Same live-tuning rationale as
-    /// SetParallax: these constants aren't located in the metadata yet.</summary>
-    public void SetDetailStrengths(ulong materialId, float normal, float specular, float tiling)
+    /// <summary>Live per-material detail-map UV tiling (ShaderMetadataOld 0x58 — confirmed by the
+    /// EBOOT reverse AND by in-game visual comparison). There are no per-channel detail STRENGTHS: the
+    /// floats once read as those turned out to be an unrelated RGB parameter triple, so only tiling
+    /// remains tunable here. Rides the fProperties map's value slot — see GetOrBuildMaterial.</summary>
+    public void SetDetailTiling(ulong materialId, float tiling)
     {
         if (!_materialsByShader.TryGetValue(materialId, out var variants)) return;
-        byte spec = (byte)(Math.Clamp(specular, 0f, 1f) * 255f);
         foreach (var bMat in variants)
-        {
-            bMat.SetMapValue(new MaterialMapKey("fDetail"), normal);
-            // Specular strength rides the detail map's colour .r — see GetOrBuildMaterial for why
-            // it moved off its own slot. Byte-quantised, hence the 0..1 clamp.
-            bMat.SetMapColor(new MaterialMapKey("fDetail"), new Color(spec, 0, 0, 255));
-            // Rides the fProperties map's value slot — see GetOrBuildMaterial.
             bMat.SetMapValue(new MaterialMapKey("fProperties"), tiling);
-        }
     }
 
     /// <summary>False when the material hasn't been built (see TryGetParallax) OR has no detail
-    /// texture at all — in the latter case there is nothing to tune and the strengths are pinned
-    /// at zero, so callers should hide the controls rather than offer sliders that can only
-    /// introduce garbage from the placeholder binding.</summary>
-    public bool TryGetDetailStrengths(ulong materialId, out float normal, out float specular, out float tiling)
+    /// texture at all — in the latter case there is nothing to tune, so callers should hide the
+    /// control rather than offer a slider against a placeholder binding.</summary>
+    public bool TryGetDetailTiling(ulong materialId, out float tiling)
     {
         if (_materialsByShader.TryGetValue(materialId, out var variants) && variants.Count > 0
             && _sourceMaterials.TryGetValue(materialId, out var source) && source.DetailTexture != null)
         {
-            var bMat = variants[0];
-            normal = bMat.GetMapValue(new MaterialMapKey("fDetail"));
-            specular = (bMat.GetMapColor(new MaterialMapKey("fDetail"))?.R ?? 0) / 255f;
-            tiling = bMat.GetMapValue(new MaterialMapKey("fProperties"));
+            tiling = variants[0].GetMapValue(new MaterialMapKey("fProperties"));
             return true;
         }
-        normal = specular = DefaultDetailStrength;
         tiling = DefaultDetailTiling;
         return false;
     }
@@ -818,6 +817,8 @@ public sealed class AssetManager : IDisposable
     // useVertexAlpha: see Material.UsesVertexAlphaCandidate — when set, GetVertexAlphaCandidates()
     // is written into each vertex's color alpha instead of the default fully-opaque white, and
     // GetOrBuildMaterial picks a shader that actually reads it.
+    private static int _vertexAlphaDiagnosticsLogged;
+
     private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, bool useVertexAlpha)
     {
         var positions = geometry.GetVertexPositions();
@@ -825,6 +826,20 @@ public sealed class AssetManager : IDisposable
         var normals = geometry.GetNormals();
         var tangents = geometry.GetTangents();
         var vertexAlpha = useVertexAlpha ? geometry.GetVertexAlphaCandidates() : null;
+        // TEMP diagnostic: vertex-alpha materials source their opacity from this array, so an all-zero
+        // (or absent) one renders those surfaces fully transparent, i.e. invisible.
+        if (useVertexAlpha && _vertexAlphaDiagnosticsLogged < 8)
+        {
+            _vertexAlphaDiagnosticsLogged++;
+            if (vertexAlpha == null || vertexAlpha.Length == 0)
+                Console.WriteLine("[VertexAlpha] material wants vertex alpha but geometry has NO candidates (falls back to opaque 1.0).");
+            else
+            {
+                float mn = float.MaxValue, mx = float.MinValue, sum = 0f;
+                foreach (float a in vertexAlpha) { mn = MathF.Min(mn, a); mx = MathF.Max(mx, a); sum += a; }
+                Console.WriteLine($"[VertexAlpha] {vertexAlpha.Length} candidates: min={mn:0.###} max={mx:0.###} avg={sum / vertexAlpha.Length:0.###}");
+            }
+        }
         var lightmapUVs = geometry.GetLightmapUVs();
 
         int vertexCount = positions.Length / 3;

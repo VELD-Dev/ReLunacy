@@ -125,10 +125,6 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     private static float MetadataParallaxBias(Shader shader) =>
         shader.isOld && shader.metadataOld.HasValue ? shader.metadataOld.Value.parallaxBias : 0f;
 
-    // Old-engine only; new-engine metadata has no identified detail fields (see MaterialReader).
-    private static float MetadataDetailFloat(Shader shader, Func<ShaderMetadataOld, float> select) =>
-        shader.isOld && shader.metadataOld.HasValue ? select(shader.metadataOld.Value) : 0f;
-
     // Matches AssetManager's own 0-means-absent fallback, so Reset lands on exactly what a fresh
     // material build would produce rather than on a literal 0 that collapses the map to one texel.
     private static float MetadataDetailTiling(Shader shader)
@@ -237,8 +233,11 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_RenderingMode", RenderModeLabel((byte)shader.RenderingMode)));
 
-        float alphaClip = shader.isOld ? shader.metadataOld!.Value.alphaClip : shader.metadataNew!.Value.alphaClip;
-        ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_AlphaClip", alphaClip));
+        // Old-engine materials have no stored alpha clip: the engine hardcodes the threshold per
+        // rendering mode (Cutout GEQUAL 128/255, the blended paths 4/255), and the 0x20 float once read
+        // as "alphaClip" is really an RGB parameter. Only the new engine stores one.
+        if (!shader.isOld)
+            ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_AlphaClip", shader.metadataNew!.Value.alphaClip));
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_TexturesSection"));
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Albedo"), shader.Albedo);
@@ -283,30 +282,17 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##parallax_reset"))
                 assetManager.SetParallax(shader.TUID, MetadataParallaxScale(shader), MetadataParallaxBias(shader));
 
-            // The game weights each detail channel by its own fragment constant; none of the three
-            // is located in ShaderMetadata yet, so these start at a neutral 1 and are here to be
-            // hunted the same way parallax was. Detail only shows up at all where the expensive
-            // map's alpha (the detail mask) is non-zero.
-            if (assetManager.TryGetDetailStrengths(shader.TUID, out float detailNormal, out float detailSpec, out float detailTiling))
+            // Detail maps are authored to tile above the base map's frequency. Only TILING is exposed:
+            // the per-channel "detail strengths" this used to offer were reading an unrelated RGB
+            // parameter triple (proven by the EBOOT reverse), so they've been removed.
+            if (assetManager.TryGetDetailTiling(shader.TUID, out float detailTiling))
             {
-                bool detailChanged = ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailNormalStrength"), ref detailNormal, 0.01f, 0f, 0f, "%.4f");
-                // Clamped 0..1, unlike the others: this one rides a byte-quantised colour channel
-                // now that slots 6/7 carry the baked lighting textures.
-                detailChanged |= ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailSpecStrength"), ref detailSpec, 0.01f, 0f, 1f, "%.4f");
-                // Detail maps are authored to tile above the base map's frequency; the real
-                // multiplier isn't in the captured fragment shader (it arrives pre-tiled in a
-                // vertex interpolant), so this is the knob for finding what it should be.
-                detailChanged |= ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailTiling"), ref detailTiling, 0.1f, 0f, 0f, "%.3f");
-                if (detailChanged)
-                    assetManager.SetDetailStrengths(shader.TUID, detailNormal, detailSpec, detailTiling);
+                if (ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailTiling"), ref detailTiling, 0.1f, 0f, 0f, "%.3f"))
+                    assetManager.SetDetailTiling(shader.TUID, detailTiling);
 
-                // Resets to what a fresh material build produces: normal/spec/tiling from the file,
-                // albedo pinned off (see AssetManager.ForcedDetailAlbedoStrength).
+                // Resets to the tiling a fresh material build produces (straight from the file).
                 if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##detail_reset"))
-                    assetManager.SetDetailStrengths(shader.TUID,
-                        MetadataDetailFloat(shader, static m => m.detailNormalStrength),
-                        MetadataDetailFloat(shader, static m => m.detailSpecStrength),
-                        MetadataDetailTiling(shader));
+                    assetManager.SetDetailTiling(shader.TUID, MetadataDetailTiling(shader));
             }
         }
 
@@ -326,14 +312,12 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             ImGui.Text($"     Parallax:{meta.UsesParallax} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
             ImGui.Text($"0x12 Class: {meta.Class}");
             DrawHexDump("Unk1", 0x13, meta.Unk1);
-            // Printed as a float as well as hex: this is the candidate slot for the detail-strength
-            // triple starting one float earlier (0x24/0x28/0x2C instead of 0x28/0x2C/0x30), so it
-            // needs to be directly comparable against the three below.
-            DrawHexDump("Unk2a", 0x24, meta.Unk2a);
-            ImGui.Text($"0x28 detailNormalStrength: {meta.detailNormalStrength:0.######}");
-            ImGui.Text($"0x2C detailSpecStrength:   {meta.detailSpecStrength:0.######}");
-            ImGui.Text($"0x30 detailAlbedoStrength: {meta.detailAlbedoStrength:0.######}");
-            DrawHexDump("Unk2b", 0x34, meta.Unk2b);
+            // values[0].xyz is an RGB parameter triple the engine multiplies by the instance's own RGB
+            // when the Spatial Lighting flag is set, then uploads as a vertex constant — NOT an alpha
+            // clip and NOT detail strengths (both of those readings are refuted; see ShaderMetadataOld).
+            ImGui.Text($"0x20 value0 X: {meta.value0X:0.######}  Y: {meta.value0Y:0.######}  Z: {meta.value0Z:0.######}  W: {meta.value0W:0.######}");
+            ImGui.Text($"0x30 value1 X: {meta.value1X:0.######}  Y: {meta.value1Y:0.######}  (0x34 is known live, meaning unknown)");
+            DrawHexDump("Unk2b", 0x38, meta.Unk2b);
             ImGui.Text($"0x50 parallaxScale: {meta.parallaxScale:0.######}");
             ImGui.Text($"0x54 parallaxBias:  {meta.parallaxBias:0.######}");
             ImGui.Text($"0x58 detailTiling:  {meta.detailTiling:0.######}");
