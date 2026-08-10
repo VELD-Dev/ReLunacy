@@ -153,10 +153,12 @@ public sealed class MaterialReader
             // isn't implemented by anything downstream yet — treated as plain alpha blend for now,
             // which is at least not wrong about needing to blend, just incomplete about how.
             case RenderingMode.SoftEdge: return RenderMode.AlphaBlend;
-            // Guess: unclear semantics for all three — "baked"/"lit" read more like lighting
-            // qualifiers than transparency, so defaulting to Opaque is the conservative choice
-            // (risks looking solid when it should be transparent, not invisible/wrong-blended).
-            case RenderingMode.Scunge: return RenderMode.Opaque;
+            // Scunge is a real SRC_ALPHA/ONE_MINUS_SRC_ALPHA alpha blend with ZWrite off — confirmed by
+            // the EBOOT reverse (dev/chatgpt-eboot-2.txt: RenderingMode 3 → queue 34 → handler 0x51C350).
+            // Previously mapped to Opaque as a conservative guess, which rendered its glass/decals solid.
+            case RenderingMode.Scunge: return RenderMode.AlphaBlend;
+            // BakedOnly/LitOnly (0x07/0x08) aren't real render modes — the EBOOT's render-mode table
+            // stops at 6; they're debug/settings strings that leaked into the old guess. Treat as opaque.
             case RenderingMode.BakedOnly: return RenderMode.Opaque;
             case RenderingMode.LitOnly: return RenderMode.Opaque;
             default:

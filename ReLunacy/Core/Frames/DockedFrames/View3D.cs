@@ -145,6 +145,7 @@ public class View3D : DockedFrame
                         ParallaxScale = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fParallaxScale")),
                         ParallaxBias = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fParallaxBias")),
                         AlphaThreshold = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey(Bliss.CSharp.Materials.MaterialMapType.Albedo)),
+                        UsesVertexAlpha = ValueOf(material, new Bliss.CSharp.Materials.MaterialMapKey("fVertexAlpha")),
                         RenderMode = material.RenderMode switch
                         {
                             Bliss.CSharp.Graphics.Rendering.RenderMode.Cutout => 1f,      // alpha-clip

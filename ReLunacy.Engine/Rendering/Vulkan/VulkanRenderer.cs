@@ -136,7 +136,9 @@ void shade(out vec3 litColor, out float litAlpha) {
     float reflectivity = clamp(specIntensity + fresnel, 0.0, 1.0);
     vec3 envFill = envColour * albedo * uEnvironmentIntensity * reflectivity * bakedSpecLight;
     litColor = pow(albedo * lighting + envFill, vec3(1.0 / 2.2));
-    litAlpha = albedoTex.a; // vertex-alpha opacity handled separately (this engine's Color.a is not plain opacity)
+    // Opacity is the per-vertex alpha for materials whose albedo has no real alpha channel (uMat1.y),
+    // else the albedo's own alpha. SELECT, not multiply - the no-alpha albedos decode to garbage alpha.
+    litAlpha = uMat1.y > 0.5 ? fColor.a : albedoTex.a;
 }";
     private const string FragmentOpaqueGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 o;
@@ -194,6 +196,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly int[] _drawMatSlot;
     private readonly Vector4[] _matPC0;
     private readonly float[] _matRenderMode;
+    private readonly float[] _matVertexAlpha;
     private readonly int _translucentStart;
 
     // Frustum culling: static per-instance world bounding spheres, plus per-frame scratch. The visible
@@ -260,10 +263,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
         _matPC0 = new Vector4[materials.Count];
         _matRenderMode = new float[materials.Count];
+        _matVertexAlpha = new float[materials.Count];
         for (int i = 0; i < materials.Count; i++)
         {
             _matPC0[i] = new Vector4(materials[i].HasBaked, materials[i].ParallaxScale, materials[i].ParallaxBias, materials[i].AlphaThreshold);
             _matRenderMode[i] = materials[i].RenderMode;
+            _matVertexAlpha[i] = materials[i].UsesVertexAlpha;
         }
 
         int geoCount = geomVerts.Count;
@@ -834,7 +839,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 boundMat = _drawMatSlot[i];
                 VkDescriptorSet ms = _matSets[boundMat];
                 _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _layout, 1, 1, &ms, 0, null);
-                Vector4* pc = stackalloc Vector4[2] { _matPC0[boundMat], new Vector4(_matRenderMode[boundMat], 0f, 0f, 0f) };
+                Vector4* pc = stackalloc Vector4[2] { _matPC0[boundMat], new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], 0f, 0f) };
                 _api.vkCmdPushConstants(_cmd, _layout, VkShaderStageFlags.Fragment, 0, 32, pc);
             }
             _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);

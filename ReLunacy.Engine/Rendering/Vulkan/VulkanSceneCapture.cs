@@ -19,6 +19,7 @@ public struct VkMaterialDesc
     public float ParallaxBias;
     public float AlphaThreshold;
     public float RenderMode; // 0 = opaque, 1 = cutout (alpha-clip)
+    public float UsesVertexAlpha; // 1 = opacity comes from the per-vertex alpha, not the albedo's alpha
 }
 
 /// <summary>Geometry registry bridging the asset system to the from-scratch renderer (Docs/NewRenderer.md,

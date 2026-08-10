@@ -444,6 +444,13 @@ public sealed class AssetManager : IDisposable
         bMat.AddMaterialMap(new MaterialMapKey("fLightColour"), 6, new MaterialMap(lightColour, ResolveSampler(lightColour), value: hasBakedLighting ? 1f : 0f));
         bMat.AddMaterialMap(new MaterialMapKey("fLightDir"), 7, new MaterialMap(lightDir, ResolveSampler(lightDir)));
 
+        // Value-only carrier for the raw-Vulkan renderer: 1 when opacity should come from the per-vertex
+        // alpha rather than the albedo's own alpha (a transparent material whose albedo has no alpha
+        // channel — see MaterialReader.UsesVertexAlphaCandidate). The albedo of such materials decodes
+        // to a meaningless alpha, so the VK shader SELECTS vertex vs texture alpha on this flag rather
+        // than multiplying them.
+        bMat.AddMaterialMap(new MaterialMapKey("fVertexAlpha"), 8, new MaterialMap(value: material.UsesVertexAlphaCandidate ? 1f : 0f));
+
         _materialCache[cacheKey] = bMat;
         _sourceMaterials[material.Id] = material;
         if (!_materialsByShader.TryGetValue(material.Id, out var variants))
