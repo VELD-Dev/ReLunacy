@@ -17,6 +17,7 @@ public sealed class LevelReader
     private TieReader _tieReader = null!;
     private ZoneReader _zoneReader = null!;
     private FoliageReader _foliageReader = null!;
+    private ShrubReader _shrubReader = null!;
     private RegionReader _regionReader = null!;
 
     private Dictionary<ulong, Assets.Mobys.Moby>? _mobys;
@@ -24,6 +25,7 @@ public sealed class LevelReader
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
+    private IReadOnlyList<Assets.Shrubs.Shrub>? _shrubs;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
 
@@ -89,6 +91,13 @@ public sealed class LevelReader
         _foliageReader = new FoliageReader(_fileManager, _materialReader);
         _foliages = _foliageReader.ReadAll();
 
+        // Shrubs (old-engine section 0xB100, see Loading.Objects.ShrubMetadataOld) - metadata and
+        // material resolution only for now; see ShrubReader's remarks for why placements/geometry
+        // aren't decoded yet. Independent of mobys/ties/zones, same reasoning as foliage above.
+        progressCallback?.Invoke("Loading Shrubs...", 0.92f);
+        _shrubReader = new ShrubReader(_fileManager, _materialReader);
+        _shrubs = _shrubReader.ReadAll();
+
         // Old engine only (section 0x5920). Independent of geometry, same as foliage.
         _cubemaps = new CubemapReader(_fileManager).ReadAll();
 
@@ -115,6 +124,7 @@ public sealed class LevelReader
             zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
             foliages: _foliages,
+            shrubs: _shrubs,
             cubemaps: _cubemaps,
             lightingEnvironment: _lightingEnvironment);
     }
@@ -123,6 +133,7 @@ public sealed class LevelReader
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
+    public IReadOnlyList<Assets.Shrubs.Shrub> Shrubs => _shrubs ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
     public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
     public Assets.Levels.Region? Region => _region;
@@ -171,6 +182,11 @@ public sealed class LevelData
     /// Loading.Objects.FoliageMetadata.</summary>
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages { get; }
 
+    /// <summary>Old-engine "Shrub" assets (main.dat 0xB100) with their material resolved, but no
+    /// geometry or placements yet - see Loading.Readers.ShrubReader for exactly why. Empty on the
+    /// new engine or a level without the section.</summary>
+    public IReadOnlyList<Assets.Shrubs.Shrub> Shrubs { get; }
+
     /// <summary>Environment cubemap(s), old-engine section 0x5920 (see Loading.Readers.CubemapReader).
     /// Usually one; empty when the level ships only a stub record (kerchu city) or on the new engine.</summary>
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps { get; }
@@ -193,6 +209,7 @@ public sealed class LevelData
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
         System.Numerics.Vector3? environmentAverage = null,
         IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,
+        IReadOnlyList<Assets.Shrubs.Shrub>? shrubs = null,
         IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null,
         Assets.Lighting.LightingEnvironment? lightingEnvironment = null)
     {
@@ -208,6 +225,7 @@ public sealed class LevelData
         ZoneDirectionals = zoneDirectionals ?? [];
         EnvironmentAverage = environmentAverage;
         Foliages = foliages ?? [];
+        Shrubs = shrubs ?? [];
         Cubemaps = cubemaps ?? [];
         LightingEnvironment = lightingEnvironment;
     }

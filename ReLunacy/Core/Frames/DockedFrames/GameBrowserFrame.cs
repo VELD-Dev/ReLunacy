@@ -2,6 +2,7 @@ using System.Numerics;
 using Bliss.CSharp.Interact;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Engine.Games;
+using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
@@ -16,6 +17,7 @@ public class GameBrowserFrame : DockedFrame
     private string rootPathInput = "";
     private GameLibrary? library;
     private string statusMessage = "";
+    private string shrubScanMessage = "";
 
     private string debugDatPathInput = "";
     private string debugDatStatusMessage = "";
@@ -96,6 +98,21 @@ public class GameBrowserFrame : DockedFrame
             ? $"Detected: {library.DetectedGame.DisplayName}"
             : "Detected: Unknown game (no level names matched yet)");
         ImGui.Text($"Levels found: {library.Levels.Count}");
+
+        // Old-engine "Shrub" support (0xB100/0x9540, see Loading.Objects.ShrubMetadataOld) is
+        // metadata-only until a level actually shipping both sections turns up - this button opens
+        // just the section table of each discovered level's main.dat (no texture/geometry decode)
+        // and reports which ones qualify, so that sample doesn't have to be found by hand.
+        ImGui.SameLine();
+        if (ImGui.Button("Scan for Shrub sections"))
+        {
+            ScanForShrubs();
+        }
+        if (!string.IsNullOrEmpty(shrubScanMessage))
+        {
+            ImGui.TextWrapped(shrubScanMessage);
+        }
+
         ImGui.Separator();
 
         if (ImGui.BeginChild("game_browser_levels", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
@@ -190,6 +207,41 @@ public class GameBrowserFrame : DockedFrame
             statusMessage = $"Scan failed: {e.Message}";
             library = null;
         }
+    }
+
+    /// <summary>Checks every discovered FOLDER-sourced level's main.dat for both 0xB100 and 0x9540
+    /// (see ShrubReader.ScanForShrubSections) and reports the qualifying ones. Skips PSARC-sourced
+    /// levels: those are new-engine, and 0xB100/0x9540 are old-engine section ids that only occur in
+    /// the plain-folder main.dat layout old-engine levels use.</summary>
+    private void ScanForShrubs()
+    {
+        if (library is null || library.Levels.Count == 0)
+        {
+            shrubScanMessage = "Scan a game folder first.";
+            return;
+        }
+
+        var hits = new List<string>();
+        int checkedCount = 0;
+
+        foreach (var level in library.Levels)
+        {
+            if (level.SourceKind != LevelSourceKind.Folder) continue;
+
+            string mainDatPath = Path.Combine(level.SourcePath, "main.dat");
+            if (!File.Exists(mainDatPath)) continue;
+
+            checkedCount++;
+            if (ShrubReader.ScanForShrubSections(mainDatPath, out uint b100Count, out ushort version))
+            {
+                hits.Add($"{level.Name} (B100: {b100Count} asset(s), 9540 version {version})");
+            }
+        }
+
+        shrubScanMessage = hits.Count > 0
+            ? $"Found {hits.Count}/{checkedCount} level(s) with both 0xB100 and 0x9540:\n" + string.Join("\n", hits)
+            : $"Checked {checkedCount} level(s) - none have both 0xB100 and 0x9540.";
+        Console.WriteLine($"[Shrubs] scan: {shrubScanMessage.Replace('\n', ' ')}");
     }
 
     private static void LoadLevel(Level level)
