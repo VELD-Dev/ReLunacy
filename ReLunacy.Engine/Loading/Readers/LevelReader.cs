@@ -83,7 +83,10 @@ public sealed class LevelReader
         // engine only - FoliageReader returns empty on new-engine files rather than reading
         // old-engine offsets out of them.
         progressCallback?.Invoke("Loading Foliage...", 0.9f);
-        _foliageReader = new FoliageReader(_fileManager);
+        // Pass the MaterialReader so each foliage asset resolves its atlas from A200+0x08 (a direct
+        // index into the 0x5200 texture table — see FoliageMetadata.TextureIndex). Textures are
+        // already loaded above (_textureShaderLoader.LoadAll), so OldTexturesByIndex is populated.
+        _foliageReader = new FoliageReader(_fileManager, _materialReader);
         _foliages = _foliageReader.ReadAll();
 
         // Old engine only (section 0x5920). Independent of geometry, same as foliage.

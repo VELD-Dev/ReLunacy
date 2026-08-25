@@ -27,24 +27,45 @@ public record struct FoliageMetadata : ILunaSerializable
     /// <summary>Number of sprite LOD ranges actually populated (metropolis: 5 of the 5 slots).</summary>
     public const int MaxSpriteLods = 5;
 
+    /// <summary><see cref="TextureIndex"/> sentinel: this foliage asset binds no texture. The game
+    /// tests the field against -1 and takes a fallback branch instead of indexing 0x5200 (EBOOT
+    /// 0x4E2304 / 0x4E233C), so this must be resolved to "no texture", never used as an index.</summary>
+    public const uint NoTexture = 0xFFFFFFFF;
+
     /// <summary>0x0F on both metropolis foliages. Not identified - a flag set, most likely.</summary>
     public uint Unk0;
 
-    /// <summary>The only fields that differ between metropolis's two foliage assets, besides the
-    /// geometry offsets: 0/0 on the first, 1/1 on the second. InsomniaToolset names them foliageId
-    /// (u16 at 0x04) and textureIndex (u32 at 0x08).
-    ///
-    /// TextureIndex is NOT an index into the level texture table. Metropolis's two foliage textures
-    /// are at table indices 1286 and 1287, not 0 and 1, and no table anywhere in main.dat maps one
-    /// to the other - searched for the values and for the record addresses, aligned, across the
-    /// whole file, zero hits. What DOES resolve is the shader: the only references to texture 1286
-    /// and 1287 in the entire file are shaders #626 and #627 (both RenderingMode.Blended, both
-    /// DXT5). Foliage asset 0 pairs with the first of those and asset 1 with the second, so the
-    /// resolution is positional over the foliage shaders. That is an inference from two samples,
-    /// not something read out of the file - do not extend it to a level with more foliage types
-    /// without checking.</summary>
+    /// <summary>u16 @ 0x04. InsomniaToolset names this foliageId. It is 0 on BOTH metropolis
+    /// foliages, so it is NOT the field that distinguishes the two assets - the earlier note here
+    /// claimed 0x04 was the varying field (0/0 then 1/1), which is wrong for this sample. The pair
+    /// that actually moves between the two assets is <see cref="Unk6"/> (0x06) and
+    /// <see cref="TextureIndex"/> (0x08), each 0 on the first and 1 on the second.</summary>
     public ushort FoliageId;
+
+    /// <summary>u16 @ 0x06. The renderer reads this directly off the live A200 pointer (EBOOT
+    /// 0x51FFD0 and 0x52007C both `lhz rN,0x06(...)`), so it is a genuine per-asset selection/sort
+    /// key rather than padding - but which exactly (material variant, render key, foliage type) is
+    /// not pinned down, so it keeps a neutral name. Varies 0/1 across the two metropolis assets, in
+    /// lockstep with <see cref="TextureIndex"/>. NOT needed to resolve the texture.</summary>
     public ushort Unk6;
+
+    /// <summary>DIRECT physical index into the old-engine texture table (section 0x5200,
+    /// <see cref="Textures.TextureMetadataOld"/>) - NOT a shader lookup. The game's own A200 loader
+    /// proves it instruction for instruction: it reads this field (EBOOT 0x4E22F8, `lwz r14,0x08`),
+    /// tests it against -1 (0x4E2304), and when it isn't the sentinel rewrites the slot in place as
+    /// `section5200Base + TextureIndex * 0x20` (0x4E22B8..0x4E22CC multiply the index by 0x20 and add
+    /// the section base the 0x5200 handler cached at manager+0x0C, EBOOT 0x4E2054). So the texture is
+    /// TextureMetadataOld[TextureIndex], addressed by POSITION in the table, not by id/TUID.
+    ///
+    /// This supersedes the earlier shader-626/627 inference, which was a guess from two samples and
+    /// is NOT what the loader does - there is no shader indirection and no 0/1 -&gt; 1286/1287 remap.
+    /// The atlas bound for asset 0 is 0x5200 entry 0 (512x512 DXT5), for asset 1 entry 1; confirmed
+    /// independently by the two descriptors' pixel offsets sitting exactly one full 512x512 BC3 mip
+    /// chain (0x55580) apart.
+    ///
+    /// 0xFFFFFFFF is the "no texture" sentinel (see <see cref="NoTexture"/> / <see cref="HasTexture"/>).
+    /// Resolve through TextureShaderLoader.ResolveOldTextureIndex, which handles both the sentinel
+    /// and an out-of-range index.</summary>
     public uint TextureIndex;
 
     public uint Unk5;
@@ -81,6 +102,10 @@ public record struct FoliageMetadata : ILunaSerializable
         SpriteLodRanges is { Length: > 0 } ? SpriteLodRanges[^1].CornerEnd : 0;
 
     public readonly int TotalSprites => TotalCorners / FoliageSpriteCorner.CornersPerSprite;
+
+    /// <summary>False when <see cref="TextureIndex"/> is the <see cref="NoTexture"/> sentinel, i.e.
+    /// the game would take its no-texture fallback for this asset.</summary>
+    public readonly bool HasTexture => TextureIndex != NoTexture;
 
     public static FoliageMetadata Read(StreamHelper sh, uint recordBase)
     {

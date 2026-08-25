@@ -14,6 +14,7 @@ public sealed class MaterialReader
     private readonly TextureShaderLoader _loader;
     private readonly Dictionary<ulong, Material> _materialCache = [];
     private readonly Dictionary<ulong, Texture> _textureCache = [];
+    private readonly Dictionary<uint, IMaterial> _foliageMaterialCache = [];
     private Material? _defaultMaterial;
 
     public MaterialReader(TextureShaderLoader loader)
@@ -30,6 +31,41 @@ public sealed class MaterialReader
         if (shaderTuids != null && shaderIndex < shaderTuids.Length)
             return GetMaterialByTuid(shaderTuids[shaderIndex]);
         return GetDefaultMaterial();
+    }
+
+    /// <summary>Builds the material for an old-engine foliage asset from its direct texture index
+    /// (<see cref="Loading.Objects.FoliageMetadata.TextureIndex"/> — a physical position in the
+    /// 0x5200 table, resolved through <see cref="TextureShaderLoader.ResolveOldTextureIndex"/>, NOT
+    /// a shader lookup). Returns null for the 0xFFFFFFFF sentinel or an out-of-range index, so the
+    /// caller can fall back to the default billboard texture exactly as the game falls back.
+    ///
+    /// Foliage carries no shader reference of its own, so there is no ShaderMetadata to read a
+    /// render mode from; both metropolis foliage atlases are DXT5 and both foliage shaders are
+    /// RenderingMode.Blended, so the material is tagged AlphaBlend / Blended. The albedo texture is
+    /// wrapped through the same cache as every other texture, so the GPU upload is shared with any
+    /// other use of that same 0x5200 entry.</summary>
+    public IMaterial? GetFoliageMaterial(uint textureIndex)
+    {
+        if (_foliageMaterialCache.TryGetValue(textureIndex, out var cached))
+            return cached;
+
+        var legacy = _loader.ResolveOldTextureIndex(textureIndex);
+        if (legacy is null)
+            return null;
+
+        var albedo = WrapTexture(legacy);
+        // Material id = the texture's own id (its 0x5200 record offset): unique per texture, so two
+        // foliage assets pointing at the same atlas share one material, and it can't collide with an
+        // old-engine shader TUID (those are small sequential indices — see Shader ctor).
+        var material = Material.Create(
+            id: albedo.Id,
+            albedo: albedo,
+            renderMode: RenderMode.AlphaBlend,
+            gameRenderMode: (byte)Loading.Shaders.RenderingMode.Blended);
+        material.Name = $"FoliageTexture_{textureIndex}";
+
+        _foliageMaterialCache[textureIndex] = material;
+        return material;
     }
 
     /// <summary>

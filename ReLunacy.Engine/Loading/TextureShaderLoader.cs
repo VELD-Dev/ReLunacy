@@ -13,6 +13,14 @@ public sealed class TextureShaderLoader
     public readonly Dictionary<ulong, Texture> Textures = [];
     public readonly Dictionary<ulong, Shader> Shaders = [];
 
+    /// <summary>Old-engine textures in PHYSICAL ORDER of the 0x5200 section — element N is the
+    /// descriptor at sectionOffset + N * 0x20. This is the addressing a direct texture-index field
+    /// uses (e.g. <see cref="Objects.FoliageMetadata.TextureIndex"/>): the game computes
+    /// section5200Base + index * 0x20 and reads the descriptor there, so POSITION is the identity,
+    /// not the offset-derived key <see cref="Textures"/> is keyed by. Same Texture instances as
+    /// <see cref="Textures"/>, just also held in order. Empty on the new engine.</summary>
+    public readonly List<Texture> OldTexturesByIndex = [];
+
     private readonly FileManager _fileManager;
 
     public TextureShaderLoader(FileManager fileManager)
@@ -113,6 +121,9 @@ public sealed class TextureShaderLoader
             mainStream.Seek(textureMetadataSection.offset + TextureMetadataOld.Size * i);
             var texture = new Texture(mainStream, true);
             Textures.Add(texture.id, texture);
+            // Physical-position index, in lockstep with `i` — this is what direct index fields
+            // resolve through (see OldTexturesByIndex / ResolveOldTextureIndex).
+            OldTexturesByIndex.Add(texture);
 
             if (texstream is not null) texture.highmipsMetadatasOld = [];
         }
@@ -158,6 +169,22 @@ public sealed class TextureShaderLoader
         LoadZoneLightingSection(main, textures, ZoneLightmapSectionId, ZoneLightmaps);
         LoadZoneLightingSection(main, textures, ZoneDirectionalSectionId, ZoneDirectionals);
         LoadEnvironmentCubemapAverage(main);
+    }
+
+    /// <summary>Resolves a DIRECT old-engine texture index — a physical position in the 0x5200
+    /// table (see <see cref="OldTexturesByIndex"/>) — to its texture. Returns null for the
+    /// 0xFFFFFFFF "no texture" sentinel and for any index past the end of the table, so callers get
+    /// the game's own fallback behaviour rather than an exception or a wrapped 4-billion index.
+    /// This is exactly the addressing the game applies to
+    /// <see cref="Objects.FoliageMetadata.TextureIndex"/>.</summary>
+    public Texture? ResolveOldTextureIndex(uint index)
+    {
+        // 0xFFFFFFFF is the game's -1 "no resource" sentinel (see the EBOOT test at 0x4E2304, and
+        // FoliageMetadata.NoTexture for the foliage field that uses it). Kept inline rather than
+        // referencing that foliage constant so this stays a general old-texture-index resolver.
+        if (index == 0xFFFFFFFF || index >= (uint)OldTexturesByIndex.Count)
+            return null;
+        return OldTexturesByIndex[(int)index];
     }
 
     public const uint CubemapSectionId = 0x5920;

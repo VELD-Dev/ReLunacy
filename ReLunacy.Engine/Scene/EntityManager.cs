@@ -69,8 +69,11 @@ public class EntityManager : IDisposable
     {
         foreach (var foliage in foliages)
         {
+            // foliage.Material is resolved from the asset's direct texture index (A200+0x08 →
+            // 0x5200 table, see FoliageMetadata.TextureIndex). Null (0xFFFFFFFF sentinel / new
+            // engine) falls back to the default billboard texture inside GetOrBuildBillboardMaterial.
             foreach (var placement in foliage.Placements)
-                Foliage.Add(new EntityFoliage(foliage, placement, null, am, gd));
+                Foliage.Add(new EntityFoliage(foliage, placement, foliage.Material, am, gd));
         }
 
         if (Foliage.Count != 0)
