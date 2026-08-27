@@ -1,5 +1,5 @@
 using System.Reflection;
-using Bliss.CSharp.Images;
+using ReLunacy.Engine.Rendering.Resources;
 
 namespace ReLunacy.Utility;
 
@@ -21,7 +21,7 @@ public class ResourcesManager
             byte[] resBuffer = new byte[resStream.Length];
             resStream.ReadExactly(resBuffer, 0, (int)resStream.Length);
 
-            var displayResName = resName.Split(".")[2..].Stringify(".");
+            var displayResName = string.Join(".", resName.Split(".")[2..]);
             resMan.Buffers.TryAdd(displayResName, resBuffer);
         }
         return resMan;

@@ -27,7 +27,7 @@ public interface IMaterial : IAsset
 
     /// <summary>The game's OWN rendering mode byte (ShaderMetadataOld 0x11): 0 Opaque, 1 Overlay,
     /// 2 Additive, 3 Scunge, 4 Cutout, 5 Soft-Edge, 6 Blended. <see cref="RenderMode"/> above is a
-    /// lossy 4-value simplification of this — it cannot express Additive's SrcAlpha/One, Overlay's
+    /// lossy 4-value simplification of this - it cannot express Additive's SrcAlpha/One, Overlay's
     /// polygon offset, or Soft-Edge's two-pass depth-prepass. Renderers that want the game's real
     /// blend/depth/alpha states use THIS; see dev/chatgpt-eboot-{1,2,3}.txt for the EBOOT reverse
     /// that established each mode's exact RSX state.</summary>
@@ -38,32 +38,32 @@ public interface IMaterial : IAsset
     // Per-material parallax remap, applied as height * ParallaxScale + ParallaxBias exactly as the
     // captured game shader does (both are fragment constants there). Read from ShaderMetadataOld
     // 0x50/0x54. The new engine's metadata has no identified equivalent, so new-engine materials
-    // report 0/0 — which disables parallax rather than substituting an invented value.
+    // report 0/0 - which disables parallax rather than substituting an invented value.
     float ParallaxScale { get; }
     float ParallaxBias { get; }
 
-    // Detail-map UV tiling, from ShaderMetadataOld 0x58 — detail maps are authored small and tile
+    // Detail-map UV tiling, from ShaderMetadataOld 0x58 - detail maps are authored small and tile
     // above the base map's frequency. Not recoverable from the captured fragment shader (the
     // detail UV arrives pre-tiled in a vertex interpolant there), which is why it lives in the
-    // metadata. New-engine materials report 0, meaning "not identified" — see
+    // metadata. New-engine materials report 0, meaning "not identified" - see
     // MaterialReader.GetDetailTiling for how that is distinguished from a real zero.
     float DetailTiling { get; }
 
     // (There are no per-channel detail-map strengths here. The floats previously read as
     // DetailNormalStrength/DetailSpecStrength/DetailAlbedoStrength at ShaderMetadataOld 0x28/0x2C/0x30
-    // were misplaced — 0x20/0x24/0x28 is an RGB parameter triple, proven by the EBOOT reverse
-    // (dev/chatgpt-eboot-{4,5}.txt) — so they have been removed rather than left feeding the shader
+    // were misplaced - 0x20/0x24/0x28 is an RGB parameter triple, proven by the EBOOT reverse
+    // (dev/chatgpt-eboot-{4,5}.txt) - so they have been removed rather than left feeding the shader
     // values that mean something else entirely.)
 
     // The material's own "this shader uses a detail map" flag, from the feature bitfield at
     // ShaderMetadataOld 0x10 (InsomniaToolset's MaterialV1_5.useDetailMap). This is authoritative
     // where the previous DXT1-alpha heuristic was only inferential: it says what the material
     // declares, rather than guessing from whether the expensive map happens to have an alpha
-    // channel to hold a mask. New-engine materials report false — that byte isn't identified in
-    // their metadata — so they fall back to "has a detail texture" alone.
+    // channel to hold a mask. New-engine materials report false - that byte isn't identified in
+    // their metadata - so they fall back to "has a detail texture" alone.
     bool UsesDetailMap { get; }
 
-    // See Material.UsesVertexAlphaCandidate — true when this material's render mode blends and
+    // See Material.UsesVertexAlphaCandidate - true when this material's render mode blends and
     // its albedo has no format-level alpha channel, the one condition we've confirmed a per-vertex
     // alpha candidate (VertexFormat0.boneIndex) actually correlates with real fade behavior.
     bool UsesVertexAlphaCandidate { get; }

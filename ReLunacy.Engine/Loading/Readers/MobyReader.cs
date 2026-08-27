@@ -107,7 +107,7 @@ public sealed class MobyReader
     }
 
     /// <summary>Raw MobySkeleton (bone hierarchy + tms0/tms1 bind matrices, both engines share the
-    /// same layout — see MobySkeletonReader) into the clean IMoby-facing ISkeleton/IBone shape.
+    /// same layout - see MobySkeletonReader) into the clean IMoby-facing ISkeleton/IBone shape.
     /// Bones carry no name in this format, so they're indexed as "Bone_{i}".</summary>
     private static Assets.Interfaces.ISkeleton? ConvertSkeleton(MobySkeleton? raw)
     {
@@ -153,7 +153,7 @@ public sealed class MobyReader
         }
 
         // boneMapOffset is a header field on the mesh's own record, resolved via mobyStream (the
-        // same absolute-from-stream-start convention as skeletonPointer/banglesPointer) — NOT
+        // same absolute-from-stream-start convention as skeletonPointer/banglesPointer) - NOT
         // verticesStream/indicesStream, which only hold the bulk vertex/index buffer data. Read
         // defensively: new, unverified-against-every-real-asset code shouldn't be able to break
         // mesh loading for mobys that don't even have a skeleton to skin against.
@@ -192,12 +192,12 @@ public sealed class MobyReader
 
     /// <summary>
     /// Resolves each vertex's raw bone reference(s) through this primitive's local joint palette
-    /// (mesh.boneMap) into skeleton-global bone indices + normalized weights — algorithm
+    /// (mesh.boneMap) into skeleton-global bone indices + normalized weights - algorithm
     /// transliterated from InsomniaToolset's extract_gltf.cpp (AttributeBoneIndex/
     /// AttributeBoneIndices codecs), not independently derived:
     /// - VertexFormat1 (verticesType 1): 4 explicit (localIndex byte, weight byte) pairs.
     /// - VertexFormat0 (verticesType 0): a single implied full-weight binding, whose local palette
-    ///   index is packed into the "purpose"/boneIndex int16 field as abs((purpose+1)/3) — the
+    ///   index is packed into the "purpose"/boneIndex int16 field as abs((purpose+1)/3) - the
     ///   toolset itself names that field "purpose", not "boneIndex", suggesting even its author
     ///   wasn't fully certain of the encoding; flagged here as the least-confident piece of this
     ///   feature.
@@ -237,7 +237,7 @@ public sealed class MobyReader
     }
 
     // skeletonBoneCount bounds-checks boneMap's resolved value too, not just the local palette
-    // index into boneMap itself — boneMap[localIndex] is a skeleton-global bone index, and nothing
+    // index into boneMap itself - boneMap[localIndex] is a skeleton-global bone index, and nothing
     // previously verified it was actually within the skeleton before it reached GltfExporter's
     // joint-node array (built with exactly skeleton.Bones.Count entries), where an out-of-range
     // value would throw. Treated the same as an unweighted slot (skipped) rather than clamped, so

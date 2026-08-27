@@ -51,7 +51,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_FarClipDist"), ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.InputInt(LM.Get("GUI_Frame_EditorSettings_MaxFramerate"), ref Program.Settings.TargetFPS);
                 // currentMsaa used to be a local int with no connection to Program.Settings.MSAA_Level
-                // at all (never initialized from it, never written back to it) — the combo was
+                // at all (never initialized from it, never written back to it) - the combo was
                 // purely cosmetic and always showed "Disabled" regardless of the real, persisted
                 // setting. Resync from the real value every frame (so external changes, e.g. the
                 // Cancel button's ReloadSettings, are reflected too) and write straight back on edit.
@@ -66,7 +66,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_BackfaceCulling"), ref Program.Settings.BackfaceCulling);
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_BackfaceCullingHelp"));
-                // Same resync-every-frame pattern as currentMsaa above (see that comment) —
+                // Same resync-every-frame pattern as currentMsaa above (see that comment) -
                 // applied live by Window.Update via AssetManager.SetTextureFiltering.
                 currentFiltering = (int)Program.Settings.TextureFiltering;
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
@@ -75,7 +75,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
                 // Light direction/colour/ambient controls moved to the Level Data frame, which edits
-                // the level's OWN lighting environment (section 0x8b00) — kept in one place rather
+                // the level's OWN lighting environment (section 0x8b00) - kept in one place rather
                 // than split between here and there.
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
@@ -108,7 +108,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_GizmosSize"), ref Program.Settings.ToolsGizmoSize, 0, 0, 0, "%.3f", ImGuiSliderFlags.AlwaysClamp);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_GizmoSnapEnabled"), ref Program.Settings.GizmoSnapEnabled);
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapTranslation"), ref Program.Settings.GizmoSnapTranslation, 0.1f, 1.0f, "%.3fm");
-                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, 1.0f, 15.0f, "%.3f°");
+                ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapRotation"), ref Program.Settings.GizmoSnapRotation, 1.0f, 15.0f, "%.3f deg");
                 ImGui.InputFloat(LM.Get("GUI_Frame_EditorSettings_GizmoSnapScale"), ref Program.Settings.GizmoSnapScale, 0.05f, 0.25f, "%.3f");
                 ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_VolumeWireThickness"), ref Program.Settings.VolumeWireThickness, 0.01f, 5f, "%.2f", ImGuiSliderFlags.AlwaysClamp);
                 ImGui.SameLine();
@@ -124,7 +124,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.BeginGroup();
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_CameraSpeed"), ref Program.Settings.CamMoveSpeed, 0.5f, 0.5f, 10000, "%0.2fm/s");
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_CameraShiftSpeed"), ref Program.Settings.CamMaxSpeed, 0.5f, 0.5f, 10000, "%0.2fm/s");
-                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_FOV"), ref Program.Settings.CamFOV, 30f, 120f, "%0.1f°");
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_FOV"), ref Program.Settings.CamFOV, 30f, 120f, "%0.1f deg");
                 ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_Sensitivity"), ref Program.Settings.CamSensivity, 0.001f, 2f, "%0.3f");
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
@@ -154,9 +154,6 @@ internal class EditorSettingsFrame : Frame
                 ImGui.BeginGroup();
                 ImGui.Checkbox("Enable Debug", ref Program.Settings.DebugMode);
                 ImGui.Combo("Logging Level", ref currentLogLevel, ["Debug", "Info", "Warning", "Error", "Fatal"], 5);
-                ImGui.Checkbox("Legacy Rendering Mode", ref Program.Settings.LegacyRenderingMode);
-                ImGui.SameLine();
-                ImGuiPlus.HelpMarker("If unsure, leave it unchecked. This heavily\naffects performances and has no reason to still be.");
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }

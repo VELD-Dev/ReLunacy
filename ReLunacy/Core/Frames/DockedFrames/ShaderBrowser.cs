@@ -15,7 +15,7 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// <summary>
 /// Reverse-engineering tool: lists every shader (material) the loaded level parsed, and for the
 /// selected one shows its raw renderingMode byte, alphaClip, decoded texture references, and a
-/// hex dump of every still-unidentified byte range (ShaderMetadataOld/New's Unk fields) — nothing
+/// hex dump of every still-unidentified byte range (ShaderMetadataOld/New's Unk fields) - nothing
 /// here is hidden behind the IMaterial abstraction the renderer uses, since the whole point is to
 /// see what the file actually contains, not what we've already decided it means. Those ranges are
 /// deliberately kept as few and as LONG as the known fields allow: an unknown split at a boundary
@@ -33,21 +33,21 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     private ShaderUsageResult? usageResults;
 
     // null = no filter (show every render mode). Filtering by the raw byte rather than the
-    // RenderingMode enum so 0x01/0x02/0x03/etc. — anything not named yet — can still be isolated
+    // RenderingMode enum so 0x01/0x02/0x03/etc. - anything not named yet - can still be isolated
     // and inspected, which is the whole point of this for reverse engineering.
     private byte? renderModeFilter;
-    // Distinct renderingMode byte values actually present among the loaded shaders, with counts —
+    // Distinct renderingMode byte values actually present among the loaded shaders, with counts -
     // rebuilt whenever the shader list changes, not per frame.
     private readonly List<(byte value, int count)> renderModeCounts = [];
 
     // null = no filter; true = only shaders some loaded Moby/Tie/UFrag actually draws; false = only
     // the ones nothing draws (foliage/effect/UI/cut-content records). See usedShaderTuids.
     private bool? usedFilter;
-    // TUIDs of every shader reachable from this level's rendered geometry — rebuilt when the shader
+    // TUIDs of every shader reachable from this level's rendered geometry - rebuilt when the shader
     // list changes, so the used/unused filter (and the per-row tag) is a set lookup, not a scan.
     private readonly HashSet<ulong> usedShaderTuids = [];
 
-    // Off by default (the hex dump alone is the more compact, general-purpose view) — toggled on
+    // Off by default (the hex dump alone is the more compact, general-purpose view) - toggled on
     // when hunting for a specific numeric value, e.g. a per-material decal-offset bias, across the
     // still-unidentified Unk byte ranges.
     private bool showFloatInterpretation;
@@ -73,7 +73,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         // A shader is "used" iff some loaded Moby/Tie/UFrag mesh resolved its material to that TUID.
         // Computed once here rather than per row: the Shaders dictionary also carries records no
-        // rendered geometry references (cut content, effects, and — the reason this filter exists —
+        // rendered geometry references (cut content, effects, and - the reason this filter exists -
         // foliage), and telling those apart from the drawn set is exactly what the filter surfaces.
         usedShaderTuids.Clear();
         foreach (var moby in level.Mobys.Values)
@@ -117,7 +117,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         usageResults = null;
     }
 
-    // ShaderMetadataOld 0x50/0x54. The new engine's metadata has no identified equivalent — see
+    // ShaderMetadataOld 0x50/0x54. The new engine's metadata has no identified equivalent - see
     // MaterialReader.GetParallaxScale, which returns 0 there for the same reason.
     private static float MetadataParallaxScale(Shader shader) =>
         shader.isOld && shader.metadataOld.HasValue ? shader.metadataOld.Value.parallaxScale : 0f;
@@ -168,7 +168,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
             foreach (var (value, count) in renderModeCounts)
             {
-                if (ImGui.Selectable($"{RenderModeLabel(value)} — {count}##rendermode_{value:X2}", renderModeFilter == value))
+                if (ImGui.Selectable($"{RenderModeLabel(value)} - {count}##rendermode_{value:X2}", renderModeFilter == value))
                     renderModeFilter = value;
             }
             ImGui.EndCombo();
@@ -183,13 +183,13 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (ImGui.BeginCombo(LM.Get("GUI_Frame_ShaderBrowser_FilterUsage"), usagePreview))
         {
             // Counted within the shader list (not usedShaderTuids.Count) so the two rows always add
-            // up to the total — a used TUID with no matching shader record would otherwise inflate it.
+            // up to the total - a used TUID with no matching shader record would otherwise inflate it.
             int usedCount = shaders.Count(s => usedShaderTuids.Contains(s.TUID));
             if (ImGui.Selectable(LM.Get("GUI_Common_FilterAll"), usedFilter == null))
                 usedFilter = null;
-            if (ImGui.Selectable($"{LM.Get("GUI_Common_FilterUsed")} — {usedCount}", usedFilter == true))
+            if (ImGui.Selectable($"{LM.Get("GUI_Common_FilterUsed")} - {usedCount}", usedFilter == true))
                 usedFilter = true;
-            if (ImGui.Selectable($"{LM.Get("GUI_Common_FilterUnused")} — {shaders.Count - usedCount}", usedFilter == false))
+            if (ImGui.Selectable($"{LM.Get("GUI_Common_FilterUnused")} - {shaders.Count - usedCount}", usedFilter == false))
                 usedFilter = false;
             ImGui.EndCombo();
         }
@@ -245,12 +245,12 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Expensive"), shader.Expensive);
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_DetailMap"), shader.DetailMap);
 
-        // Live per-material parallax scale/bias — a reverse-engineering aid: the game's own shader
+        // Live per-material parallax scale/bias - a reverse-engineering aid: the game's own shader
         // computes height * scale + bias from two per-material constants, so these are the two
         // numbers to hunt for in the raw metadata hex dump below. Type a candidate pair in here
         // (ctrl+click a drag to enter an exact value) and watch the surface. Deliberately
         // unclamped and shown at float precision so a value read straight out of the dump can be
-        // used verbatim — a wide range is the whole point, and the sign is part of what's being
+        // used verbatim - a wide range is the whole point, and the sign is part of what's being
         // searched for. Runtime-only, nothing is persisted. Only shown when the material is
         // actually built (i.e. the loaded region uses it).
         var assetManager = LunaWindow.Instance.AssetManager;
@@ -267,7 +267,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             // parallax fields at all and always report 0/0 (see MaterialReader.GetParallaxScale).
             ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_ParallaxFromFile", MetadataParallaxScale(shader), MetadataParallaxBias(shader)));
 
-            // min == max == 0 is ImGui's own spelling for "unbounded" — passing float.MinValue /
+            // min == max == 0 is ImGui's own spelling for "unbounded" - passing float.MinValue /
             // float.MaxValue instead overflows the internal (max - min) range calculation to
             // infinity and leaves the drag inert. Unbounded is deliberate: the sign is part of
             // what's being searched for, and a candidate straight out of the dump can be any
@@ -277,7 +277,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             if (changed)
                 assetManager.SetParallax(shader.TUID, parallaxScale, parallaxBias);
 
-            // Back to what the FILE says, not to a hardcoded constant — the point of the sliders is
+            // Back to what the FILE says, not to a hardcoded constant - the point of the sliders is
             // to deviate from the parsed value and come back to it.
             if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##parallax_reset"))
                 assetManager.SetParallax(shader.TUID, MetadataParallaxScale(shader), MetadataParallaxBias(shader));
@@ -306,14 +306,14 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             // Comparing "Detail" here against whether DetailMap above is actually present, across
             // a few materials, is what confirms or reverses it.
             ImGui.Text($"0x10 flags: 0x{meta.flags:X2} (binary {Convert.ToString(meta.flags, 2).PadLeft(8, '0')})");
-            // Parallax, not specular — see ShaderMetadataOld.UsesParallax. Printed next to
+            // Parallax, not specular - see ShaderMetadataOld.UsesParallax. Printed next to
             // parallaxScale below so the two can be compared across materials, which is what
             // confirms the bit.
             ImGui.Text($"     Parallax:{meta.UsesParallax} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
             ImGui.Text($"0x12 Class: {meta.Class}");
             DrawHexDump("Unk1", 0x13, meta.Unk1);
             // values[0].xyz is an RGB parameter triple the engine multiplies by the instance's own RGB
-            // when the Spatial Lighting flag is set, then uploads as a vertex constant — NOT an alpha
+            // when the Spatial Lighting flag is set, then uploads as a vertex constant - NOT an alpha
             // clip and NOT detail strengths (both of those readings are refuted; see ShaderMetadataOld).
             ImGui.Text($"0x20 value0 X: {meta.value0X:0.######}  Y: {meta.value0Y:0.######}  Z: {meta.value0Z:0.######}  W: {meta.value0W:0.######}");
             ImGui.Text($"0x30 value1 X: {meta.value1X:0.######}  Y: {meta.value1Y:0.######}  (0x34 is known live, meaning unknown)");
@@ -365,7 +365,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (usageResults.UFrags.Count > 0)
         {
             ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_UsagesUFrags", usageResults.UFrags.Count));
-            // Indexed, not keyed by ufrag.Id — IUFrag.Id is only unique within its own zone (see
+            // Indexed, not keyed by ufrag.Id - IUFrag.Id is only unique within its own zone (see
             // TexturesExplorer.SelectUFragInView3D), so two results here can share an Id.
             for (int i = 0; i < usageResults.UFrags.Count; i++)
             {
@@ -386,7 +386,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         ImGui.Text($"{label}: {(string.IsNullOrEmpty(tex.name) ? tex.id.ToString("X") : tex.name)} (0x{tex.id:X}, {tex.Width}x{tex.Height}, {tex.TexFormat})");
 
-        // See TextureMetadataOld.AlphaKillCandidate — a candidate per-texture alpha bit distinct
+        // See TextureMetadataOld.AlphaKillCandidate - a candidate per-texture alpha bit distinct
         // from the shader's own renderingMode byte, cross-referenced from InsomniaToolset but not
         // yet confirmed against real data. Surfaced here since it's a texture-level flag, not a
         // shader-level one.
@@ -426,7 +426,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (!showFloatInterpretation || data.Length < 4)
             return;
 
-        // Every 4-byte-aligned position reinterpreted as a big-endian float32 — this file format
+        // Every 4-byte-aligned position reinterpreted as a big-endian float32 - this file format
         // is PS3/PowerPC (big-endian throughout, see StreamHelper.Endianness.Big), so a naive
         // BitConverter read would silently byte-swap every value. Alignment is to the FILE's
         // absolute offset, not to the start of this array: several of these ranges begin at an

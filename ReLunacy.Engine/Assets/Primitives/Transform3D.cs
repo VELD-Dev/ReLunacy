@@ -5,7 +5,7 @@ namespace ReLunacy.Engine.Assets.Primitives;
 public readonly struct Transform3D
 {
     public Vector3 Position { get; init; }
-    /// <summary>ZYX Euler angles in radians, straight from the file (see MobyInstanceOld/New) — no unit conversion.</summary>
+    /// <summary>ZYX Euler angles in radians, straight from the file (see MobyInstanceOld/New) - no unit conversion.</summary>
     public Vector3 Rotation { get; init; }
     public float Scale { get; init; }
 

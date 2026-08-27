@@ -6,7 +6,7 @@ using ReLunacy.Engine.Loading.Textures;
 namespace ReLunacy.Engine.Loading;
 
 // Loads every texture and shader up front, keyed by TUID (new engine) or flat index (old
-// engine) — this is what mesh shaderIndex fields resolve through. Shaders must load after
+// engine) - this is what mesh shaderIndex fields resolve through. Shaders must load after
 // textures: shader construction resolves albedo/normal/expensive texture references immediately.
 public sealed class TextureShaderLoader
 {
@@ -63,7 +63,7 @@ public sealed class TextureShaderLoader
         var highmipsPtrSec = assetlookup.QuerySection(Texture.HighmipsPointerID);
         var textureMetaSec = assetlookup.QuerySection(TextureMetadataNew.ID);
         // Lower-resolution single-mip fallback copies, embedded directly in textures.dat,
-        // index-aligned with the metadata/highmip-pointer tables above — see
+        // index-aligned with the metadata/highmip-pointer tables above - see
         // Texture.ReadTexture's lowres fallback branch. Absent on some levels (QuerySection
         // returns a zero-length default header when the section doesn't exist at all).
         var textureRefSec = assetlookup.QuerySection(0x1D180);
@@ -73,14 +73,14 @@ public sealed class TextureShaderLoader
 
         // assetlookup.dat's section headers carry an unreliable `count` field for these
         // pointer/metadata-table sections (same quirk already worked around for zone/moby/tie
-        // pointer tables elsewhere) — `length / record size` is the real entry count. Using
+        // pointer tables elsewhere) - `length / record size` is the real entry count. Using
         // `.count` directly here was loading only 1 of 1458 textures for this level.
         uint textureCount = textureMetaSec.length / TextureMetadataNew.Size;
         for (uint i = 0; i < textureCount; i++)
         {
             alstream.Seek(textureMetaSec.offset + TextureMetadataNew.Size * i);
             // Texture's new-engine constructor branch never sets `id` itself (that's normally
-            // ReadHighmipsPtr's job, which this bypasses since highmipsPtrs is already read) —
+            // ReadHighmipsPtr's job, which this bypasses since highmipsPtrs is already read) -
             // every texture was silently getting id=0, which only surfaced once the count fix
             // above made this loop run more than once (id=0 duplicate on the 2nd texture).
             var tex = new Texture(alstream) { highmipsRef = highmipsPtrs[i], id = highmipsPtrs[i].TUID };
@@ -138,10 +138,10 @@ public sealed class TextureShaderLoader
             }
 
             // texstreamReferences.index is the TARGET texture's index, not a 1:1 position in this
-            // list — a texstream override only exists for a subset of textures. The previous loop
+            // list - a texstream override only exists for a subset of textures. The previous loop
             // used its own counter `i` as both the reference-list position AND the texture-array
             // index, which are different things: any reference whose own .index was >=
-            // texstreamRefSection.count (entirely plausible — the ref list only has as many
+            // texstreamRefSection.count (entirely plausible - the ref list only has as many
             // entries as overridden textures, which can be indexed anywhere in the full texture
             // table) was silently skipped, and the reference actually found at position i was
             // applied to the wrong texture whenever the two diverged.
@@ -154,11 +154,11 @@ public sealed class TextureShaderLoader
         }
 
         // Per texture, not a single stream for the whole level: only textures with their own
-        // texstream override (highmipsMetadatasOld non-empty) read from texstream.dat — its
+        // texstream override (highmipsMetadatasOld non-empty) read from texstream.dat - its
         // offsets are meaningless against textures.dat and vice versa. The previous single
         // `streamToRead = texstream ?? textures` read EVERY texture from texstream.dat whenever
         // that file existed at all, even textures with no override entry, seeking to garbage
-        // offsets for all of them — texstream.dat only overrides a subset of textures on levels
+        // offsets for all of them - texstream.dat only overrides a subset of textures on levels
         // that have one at all (e.g. Tools of Destruction's meridian_city).
         foreach (var tex in Textures.Values)
         {
@@ -193,17 +193,17 @@ public sealed class TextureShaderLoader
     /// An APPROXIMATION on purpose: the game reflects a real cubemap, but its contents in metropolis
     /// are a near-uniform grey, so a single colour captures almost all of what it contributes
     /// without needing a samplerCube binding or the exact face/mip layout (which is not pinned down
-    /// — with 6 mips a face is 5460 bytes, not 4096, so the ordering still has to be established).
+    /// - with 6 mips a face is 5460 bytes, not 4096, so the ordering still has to be established).
     /// </summary>
     public System.Numerics.Vector3? EnvironmentAverage { get; private set; }
 
     /// <summary>Reads the cubemap reference at section 0x5920 and averages it.
     /// Two things about this are unlike every other texture here. Its pixel data lives in MAIN.DAT
-    /// itself, not textures.dat — reading the offset against textures.dat lands in an index buffer.
+    /// itself, not textures.dat - reading the offset against textures.dat lands in an index buffer.
     /// And its RGB is a near-white greyscale MANTISSA with the real variation carried in alpha as a
     /// shared HDR exponent (see the captured shader: envColour = rgb * exp2(a * scale + bias)).
     /// The exponent's scale/bias are fragment constants we cannot source, so alpha is folded in as a
-    /// plain 0..1 weight rather than decoded — enough for an average, not a substitute for the real
+    /// plain 0..1 weight rather than decoded - enough for an average, not a substitute for the real
     /// decode.</summary>
     private void LoadEnvironmentCubemapAverage(IGFile main)
     {
@@ -219,7 +219,7 @@ public sealed class TextureShaderLoader
         double r = 0, g = 0, b = 0, weight = 0;
         for (int i = 0; i + 3 < pixels.Length; i += 4)
         {
-            // Stored A,R,G,B — confirmed by alpha being the only channel that varies.
+            // Stored A,R,G,B - confirmed by alpha being the only channel that varies.
             double a = pixels[i] / 255.0;
             r += pixels[i + 1] / 255.0 * a;
             g += pixels[i + 2] / 255.0 * a;
@@ -236,23 +236,23 @@ public sealed class TextureShaderLoader
     public const uint ZoneDirectionalSectionId = 0x5410;
 
     /// <summary>Baked light COLOUR per lightmapped instance (main.dat section 0x5400). Indexed
-    /// positionally by TieInstance.LightmapIndex — entry X of this list and of ZoneDirectionals
+    /// positionally by TieInstance.LightmapIndex - entry X of this list and of ZoneDirectionals
     /// belong to the same instance. Empty on the new engine (see LoadZoneLightingSection).</summary>
     public readonly List<Texture> ZoneLightmaps = [];
 
     /// <summary>Baked light DIRECTION, tangent space (main.dat section 0x5410), same indexing as
-    /// ZoneLightmaps. InsomniaToolset names this section "ShadowMap"; that is wrong — the game
+    /// ZoneLightmaps. InsomniaToolset names this section "ShadowMap"; that is wrong - the game
     /// shader dots it with a tangent-space normal and divides by its .z, a directional-lightmap
     /// operation.</summary>
     public readonly List<Texture> ZoneDirectionals = [];
 
     /// <summary>Reads a zone lighting section. These use the identical 0x20-byte layout as regular
     /// textures (0x5200), with pixel data in textures.dat, so they go through exactly the same
-    /// Texture/ReadTexture path — that shared layout is why this is cheap.
+    /// Texture/ReadTexture path - that shared layout is why this is cheap.
     /// Old engine only: on the new engine the pixel data moves to lighting.dat behind an
     /// assetlookup resource, which isn't wired up here.
     /// Entries are added even when a read fails, so this list stays POSITIONALLY aligned with the
-    /// indices that reference it — dropping a bad entry would silently shift every later index.
+    /// indices that reference it - dropping a bad entry would silently shift every later index.
     /// </summary>
     private static void LoadZoneLightingSection(IGFile main, StreamHelper textures, uint sectionId, List<Texture> into)
     {
@@ -286,7 +286,7 @@ public sealed class TextureShaderLoader
         var shaderStream = new StreamHelper(shadersStream, StreamHelper.Endianness.Big);
 
         var shaderPtrSec = assetlookup.QuerySection(Shader.PointerID);
-        // Same count-field-is-unreliable quirk as the texture metadata section above — this was
+        // Same count-field-is-unreliable quirk as the texture metadata section above - this was
         // loading only 1 of 693 shaders for this level, leaving nearly every mesh's material
         // resolution falling back to the default material.
         uint shaderCount = shaderPtrSec.length / AssetPointer.Size;
@@ -302,7 +302,7 @@ public sealed class TextureShaderLoader
             throw new InvalidOperationException("Textures must be loaded before shaders.");
 
         // ShaderReference's albedoID/normalID/expensiveID (and Legacy's identical NewReferences
-        // struct) are only 32-bit — the low half of a texture's full 64-bit TUID — so they can't
+        // struct) are only 32-bit - the low half of a texture's full 64-bit TUID - so they can't
         // match Textures' full-TUID keys directly. Legacy's own texture dictionary is likewise
         // keyed by the truncated 32-bit value; mirror that here for the lookup.
         var texturesByLow32 = new Dictionary<uint, Texture>();
@@ -343,7 +343,7 @@ public sealed class TextureShaderLoader
             shader.name = shadstream.ReadString(sref.namePointer);
 
             // ShaderReference's own embedded TUID field (offset 0x00) reads as a genuine 0 for
-            // every shader in this format — Legacy never relies on it either, keying its shader
+            // every shader in this format - Legacy never relies on it either, keying its shader
             // dictionary by the assetlookup pointer-table TUID (shaderPtrs[i].tuid) instead, same
             // as this codebase's Moby/Zone/Tie readers already do for their own asset tables.
             Shaders.Add(ptr.TUID, shader);

@@ -70,7 +70,7 @@ public sealed class MaterialReader
 
     /// <summary>
     /// Wraps every texture the loader read from textures.dat/highmips.dat, not just the ones
-    /// referenced by a shader actually used by the currently loaded level's geometry — cut/unused
+    /// referenced by a shader actually used by the currently loaded level's geometry - cut/unused
     /// textures (interesting for datamining, e.g. Hidden Palace-style prototype content) never get
     /// touched by <see cref="GetMaterialByTuid"/>, since that only walks shaders reachable from
     /// loaded meshes. Reuses the same wrap cache, so nothing gets double-wrapped.
@@ -113,7 +113,7 @@ public sealed class MaterialReader
             detail: shader.DetailMap != null ? WrapTexture(shader.DetailMap) : null,
             renderMode: ToRenderMode(shader.RenderingMode),
             // The game's own 0-6 mode, carried raw for renderers that implement its real RSX states
-            // (see IMaterial.GameRenderMode). Values outside 0-6 aren't render modes — clamp to Opaque.
+            // (see IMaterial.GameRenderMode). Values outside 0-6 aren't render modes - clamp to Opaque.
             gameRenderMode: (byte)shader.RenderingMode <= 6 ? (byte)shader.RenderingMode : (byte)0,
             alphaClipThreshold: GetAlphaClip(shader),
             usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo),
@@ -127,7 +127,7 @@ public sealed class MaterialReader
         return material;
     }
 
-    // See TextureMetadataOld.AlphaKillCandidate — logged once per distinct texture so a real
+    // See TextureMetadataOld.AlphaKillCandidate - logged once per distinct texture so a real
     // level load can show whether this bit actually correlates with textures that should be
     // transparent but currently render solid.
     private static readonly HashSet<ulong> _loggedAlphaKillTextures = [];
@@ -138,7 +138,7 @@ public sealed class MaterialReader
             return cached;
 
         if (legacy.isOld && legacy.textureMetadata is Textures.TextureMetadataOld oldMeta && oldMeta.AlphaKillCandidate && _loggedAlphaKillTextures.Add(legacy.id))
-            Console.WriteLine($"Diagnostic: texture {legacy.id:X} ('{legacy.name}') has the candidate old-engine alphaKill bit set (unverified — see TextureMetadataOld.AlphaKillCandidate).");
+            Console.WriteLine($"Diagnostic: texture {legacy.id:X} ('{legacy.name}') has the candidate old-engine alphaKill bit set (unverified - see TextureMetadataOld.AlphaKillCandidate).");
 
         var texture = Texture.FromData(legacy.id, legacy.Width, legacy.Height, ToTextureFormat(legacy.TexFormat), legacy.data, (int)legacy.MipmapCounts);
         texture.Name = legacy.name;
@@ -163,14 +163,14 @@ public sealed class MaterialReader
     // confirmed-appropriate treatment in this engine's simplified 4-case RenderMode; Scunge,
     // Soft-Edge, Blended, Baked Only, and Lit Only don't have independently confirmed blend
     // behavior yet, so they're conservatively mapped to the closest reasonable guess below rather
-    // than left to silently fall through — flagged per-case so it's easy to find and correct once
+    // than left to silently fall through - flagged per-case so it's easy to find and correct once
     // more is known about each. AssetManager already renders every material with
     // RasterizerStateDescription.CULL_NONE regardless of backface culling differences between
     // modes, so that distinction (if any of these have one) wouldn't currently change anything
     // downstream either way.
     //
     // The enum is believed exhaustive (all 9 values 0x00-0x08 accounted for), but the default
-    // case below stays defensive — logged once per distinct byte — in case something outside that
+    // case below stays defensive - logged once per distinct byte - in case something outside that
     // range shows up in a file this hasn't been checked against yet.
     private static readonly HashSet<byte> _loggedUnknownRenderingModes = [];
 
@@ -182,45 +182,45 @@ public sealed class MaterialReader
             case RenderingMode.Cutout: return RenderMode.AlphaClip;
             case RenderingMode.Overlay: return RenderMode.AlphaBlend;
             case RenderingMode.Additive: return RenderMode.Additive;
-            // Guess: "blended" implies alpha blend like Overlay above — stronger guess now that
+            // Guess: "blended" implies alpha blend like Overlay above - stronger guess now that
             // this is its own mode, not conflated with "baked only" anymore.
             case RenderingMode.Blended: return RenderMode.AlphaBlend;
             // Guess: "soft-edge" strongly suggests a depth-based edge fade (soft particles), which
-            // isn't implemented by anything downstream yet — treated as plain alpha blend for now,
+            // isn't implemented by anything downstream yet - treated as plain alpha blend for now,
             // which is at least not wrong about needing to blend, just incomplete about how.
             case RenderingMode.SoftEdge: return RenderMode.AlphaBlend;
-            // Scunge is a real SRC_ALPHA/ONE_MINUS_SRC_ALPHA alpha blend with ZWrite off — confirmed by
-            // the EBOOT reverse (dev/chatgpt-eboot-2.txt: RenderingMode 3 → queue 34 → handler 0x51C350).
+            // Scunge is a real SRC_ALPHA/ONE_MINUS_SRC_ALPHA alpha blend with ZWrite off - confirmed by
+            // the EBOOT reverse (dev/chatgpt-eboot-2.txt: RenderingMode 3 -> queue 34 -> handler 0x51C350).
             // Previously mapped to Opaque as a conservative guess, which rendered its glass/decals solid.
             case RenderingMode.Scunge: return RenderMode.AlphaBlend;
-            // BakedOnly/LitOnly (0x07/0x08) aren't real render modes — the EBOOT's render-mode table
+            // BakedOnly/LitOnly (0x07/0x08) aren't real render modes - the EBOOT's render-mode table
             // stops at 6; they're debug/settings strings that leaked into the old guess. Treat as opaque.
             case RenderingMode.BakedOnly: return RenderMode.Opaque;
             case RenderingMode.LitOnly: return RenderMode.Opaque;
             default:
                 byte raw = (byte)mode;
                 if (_loggedUnknownRenderingModes.Add(raw))
-                    Console.WriteLine($"Warning: Unrecognized shader renderingMode byte 0x{raw:X2} (outside the believed-exhaustive 0x00-0x08 range — falling back to Opaque).");
+                    Console.WriteLine($"Warning: Unrecognized shader renderingMode byte 0x{raw:X2} (outside the believed-exhaustive 0x00-0x08 range - falling back to Opaque).");
                 return RenderMode.Opaque;
         }
     }
 
-    /// <summary>Old engine has NO alpha-clip threshold — it cuts at zero. ShaderMetadataOld's 0x20
+    /// <summary>Old engine has NO alpha-clip threshold - it cuts at zero. ShaderMetadataOld's 0x20
     /// is not this field, and using it as one wrecked every cutout surface in the game.
     ///
     /// Cross-tabbed 0x20 against the renderingMode byte over metropolis's 631 old-engine shaders:
     ///     Cutout     14 shaders, alphaClip = 1.0 on ALL FOURTEEN, no exceptions
     ///     Opaque    426 at 1.0, 44 at a fraction (0.64, 0.80, 0.878, 0.902, ...)
     ///     SoftEdge   28 at 1.0, 14 at 0.0
-    /// A clip threshold cannot be 1.0 on every single material that clips — that discards all but
-    /// perfectly opaque texels — and the fractional values land on OPAQUE materials, where a
+    /// A clip threshold cannot be 1.0 on every single material that clips - that discards all but
+    /// perfectly opaque texels - and the fractional values land on OPAQUE materials, where a
     /// threshold means nothing at all. Whatever 0x20 is (per-material opacity is the standing
-    /// suspicion, previously retracted for other reasons — see UsesVertexAlphaCandidate), it is
+    /// suspicion, previously retracted for other reasons - see UsesVertexAlphaCandidate), it is
     /// not this. Old engine therefore gets a zero threshold and the shader discards on `&lt;=`.
     ///
     /// This is also the whole of the "blocky cutout edges" problem. Every one of those 14 Cutout
     /// materials is DXT5, which stores alpha as two endpoints interpolated across a 4x4 block, so
-    /// demanding alpha == 1.0 exactly kept only the texels sitting at an endpoint — a mask aligned
+    /// demanding alpha == 1.0 exactly kept only the texels sitting at an endpoint - a mask aligned
     /// to compression blocks. The edges were the DXT5 block grid, not a filtering artifact.
     ///
     /// New engine keeps reading its own field at 0x30; it has not been shown to have the same
@@ -230,7 +230,7 @@ public sealed class MaterialReader
 
     // ShaderMetadataOld 0x50/0x54, feeding the captured game shader's height * scale + bias.
     // Returned verbatim, sign included: which way relief appears to move is data, not something to
-    // correct here — if it comes out inverted the culprit is the tangent basis (see
+    // correct here - if it comes out inverted the culprit is the tangent basis (see
     // LitModelShaderSource's bitangent handedness), not this value.
     // The new engine's metadata has no identified equivalent, so it gets 0/0, which disables
     // parallax outright rather than substituting a made-up constant. The ShaderBrowser prints
@@ -244,13 +244,13 @@ public sealed class MaterialReader
 
     /// <summary>Whether the material declares a detail map. Old engine reads the real feature flag
     /// (metadata 0x10, InsomniaToolset's MaterialV1_5.useDetailMap). The new engine has no
-    /// identified equivalent byte, so it falls back to "a detail texture is referenced" — the
+    /// identified equivalent byte, so it falls back to "a detail texture is referenced" - the
     /// engine-version split is resolved here, where isOld is known, rather than leaving consumers
     /// unable to tell a cleared flag from an absent one.</summary>
     private static bool UsesDetailMap(Shader shader) =>
         shader.isOld ? shader.metadataOld!.Value.UsesDetailMap : shader.DetailMap != null;
 
-    // ShaderMetadataOld 0x58. Returned raw, including 0 — the consumer (AssetManager) is what
+    // ShaderMetadataOld 0x58. Returned raw, including 0 - the consumer (AssetManager) is what
     // decides that 0 means "no identified tiling, fall back to 1", because a tiling of literally
     // zero would collapse the whole detail map to a single texel and can't be what the field
     // means. Kept as a separate decision there so this stays a plain read of the file.
@@ -258,9 +258,9 @@ public sealed class MaterialReader
         shader.isOld ? shader.metadataOld!.Value.detailTiling : 0f;
 
     // Per-material opacity (ShaderMetadata's decalOffsetCandidate/opacityCandidate at 0x48/0x4C)
-    // was retracted — it explained flat dimming but not the spatial fade actually seen in-game.
+    // was retracted - it explained flat dimming but not the spatial fade actually seen in-game.
     // The current best lead is per-vertex alpha (VertexFormat0.boneIndex, see PackedNormal-style
-    // decode on that field) — but the user suspects there's a shader-level enum somewhere that
+    // decode on that field) - but the user suspects there's a shader-level enum somewhere that
     // says whether a given mesh's ambiguous vertex field means bone index, vertex alpha, or vertex
     // color (not yet found). Until that's identified, this is the one condition confirmed to
     // correlate: a blending render mode with no albedo alpha to source transparency from.
@@ -271,7 +271,7 @@ public sealed class MaterialReader
     private static bool UsesVertexAlphaCandidate(RenderingMode mode, ITexture? albedo) =>
         mode != RenderingMode.Opaque && !HasAlphaChannel(albedo);
 
-    // A1R5G5B5/RGBA4 carry real (if low-precision) alpha bits, same as A8R8G8B8/DXT3/DXT5 —
+    // A1R5G5B5/RGBA4 carry real (if low-precision) alpha bits, same as A8R8G8B8/DXT3/DXT5 -
     // included here for the same reason those are: UsesVertexAlphaCandidate should only kick in
     // when the albedo genuinely has nowhere else to source transparency from.
     private static bool HasAlphaChannel(ITexture? texture) =>

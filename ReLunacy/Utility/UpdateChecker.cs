@@ -12,14 +12,14 @@ namespace ReLunacy.Utility;
 public readonly record struct CommitInfo(string ShortSha, string Message, string Url);
 
 // Recreated after the LibLunacy/Bliss merge deleted the old implementation (see git history for
-// the pre-rewrite version this is loosely based on) — now channel-aware per EditorSettings.
+// the pre-rewrite version this is loosely based on) - now channel-aware per EditorSettings.
 //
 // Stable checks GitHub's normal "latest release" and compares its tag as a Version against
 // ProgramInfo.Version, same as before.
 //
 // Nightly is a different shape entirely: .github/workflows/nightly.yml keeps a single rolling
 // release under the "nightly" tag, and (per its allowUpdates/replacesArtifacts settings)
-// accumulates every nightly build's artifacts there rather than replacing them — so a nightly tag
+// accumulates every nightly build's artifacts there rather than replacing them - so a nightly tag
 // has no single meaningful version number, just a growing list of dated, commit-stamped assets.
 // Comparison instead extracts the commit hash baked into the newest asset's filename for this
 // platform and compares it against NightlyBuildInfo.CommitHash (this build's own identity, which
@@ -103,7 +103,7 @@ public static class UpdateChecker
         if (url == null || assets == null || assets.Count == 0) return;
 
         // Filenames are "ReLunacy-nightly-{yyyy-MM-dd}.{shortCommit}.{platformRid}.{ext}" (see the
-        // nightly workflow) — pick this platform's newest by filename, which sorts lexicographically
+        // nightly workflow) - pick this platform's newest by filename, which sorts lexicographically
         // the same as chronologically thanks to the leading yyyy-MM-dd.
         string platformRid = OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
         var latestForPlatform = assets
@@ -129,7 +129,7 @@ public static class UpdateChecker
 
         LunaLog.LogInfo($"A nightly update is available: {assetName}");
         // Nightly builds have no changelog body, so the commit list IS the "what's new". Compare
-        // from this build's own commit when it knows it (a real nightly binary — stamped by the
+        // from this build's own commit when it knows it (a real nightly binary - stamped by the
         // workflow), otherwise from the latest stable tag so a stable user checking the nightly
         // channel still gets a meaningful range.
         string baseRef = NightlyBuildInfo.CommitHash ?? ProgramInfo.Version;

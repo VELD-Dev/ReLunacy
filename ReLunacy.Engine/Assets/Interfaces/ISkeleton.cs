@@ -9,7 +9,7 @@ public interface IBone
     int ParentIndex { get; }
     /// <summary>Bind-pose transform in moby-local space (not relative to the parent bone).</summary>
     Matrix4x4 WorldBindPose { get; }
-    /// <summary>Inverse of WorldBindPose — the matrix GPU skinning multiplies a vertex by.</summary>
+    /// <summary>Inverse of WorldBindPose - the matrix GPU skinning multiplies a vertex by.</summary>
     Matrix4x4 InverseBindPose { get; }
 }
 

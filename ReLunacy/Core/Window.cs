@@ -1,14 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
-using Bliss.CSharp;
-using Bliss.CSharp.Fonts;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Images;
-using Bliss.CSharp.Interact;
-using Bliss.CSharp.Interact.Contexts;
-using Bliss.CSharp.Textures;
-using Bliss.CSharp.Windowing;
 using ReLunacy.Core.Frames;
 using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Core.Frames.Modals;
@@ -25,21 +17,20 @@ using Veldrith;
 
 namespace ReLunacy.Core;
 
-public class LunaWindow : Disposable
+public class LunaWindow : IDisposable
 {
     [NotNull] public static LunaWindow? Instance { get; private set; }
     public EditorSettings EditorSettings => Program.Settings;
     public ResourcesManager Resources => Program.Resources;
 
-    [NotNull] public IWindow? MainWindow { get; private set; }
+    [NotNull] public EditorWindow? MainWindow { get; private set; }
     [NotNull] public GraphicsDevice? GraphicsDevice { get; private set; }
     [NotNull] public CommandList? CommandList { get; private set; }
     private double fixedFrameRate;
     private double fixedUpdateTimeStep;
     private double fixedUpdateTimer;
-    public FullScreenRenderer FullScreenRenderer { get; private set; } = null!;
-    public RenderTexture2D FullScreenTexture { get; private set; } = null!;
-    public Texture2D FinalFullScreenTexture { get; private set; } = null!;
+    public FullscreenBlit FullScreenRenderer { get; private set; } = null!;
+    public MainRenderTarget FullScreenTexture { get; private set; } = null!;
     public ImGuiController imGuiController = null!;
 
     public List<Frame> openFrames = [];
@@ -49,8 +40,13 @@ public class LunaWindow : Disposable
     public LevelData? Level { get; private set; }
     private bool doLoadEntities;
 
+    /// <summary>Textures decoded on the loading task, handed to the AssetManager when it is built on the
+    /// main thread. Cleared as soon as it takes them: these are the level's pixels, and holding a second
+    /// reference would keep them alive for nothing.</summary>
+    private Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?>? pendingTextures;
+
     /// <summary>Background export tasks (see AssetViewer) can only touch <see cref="openFrames"/>
-    /// from the main thread, same rule as the rest of this class — so completions are queued here
+    /// from the main thread, same rule as the rest of this class - so completions are queued here
     /// (ConcurrentQueue needs no external locking) and drained on the main thread each frame by
     /// <see cref="DoExportCompletionsCheck"/>.</summary>
     private readonly ConcurrentQueue<ExportCompletion> pendingExportCompletions = new();
@@ -96,8 +92,8 @@ public class LunaWindow : Disposable
             SwapchainSrgbFormat = false
         };
 
-        MainWindow = Window.CreateWindow(
-            WindowType.Sdl3, 1280, 720, ProgramInfo.DisplayName, WindowState.Resizable, options,
+        MainWindow = EditorWindow.Create(
+            1280, 720, ProgramInfo.DisplayName, options,
             EditorSettings.GraphicsBackend, out GraphicsDevice graphicsDevice);
         MainWindow.Resized += () => OnResize(MainWindow.GetWidth(), MainWindow.GetHeight());
         GraphicsDevice = graphicsDevice;
@@ -105,16 +101,22 @@ public class LunaWindow : Disposable
         var wndIcon = Resources.GetWindowIcon();
         if (wndIcon != null) MainWindow.SetIcon(wndIcon);
 
+        // The renderer's shaders are compile-time constants, so their SPIR-V can be built before any
+        // level exists. Doing it here on a worker takes ~2.7s of glslang off the middle of the first
+        // level load, where it was pure freeze, and puts it under the file browser where nothing waits
+        // on it. Fire-and-forget on purpose: a level load that beats it simply compiles what it needs.
+        Task.Run(() =>
+        {
+            try { Engine.Rendering.Vulkan.VulkanRenderer.WarmUpShaderCache(); }
+            catch (Exception e) { LunaLog.LogError($"[VkRenderer] shader warm-up failed: {e.Message}"); }
+        });
+
         Time.Init();
         SetTargetFPS(EditorSettings.TargetFPS);
 
         CommandList = graphicsDevice.ResourceFactory.CreateCommandList();
 
-        GlobalResource.Init(graphicsDevice);
-
-        if (MainWindow is not Sdl3Window)
-            throw new NotSupportedException("Unsupported window type for input context.");
-        Input.Init(new Sdl3InputContext(MainWindow));
+        Input.Init(MainWindow);
 
         Init();
 
@@ -125,7 +127,7 @@ public class LunaWindow : Disposable
 
             Time.Update();
 
-            // Only instrument when something is actually displaying the breakdown — the scopes are
+            // Only instrument when something is actually displaying the breakdown - the scopes are
             // cheap (a Stopwatch read each) but there is no reason to pay even that when nothing
             // reads it. Read one frame ahead of BeginFrame is fine: toggling the frame on simply
             // starts collecting on the next frame.
@@ -175,10 +177,9 @@ public class LunaWindow : Disposable
 
     protected virtual void Init()
     {
-        FullScreenRenderer = new FullScreenRenderer(GraphicsDevice);
-        var (width, height) = (MainWindow.GetWidth(), MainWindow.GetHeight());
-        FullScreenTexture = new RenderTexture2D(GraphicsDevice, (uint)width, (uint)height, false, (TextureSampleCount)EditorSettings.MSAA_Level);
-        FinalFullScreenTexture = new Texture2D(GraphicsDevice, new Image(width, height), false);
+        FullScreenRenderer = new FullscreenBlit(GraphicsDevice);
+        var (width, height) = MainWindow.GetSizeInPixels();
+        FullScreenTexture = new MainRenderTarget(GraphicsDevice, (uint)width, (uint)height, (TextureSampleCount)EditorSettings.MSAA_Level);
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
         LM.Initialize();
@@ -191,7 +192,7 @@ public class LunaWindow : Disposable
     }
 
     /// <summary>
-    /// User-picked debug.dat, set via the "Load a debug.dat" tab — takes priority over whatever
+    /// User-picked debug.dat, set via the "Load a debug.dat" tab - takes priority over whatever
     /// auto-detection would otherwise find, and survives across a reload of the same level so the
     /// tab can be used after the fact to fix a level that loaded without one.
     /// </summary>
@@ -212,7 +213,7 @@ public class LunaWindow : Disposable
                 fileManager.LoadFolder(path);
 
             // Old engine only: debug.dat almost never ships alongside main.dat/the level's own
-            // .psarc — try, in priority order, whatever the user explicitly picked, then whatever
+            // .psarc - try, in priority order, whatever the user explicitly picked, then whatever
             // the caller already resolved (GameBrowserFrame via GameLibraryScanner), then fall
             // back to deriving it from the path directly (for callers, like the manual "Open
             // level" dialog, that never went through the scanner at all).
@@ -226,13 +227,20 @@ public class LunaWindow : Disposable
             var levelReader = new LevelReader(fileManager);
             Level = levelReader.LoadLevel((status, progress) =>
                 loadingFrame?.UpdateProgress(0, new LoadingProgress(status, 100, true) { current = (uint)(progress * 100) }));
+
+            // Decode every texture and build its mip chain HERE, still on the loading task and in
+            // parallel across cores. It is the single largest piece of what used to be a main-thread
+            // freeze after the files had finished reading, and none of it needs the graphics device.
+            var swPrep = System.Diagnostics.Stopwatch.StartNew();
+            pendingTextures = AssetManager.PrepareTextures(Level);
+            LunaLog.LogDebug($"Decoded {pendingTextures.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
         });
 
         doLoadEntities = true;
         LunaLog.LogDebug("Level loaded.");
     }
 
-    /// <summary>Applies a user-picked debug.dat to the currently loaded level by reloading it —
+    /// <summary>Applies a user-picked debug.dat to the currently loaded level by reloading it -
     /// the reload runs every name through the exact same DebugReader path a normal load does,
     /// rather than trying to retroactively patch names onto already-built entities.</summary>
     public void LoadExternalDebugDatAndReload(string debugDatPath, LoadingModal? loadingFrame = null)
@@ -246,7 +254,7 @@ public class LunaWindow : Disposable
     /// Disposes the currently loaded level (EntityManager's GPU meshes, AssetManager's built
     /// models/textures, FileManager's open file handles) and notifies every open frame that
     /// implements <see cref="ILevelListener"/> beforehand, so nothing is left holding a reference
-    /// to an object that's about to be destroyed — most importantly the current selection, which
+    /// to an object that's about to be destroyed - most importantly the current selection, which
     /// otherwise leaves View3D pointing a disposed mesh at the GPU the very next frame.
     /// </summary>
     public void TryWipeLevel()
@@ -276,9 +284,14 @@ public class LunaWindow : Disposable
 
         if (Level is null) return;
 
-        AssetManager = new AssetManager(Level, GraphicsDevice);
+        var lsw = System.Diagnostics.Stopwatch.StartNew();
+        AssetManager = new AssetManager(Level, GraphicsDevice, pendingTextures);
+        pendingTextures = null;
+        long a0 = lsw.ElapsedMilliseconds;
         EntityManager.Singleton.LoadRegion(Level.Region, AssetManager, GraphicsDevice);
+        long tRegion = lsw.ElapsedMilliseconds - a0; a0 = lsw.ElapsedMilliseconds;
         EntityManager.Singleton.LoadFoliage(Level.Foliages, AssetManager, GraphicsDevice);
+        LunaLog.LogDebug($"Entities built in {lsw.ElapsedMilliseconds}ms (region {tRegion}, foliage {lsw.ElapsedMilliseconds - a0}).");
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
@@ -460,14 +473,15 @@ public class LunaWindow : Disposable
         Entity.EntitiesRenderedThisFrame = 0;
 
         // EntityManager is engine-layer and deliberately doesn't read Program.Settings (see
-        // AssetManager's decalOffset for the same convention) — so the persisted setting is
+        // AssetManager's decalOffset for the same convention) - so the persisted setting is
         // pushed in here every frame instead of being read where it's consumed. Cheap enough
         // (one bool) to just always do, rather than only on Settings-frame Apply, so a value
         // loaded from disk at startup takes effect immediately without the user having to open
         // the Settings frame and toggle the checkbox once first.
         EntityManager.Singleton.FrustumCullingEnabled = EditorSettings.FrustrumCulling;
-        AssetManager?.SetBackfaceCulling(EditorSettings.BackfaceCulling);
-        AssetManager?.SetLightingEnabled(EditorSettings.EnableLighting);
+        // Lighting is pushed straight to the renderer every frame instead (View3D passes
+        // EditorSettings.EnableLighting to VulkanRenderer.Frame), and backface culling is baked into
+        // the renderer's pipelines, so neither goes through the asset manager any more.
         AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
 
         openFrames.RemoveAll(FrameMustClose);
@@ -505,21 +519,18 @@ public class LunaWindow : Disposable
         {
             commandList.Begin();
 
-            if (FullScreenTexture.SampleCount != TextureSampleCount.Count1)
-                commandList.ResolveTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
-            else
-                commandList.CopyTexture(FullScreenTexture.ColorTexture, FinalFullScreenTexture.DeviceTexture);
+            FullScreenTexture.Resolve(commandList);
 
             commandList.SetFramebuffer(graphicsDevice.SwapchainFramebuffer);
             commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
 
-            FullScreenRenderer.Draw(commandList, FinalFullScreenTexture, graphicsDevice.SwapchainFramebuffer.OutputDescription);
+            FullScreenRenderer.Draw(commandList, FullScreenTexture.ResolveTextureView, graphicsDevice.SwapchainFramebuffer.OutputDescription);
 
             commandList.End();
             graphicsDevice.SubmitCommands(commandList);
         }
         // Veldrith's Vulkan backend only signals a render-finished semaphore before presenting
-        // when the present queue differs from the graphics queue — on a shared queue (the common
+        // when the present queue differs from the graphics queue - on a shared queue (the common
         // case on desktop GPUs), SwapBuffers's vkQueuePresentKHR call waits on nothing at all, so
         // without this the presentation engine can read the swapchain image before the GPU has
         // finished writing it, showing stale/previous-frame content (flicker, visible in both the
@@ -530,11 +541,17 @@ public class LunaWindow : Disposable
         // This is also the frame's single most diagnostic number: WaitForIdle blocks the CPU until
         // the GPU has drained everything submitted above, so its duration is the GPU tail (see
         // FrameProfiler's class summary). If this phase dominates the frame, the bottleneck is the
-        // GPU or this forced full sync — not CPU submission.
+        // GPU or this forced full sync - not CPU submission.
         using (FrameProfiler.Sample(FrameProfiler.GpuWaitPhase))
             graphicsDevice.WaitForIdle();
         using (FrameProfiler.Sample(FrameProfiler.PresentPhase))
             graphicsDevice.SwapBuffers();
+
+        // The 3D scene goes to the GPU here, AFTER the present and the device wait above, so it runs
+        // while the CPU pumps events and builds the next frame. Recorded during Update; see
+        // View3D.SubmitScene and VulkanRenderer.SubmitFrame.
+        foreach (var view in openFrames.OfType<View3D>())
+            view.SubmitScene();
     }
 
     protected virtual void OnClose() { }
@@ -543,9 +560,10 @@ public class LunaWindow : Disposable
     {
         imGuiController.Resize(width, height);
         GraphicsDevice.MainSwapchain.Resize((uint)width, (uint)height);
+        // The blit caches a resource set per texture view, and Resize replaces the view it was built
+        // from, so the old one has to be dropped before it is freed underneath the cache.
+        FullScreenRenderer.Invalidate(FullScreenTexture.ResolveTextureView);
         FullScreenTexture.Resize((uint)width, (uint)height);
-        FinalFullScreenTexture.Dispose();
-        FinalFullScreenTexture = new Texture2D(GraphicsDevice, new Image(width, height), false);
     }
 
     public int GetTargetFPS() => (int)(1.0 / fixedUpdateTimeStep);
@@ -555,14 +573,13 @@ public class LunaWindow : Disposable
         fixedFrameRate = fps == 0 ? double.MaxValue : 1.0 / fps;
     }
 
-    protected override void Dispose(bool disposing)
+    public void Dispose()
     {
-        if (disposing)
-        {
-            GlobalResource.Destroy();
-            Input.Destroy();
-            MainWindow.Dispose();
-            GraphicsDevice.Dispose();
-        }
+        GC.SuppressFinalize(this);
+        FullScreenRenderer?.Dispose();
+        FullScreenTexture?.Dispose();
+        Input.Destroy();
+        MainWindow.Dispose();
+        GraphicsDevice.Dispose();
     }
 }

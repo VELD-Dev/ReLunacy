@@ -109,7 +109,7 @@ public sealed class ZoneReader
         for (int i = 0; i < ufragSection.count; i++)
         {
             // Seek absolutely to each record's start rather than relying on wherever the
-            // constructor's last internal Seek() happened to leave the stream — UFragMetadata's
+            // constructor's last internal Seek() happened to leave the stream - UFragMetadata's
             // reads are scattered (non-monotonic), so a relative Position += Size advancement
             // doesn't reliably land on the next record.
             legacyZone.zoneStream.Seek(ufragSection.offset + (long)i * UFragMetadata.Size);
@@ -141,7 +141,7 @@ public sealed class ZoneReader
         var positions = legacyUFrag.vpos;
         var uvs = legacyUFrag.uvs;
         // legacyUFrag.indices is the raw ArrayPool-rented buffer, whose Length is only guaranteed
-        // to be >= metadata.indexCount (rounds up to the pool's bucket size) — trim to the real
+        // to be >= metadata.indexCount (rounds up to the pool's bucket size) - trim to the real
         // count so stale data from a previous tenant of that buffer doesn't leak in as bogus,
         // wildly out-of-range indices (same class of bug as the vpos/uvs sizing fix in UFrag.cs).
         var indices = legacyUFrag.indices.AsSpan(0, (int)legacyUFrag.metadata.indexCount).ToArray();
@@ -149,7 +149,7 @@ public sealed class ZoneReader
         // Real per-vertex normals/tangents, decoded from the same packed 11:11:10 words
         // VertexFormat0/1 use (see UFrag.ReadVertices). Handedness (tangent W) is derived from UV
         // gradients exactly like the Moby/Tie path does (GeometryData -> GeometryMath), since the
-        // packed word carries none — ComputeTangents keeps the real decoded xyz and only adds W.
+        // packed word carries none - ComputeTangents keeps the real decoded xyz and only adds W.
         var normals = legacyUFrag.normals;
         var tangents = GeometryMath.ComputeTangents(positions, uvs, normals, indices, legacyUFrag.tangents);
 
@@ -158,17 +158,17 @@ public sealed class ZoneReader
             : _materialReader.GetMaterialForLocalIndex(shaderTuids, legacyUFrag.metadata.shaderIndex);
 
         // Two distinct concepts, previously conflated (both read from the same 0x30 field in the
-        // metadata): `anchor` is the placement translation — local (0,0,0) of `positions` maps
-        // there — while `boundingCenter`/`boundingRadius` is the true bounding sphere, used only
+        // metadata): `anchor` is the placement translation - local (0,0,0) of `positions` maps
+        // there - while `boundingCenter`/`boundingRadius` is the true bounding sphere, used only
         // for culling and never for placement.
         Vector3 anchor, boundingCenter;
         float boundingRadius;
         if (legacyUFrag.isOld)
         {
-            // Anchor comes from the fixed-point ×256 field at 0x60; the bounding sphere is its own
+            // Anchor comes from the fixed-point x256 field at 0x60; the bounding sphere is its own
             // field at 0x30/0x3C and is already world-space (see UFragMetadata, which verifies the
             // radius against each UFrag's own vertices). These are no longer the same field, so the
-            // radius is real instead of the 2.5f constant every old UFrag used to get — that
+            // radius is real instead of the 2.5f constant every old UFrag used to get - that
             // constant under-reported chunks up to 89 units across and culled them far too early.
             anchor = legacyUFrag.metadata.position / 256f;
             boundingCenter = new Vector3(legacyUFrag.metadata.boundingSphere.X, legacyUFrag.metadata.boundingSphere.Y, legacyUFrag.metadata.boundingSphere.Z);
@@ -176,19 +176,19 @@ public sealed class ZoneReader
         }
         else
         {
-            // The chunk's real placement anchor is `metadata.anchor` (0x70), fixed-point ×256
-            // like old engine's own position field — NOT `boundingSphere.XYZ` (0x30), which is a
+            // The chunk's real placement anchor is `metadata.anchor` (0x70), fixed-point x256
+            // like old engine's own position field - NOT `boundingSphere.XYZ` (0x30), which is a
             // genuine, non-grid-aligned bounding-sphere centroid. Using the centroid as the
-            // translation (as this used to) introduced a per-chunk sub-unit placement error —
+            // translation (as this used to) introduced a per-chunk sub-unit placement error -
             // confirmed by dumping every UFrag in a zone: metadata.anchor is always an exact
             // integer while boundingSphere.XYZ never is. boundingSphere.XYZ/.W is a genuine,
-            // already-world-space bounding sphere (no ×256 decoding needed) — kept for culling.
+            // already-world-space bounding sphere (no x256 decoding needed) - kept for culling.
             anchor = legacyUFrag.metadata.newEnginePos / 256f;
             boundingCenter = new Vector3(legacyUFrag.metadata.boundingSphere.X, legacyUFrag.metadata.boundingSphere.Y, legacyUFrag.metadata.boundingSphere.Z);
             boundingRadius = legacyUFrag.metadata.boundingSphere.W;
         }
 
-        // Lightmap UVs are only meaningful alongside a lightmap index — a second UV set with
+        // Lightmap UVs are only meaningful alongside a lightmap index - a second UV set with
         // nothing to sample is just wasted vertex bandwidth, and passing it anyway would make
         // "has lightmap UVs" stop implying "is lightmapped" for every consumer downstream.
         var lightmapIndex = legacyUFrag.metadata.lightmapIndex;
@@ -228,7 +228,7 @@ public sealed class ZoneReader
             }
 
             // New engine: tie instance names live in the zone's own file (section 0x72C0),
-            // positionally matched to the instance array — matches Legacy's CZone constructor.
+            // positionally matched to the instance array - matches Legacy's CZone constructor.
             if (legacyZone.tieNameSection.count > 0)
             {
                 legacyZone.zoneStream.Seek(legacyZone.tieNameSection.offset);
@@ -260,7 +260,7 @@ public sealed class ZoneReader
 
                 // Pass the raw matrix directly to avoid a lossy decompose-recompose round trip.
                 // LightmapIndex: this instance's baked light colour + direction pair. Old engine
-                // only — see TieInstance.LightmapIndex for the measurements behind the offset.
+                // only - see TieInstance.LightmapIndex for the measurements behind the offset.
                 var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name)
                 {
                     LightmapIndex = legacyZone.isOld ? legacyInstance.LightmapIndex : TieInstance.NoLightmap,

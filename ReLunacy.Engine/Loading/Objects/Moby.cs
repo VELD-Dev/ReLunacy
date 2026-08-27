@@ -30,7 +30,7 @@ public class Moby : IDisposable
     public MobyBangle[] Bangles => MobyObj.bangles;
     public ulong[]? ShaderTUIDs;
 
-    /// <summary>Null if this moby has no skeleton (static props etc.) or if reading one failed —
+    /// <summary>Null if this moby has no skeleton (static props etc.) or if reading one failed -
     /// see the catch below. Read defensively: this is new, unverified-against-every-real-asset
     /// code, and a bug in it must not be able to break loading for mobys that don't even reach it.</summary>
     public MobySkeleton? Skeleton { get; private set; }
@@ -70,7 +70,7 @@ public class Moby : IDisposable
             }
 
             // New engine: geometry lives inside this moby's own IGFile as dedicated sections,
-            // not a raw-file offset field (there is none on NewMoby) — mirrors Tie's new-engine
+            // not a raw-file offset field (there is none on NewMoby) - mirrors Tie's new-engine
             // vertex/index section reads.
             var vertSec = igFile.QuerySection(MobyMesh.VerticesSecID);
             mobyStream.Seek(vertSec.offset);
@@ -86,7 +86,7 @@ public class Moby : IDisposable
                 return;
 
             // Some old-engine mobys (logic-only props: triggers, camera targets, path markers,
-            // etc. — confirmed present in Tools of Destruction's meridian_city) have zero bangles,
+            // etc. - confirmed present in Tools of Destruction's meridian_city) have zero bangles,
             // or a bangle with zero meshes: no visual geometry at all. bangles/meshes are
             // [Reference(...)]-deserialized arrays that stay null when their count is zero, so
             // blindly indexing bangles[^1].meshes[^1] (as this used to, four times below) threw a
@@ -148,7 +148,7 @@ public class Moby : IDisposable
     }
 
     // Searches backward for the last bangle that actually has meshes (not necessarily the very
-    // last bangle — a moby could have trailing empty bangles too), since the whole point is
+    // last bangle - a moby could have trailing empty bangles too), since the whole point is
     // finding the true final mesh's offset/count to compute the total buffer length. Returns
     // false if this moby has no mesh data anywhere (null/empty bangles, or every bangle empty).
     private static bool TryGetLastMesh(MobyBangle[]? bangles, out MobyMesh lastMesh)
@@ -179,7 +179,7 @@ public class Moby : IDisposable
     public void Dispose()
     {
         // Same null-bangles/null-meshes possibility as the constructor guards against above (a
-        // moby with no visual geometry) — nothing was rented from either pool in that case, so
+        // moby with no visual geometry) - nothing was rented from either pool in that case, so
         // there's nothing to return either.
         if (MobyObj.bangles != null)
         {
