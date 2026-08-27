@@ -5,14 +5,14 @@ namespace ReLunacy.Engine.Export;
 
 /// <summary>
 /// Exports engine mesh groups (a Moby's bangles, or a Tie's single whole-model group) as
-/// Wavefront OBJ + MTL + loose PNG textures. Only albedo/normal are written — MTL has no
+/// Wavefront OBJ + MTL + loose PNG textures. Only albedo/normal are written - MTL has no
 /// standard slot for the specular/metallic/emissive data packed into the "expensive" texture
 /// (see GltfExporter, which carries all of it via glTF's PBR extensions instead).
 /// </summary>
 public static class ObjExporter
 {
     /// <summary>`skeleton` is accepted (and ignored) only so this matches GltfExporter.Export's
-    /// signature — the two are called through the same delegate type in AssetViewer.ExportModel.
+    /// signature - the two are called through the same delegate type in AssetViewer.ExportModel.
     /// OBJ/MTL has no representation for a bone hierarchy or vertex skin weights at all.</summary>
     public static void Export(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
     {
@@ -48,7 +48,7 @@ public static class ObjExporter
                 int vertexCount = positions.Length / 3;
 
                 string meshLabel = string.IsNullOrEmpty(mesh.Name) ? $"Mesh_{meshIndex}" : mesh.Name;
-                // Groups.Count>1 means this asset has real submesh groups (a Moby's bangles) — keep
+                // Groups.Count>1 means this asset has real submesh groups (a Moby's bangles) - keep
                 // that grouping visible in the object name rather than flattening it away.
                 obj.AppendLine(groups.Count > 1 && !string.IsNullOrEmpty(group.Name)
                     ? $"o {group.Name}_{meshLabel}"

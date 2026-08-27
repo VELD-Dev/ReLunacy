@@ -6,7 +6,7 @@ namespace ReLunacy.Utility;
 /// <summary>
 /// Bliss/Veldrith expose no cross-backend GPU memory query, so this reads used VRAM directly
 /// through Vortice.Vulkan (the same binding library Veldrith's own Vulkan backend is built on,
-/// already loaded in-process) via VK_EXT_memory_budget. Vulkan-only — D3D11/D3D12/Metal/OpenGL
+/// already loaded in-process) via VK_EXT_memory_budget. Vulkan-only - D3D11/D3D12/Metal/OpenGL
 /// would each need their own native query and aren't implemented; other backends always read 0.
 /// </summary>
 internal static unsafe class VramUsageQuery
@@ -46,7 +46,7 @@ internal static unsafe class VramUsageQuery
         }
         catch
         {
-            // Physical-device query only — safe to keep retrying on transient failure, but
+            // Physical-device query only - safe to keep retrying on transient failure, but
             // never let an optional stat readout take the editor down with it.
             _getMemoryProperties2 = null;
             return 0;

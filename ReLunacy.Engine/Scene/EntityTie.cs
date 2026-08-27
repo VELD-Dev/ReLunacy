@@ -1,9 +1,5 @@
 using System.Numerics;
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Geometry.Models;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Transformations;
+using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
 using Veldrith;
@@ -17,7 +13,7 @@ public class EntityTie : Entity
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
-    public Model? Model { get; private set; }
+    public RenderModel? Model { get; private set; }
 
     public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager)
     {
@@ -25,7 +21,7 @@ public class EntityTie : Entity
 
         // Ties are placed via a raw affine matrix read straight from the file. Decompose it
         // directly into translation/rotation/scale instead of going through IPlacedInstance's
-        // Euler-angle properties (Position/Rotation/Scale) — those are a lossy decompose-then-
+        // Euler-angle properties (Position/Rotation/Scale) - those are a lossy decompose-then-
         // recompose round trip through a custom quaternion->Euler conversion whose axis mapping
         // doesn't match System.Numerics' Quaternion.CreateFromYawPitchRoll, and they collapse
         // anisotropic scale into a single averaged float. Decomposing once here is exact.
@@ -70,52 +66,34 @@ public class EntityTie : Entity
 
     private readonly AssetManager _assetManager;
 
-    /// <summary>This placement's baked lighting entry, or 0xFFFF for none — see
+    /// <summary>This placement's baked lighting entry, or 0xFFFF for none - see
     /// IPlacedInstance.LightmapIndex.</summary>
     public ushort LightmapIndex { get; }
 
-    public override void Draw(IRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    protected override void EnsureRenderables()
     {
-        if (!allowRender || !EntityManager.Singleton.renderTies) return;
-
-        var sphere = WorldBoundingSphere;
-        var sphereCenter = new Vector3(sphere.X, sphere.Y, sphere.Z);
-        if (EntityManager.Singleton.FrustumCullingEnabled && !camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
-
-        if (EntityManager.Singleton.renderBoundingSpheres)
-            DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
-
-        if (Model is null) return;
-
-        if (IsDirty)
+        if (!IsDirty || Model is null) return;
+        cachedRenderables.Clear();
+        // Baked lighting is per-PLACEMENT while the model (and its meshes' materials) is shared by
+        // every instance of this tie asset, so a lightmapped instance needs its own material.
+        // Renderable's material-override constructor gives us that without duplicating the
+        // mesh: the vertex/index buffers stay shared, only the material differs. Instances with
+        // no bake keep using the mesh's own material, so nothing extra is built for them.
+        bool lit = LightmapIndex != Loading.Objects.Instances.TieInstance.NoLightmap;
+        for (int i = 0; i < Model.Meshes.Length; i++)
         {
-            cachedRenderables.Clear();
-            // Baked lighting is per-PLACEMENT while Model (and its meshes' materials) is shared by
-            // every instance of this tie asset, so a lightmapped instance needs its own Material.
-            // Renderable's material-override constructor gives us that without duplicating the
-            // mesh: the vertex/index buffers stay shared, only the material differs. Instances with
-            // no bake keep using the mesh's own material, so nothing extra is built for them.
-            bool lit = LightmapIndex != Loading.Objects.Instances.TieInstance.NoLightmap;
-            for (int i = 0; i < Model.Meshes.Length; i++)
+            var mesh = Model.Meshes[i];
+            if (lit && i < BaseTie.Meshes.Count)
             {
-                var mesh = Model.Meshes[i];
-                if (lit && i < BaseTie.Meshes.Count)
-                {
-                    var perInstance = _assetManager.GetOrBuildMaterial(BaseTie.Meshes[i].Material, LightmapIndex);
-                    cachedRenderables.Add(new Renderable(mesh, Transform, perInstance));
-                }
-                else
-                {
-                    cachedRenderables.Add(new Renderable(mesh, Transform));
-                }
+                var perInstance = _assetManager.GetOrBuildMaterial(BaseTie.Meshes[i].Material, LightmapIndex);
+                cachedRenderables.Add(new Renderable(mesh, Transform, perInstance));
             }
-            IsDirty = false;
+            else
+            {
+                cachedRenderables.Add(new Renderable(mesh, Transform));
+            }
         }
-
-        foreach (var renderable in cachedRenderables)
-            renderer.DrawRenderable(renderable);
-
-        Diagnostics.FrameProfiler.AddCounter("Tie draws", cachedRenderables.Count);
-        EntitiesRenderedThisFrame++;
+        IsDirty = false;
     }
+
 }

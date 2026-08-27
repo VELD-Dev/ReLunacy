@@ -14,7 +14,7 @@ public sealed class Material : IMaterial
     public ITexture? DetailTexture { get; init; }
 
     public RenderMode RenderMode { get; init; }
-    /// <summary>The game's own rendering-mode byte (0-6) — see IMaterial.GameRenderMode.</summary>
+    /// <summary>The game's own rendering-mode byte (0-6) - see IMaterial.GameRenderMode.</summary>
     public byte GameRenderMode { get; init; }
     public float AlphaClipThreshold { get; init; }
     public float ParallaxScale { get; init; }
@@ -22,10 +22,10 @@ public sealed class Material : IMaterial
     public float DetailTiling { get; init; }
     public bool UsesDetailMap { get; init; }
 
-    // True when this material's render mode blends (Overlay/SoftEdge/Blended — the game's
+    // True when this material's render mode blends (Overlay/SoftEdge/Blended - the game's
     // RenderingMode, not this simplified RenderMode) and its albedo has no format-level alpha
     // channel to source transparency from. The only place we've confirmed a per-vertex alpha
-    // candidate actually varies meaningfully is on meshes matching this condition — see
+    // candidate actually varies meaningfully is on meshes matching this condition - see
     // VertexFormat0's boneIndex field and AssetManager, which only writes decoded vertex alpha
     // into the vColor attribute for materials with this flag set.
     public bool UsesVertexAlphaCandidate { get; init; }

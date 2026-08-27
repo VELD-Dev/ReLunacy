@@ -3,14 +3,14 @@ using System.Diagnostics;
 namespace ReLunacy.Engine.Diagnostics;
 
 /// <summary>Per-frame CPU wall-clock profiler that attributes the frame's time to named phases, so
-/// it can answer "where does the frame go?" — CPU command recording, CPU submission, the GPU-idle
+/// it can answer "where does the frame go?" - CPU command recording, CPU submission, the GPU-idle
 /// stall, present, or any other pass. Lives in ReLunacy.Engine (not the app) so engine-side render
-/// code — the forward renderer especially — can self-instrument the passes it owns.
+/// code - the forward renderer especially - can self-instrument the passes it owns.
 ///
 /// It is a CPU profiler by design: Veldrith (the Veldrid fork this project uses) exposes no GPU
 /// timestamp query pool, so there is no in-API way to read how long the GPU itself spent on a pass.
-/// What CAN be measured precisely is the CPU cost of building and submitting command lists, and —
-/// because the app calls WaitForIdle() once per frame — the time the CPU sits BLOCKED waiting for
+/// What CAN be measured precisely is the CPU cost of building and submitting command lists, and -
+/// because the app calls WaitForIdle() once per frame - the time the CPU sits BLOCKED waiting for
 /// the GPU to drain everything submitted this frame. That WaitForIdle span (phase "GPU Wait") is
 /// therefore the honest proxy for the GPU tail: if it dominates while the record/submit phases are
 /// cheap, the frame is GPU- or sync-bound; if the record/submit phases dominate, it is CPU-bound.
@@ -21,31 +21,31 @@ namespace ReLunacy.Engine.Diagnostics;
 /// <see cref="Sample"/> scope opened inside another is recorded one level deeper, which is what
 /// lets "Draw Record" sit under "Renderer Flush" under "3D Record" in the readout. A phase entered
 /// more than once in a frame accumulates; its per-frame total is what folds into the rolling
-/// average. <see cref="SetCounter"/> tracks non-time quantities (draw calls, renderable counts) —
+/// average. <see cref="SetCounter"/> tracks non-time quantities (draw calls, renderable counts) -
 /// the single most diagnostic numbers for a CPU-bound forward renderer.</summary>
 public sealed class FrameProfiler
 {
     public static FrameProfiler Singleton { get; } = new();
 
     /// <summary>When false, <see cref="Sample"/> returns an inert scope and Begin/EndFrame do
-    /// nothing — kept cheap so the instrumentation can stay in the hot loop unconditionally. The
+    /// nothing - kept cheap so the instrumentation can stay in the hot loop unconditionally. The
     /// profiler UI flips this on while it is open.</summary>
     public static bool Enabled;
 
-    /// <summary>Rolling-average window, in frames. 120 ≈ 2 s at 60 fps / longer when slow, which is
+    /// <summary>Rolling-average window, in frames. 120 ~ 2 s at 60 fps / longer when slow, which is
     /// enough to smooth out per-frame jitter without lagging behind a real change in cost.</summary>
     private const int SampleCount = 120;
 
     public const string RootPhase = "Frame";
 
-    /// <summary>Name of the WaitForIdle stall phase — the GPU-tail proxy (see class summary). The
+    /// <summary>Name of the WaitForIdle stall phase - the GPU-tail proxy (see class summary). The
     /// verdict and the UI treat this one specially, so it is a named constant rather than a literal
     /// scattered around.</summary>
     public const string GpuWaitPhase = "GPU Wait";
 
     /// <summary>Name of the SwapBuffers/present phase. Separated from the GPU-wait tail because with
-    /// VSync on it blocks to hit the refresh interval — a capped, intended wait, not a bottleneck to
-    /// optimise — so the verdict must not lump it in with real GPU cost.</summary>
+    /// VSync on it blocks to hit the refresh interval - a capped, intended wait, not a bottleneck to
+    /// optimise - so the verdict must not lump it in with real GPU cost.</summary>
     public const string PresentPhase = "Present";
 
     internal sealed class PhaseData
@@ -90,7 +90,7 @@ public sealed class FrameProfiler
     private int currentDepth;
 
     // Non-time counters (draw calls, renderable counts). Insertion-ordered for a stable readout; the
-    // value is the last one set, not averaged — a count is already an exact per-frame number.
+    // value is the last one set, not averaged - a count is already an exact per-frame number.
     private readonly Dictionary<string, long> counters = new(8);
     private readonly List<string> counterOrder = [];
 
@@ -160,7 +160,7 @@ public sealed class FrameProfiler
         self.counters[name] = value;
     }
 
-    /// <summary>Adds to a per-frame counter — for tallies accumulated across many calls, like the
+    /// <summary>Adds to a per-frame counter - for tallies accumulated across many calls, like the
     /// draw-call count summed as each pass records. Reset to 0 for the frame by <see cref="SetCounter"/>
     /// at the start of the owning pass.</summary>
     public static void AddCounter(string name, long delta)
@@ -196,7 +196,7 @@ public sealed class FrameProfiler
         return list;
     }
 
-    /// <summary>Per-frame counters (draw calls, renderable counts…) in first-seen order.</summary>
+    /// <summary>Per-frame counters (draw calls, renderable counts...) in first-seen order.</summary>
     public IReadOnlyList<(string Name, long Value)> Counters()
     {
         var list = new List<(string, long)>(counterOrder.Count);
@@ -216,18 +216,18 @@ public sealed class FrameProfiler
 
     /// <summary>Classifies the frame into where its time actually goes, from the three unambiguous
     /// buckets: the GPU-idle stall (<see cref="GpuWaitPhase"/>), present/VSync
-    /// (<see cref="PresentPhase"/>), and everything else the CPU actively did (frame − those two).
+    /// (<see cref="PresentPhase"/>), and everything else the CPU actively did (frame - those two).
     /// This is the headline answer to "where should we optimise?".</summary>
     public FrameVerdict Verdict()
     {
         double frame = FrameAvgMs;
-        if (frame <= 0) return new FrameVerdict(Bound.Unknown, "Collecting samples…", "");
+        if (frame <= 0) return new FrameVerdict(Bound.Unknown, "Collecting samples...", "");
 
         double gpuWait = PhaseAvgMs(GpuWaitPhase);
         double present = PhaseAvgMs(PresentPhase);
         double cpuActive = Math.Max(0, frame - gpuWait - present);
 
-        // The biggest CPU-active phase to name in the detail line — leaves only, so the answer is a
+        // The biggest CPU-active phase to name in the detail line - leaves only, so the answer is a
         // concrete pass ("Draw Record") rather than a container ("Draw") that just re-states its total.
         (string name, double ms) top = ("", 0);
         foreach (var leaf in CpuLeafPhases)

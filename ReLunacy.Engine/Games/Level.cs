@@ -27,7 +27,7 @@ public sealed class Level : IDisposable
 
     /// <summary>
     /// Old engine only: resolved location of this level's debug.dat, if one was found near it at
-    /// scan time (see GameLibraryScanner.ResolveDebugDatPath) — it never ships inside main.dat/the
+    /// scan time (see GameLibraryScanner.ResolveDebugDatPath) - it never ships inside main.dat/the
     /// level's own .psarc, so this has to be tracked separately.
     /// </summary>
     public string? DebugDatPath { get; }

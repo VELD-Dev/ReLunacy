@@ -59,6 +59,6 @@ public sealed class LightingEnvironmentReader
     }
 
     /// <summary>Directional lights the 0x80 record can physically hold (two direction slots). Not an
-    /// assumption that a level uses both — see the reader.</summary>
+    /// assumption that a level uses both - see the reader.</summary>
     private const int MaxLights = 2;
 }

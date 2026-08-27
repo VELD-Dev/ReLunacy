@@ -1,11 +1,10 @@
 using System.Numerics;
-using Bliss.CSharp.Camera.Dim3;
 
 namespace ReLunacy.Utility;
 
 /// <summary>
 /// Small always-visible orientation indicator drawn in a corner of a 3D viewport: three colored
-/// axes (X=red, Y=green, Z=blue — the common Unity/Blender/Godot convention) projected using the
+/// axes (X=red, Y=green, Z=blue - the common Unity/Blender/Godot convention) projected using the
 /// camera's own right/up basis. Purely informational, unlike a full interactive view-cube.
 /// </summary>
 public static class AxisGizmoRenderer
@@ -17,14 +16,14 @@ public static class AxisGizmoRenderer
         (Vector3.UnitZ, "Z", new Vector4(0.30f, 0.50f, 0.95f, 1f)),
     ];
 
-    public static void Draw(Cam3D camera, Vector2 center, float radius)
+    public static void Draw(Engine.Rendering.EditorCamera camera, Vector2 center, float radius)
     {
         var drawList = ImGui.GetWindowDrawList();
 
         Vector3 forward = camera.GetForward();
         Vector3 right = Vector3.Normalize(camera.GetRight());
         // GetRight() = Cross(forward, world Up); re-orthogonalize against forward to get the
-        // camera's true screen-space up — Cam3D.Up itself stays world-Y and doesn't tilt with
+        // camera's true screen-space up: the camera's Up itself stays world-Y and doesn't tilt with
         // pitch, so using it directly here would make the gizmo drift out of sync while looking
         // up/down.
         Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
@@ -40,7 +39,7 @@ public static class AxisGizmoRenderer
             float depth = Vector3.Dot(axis, forward);
 
             var tip = center + new Vector2(sx, sy) * radius;
-            // depth < 0 means this axis points toward the camera ("out of the screen") — drawn
+            // depth < 0 means this axis points toward the camera ("out of the screen") - drawn
             // brighter than one receding into it, for a cheap sense of depth without real 3D.
             float shade = depth < 0f ? 1f : 0.55f;
             uint col = ImGui.GetColorU32(color * new Vector4(shade, shade, shade, 1f));

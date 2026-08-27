@@ -23,19 +23,19 @@ public record struct ShaderMetadataOld : ILunaSerializable
     // The NAMES are Insomniac's own, and "useSpecular" is wrong. Their WWS post-mortem for this
     // exact game (dev/Ratchet_and_Clank_WWS_Debrief_Feb_08.pdf, "Shader Usage Controls") lists the
     // toggles they shipped as: "Which attributes (NORMAL, GLOSS, PARALLAX, DETAIL MAP) are disabled
-    // for this use of the shader." Four attributes, and specular is not among them — parallax is.
+    // for this use of the shader." Four attributes, and specular is not among them - parallax is.
     // Gloss, normal and detail map all line up with the other three bits, so the odd one out is the
     // one InsomniaToolset guessed at. Hence UsesParallax below.
     //
     // Same source explains WHY this byte exists at all: there is ONE "standard shader template",
     // and every material is that template with some attributes switched off. So these bits are not
-    // decoration — they are the permutation key, and a renderer that honours them reproduces the
+    // decoration - they are the permutation key, and a renderer that honours them reproduces the
     // game's material variants without needing a shader per variant.
     [FileOffset(0x10)] public byte flags;
 
     // Bit positions assume the least-significant-first allocation InsomniaToolset's own (x86)
     // build uses for that bitfield. Byte-swapping doesn't affect a single byte, so the VALUE here
-    // is exactly what the file holds either way — only the direction of the bit walk is a
+    // is exactly what the file holds either way - only the direction of the bit walk is a
     // convention, and it flips if the fields were packed most-significant-first instead.
     // Cheap to verify rather than reason about: the ShaderBrowser prints this byte raw alongside
     // the decoded flags, so on any level exactly one bit will track "this material has a detail
@@ -55,7 +55,7 @@ public record struct ShaderMetadataOld : ILunaSerializable
     // 0x20..0x7F is SIX 16-byte vectors, not loose floats. From InsomniaToolset's MaterialV1_5:
     // the header ends at 0x14, Vector4A16 forces 16-byte alignment so the array starts at 0x20,
     // and 6 * 16 = 0x60 lands exactly on 0x80. That is a hard constraint on any future field
-    // identified in here — a float must sit at offset 0x0/0x4/0x8/0xC within its own vector, and
+    // identified in here - a float must sit at offset 0x0/0x4/0x8/0xC within its own vector, and
     // values belonging to one logical group will usually share a vector rather than straddle two:
     //   values[0] 0x20  values[1] 0x30  values[2] 0x40
     //   values[3] 0x50  values[4] 0x60  values[5] 0x70
@@ -83,7 +83,7 @@ public record struct ShaderMetadataOld : ILunaSerializable
     [FileOffset(0x54)] public float parallaxBias;
     // Detail-map UV tiling. This is the multiplier the captured fragment shader can NOT show:
     // there the detail UV arrives already tiled in a vertex interpolant (tc6.xy), so the frequency
-    // is applied upstream — which is exactly why it has to live in the material metadata.
+    // is applied upstream - which is exactly why it has to live in the material metadata.
     [FileOffset(0x58)] public float detailTiling;
     [FileOffset(0x5C), Reference(0x24)]  public byte[] Unk3;
 
@@ -106,7 +106,7 @@ public record struct ShaderMetadataNew : ILunaSerializable
     [FileOffset(0x21)] public byte renderingMode;
     [FileOffset(0x22), Reference(0x0E)] public byte[] Unk2;
     [FileOffset(0x30)] public float alphaClip;
-    // One contiguous unknown run, 0x34 to the end of the structure — see ShaderMetadataOld's Unk2
+    // One contiguous unknown run, 0x34 to the end of the structure - see ShaderMetadataOld's Unk2
     // for why the old three-way split (Unk3a 0x34 / Unk4 0x48 / Unk3b 0x50) was an artifact of a
     // retracted hypothesis rather than a real field boundary.
     [FileOffset(0x34), Reference(0x4C)] public byte[] Unk3;

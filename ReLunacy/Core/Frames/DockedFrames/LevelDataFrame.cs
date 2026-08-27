@@ -7,7 +7,7 @@ using ReLunacy.Utility.Localization;
 namespace ReLunacy.Core.Frames.DockedFrames;
 
 /// <summary>Level overview + live lighting controls. Read-only counts (instances, assets, textures,
-/// lightmaps…) plus editors for the level's analytic lighting environment (section 0x8b00 — see
+/// lightmaps...) plus editors for the level's analytic lighting environment (section 0x8b00 - see
 /// LightingEnvironmentReader), which edit LevelData.LightingEnvironment in place; View3D re-reads
 /// those into the renderer every frame, so changes are live. Falls back to the editor's own sun
 /// (EditorSettings) for levels that ship no environment.</summary>

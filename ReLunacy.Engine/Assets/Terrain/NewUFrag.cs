@@ -3,7 +3,7 @@ using ReLunacy.Engine.Assets.Interfaces;
 
 namespace ReLunacy.Engine.Assets.Terrain;
 
-/// <summary>New-engine UFrag: direct terrain geometry baked into zones — not instanced.</summary>
+/// <summary>New-engine UFrag: direct terrain geometry baked into zones - not instanced.</summary>
 public sealed class NewUFrag : IUFrag
 {
     public ulong Id { get; init; }

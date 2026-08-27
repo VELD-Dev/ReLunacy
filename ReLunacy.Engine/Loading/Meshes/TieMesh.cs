@@ -14,10 +14,10 @@ public record struct TieMesh : ILunaSerializable, IMesh
 
     [FileOffset(0x00)] public uint indicesIndex;
     // Matches the legacy reference (CTie.TieMesh) and this project's own old-engine manual
-    // override in Tie.cs — both read verticesIndex/verticesCount/indicesCount at 0x04/0x08/0x12
+    // override in Tie.cs - both read verticesIndex/verticesCount/indicesCount at 0x04/0x08/0x12
     // for BOTH engines. The previous 0x34/0x38/0x42 offsets here were wrong: 0x42+2 exceeds this
     // struct's own declared Size (0x40), so indicesCount was reading 2 bytes into the *next*
-    // record — explains the wildly-oversized indicesCount / vertexCount==0 seen on new-engine ties.
+    // record - explains the wildly-oversized indicesCount / vertexCount==0 seen on new-engine ties.
     [FileOffset(0x04)] public ushort verticesIndex;
     [FileOffset(0x06)] public ushort Unk1;
     [FileOffset(0x08)] public ushort verticesCount;
@@ -106,7 +106,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
             uvcoords[k * 2 + 0] = (float)vertices[k].UVs.Item1;
             uvcoords[k * 2 + 1] = (float)vertices[k].UVs.Item2;
 
-            // Ties can have non-uniform per-axis scale (unlike Mobys' single scalar) — a normal
+            // Ties can have non-uniform per-axis scale (unlike Mobys' single scalar) - a normal
             // under non-uniform scale must use the inverse-transpose (divide by the same per-axis
             // scale applied to positions, then renormalize), not be scaled like a position, or
             // lighting skews on any Tie that isn't scaled equally on all three axes.
@@ -118,7 +118,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
             normals[k * 3 + 2] = scaledN.Z;
 
             // Unlike the normal, a tangent lies IN the surface (it's an edge/gradient direction,
-            // not a perpendicular) — under non-uniform scale it transforms with the scale
+            // not a perpendicular) - under non-uniform scale it transforms with the scale
             // directly, the same as a position, not with the inverse-transpose.
             Vector3 t = vertices[k].Tangent;
             Vector3 scaledT = new(t.X * scale.X, t.Y * scale.Y, t.Z * scale.Z);

@@ -11,7 +11,7 @@ internal static class GeometryMath
     // Standard area-weighted vertex normal generation: accumulate each triangle's (unnormalized,
     // so larger triangles contribute more) face normal onto its three vertices, then normalize.
     // Triangle winding (and therefore which way "outward" ends up pointing) isn't independently
-    // confirmed against these files — if a Decal offset ends up pushing into the surface instead
+    // confirmed against these files - if a Decal offset ends up pushing into the surface instead
     // of away from it, that's the first thing to flip (negate the result here), not the offset
     // magnitude in EditorSettings.
     public static float[] ComputeNormals(float[] positions, uint[] indices)
@@ -45,13 +45,13 @@ internal static class GeometryMath
 
     /// <summary>Builds a per-vertex glTF-style tangent (Vector4: xyz direction, w = the +-1
     /// bitangent handedness sign), 4 floats per vertex. Uses `realTangents` (3 floats/vertex,
-    /// decoded straight from VertexFormat0/1's packed tangent word — see PackedNormal) when
+    /// decoded straight from VertexFormat0/1's packed tangent word - see PackedNormal) when
     /// supplied, since that's the game's actual tangent-space basis rather than an approximation;
     /// falls back to the standard UV-gradient method (Lengyel) when the source format doesn't
     /// carry tangent data at all (currently only UFrag terrain). Either way `w` is derived here
-    /// from UV winding relative to the (real or derived) tangent — the source files don't carry a
+    /// from UV winding relative to the (real or derived) tangent - the source files don't carry a
     /// stored bitangent/handedness bit at all (confirmed: the raw normal/tangent words are
-    /// fully-consumed pure 11:11:10 direction data, zero spare bits — see PackedNormal), so this
+    /// fully-consumed pure 11:11:10 direction data, zero spare bits - see PackedNormal), so this
     /// isn't a shortcut taken only in the fallback case, it's the only way to get `w` regardless
     /// of where the tangent itself came from.</summary>
     public static float[] ComputeTangents(float[] positions, float[] uvs, float[] normals, uint[] indices, float[]? realTangents)
@@ -78,13 +78,13 @@ internal static class GeometryMath
 
             float det = duv1.X * duv2.Y - duv2.X * duv1.Y;
             if (MathF.Abs(det) < 1e-12f)
-                continue; // degenerate UV triangle (zero UV area) — no usable tangent/handedness info
+                continue; // degenerate UV triangle (zero UV area) - no usable tangent/handedness info
 
             float r = 1f / det;
             var bitangent = (duv1.X * edge2 - duv2.X * edge1) * r;
             bitangentAccum[i0] += bitangent; bitangentAccum[i1] += bitangent; bitangentAccum[i2] += bitangent;
 
-            // Accumulated even when hasReal, purely for TangentDecodeSanityCheck below — the real
+            // Accumulated even when hasReal, purely for TangentDecodeSanityCheck below - the real
             // per-vertex path never reads tangentAccum for its own output in that case.
             var tangent = (duv2.Y * edge1 - duv1.Y * edge2) * r;
             tangentAccum[i0] += tangent; tangentAccum[i1] += tangent; tangentAccum[i2] += tangent;
@@ -125,7 +125,7 @@ internal static class GeometryMath
         return result;
     }
 
-    // Fires once, on the first mesh loaded with real decoded tangent data — the meaning of
+    // Fires once, on the first mesh loaded with real decoded tangent data - the meaning of
     // VertexFormat0/1's second packed word as specifically a *tangent* (not e.g. a bitangent, and
     // with the assumed handedness) was never independently verified. InsomniaToolset's own
     // extract_gltf.cpp only decodes the adjacent word as Normal and never touches this one at all,

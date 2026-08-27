@@ -65,7 +65,7 @@ public sealed class FoliageReader
     }
 
     /// <summary>Prints what was actually decoded. This is the only thing that exercises the reader
-    /// end to end — the format was verified offline against the same bytes, but a silent zero here
+    /// end to end - the format was verified offline against the same bytes, but a silent zero here
     /// would otherwise look identical to a level that genuinely has no foliage. For metropolis the
     /// expected line is 2 assets, 117 sprites each, LODs 58/30/17/11/1, 757 placements total.</summary>
     private static void LogSummary(List<Assets.Foliage.Foliage> foliages)

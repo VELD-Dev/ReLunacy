@@ -13,7 +13,7 @@ public readonly record struct LevelExportOptions(bool ExportMobys, bool ExportTi
 
 /// <summary>
 /// Exports an entire loaded level as a single .glb. Unlike single-asset export, this builds each
-/// unique Moby/Tie asset's mesh exactly once and references it from every placed instance's node —
+/// unique Moby/Tie asset's mesh exactly once and references it from every placed instance's node -
 /// true glTF mesh instancing, so a level with hundreds of copies of the same prop doesn't duplicate
 /// its geometry hundreds of times, and Blender/Unreal show them as linked duplicates (edit one,
 /// every instance updates). Nodes are organized as Mobys/AssetName/Instance and
@@ -53,13 +53,13 @@ public static class LevelExporter
                 foreach (var instance in assetGroup)
                 {
                     // Mobys are always exported as static (rigid) meshes at whole-level scope, even
-                    // when their asset has a skeleton — a shared skeletal asset placed more than once
+                    // when their asset has a skeleton - a shared skeletal asset placed more than once
                     // would need one fresh joint hierarchy per instance, all parented under the same
                     // level-wide root, and SharpGLTF's armature validation rejects that as soon as two
                     // instances' bone nodes collide by name (NodeBuilder.IsValidArmature walks the
                     // whole scene graph under the shared root, not just one instance's joints),
                     // throwing "Export failed:  (Parameter 'joints')" on any level with a skinned Moby
-                    // placed more than once. Single-asset export (AssetViewer) is unaffected — each
+                    // placed more than once. Single-asset export (AssetViewer) is unaffected - each
                     // export there gets its own standalone scene/root.
                     AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
                     anyContentAdded = true;
@@ -122,14 +122,14 @@ public static class LevelExporter
         }
 
         if (!anyContentAdded)
-            throw new InvalidOperationException("Nothing to export — no assets found for the selected categories.");
+            throw new InvalidOperationException("Nothing to export - no assets found for the selected categories.");
 
         var model = sceneBuilder.ToGltf2();
         model.SaveGLB(filePath);
     }
 
     /// <summary>Creates the instance's own transform node under its asset-type group, then attaches
-    /// the (possibly bangle-split) shared meshes — directly if there's only one, or as one child
+    /// the (possibly bangle-split) shared meshes - directly if there's only one, or as one child
     /// node per bangle if there's more, matching single-asset export's submesh grouping.</summary>
     private static void AddInstanceNode(SceneBuilder sceneBuilder, NodeBuilder assetNode, string instanceName, Matrix4x4 worldMatrix, IReadOnlyList<(string Name, IMeshBuilder<MaterialBuilder> Mesh)> assetMeshes)
     {
@@ -152,7 +152,7 @@ public static class LevelExporter
         if (cache.TryGetValue(moby.Id, out var cached))
             return cached;
 
-        // Always the rigid (unskinned) builder — see the comment at this method's call site for why
+        // Always the rigid (unskinned) builder - see the comment at this method's call site for why
         // whole-level export never uses skeletal data, even for Mobys that have one.
         var result = moby.Bangles
             .Select((bangle, i) => string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name)
@@ -178,7 +178,7 @@ public static class LevelExporter
 
     /// <summary>Adapts IUFrag (which carries geometry+material directly, not split into
     /// IMesh/IGeometry like Mobys/Ties) so GltfExporter.BuildMeshBuilder can build UFrag terrain
-    /// through the exact same code path — including the "expensive" texture channel mapping.</summary>
+    /// through the exact same code path - including the "expensive" texture channel mapping.</summary>
     private sealed class UFragMeshAdapter(IUFrag ufrag, string name) : IMesh, IGeometry
     {
         public IGeometry Geometry => this;
@@ -195,7 +195,7 @@ public static class LevelExporter
         public float[]? GetNormals() => ufrag.GetNormals();
         public float[]? GetLightmapUVs() => ufrag.GetLightmapUVs();
 
-        // UFrag terrain carries no baked tangent (or, on some readers, even normal) data — derive
+        // UFrag terrain carries no baked tangent (or, on some readers, even normal) data - derive
         // both from the triangle/UV data itself via the same fallback GeometryData uses for
         // formats that don't decode real vertex attributes.
         public float[]? GetTangents()

@@ -1,11 +1,5 @@
 using System.Numerics;
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Geometry.Meshes;
-using Bliss.CSharp.Geometry.Meshes.Data;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Graphics.VertexTypes;
-using Bliss.CSharp.Transformations;
+using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
 using Veldrith;
@@ -30,25 +24,30 @@ public class EntityFoliage : Entity
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
-    private readonly Mesh<Vertex3D>? _mesh;
-    private readonly Bliss.CSharp.Materials.Material? _material;
+    private readonly RenderMesh? _mesh;
+    private readonly RenderMaterial? _material;
 
     /// <summary>Which sprite LOD this entity draws. 0 is the densest set.</summary>
     public const int BuiltLod = 0;
 
     public EntityFoliage(Assets.Foliage.Foliage foliage, in Assets.Foliage.FoliagePlacement placement,
-        IMaterial? material, AssetManager assetManager, GraphicsDevice gd)
+        IMaterial? material, AssetManager assetManager)
     {
         BaseFoliage = foliage;
 
         Matrix4x4.Decompose(placement.Transform, out var scale, out var rotation, out var translation);
         Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
 
-        // BoundingSphere is LOCAL per Entity's convention (an offset from Transform.Translation).
+        // BoundingSphere is LOCAL per Entity's convention, i.e. in the space the card anchors are in.
+        // The placement record's sphere is WORLD-space, so the whole placement transform is undone
+        // rather than just its translation: subtracting the translation alone left the sphere rotated
+        // and scaled wrongly about the placement, which culled foliage that was still in frame.
         var centre = new Vector3(placement.BoundingSphere.X, placement.BoundingSphere.Y, placement.BoundingSphere.Z);
         float radius = placement.BoundingSphere.W;
-        BoundingSphere = radius > 0f
-            ? new Vector4(centre - translation, radius)
+        float maxScale = MathF.Max(MathF.Abs(scale.X), MathF.Max(MathF.Abs(scale.Y), MathF.Abs(scale.Z)));
+        BoundingSphere = radius > 0f && maxScale > 0f && Matrix4x4.Invert(placement.Transform, out var toLocal)
+            ? new Vector4(Vector3.Transform(centre, toLocal), radius / maxScale)
+            // ComputeLocalBounds already works in card-anchor space, so it needs no conversion.
             : ComputeLocalBounds(foliage);
 
         Name = $"{foliage.Name}_{ID}";
@@ -62,13 +61,13 @@ public class EntityFoliage : Entity
         // an unresolved foliage draws with the default white texture, which still proves the
         // billboarding and the card geometry are right and is obviously unfinished on screen.
         _material = assetManager.GetOrBuildBillboardMaterial(material);
-        _mesh = BuildMesh(gd, cards, _material);
+        _mesh = BuildMesh(cards, _material);
     }
 
     /// <summary>Two triangles per card, sharing the anchor as every corner's position. The corner
     /// order in the file is already a consistent winding around the quad (0,1,2,3), so the two
     /// triangles are 0-1-2 and 0-2-3.</summary>
-    private static Mesh<Vertex3D> BuildMesh(GraphicsDevice gd, List<Assets.Foliage.FoliageSpriteCard> cards, Bliss.CSharp.Materials.Material material)
+    private static RenderMesh BuildMesh(List<Assets.Foliage.FoliageSpriteCard> cards, RenderMaterial material)
     {
         var vertices = new Vertex3D[cards.Count * 4];
         var indices = new uint[cards.Count * 6];
@@ -97,7 +96,14 @@ public class EntityFoliage : Entity
             indices[i + 5] = (uint)(v + 3);
         }
 
-        return new Mesh<Vertex3D>(gd, material, new BasicMeshData(vertices, indices));
+        var mesh = new RenderMesh(vertices, indices, material);
+
+        // Foliage builds its mesh here rather than through AssetManager.BuildModel, so it has to
+        // register its own geometry with the capture registry - otherwise the scene walk finds no
+        // geometry for it and foliage silently never renders (the same gap EntityUFrag had).
+        Rendering.Vulkan.VulkanSceneCapture.Register(mesh, Rendering.Vulkan.VulkanSceneCapture.Interleave(vertices), indices);
+
+        return mesh;
     }
 
     /// <summary>Fallback bounds from the cards themselves, used when the instance record's radius
@@ -122,30 +128,12 @@ public class EntityFoliage : Entity
         return new Vector4(centre, (max - centre).Length() + pad);
     }
 
-    public override void Draw(IRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer)
+    protected override void EnsureRenderables()
     {
-        if (!allowRender || !EntityManager.Singleton.renderFoliage) return;
-
-        var sphere = WorldBoundingSphere;
-        var sphereCenter = new Vector3(sphere.X, sphere.Y, sphere.Z);
-        if (EntityManager.Singleton.FrustumCullingEnabled && !camera.GetFrustum().ContainsSphere(sphereCenter, sphere.W)) return;
-
-        if (EntityManager.Singleton.renderBoundingSpheres)
-            DrawBoundingSphere(outputDescription, commandList, immediateRenderer);
-
-        if (_mesh == null) return;
-
-        if (IsDirty)
-        {
-            cachedRenderables.Clear();
-            cachedRenderables.Add(new Renderable(_mesh, Transform));
-            IsDirty = false;
-        }
-
-        foreach (var renderable in cachedRenderables)
-            renderer.DrawRenderable(renderable);
-
-        Diagnostics.FrameProfiler.AddCounter("Foliage draws", cachedRenderables.Count);
-        EntitiesRenderedThisFrame++;
+        if (!IsDirty || _mesh == null) return;
+        cachedRenderables.Clear();
+        cachedRenderables.Add(new Renderable(_mesh, Transform));
+        IsDirty = false;
     }
+
 }

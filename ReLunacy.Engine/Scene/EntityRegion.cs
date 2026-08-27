@@ -1,6 +1,3 @@
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using ReLunacy.Engine.Assets.Levels;
 using ReLunacy.Engine.Rendering;
 using Veldrith;
@@ -35,20 +32,6 @@ public class EntityRegion : IDisposable
 
         foreach (var zone in region.Zones)
             Zones.Add(new EntityZone(zone, gd, assetManager));
-    }
-
-    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
-    {
-        if (!allowRender) return;
-
-        if (EntityManager.Singleton.renderMobys)
-            MobyInstances.Draw(renderer, od, cl, camera, immediateRenderer);
-
-        if (EntityManager.Singleton.renderVolumes)
-            Volumes.Draw(renderer, od, cl, camera, immediateRenderer);
-
-        foreach (var z in Zones)
-            z.Draw(renderer, od, cl, camera, immediateRenderer);
     }
 
     public void Dispose()
