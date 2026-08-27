@@ -55,11 +55,11 @@ public class EntityFoliage : Entity
         var cards = foliage.SpritesForLod(BuiltLod).ToList();
         if (cards.Count == 0) return;
 
-        // material may be null: which shader a foliage asset uses is NOT resolvable from the files
-        // yet (FoliageMetadata.TextureIndex is 0/1 while the real textures are #1286/#1287, and no
-        // table in main.dat connects them - see that field's comment). Rather than guess an index,
-        // an unresolved foliage draws with the default white texture, which still proves the
-        // billboarding and the card geometry are right and is obviously unfinished on screen.
+        // material carries the atlas resolved from FoliageMetadata.TextureIndex — a DIRECT index
+        // into the 0x5200 texture table, proven by the game's own A200 loader (see that field). It
+        // is null only when the asset's index is the 0xFFFFFFFF sentinel or the level is new-engine;
+        // GetOrBuildBillboardMaterial then falls back to the default white texture, which still
+        // shows the billboarding and card geometry while making an unresolved case obvious on screen.
         _material = assetManager.GetOrBuildBillboardMaterial(material);
         _mesh = BuildMesh(cards, _material);
     }
