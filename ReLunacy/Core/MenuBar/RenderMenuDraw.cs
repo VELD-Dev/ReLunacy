@@ -8,42 +8,48 @@ internal static class RenderMenuDraw
 {
     internal static void ShowMobys()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderMobys"), "", EntityManager.Singleton.renderMobys, !Program.Settings.LegacyRenderingMode)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderMobys"), "", EntityManager.Singleton.renderMobys)) return;
         EntityManager.Singleton.renderMobys = !EntityManager.Singleton.renderMobys;
     }
 
     internal static void ShowTies()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderTies"), "", EntityManager.Singleton.renderTies, !Program.Settings.LegacyRenderingMode)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderTies"), "", EntityManager.Singleton.renderTies)) return;
         EntityManager.Singleton.renderTies = !EntityManager.Singleton.renderTies;
     }
 
     internal static void ShowUFrags()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderUFrags"), "", EntityManager.Singleton.renderUFrags, !Program.Settings.LegacyRenderingMode)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderUFrags"), "", EntityManager.Singleton.renderUFrags)) return;
         EntityManager.Singleton.renderUFrags = !EntityManager.Singleton.renderUFrags;
+    }
+
+    internal static void ShowFoliage()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderFoliage"), "", EntityManager.Singleton.renderFoliage)) return;
+        EntityManager.Singleton.renderFoliage = !EntityManager.Singleton.renderFoliage;
     }
 
     internal static void ShowVolumes()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes, !Program.Settings.LegacyRenderingMode)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes)) return;
         EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
     }
 
     internal static void ShowBoundingSpheres()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres, !Program.Settings.LegacyRenderingMode)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres)) return;
         EntityManager.Singleton.renderBoundingSpheres = !EntityManager.Singleton.renderBoundingSpheres;
     }
 
     internal static void ShowMobyDistanceCulling()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_MobyDistanceCulling"), "", EntityManager.Singleton.MobyDistanceCullingEnabled, !Program.Settings.LegacyRenderingMode)) return;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_MobyDistanceCulling"), "", EntityManager.Singleton.MobyDistanceCullingEnabled)) return;
         EntityManager.Singleton.MobyDistanceCullingEnabled = !EntityManager.Singleton.MobyDistanceCullingEnabled;
     }
 
     // Cubemap reflection controls (lit renderer only). The reflection term is faithfully gated by
-    // the material's specular map and a low intensity, so it's near-invisible by default — the debug
+    // the material's specular map and a low intensity, so it's near-invisible by default - the debug
     // view shows it raw on everything (also an axis-orientation check), and the slider makes the
     // normal-shading contribution tunable. Reached through View3D, which owns the renderer.
     internal static void ReflectionControls()
@@ -58,5 +64,20 @@ internal static class RenderMenuDraw
         ImGui.SetNextItemWidth(120);
         if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.2f"))
             view.ReflectionIntensity = intensity;
+
+        // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a
+        // near-mirror everywhere. The game reads as reflective almost everywhere, so raise this.
+        float reflBase = view.ReflectionBase;
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionBase"), ref reflBase, 0f, 1f, "%.2f"))
+            view.ReflectionBase = reflBase;
+
+        // Floor under a baked surface, as a fraction of the ambient fill. 0 is the game-faithful
+        // reconstruction and bottoms out to pure black wherever the parallax normal tilts past the
+        // baked light direction; raise it until the crevices read without flattening the bake.
+        float bakedAmbient = view.BakedAmbient;
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_BakedAmbient"), ref bakedAmbient, 0f, 1f, "%.2f"))
+            view.BakedAmbient = bakedAmbient;
     }
 }

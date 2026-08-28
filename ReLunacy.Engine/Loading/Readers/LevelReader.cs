@@ -25,6 +25,7 @@ public sealed class LevelReader
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
+    private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
 
     public LevelReader(FileManager fileManager)
     {
@@ -82,15 +83,21 @@ public sealed class LevelReader
         // engine only - FoliageReader returns empty on new-engine files rather than reading
         // old-engine offsets out of them.
         progressCallback?.Invoke("Loading Foliage...", 0.9f);
-        _foliageReader = new FoliageReader(_fileManager);
+        // Pass the MaterialReader so each foliage asset resolves its atlas from A200+0x08 (a direct
+        // index into the 0x5200 texture table — see FoliageMetadata.TextureIndex). Textures are
+        // already loaded above (_textureShaderLoader.LoadAll), so OldTexturesByIndex is populated.
+        _foliageReader = new FoliageReader(_fileManager, _materialReader);
         _foliages = _foliageReader.ReadAll();
 
         // Old engine only (section 0x5920). Independent of geometry, same as foliage.
         _cubemaps = new CubemapReader(_fileManager).ReadAll();
 
+        // Old-engine analytic lighting environment (section 0x8b00) - the game's real sun/ambient.
+        _lightingEnvironment = new LightingEnvironmentReader(_fileManager).Read();
+
         progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
-        // referenced by a shader actually used by the geometry above — see MaterialReader.GetAllTextures.
+        // referenced by a shader actually used by the geometry above - see MaterialReader.GetAllTextures.
         var allTextures = _materialReader.GetAllTextures();
 
         progressCallback?.Invoke("Complete!", 1.0f);
@@ -108,7 +115,8 @@ public sealed class LevelReader
             zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
             foliages: _foliages,
-            cubemaps: _cubemaps);
+            cubemaps: _cubemaps,
+            lightingEnvironment: _lightingEnvironment);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -116,6 +124,7 @@ public sealed class LevelReader
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
+    public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
     public Assets.Levels.Region? Region => _region;
 }
 
@@ -131,13 +140,13 @@ public sealed class LevelData
 
     /// <summary>
     /// Every texture read from textures.dat/highmips.dat, including ones no loaded Moby/Tie/UFrag
-    /// material references — cut/unused textures aren't wired to any shader used by this level's
+    /// material references - cut/unused textures aren't wired to any shader used by this level's
     /// geometry, but are still worth being able to see/export (e.g. Hidden Palace-style datamining).
     /// </summary>
     public IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture> AllTextures { get; }
 
     /// <summary>
-    /// Every shader the loader parsed from shaders.dat/main.dat, keyed by TUID — including ones
+    /// Every shader the loader parsed from shaders.dat/main.dat, keyed by TUID - including ones
     /// no loaded Moby/Tie/UFrag material references (same "cut content is still worth seeing"
     /// reasoning as AllTextures above). Raw, not the engine-facing IMaterial wrapper: this is
     /// meant for the Shader Browser, which exists specifically to inspect metadata (renderingMode
@@ -147,13 +156,13 @@ public sealed class LevelData
     public IReadOnlyDictionary<ulong, Shader> Shaders { get; }
 
     /// <summary>Baked light colour / light direction textures (main.dat sections 0x5400 / 0x5410),
-    /// POSITIONALLY indexed: entry X of each belongs to the instance whose lightmap index is X —
+    /// POSITIONALLY indexed: entry X of each belongs to the instance whose lightmap index is X -
     /// see TieInstance.LightmapIndex. The two lists always have equal length in real data.
     /// Empty on the new engine, whose pixel data lives in lighting.dat and isn't wired up.</summary>
     public IReadOnlyList<Assets.Interfaces.ITexture> ZoneLightmaps { get; }
     public IReadOnlyList<Assets.Interfaces.ITexture> ZoneDirectionals { get; }
 
-    /// <summary>Flat approximation of the level's environment cubemap — see
+    /// <summary>Flat approximation of the level's environment cubemap - see
     /// TextureShaderLoader.EnvironmentAverage. Null when the level has none.</summary>
     public System.Numerics.Vector3? EnvironmentAverage { get; }
 
@@ -165,6 +174,11 @@ public sealed class LevelData
     /// <summary>Environment cubemap(s), old-engine section 0x5920 (see Loading.Readers.CubemapReader).
     /// Usually one; empty when the level ships only a stub record (kerchu city) or on the new engine.</summary>
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps { get; }
+
+    /// <summary>The level's analytic lighting environment (old-engine section 0x8b00): the game's
+    /// real sun/ambient directions and colours. Null on the new engine or a level without it. See
+    /// Loading.Readers.LightingEnvironmentReader.</summary>
+    public Assets.Lighting.LightingEnvironment? LightingEnvironment { get; }
 
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
@@ -179,7 +193,8 @@ public sealed class LevelData
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
         System.Numerics.Vector3? environmentAverage = null,
         IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,
-        IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null)
+        IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null,
+        Assets.Lighting.LightingEnvironment? lightingEnvironment = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -194,5 +209,6 @@ public sealed class LevelData
         EnvironmentAverage = environmentAverage;
         Foliages = foliages ?? [];
         Cubemaps = cubemaps ?? [];
+        LightingEnvironment = lightingEnvironment;
     }
 }

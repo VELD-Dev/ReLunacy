@@ -11,18 +11,18 @@ namespace ReLunacy.Engine.Loading.Objects;
 /// fabricate an entire fake IGFile/moby record.
 ///
 /// Pointer convention: `skeletonPointer` and the nested `tms0Pointer`/`tms1Pointer`/bone-array
-/// pointer are all absolute offsets from the start of the moby's own stream — the exact same
+/// pointer are all absolute offsets from the start of the moby's own stream - the exact same
 /// convention already proven correct by the (working) bangle/mesh [Reference] chain on
 /// NewMoby/OldMoby, so no per-engine adjustment is needed here.
 /// </summary>
 public static class MobySkeletonReader
 {
     /// <param name="expectedBoneCount">
-    /// The Moby record's own bonesCount/bonesCount1 field, if known — the skeleton header carries
+    /// The Moby record's own bonesCount/bonesCount1 field, if known - the skeleton header carries
     /// its own redundant numBones copy, and the two disagreeing is the single strongest signal
     /// available (without ground-truth data) that skeletonPointer landed somewhere other than real
     /// skeleton data, e.g. a wrong pointer-base assumption for one engine. Surfaces as a loud,
-    /// visible failure (exception → caught by Moby's constructor → Skeleton stays null and a
+    /// visible failure (exception -> caught by Moby's constructor -> Skeleton stays null and a
     /// warning is logged) instead of silently exposing plausible-looking garbage bones.
     /// </param>
     public static MobySkeleton? Read(StreamHelper sh, uint skeletonPointer, uint? expectedBoneCount = null)

@@ -1,6 +1,7 @@
 using System.Numerics;
-using Bliss.CSharp.Transformations;
+using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -18,6 +19,8 @@ public class PropertyInspectorFrame : DockedFrame
     private Vector3 selectedScale;
     private Vector3 selectedBSphere;
     private float selectedBSphereRadius;
+    private float selectedCullDistance;
+    private float selectedUpdateDistance;
 
     public Entity? SelectedEntity => SelectionManager.Singleton.SelectedEntity;
 
@@ -59,7 +62,7 @@ public class PropertyInspectorFrame : DockedFrame
             t.Translation = selectedPosition;
             SelectedEntity.Transform = t;
         }
-        if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, "%.1f°"))
+        if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, "%.1f deg"))
         {
             var t = SelectedEntity.Transform;
             t.Rotation = (selectedAngle * (MathF.PI / 180f)).QuaternionFromEuler();
@@ -68,8 +71,8 @@ public class PropertyInspectorFrame : DockedFrame
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
         {
             // EntityVolume keeps its real box size in its own `scale` field rather than
-            // Transform.Scale (which it always leaves at 1,1,1 — see EntityVolume's constructor
-            // comment) — writing to Transform.Scale here for a Volume would silently do nothing.
+            // Transform.Scale (which it always leaves at 1,1,1 - see EntityVolume's constructor
+            // comment) - writing to Transform.Scale here for a Volume would silently do nothing.
             if (SelectedEntity is EntityVolume volume)
             {
                 volume.SetScale(selectedScale);
@@ -80,6 +83,11 @@ public class PropertyInspectorFrame : DockedFrame
                 t.Scale = selectedScale;
                 SelectedEntity.Transform = t;
             }
+        }
+
+        if (v3d != null)
+        {
+            ImGui.Text($"{(v3d.Camera.Position - selectedPosition).Length():N03}m away");
         }
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
@@ -96,6 +104,17 @@ public class PropertyInspectorFrame : DockedFrame
 
         if (SelectedEntity is EntityMoby moby)
         {
+            if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_CullDistance"), ref selectedCullDistance, 0, 0,
+                    "%.3f", ImGuiInputTextFlags.ReadOnly))
+            {
+                ((EntityMoby)SelectedEntity).DisplayDistance = selectedCullDistance;
+            }
+            if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_UpdateDistance"), ref selectedUpdateDistance, 0, 0,
+                    "%.3f", ImGuiInputTextFlags.ReadOnly))
+            {
+                ((EntityMoby)SelectedEntity).UpdateDistance = selectedUpdateDistance;
+            }
+
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenMobyInAssetViewer(moby.BaseMoby.Id);
         }
@@ -106,14 +125,12 @@ public class PropertyInspectorFrame : DockedFrame
         }
         else if (SelectedEntity is EntityUFrag ufrag)
         {
-            var mat = ufrag.UFrag.Material;
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialRenderMode", mat.RenderMode));
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlphaClip", mat.AlphaClipThreshold));
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlbedoFormat", mat.AlbedoTexture?.Format.ToString() ?? "None"));
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
+                OpenUFragInAssetViewer(ufrag.UFrag.Id);
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
-            // Volumes carry nothing beyond a transform in the level format itself — old engine has
+            // Volumes carry nothing beyond a transform in the level format itself - old engine has
             // no ID/group at all (BaseVolume.Id is just its load-order index there), new engine adds
             // a TUID + zone group from gp_prius's instance metadata section. This is genuinely all
             // there is to show; see RegionReader.ReadVolumesOld/New.
@@ -127,7 +144,7 @@ public class PropertyInspectorFrame : DockedFrame
         {
             // Only the entity's position needs negating to match Camera.Position's convention
             // (see the distance readout below, which negates Camera.Position the same way to
-            // compare it against a normal entity-space position) — negating the whole sum,
+            // compare it against a normal entity-space position) - negating the whole sum,
             // as this used to, also flipped the pull-back offset, pushing the camera away from
             // the entity along its forward vector instead of placing it just short of it.
             v3d.Camera.Position = SelectedEntity.Transform.Translation - v3d.Camera.GetForward() * 10;
@@ -167,6 +184,16 @@ public class PropertyInspectorFrame : DockedFrame
         }
     }
 
+    private static void OpenUFragInAssetViewer(ulong ufragId)
+    {
+        var viewer = OpenAssetViewer();
+        if (viewer != null)
+        {
+            viewer.SelectUFragById(ufragId);
+            viewer.Focus();
+        }
+    }
+
     private static AssetViewer? OpenAssetViewer()
     {
         var viewer = LunaWindow.Instance.GetFirstFrame<AssetViewer>();
@@ -190,6 +217,8 @@ public class PropertyInspectorFrame : DockedFrame
             selectedBSphere = Vector3.Zero;
             selectedPosition = Vector3.Zero;
             selectedScale = Vector3.Zero;
+            selectedCullDistance = 0f;
+            selectedUpdateDistance = 0f;
             return;
         }
 
@@ -198,5 +227,10 @@ public class PropertyInspectorFrame : DockedFrame
         selectedScale = SelectedEntity is EntityVolume volume ? volume.scale : SelectedEntity.Transform.Scale;
         selectedBSphere = SelectedEntity.BoundingSphere.GetXYZ();
         selectedBSphereRadius = SelectedEntity.BoundingSphere.W;
+        if (SelectedEntity is EntityMoby moby)
+        {
+            selectedCullDistance = moby.DisplayDistance;
+            selectedUpdateDistance = moby.UpdateDistance;
+        }
     }
 }

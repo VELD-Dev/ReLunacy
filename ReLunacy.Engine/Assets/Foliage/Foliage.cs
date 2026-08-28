@@ -44,13 +44,23 @@ public sealed class Foliage : IAsset
 
     public IReadOnlyList<FoliagePlacement> Placements { get; private set; }
 
+    /// <summary>The material this foliage draws with, resolved from <see cref="Metadata"/>'s
+    /// TextureIndex through the old-engine 0x5200 table (see
+    /// Loading.Objects.FoliageMetadata.TextureIndex and MaterialReader.GetFoliageMaterial — the
+    /// game indexes that table directly, it is not a shader lookup). Null when the index is the
+    /// 0xFFFFFFFF sentinel, out of range, or the level was read without a MaterialReader (e.g. new
+    /// engine); the renderer then falls back to the default billboard texture. The resolved atlas
+    /// itself is reachable as <c>Material.AlbedoTexture</c>.</summary>
+    public IMaterial? Material { get; }
+
     public Foliage(ulong id, FoliageMetadata metadata, IReadOnlyList<FoliageSpriteCard> sprites,
-        IReadOnlyList<FoliagePlacement> placements, string? name = null)
+        IReadOnlyList<FoliagePlacement> placements, IMaterial? material = null, string? name = null)
     {
         Id = id;
         Metadata = metadata;
         Sprites = sprites;
         Placements = placements;
+        Material = material;
         Name = name ?? $"Foliage_{metadata.FoliageId}";
     }
 

@@ -14,11 +14,12 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     public float Scale { get; init; }
     public ushort Group { get; init; }
     public float DisplayDistance { get; init; } = -1f;
+    public float UpdateDistance { get; init; } = -1f;
     public ushort LightmapIndex { get; init; } = 0xFFFF;
 
     private readonly Matrix4x4? _rawMatrix;
 
-    public PlacedInstance(TAsset asset, Transform3D transform, ulong tuid, ushort group = 0, string name = "", float displayDistance = -1f)
+    public PlacedInstance(TAsset asset, Transform3D transform, ulong tuid, ushort group = 0, string name = "", float displayDistance = -1f, float updateDistance = -1f)
     {
         Asset = asset ?? throw new ArgumentNullException(nameof(asset));
         Position = transform.Position;
@@ -28,6 +29,7 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
         Name = name;
         ID = tuid;
         DisplayDistance = displayDistance;
+        UpdateDistance = updateDistance;
     }
 
     public PlacedInstance(TAsset asset, Vector3 position, Vector3 rotation, float scale, ulong tuid, ushort group = 0, string name = "")

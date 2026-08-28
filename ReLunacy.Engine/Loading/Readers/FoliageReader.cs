@@ -16,10 +16,16 @@ namespace ReLunacy.Engine.Loading.Readers;
 public sealed class FoliageReader
 {
     private readonly FileManager _fileManager;
+    private readonly MaterialReader? _materialReader;
 
-    public FoliageReader(FileManager fileManager)
+    /// <param name="materialReader">Resolves each asset's atlas from its direct texture index
+    /// (A200+0x08 into the 0x5200 table). Optional: when null (e.g. a standalone geometry-only read)
+    /// foliage still loads, just with no material, and the renderer falls back to the default
+    /// billboard texture.</param>
+    public FoliageReader(FileManager fileManager, MaterialReader? materialReader = null)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
+        _materialReader = materialReader;
     }
 
     public IReadOnlyList<Assets.Foliage.Foliage> ReadAll()
@@ -51,12 +57,19 @@ public sealed class FoliageReader
 
             var sprites = ReadSprites(vertices.sh, (uint)vertSection.offset, meta);
 
+            // Resolve the atlas straight from the record's direct texture index (A200+0x08 →
+            // 0x5200[index], see FoliageMetadata.TextureIndex). Null for the 0xFFFFFFFF sentinel, an
+            // out-of-range index, or a null materialReader — the asset then keeps a null material
+            // and the renderer draws the default billboard texture rather than crashing.
+            var material = _materialReader?.GetFoliageMaterial(meta.TextureIndex);
+
             byOffset[recordBase] = result.Count;
             result.Add(new Assets.Foliage.Foliage(
                 id: recordBase,
                 metadata: meta,
                 sprites: sprites,
-                placements: []));
+                placements: [],
+                material: material));
         }
 
         AttachPlacements(main, result, byOffset);
@@ -65,7 +78,7 @@ public sealed class FoliageReader
     }
 
     /// <summary>Prints what was actually decoded. This is the only thing that exercises the reader
-    /// end to end — the format was verified offline against the same bytes, but a silent zero here
+    /// end to end - the format was verified offline against the same bytes, but a silent zero here
     /// would otherwise look identical to a level that genuinely has no foliage. For metropolis the
     /// expected line is 2 assets, 117 sprites each, LODs 58/30/17/11/1, 757 placements total.</summary>
     private static void LogSummary(List<Assets.Foliage.Foliage> foliages)
@@ -81,8 +94,16 @@ public sealed class FoliageReader
         foreach (var f in foliages)
         {
             var lods = string.Join("/", f.Metadata.SpriteLodRanges.Where(r => r.CornerCount > 0).Select(r => r.SpriteCount));
+            // Report how the direct texture index resolved — an unresolved index or a wrong 0x5200
+            // ordering would otherwise be invisible until the atlas rendered wrong on screen. For
+            // metropolis both assets should read 0x5200[0]/[1] as 512x512 DXT5.
+            string tex = !f.Metadata.HasTexture
+                ? "none (0xFFFFFFFF)"
+                : f.Material?.AlbedoTexture is { } a
+                    ? $"0x5200[{f.Metadata.TextureIndex}] → {a.Width}x{a.Height} {a.Format}"
+                    : $"{f.Metadata.TextureIndex} (unresolved)";
             Console.WriteLine($"  {f.Name}: {f.Sprites.Count} sprite(s) [LODs {lods}], " +
-                              $"{f.Placements.Count} placement(s), textureIndex={f.Metadata.TextureIndex}");
+                              $"{f.Placements.Count} placement(s), texture {tex}");
         }
     }
 

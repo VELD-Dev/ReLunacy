@@ -2,7 +2,7 @@ using ReLunacy.Engine.Assets.Interfaces;
 
 namespace ReLunacy.Engine.Assets.Mobys;
 
-/// <summary>Group of meshes enabled/disabled at runtime on an <see cref="IMoby"/> — character skins, NPC variations, etc.</summary>
+/// <summary>Group of meshes enabled/disabled at runtime on an <see cref="IMoby"/> - character skins, NPC variations, etc.</summary>
 public sealed class Bangle : IBangle
 {
     public IReadOnlyList<IMesh> Meshes { get; init; }

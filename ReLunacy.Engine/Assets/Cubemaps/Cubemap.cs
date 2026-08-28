@@ -19,7 +19,7 @@ public sealed class Cubemap : IAsset
     /// <summary>Edge length of one face in texels (32 on metropolis).</summary>
     public int FaceSize { get; }
 
-    /// <summary>The six faces, mip0, in the order given by <see cref="FaceNames"/> — each an
+    /// <summary>The six faces, mip0, in the order given by <see cref="FaceNames"/> - each an
     /// A8R8G8B8 <see cref="ITexture"/> so the existing decode/preview path handles them unchanged.</summary>
     public IReadOnlyList<ITexture> Faces { get; }
 

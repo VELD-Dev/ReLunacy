@@ -10,10 +10,10 @@ namespace ReLunacy.Engine.Loading.IO;
 public class FileManager : IDisposable
 {
     public string folderPath = string.Empty;
-    // New engine levels split their data across two sibling archives — level_cached.psarc (the
-    // one GameLibraryScanner finds, holding gameplay.dat/assetlookup.dat/mobys.dat/etc.) and
-    // level_uncached.psarc (holding highmips.dat and streaming audio) — so a single archive
-    // reference isn't enough to resolve every file. Old engine only ever uses one.
+    // Both engines split a level's data across sibling archives next to the one GameLibraryScanner
+    // finds (level_cached.psarc) - new engine keeps highmips.dat and streaming audio in
+    // level_uncached.psarc, old engine keeps texstream.dat in level_textures.psarc - so a single
+    // archive reference isn't enough to resolve every file for either engine.
     private readonly List<PSARC> _archives = [];
 
     public Dictionary<string, IGFile?> igfiles = [];
@@ -39,12 +39,14 @@ public class FileManager : IDisposable
     }
 
     /// <summary>
-    /// Opens a level directly from its own .psarc path and, if it looks like a new-engine level
-    /// (no main.dat), also picks up the sibling level_uncached.psarc next to it — new engine keeps
-    /// highmips.dat (and streaming audio) there instead of in the level's main archive, so without
-    /// this, loading a new-engine level straight from a .psarc throws once texture loading reaches
-    /// highmips.dat. Old engine keeps everything in one archive, so this is a no-op for it beyond
-    /// opening the given path.
+    /// Opens a level directly from its own .psarc path and also picks up every other level_*.psarc
+    /// sibling next to it - new engine keeps highmips.dat (and streaming audio) in
+    /// level_uncached.psarc instead of the level's main archive, and old engine keeps texstream.dat
+    /// in level_textures.psarc instead of textures.dat's archive, so without this, texture loading
+    /// for either engine silently misses whichever file its engine split out. Discovered by name
+    /// rather than hardcoded to one sibling, so it does not need to know every archive an engine
+    /// might split off, and stays correct if a level has no siblings at all (the common case for a
+    /// level with everything in one archive is then a no-op beyond opening the given path).
     /// </summary>
     public void LoadFromPsarcFile(string path)
     {
@@ -53,14 +55,15 @@ public class FileManager : IDisposable
         _archives.Add(primary);
         isOld = ArchiveContains(primary, "main.dat");
 
-        if (!isOld)
+        string? dir = Path.GetDirectoryName(path);
+        string fullPrimaryPath = Path.GetFullPath(path);
+        if (dir != null)
         {
-            string? dir = Path.GetDirectoryName(path);
-            if (dir != null && string.Equals(Path.GetFileName(path), "level_cached.psarc", StringComparison.OrdinalIgnoreCase))
+            foreach (string siblingPath in Directory.EnumerateFiles(dir, "level_*.psarc"))
             {
-                string siblingPath = Path.Combine(dir, "level_uncached.psarc");
-                if (File.Exists(siblingPath))
-                    _archives.Add(new PSARC(File.OpenRead(siblingPath)));
+                if (string.Equals(Path.GetFullPath(siblingPath), fullPrimaryPath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                _archives.Add(new PSARC(File.OpenRead(siblingPath)));
             }
         }
 
@@ -112,7 +115,7 @@ public class FileManager : IDisposable
 
     /// <summary>
     /// Old engine only: debug.dat almost never ships alongside main.dat in the level's own
-    /// folder/archive — it's a loose file elsewhere (see GameLibraryScanner.TryResolveDebugDatPath).
+    /// folder/archive - it's a loose file elsewhere (see GameLibraryScanner.TryResolveDebugDatPath).
     /// Loads it directly from an explicit path, overwriting any prior (likely missing) entry.
     /// </summary>
     public bool LoadExternalDebugDat(string path)
@@ -164,7 +167,7 @@ public class FileManager : IDisposable
     }
 
     /// <summary>
-    /// Closes every open handle this FileManager holds — each entry in igfiles/rawfiles wraps its
+    /// Closes every open handle this FileManager holds - each entry in igfiles/rawfiles wraps its
     /// own FileStream (or, for a .psarc source, the archive's own FileStream), none of which were
     /// ever closed on level unload previously. Without this, switching levels repeatedly leaks a
     /// file handle per .dat file per switch.

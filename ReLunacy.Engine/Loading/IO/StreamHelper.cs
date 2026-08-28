@@ -6,7 +6,7 @@ using System.Text;
 namespace ReLunacy.Engine.Loading.IO;
 
 // Endianness-aware BinaryReader. Per-file endianness is auto-detected from the IGHW magic
-// (see IGFile), not fixed — the game ships both big- and little-endian containers.
+// (see IGFile), not fixed - the game ships both big- and little-endian containers.
 public class StreamHelper : BinaryReader
 {
     public enum Endianness
@@ -266,7 +266,7 @@ public class StreamHelper : BinaryReader
         return bytesRead;
     }
 
-    // Write methods (endianness-aware) — used by the round-trip/rebuild path (AssetBuilder).
+    // Write methods (endianness-aware) - used by the round-trip/rebuild path (AssetBuilder).
 
     public void WriteUInt16(ushort value)
     {

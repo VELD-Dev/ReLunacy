@@ -1,5 +1,4 @@
 using System.Numerics;
-using Bliss.CSharp.Interact;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Engine.Games;
 using ReLunacy.Utility;
@@ -123,7 +122,7 @@ public class GameBrowserFrame : DockedFrame
     private void RenderDebugDatTab()
     {
         ImGui.TextWrapped("Old-engine levels usually don't ship debug.dat alongside their own " +
-            "data — it's auto-detected next to the level when possible. Use this if a level loaded " +
+            "data - it's auto-detected next to the level when possible. Use this if a level loaded " +
             "without instance/asset names, or to load a different debug.dat than the one that was " +
             "auto-detected.");
         ImGui.Separator();
@@ -152,7 +151,7 @@ public class GameBrowserFrame : DockedFrame
             {
                 // No level loaded yet: just remember it, it'll be picked up on the next load.
                 LunaWindow.Instance.PendingExternalDebugDatPath = debugDatPathInput;
-                debugDatStatusMessage = "Saved — it'll be used the next time a level is loaded.";
+                debugDatStatusMessage = "Saved - it'll be used the next time a level is loaded.";
             }
             else
             {
