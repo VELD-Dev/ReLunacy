@@ -1,5 +1,5 @@
 using System.Numerics;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Rendering;
 
@@ -8,7 +8,7 @@ namespace ReLunacy.Engine.Rendering;
 /// This used to live on DecalAwareForwardRenderer, which meant the raw-Vulkan renderer could only get
 /// at the level's lighting by going through a Bliss renderer it otherwise no longer uses. It is plain
 /// state with one pure builder, so it belongs on its own: only <see cref="EnvironmentCubemap"/> touches
-/// the graphics API at all, and that is a Veldrith type, not a Bliss one.
+/// the graphics API at all, and that is a NeoVeldrid type, not a Bliss one.
 ///
 /// Values default to a plain downward light; the view pushes the real EditorSettings values every
 /// frame, same pattern as Camera.FarPlane / VolumeWireThickness.</summary>

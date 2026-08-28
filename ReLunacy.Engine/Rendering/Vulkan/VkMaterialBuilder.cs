@@ -1,5 +1,5 @@
 using ReLunacy.Engine.Rendering.Resources;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
@@ -40,7 +40,7 @@ public static class VkMaterialBuilder
         };
     }
 
-    /// <summary>A material map's texture as a Veldrith texture. Every material has
+    /// <summary>A material map's texture as a NeoVeldrid texture. Every material has
     /// albedo/normal/properties/fLightColour/fLightDir maps (AssetManager provides defaults), so these
     /// are normally non-null; null is handled by the renderer.</summary>
     private static Texture? TextureOf(RenderMaterial material, MaterialMapKey key) =>

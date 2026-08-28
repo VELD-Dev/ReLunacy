@@ -1,7 +1,7 @@
 using System.Numerics;
 using Newtonsoft.Json;
 using ReLunacy.Utility;
-using Veldrith;
+using NeoVeldrid;
 
 public enum UpdateChannel
 {

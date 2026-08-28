@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Engine.Rendering;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 

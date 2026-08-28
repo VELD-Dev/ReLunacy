@@ -5,7 +5,7 @@ using ReLunacy.Engine.Scene;
 using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -49,7 +49,9 @@ public class View3D : DockedFrame
     public Vector2 ViewportScreenPos => _viewport.ScreenPos;
     public Vector2 ViewportSize => _viewport.Size;
 
-    private readonly MouseGrabHandler rmbghandler = new() { mouseButton = MouseButton.Right };
+    // Qualified: NeoVeldrid also exports a MouseButton type, ambiguous against this project's own
+    // SDL-based one (ReLunacy.Utility.MouseButton, what MouseGrabHandler actually expects).
+    private readonly MouseGrabHandler rmbghandler = new() { mouseButton = ReLunacy.Utility.MouseButton.Right };
 
     public Entity? SelectedEntity
     {

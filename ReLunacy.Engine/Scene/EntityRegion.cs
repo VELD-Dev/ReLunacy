@@ -1,6 +1,6 @@
 using ReLunacy.Engine.Assets.Levels;
 using ReLunacy.Engine.Rendering;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 

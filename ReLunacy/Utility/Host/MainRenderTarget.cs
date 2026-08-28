@@ -1,4 +1,4 @@
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Utility;
 
@@ -28,8 +28,8 @@ public sealed class MainRenderTarget : IDisposable
 
     public MainRenderTarget(
         GraphicsDevice graphicsDevice, uint width, uint height, TextureSampleCount sampleCount,
-        PixelFormat colorFormat = PixelFormat.R8G8B8A8UNorm,
-        PixelFormat depthFormat = PixelFormat.D32FloatS8UInt)
+        PixelFormat colorFormat = PixelFormat.R8_G8_B8_A8_UNorm,
+        PixelFormat depthFormat = PixelFormat.D32_Float_S8_UInt)
     {
         _graphicsDevice = graphicsDevice;
         _colorFormat = colorFormat;

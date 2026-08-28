@@ -1,4 +1,4 @@
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Rendering.Resources;
 
@@ -129,7 +129,7 @@ public sealed class GpuTexture : IDisposable
         Height = height;
         MipLevels = mipLevels;
         DeviceTexture = graphicsDevice.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
-            Width, Height, MipLevels, 1, PixelFormat.R8G8B8A8UNorm, TextureUsage.Sampled));
+            Width, Height, MipLevels, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
     }
 
     /// <summary>Uploads every mip of an already-prepared chain in one call - the original, immediate,

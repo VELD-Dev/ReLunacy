@@ -1,13 +1,14 @@
-using Veldrith;
+using NeoVeldrid;
 using Vortice.Vulkan;
 
 namespace ReLunacy.Utility;
 
 /// <summary>
-/// Bliss/Veldrith expose no cross-backend GPU memory query, so this reads used VRAM directly
-/// through Vortice.Vulkan (the same binding library Veldrith's own Vulkan backend is built on,
-/// already loaded in-process) via VK_EXT_memory_budget. Vulkan-only - D3D11/D3D12/Metal/OpenGL
-/// would each need their own native query and aren't implemented; other backends always read 0.
+/// Bliss/NeoVeldrid expose no cross-backend GPU memory query, so this reads used VRAM directly
+/// through Vortice.Vulkan (already loaded in-process for this project's own raw-Vulkan renderer,
+/// independent of whatever binding NeoVeldrid itself uses internally) via VK_EXT_memory_budget.
+/// Vulkan-only - D3D11/Metal/OpenGL would each need their own native query and aren't implemented;
+/// other backends always read 0.
 /// </summary>
 internal static unsafe class VramUsageQuery
 {

@@ -10,7 +10,7 @@ using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using Veldrith;
+using NeoVeldrid;
 using IMesh = ReLunacy.Engine.Assets.Interfaces.IMesh;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
@@ -117,8 +117,10 @@ public class AssetViewer : DockedFrame, ILevelListener
     // The preview image, its toolbar, and the rules for which of them gets a click. Same component the
     // level view uses, so the two cannot drift apart on where the mouse is or who gets it.
     private readonly Viewport3D _viewport = new();
-    private readonly MouseGrabHandler rmbghandler = new() { mouseButton = MouseButton.Right };
-    private readonly MouseGrabHandler mmbghandler = new() { mouseButton = MouseButton.Middle };
+    // Qualified: NeoVeldrid also exports a MouseButton type, ambiguous against this project's own
+    // SDL-based one (ReLunacy.Utility.MouseButton, what MouseGrabHandler actually expects).
+    private readonly MouseGrabHandler rmbghandler = new() { mouseButton = ReLunacy.Utility.MouseButton.Right };
+    private readonly MouseGrabHandler mmbghandler = new() { mouseButton = ReLunacy.Utility.MouseButton.Middle };
     private readonly GraphicsDevice graphicsDevice;
     // The preview is drawn by the SAME raw-Vulkan renderer the level view uses, rebuilt whenever the
     // selection changes. That is the point: a preview on a different renderer is a bad reference for

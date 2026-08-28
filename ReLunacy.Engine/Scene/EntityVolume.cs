@@ -2,7 +2,7 @@ using System.Numerics;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Engine.Rendering;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 

@@ -15,12 +15,25 @@
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
     <PackageReference Include="TinyBCSharp" Version="0.1.2" />
-    <PackageReference Include="Veldrith" Version="1.2.19" />
+    <!-- Was Veldrith (Stellution-Studios), a single-maintainer fork - moved to NeoVeldrid, the
+         actively-maintained Silk.NET-based continuation of Veldrid, so the project doesn't depend on
+         a custom/niche fork. Drops the Direct3D12/Metal backends Veldrith added (see EditorWindow.cs
+         and EditorSettings.GraphicsBackend) - the raw-Vulkan scene renderer only ever worked on
+         Vulkan anyway (VulkanContext throws if GetVulkanInfo fails), so those paths never produced a
+         working 3D view regardless of backend. -->
+    <PackageReference Include="NeoVeldrid" Version="1.2.1" />
     <!-- GLSL to SPIR-V for the renderer's own shaders. Came in transitively through Bliss. -->
-    <PackageReference Include="Veldrith.SPIRV" Version="1.2.19" />
-    <!-- Raw Vulkan for the new from-scratch renderer (Docs/NewRenderer.md). Pinned to exactly the
-         version Veldrith uses so the handles GraphicsDevice.GetVulkanInfo() returns are the same
-         Vortice types we consume. -->
+    <PackageReference Include="NeoVeldrid.SPIRV" Version="1.2.1" />
+    <!-- NeoVeldrid.SPIRV only references the managed Silk.NET.Shaderc/Silk.NET.SPIRV.Cross bindings,
+         not their native libraries - Silk.NET splits those into separate opt-in packages. Without
+         these, CreateFromSpirv throws FileNotFoundException at runtime (Silk.NET.Shaderc.Shaderc.GetApi
+         can't find libshaderc_shared) the first time anything compiles a shader. -->
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
+    <!-- Raw Vulkan for the new from-scratch renderer (Docs/NewRenderer.md). NeoVeldrid's own Vulkan
+         backend is built on Silk.NET.Vulkan, not this - the two don't need to match versions, since
+         GraphicsDevice.GetVulkanInfo()/BackendInfoVulkan hands back plain IntPtr/ulong handles (see
+         VulkanContext.cs), not types from whichever binding library the device was built with. -->
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 

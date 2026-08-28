@@ -1,8 +1,8 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Veldrith;
-using Veldrith.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace ReLunacy.Utility;
 
@@ -115,7 +115,7 @@ public class ImGuiController : IDisposable
         var vertexLayoutDescription = new VertexLayoutDescription(
             new VertexElementDescription("in_position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
             new VertexElementDescription("in_texCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-            new VertexElementDescription("in_color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4Norm));
+            new VertexElementDescription("in_color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
 
         var shaderDir = Path.Combine(Program.EditorPath, "Shaders", "ImGui");
         byte[] imguiVertData = File.ReadAllBytes(Path.Combine(shaderDir, "default.vert"));
@@ -136,11 +136,10 @@ public class ImGuiController : IDisposable
             new ResourceLayoutElementDescription("MainTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment)));
 
         var pipelineDescription = new GraphicsPipelineDescription(
-            BlendStateDescription.SINGLE_ALPHA_BLEND,
+            BlendStateDescription.SingleAlphaBlend,
             new DepthStencilStateDescription(false, false, ComparisonKind.Always),
             new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
-                depthClipEnabled: true, depthBias: 0, slopeScaledDepthBias: 0f, depthBiasClamp: 0f,
-                scissorTestEnabled: true),
+                depthClipEnabled: true, scissorTestEnabled: true),
             PrimitiveTopology.TriangleList,
             shaderSet,
             [_layout, _textureLayout],
@@ -230,7 +229,7 @@ public class ImGuiController : IDisposable
                     }
 
                     var gpuTexture = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
-                        (uint)width, (uint)height, 1, 1, PixelFormat.R8G8B8A8UNorm, TextureUsage.Sampled));
+                        (uint)width, (uint)height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
                     gpuTexture.Name = $"ImGui Managed Texture {uniqueId}";
 
                     gd.UpdateTexture(gpuTexture, (nint)texData.Pixels, (uint)(texData.BytesPerPixel * width * height), 0, 0, 0, (uint)width, (uint)height, 1, 0, 0);
