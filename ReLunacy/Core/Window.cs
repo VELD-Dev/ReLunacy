@@ -13,7 +13,7 @@ using ReLunacy.Engine.Scene;
 using ReLunacy.MenuBar;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Core;
 
@@ -87,7 +87,7 @@ public class LunaWindow : IDisposable
         {
             Debug = false,
             HasMainSwapchain = true,
-            SwapchainDepthFormat = PixelFormat.D32FloatS8UInt,
+            SwapchainDepthFormat = PixelFormat.D32_Float_S8_UInt,
             SyncToVerticalBlank = EditorSettings.VSync,
             ResourceBindingModel = ResourceBindingModel.Improved,
             PreferDepthRangeZeroToOne = true,
@@ -589,7 +589,7 @@ public class LunaWindow : IDisposable
             commandList.End();
             graphicsDevice.SubmitCommands(commandList);
         }
-        // Veldrith's Vulkan backend only signals a render-finished semaphore before presenting
+        // NeoVeldrid's Vulkan backend only signals a render-finished semaphore before presenting
         // when the present queue differs from the graphics queue - on a shared queue (the common
         // case on desktop GPUs), SwapBuffers's vkQueuePresentKHR call waits on nothing at all, so
         // without this the presentation engine can read the swapchain image before the GPU has

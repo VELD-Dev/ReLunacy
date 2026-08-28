@@ -33,9 +33,9 @@ public readonly record struct MaterialMapKey(string Name)
 /// The scalar is not decoration. Several of the game's per-material constants (alpha-clip threshold,
 /// parallax scale/bias, detail tiling, "this material has a real bake") are carried in it, which is why
 /// a map with no texture at all is still worth storing.</summary>
-public sealed class MaterialMap(GpuTexture? texture = null, Veldrith.Sampler? sampler = null, float value = 0f)
+public sealed class MaterialMap(GpuTexture? texture = null, NeoVeldrid.Sampler? sampler = null, float value = 0f)
 {
     public GpuTexture? Texture = texture;
-    public Veldrith.Sampler? Sampler = sampler;
+    public NeoVeldrid.Sampler? Sampler = sampler;
     public float Value = value;
 }

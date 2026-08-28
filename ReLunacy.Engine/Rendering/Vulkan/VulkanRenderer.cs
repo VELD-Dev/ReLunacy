@@ -1,6 +1,6 @@
 using System.Numerics;
-using Veldrith;
-using Veldrith.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 using Vortice.Vulkan;
 
 namespace ReLunacy.Engine.Rendering.Vulkan;
@@ -552,7 +552,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     /// <summary>Draws that survived this frame's culling, across every bucket.</summary>
     public int VisibleDrawCount => _visOpaqueCount + _visTransCount + _visAddCount + _visSoftCount + _visBillCount;
 
-    /// <summary>The Veldrith texture the scene is rendered into - display this in ImGui.</summary>
+    /// <summary>The NeoVeldrid texture the scene is rendered into - display this in ImGui.</summary>
     /// <summary>The scene image for ImGui to display. This is the LAST COMPLETED frame, not the one
     /// being recorded, so the viewport runs one frame behind the camera - the cost of the overlap.</summary>
     public Texture ColorTexture => _colorTex[_displaySlot];
@@ -1430,7 +1430,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private static Texture CreateFallbackCubemap(GraphicsDevice gd)
     {
         var tex = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
-            1, 1, 1, 6, PixelFormat.R8G8B8A8UNorm, TextureUsage.Sampled | TextureUsage.Cubemap));
+            1, 1, 1, 6, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled | TextureUsage.Cubemap));
         var grey = new byte[] { 128, 128, 128, 128 };
         for (uint face = 0; face < 6; face++)
             gd.UpdateTexture(tex, grey, 0, 0, 0, 1, 1, 1, 0, face);
@@ -1465,7 +1465,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     {
         for (int f = 0; f < Frames; f++)
         {
-            _colorTex[f] = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(_width, _height, 1, 1, PixelFormat.R8G8B8A8UNorm, TextureUsage.Sampled | TextureUsage.RenderTarget));
+            _colorTex[f] = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(_width, _height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled | TextureUsage.RenderTarget));
             _colorImage[f] = _ctx.BackendInfo.GetVkImage(_colorTex[f]);
             var cvi = new VkImageViewCreateInfo { image = _colorImage[f], viewType = VkImageViewType.Image2D, format = ColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = 1, baseArrayLayer = 0, layerCount = 1 } };
             VkImageView cv; Check(_api.vkCreateImageView(&cvi, &cv), "vkCreateImageView(color)"); _colorView[f] = cv;

@@ -3,7 +3,7 @@ using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Engine.Rendering;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 

@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using ReLunacy.Core;
 using ReLunacy.Utility;
+using ReLunacy.Utility.Host;
 
 namespace ReLunacy;
 
@@ -17,6 +18,10 @@ public class Program
 
     static void Main(string[] args)
     {
+        // Must happen before anything touches shader compilation (WarmUpShaderCache, FullscreenBlit,
+        // ImGuiController all call CreateFromSpirv) - see NativeLibraryPreloader's remarks.
+        NativeLibraryPreloader.PreloadShaderCompilers();
+
         if (args.Length > 0)
             ProvidedPath = args[0];
 

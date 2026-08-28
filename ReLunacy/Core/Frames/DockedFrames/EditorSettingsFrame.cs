@@ -1,7 +1,7 @@
 using System.Numerics;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -24,7 +24,7 @@ internal class EditorSettingsFrame : Frame
     public EditorSettingsFrame()
     {
         FrameName = LM.Get("GUI_Frame_EditorSettings");
-        maxMsaa = (int)LunaWindow.Instance.GraphicsDevice.GetSampleCountLimit(PixelFormat.R8G8B8A8SInt, false);
+        maxMsaa = (int)LunaWindow.Instance.GraphicsDevice.GetSampleCountLimit(PixelFormat.R8_G8_B8_A8_SInt, false);
         Languages = [.. LM.Languages.Select(l => l.Value.LangName)];
     }
 

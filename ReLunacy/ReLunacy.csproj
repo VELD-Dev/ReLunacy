@@ -54,9 +54,15 @@
          referenced directly now. -->
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
-    <PackageReference Include="Veldrith" Version="1.2.19" />
+    <!-- Was Veldrith (Stellution-Studios), a single-maintainer fork - moved to NeoVeldrid, the
+         actively-maintained Silk.NET-based continuation of Veldrid. See ReLunacy.Engine.csproj's
+         comment for why, and EditorWindow.cs for the Direct3D12/Metal backend removal that came with it. -->
+    <PackageReference Include="NeoVeldrid" Version="1.2.1" />
     <!-- GLSL to SPIR-V, for the ImGui shaders and the fullscreen blit. Came in through Bliss. -->
-    <PackageReference Include="Veldrith.SPIRV" Version="1.2.19" />
+    <PackageReference Include="NeoVeldrid.SPIRV" Version="1.2.1" />
+    <!-- Native libraries CreateFromSpirv needs at runtime - see ReLunacy.Engine.csproj's comment. -->
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 

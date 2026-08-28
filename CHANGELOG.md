@@ -28,6 +28,7 @@ performance improvements thanks to that. For more details, see under !
   - Frame pipelining: CPU recording and GPU execution now overlap across frames, instead of the CPU immediately waiting on the previous frame's fence right after submitting it
   - Unified viewport input handling (which of the overlay/gizmo/picking/camera gets a click) across the 3D View and Asset Viewer
   - Fixed a large Tie frustum-culling error that could clip visible geometry at the edges of the screen
+  - Migrated off Veldrith (a single-maintainer Veldrid fork) onto NeoVeldrid, the actively-maintained Silk.NET-based continuation, so the project no longer depends on a custom graphics backend
 - Added a better `Frame Profiler` frame (performances debug)
 - Added `Level Data` frame (including instances count, assets count, and light sources)
 - Added an in-app Markdown renderer, used to show this changelog straight from the Update Info frame
@@ -45,6 +46,7 @@ performance improvements thanks to that. For more details, see under !
 - Fixed GPU buffer picking (clicking to select in the 3D View) silently not working, due to an input event-ordering bug
 - Fixed Moby Cull Distance and Update Distance being read from swapped file offsets
 - Fixed `3D View` being reset when closed and reopened.
+- Fixed the 3D scene renderer segfaulting on construction after the NeoVeldrid migration, from a Vulkan function-pointer table that was never explicitly initialized (previously only worked by accident, as a side effect of Veldrith initializing the same shared state internally)
 
 ## [v0.04.1](https://github.com/VELD-Dev/ReLunacy/releases/0.04.1) - 30-07-2026
 

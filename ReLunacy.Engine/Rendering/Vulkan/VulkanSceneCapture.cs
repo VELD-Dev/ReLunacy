@@ -1,11 +1,11 @@
 using System.Runtime.CompilerServices;
 using ReLunacy.Engine.Rendering.Resources;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>One material's inputs for the raw-Vulkan lit renderer: the five sampled textures (the
-/// Veldrith textures behind the material's maps) plus the per-material scalars the shader needs - the baked
+/// NeoVeldrid textures behind the material's maps) plus the per-material scalars the shader needs - the baked
 /// flag, parallax scale/bias, the alpha-clip threshold, and a render mode (1 = cutout/alpha-clip).
 /// Textures may be null (the renderer falls back to a real texture).</summary>
 public struct VkMaterialDesc

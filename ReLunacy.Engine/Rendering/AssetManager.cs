@@ -4,7 +4,7 @@ using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Rendering.Vulkan;
 using ReLunacy.Engine.Scene;
-using Veldrith;
+using NeoVeldrid;
 using IMesh = ReLunacy.Engine.Assets.Interfaces.IMesh;
 
 namespace ReLunacy.Engine.Rendering;
@@ -235,8 +235,8 @@ public sealed class AssetManager : IDisposable
     // effect's declared set 10 is never bound to nothing (an unbound descriptor set is undefined
     // behaviour - the same class of fault BuildLitModelEffect documents). See CubemapReader for the
     // face format and LitModelShaderSource for how it's sampled.
-    private Veldrith.Texture? _environmentCubemap;
-    public Veldrith.TextureView? EnvironmentCubemapView { get; private set; }
+    private NeoVeldrid.Texture? _environmentCubemap;
+    public NeoVeldrid.TextureView? EnvironmentCubemapView { get; private set; }
 
     private void BuildEnvironmentCubemap(LevelData level)
     {
@@ -244,9 +244,9 @@ public sealed class AssetManager : IDisposable
         int size = cubemap?.FaceSize ?? 1;
         var factory = _gd.ResourceFactory;
 
-        var tex = factory.CreateTexture(Veldrith.TextureDescription.Texture2D(
-            (uint)size, (uint)size, 1, 6, Veldrith.PixelFormat.R8G8B8A8UNorm,
-            Veldrith.TextureUsage.Sampled | Veldrith.TextureUsage.Cubemap));
+        var tex = factory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
+            (uint)size, (uint)size, 1, 6, NeoVeldrid.PixelFormat.R8_G8_B8_A8_UNorm,
+            NeoVeldrid.TextureUsage.Sampled | NeoVeldrid.TextureUsage.Cubemap));
 
         // Face order is the file's own +X,-X,+Y,-Y,+Z,-Z, which is exactly the cube array-layer
         // order Vulkan expects, so layer index == face index with no remap.
@@ -644,8 +644,8 @@ public sealed class AssetManager : IDisposable
 
     private Sampler GetSamplerFor(TextureFiltering filtering) => filtering switch
     {
-        TextureFiltering.Bilinear => _linearWrapSampler ??= CreateWrapSampler(SamplerFilter.MinLinearMagLinearMipLinear),
-        _ => _pointWrapSampler ??= CreateWrapSampler(SamplerFilter.MinPointMagPointMipPoint),
+        TextureFiltering.Bilinear => _linearWrapSampler ??= CreateWrapSampler(SamplerFilter.MinLinear_MagLinear_MipLinear),
+        _ => _pointWrapSampler ??= CreateWrapSampler(SamplerFilter.MinPoint_MagPoint_MipPoint),
     };
 
     private Sampler CreateWrapSampler(SamplerFilter filter) => _gd.ResourceFactory.CreateSampler(new SamplerDescription(

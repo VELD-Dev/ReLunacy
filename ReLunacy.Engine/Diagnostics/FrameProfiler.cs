@@ -7,7 +7,7 @@ namespace ReLunacy.Engine.Diagnostics;
 /// stall, present, or any other pass. Lives in ReLunacy.Engine (not the app) so engine-side render
 /// code - the forward renderer especially - can self-instrument the passes it owns.
 ///
-/// It is a CPU profiler by design: Veldrith (the Veldrid fork this project uses) exposes no GPU
+/// It is a CPU profiler by design: NeoVeldrid (the Veldrid fork this project uses) exposes no GPU
 /// timestamp query pool, so there is no in-API way to read how long the GPU itself spent on a pass.
 /// What CAN be measured precisely is the CPU cost of building and submitting command lists, and -
 /// because the app calls WaitForIdle() once per frame - the time the CPU sits BLOCKED waiting for

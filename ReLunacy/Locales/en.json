@@ -205,7 +205,7 @@
         "GUI_Frame_Profiler_Avg": "Avg (ms)",
         "GUI_Frame_Profiler_Percent": "% of frame",
         "GUI_Frame_Profiler_Counters": "Counters",
-        "GUI_Frame_Profiler_GpuNote": "\"GPU Wait\" is the per-frame WaitForIdle stall - the CPU blocked on the GPU. It stands in for GPU cost since Veldrith exposes no GPU timestamp query.",
+        "GUI_Frame_Profiler_GpuNote": "\"GPU Wait\" is the per-frame WaitForIdle stall - the CPU blocked on the GPU. It stands in for GPU cost since NeoVeldrid exposes no GPU timestamp query.",
         "GUI_Frame_OpenLevel": "Open level",
         "GUI_Frame_OpenLevel_LevelPath": "Level Path",
         "GUI_Frame_OpenLevel_PasteClipboard": "Paste",

@@ -1,6 +1,6 @@
 using System.Text;
-using Veldrith;
-using Veldrith.SPIRV;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace ReLunacy.Utility;
 
@@ -73,9 +73,9 @@ public sealed class FullscreenBlit : IDisposable
         if (_pipelines.TryGetValue(output, out var cached)) return cached;
 
         var description = new GraphicsPipelineDescription(
-            BlendStateDescription.SINGLE_OVERRIDE_BLEND,
-            DepthStencilStateDescription.DISABLED,
-            RasterizerStateDescription.CULL_NONE,
+            BlendStateDescription.SingleOverrideBlend,
+            DepthStencilStateDescription.Disabled,
+            RasterizerStateDescription.CullNone,
             PrimitiveTopology.TriangleList,
             new ShaderSetDescription([], _shaders),
             [_layout],

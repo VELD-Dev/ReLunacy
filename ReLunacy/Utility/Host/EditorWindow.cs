@@ -1,12 +1,12 @@
 using SDL3;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Utility;
 
 /// <summary>The application's OS window, and the graphics device drawing into it.
 ///
 /// A thin wrapper over SDL3: create the window, pump its event queue (handing every event to
-/// <see cref="Input"/>), and hand Veldrith the native handles it needs for a swapchain.</summary>
+/// <see cref="Input"/>), and hand NeoVeldrid the native handles it needs for a swapchain.</summary>
 public sealed class EditorWindow : IDisposable
 {
     private nint _handle;
@@ -43,10 +43,12 @@ public sealed class EditorWindow : IDisposable
         // is sized in pixels and every hit test compares against ImGui's display size, so the two spaces
         // have to stay the same one. Supporting a scaled display means converting at the input boundary,
         // not just asking for the bigger surface.
+        // Metal is gone as of the NeoVeldrid migration (see ReLunacy.Engine.csproj's comment) - macOS
+        // now goes through Vulkan via MoltenVK like every other platform, so the Vulkan case already
+        // covers it and there is no longer a separate flag to request here.
         var flags = SDL.WindowFlags.Resizable | preferredBackend switch
         {
             GraphicsBackend.Vulkan => SDL.WindowFlags.Vulkan,
-            GraphicsBackend.Metal => SDL.WindowFlags.Metal,
             _ => 0,
         };
 
@@ -69,13 +71,12 @@ public sealed class EditorWindow : IDisposable
         return backend switch
         {
             GraphicsBackend.Vulkan => GraphicsDevice.CreateVulkan(options, description),
-            GraphicsBackend.Direct3D12 => GraphicsDevice.CreateD3D12(options, description),
-            GraphicsBackend.Metal => GraphicsDevice.CreateMetal(options, description),
-            _ => throw new VeldridException($"Invalid GraphicsBackend: [{backend}]"),
+            GraphicsBackend.Direct3D11 => GraphicsDevice.CreateD3D11(options, description),
+            _ => throw new NeoVeldridException($"Invalid GraphicsBackend: [{backend}]"),
         };
     }
 
-    /// <summary>The platform-native handles behind this window, in the shape Veldrith wants.
+    /// <summary>The platform-native handles behind this window, in the shape NeoVeldrid wants.
     ///
     /// SDL exposes them as window "properties" rather than as typed accessors, which is why this reads
     /// like a lookup table. Wayland is checked before X11 because a session running XWayland reports
@@ -110,7 +111,7 @@ public sealed class EditorWindow : IDisposable
                 return SwapchainSource.CreateXlib(x11Display, (nint)x11Window);
         }
 
-        throw new PlatformNotSupportedException("Could not find a native window handle SDL and Veldrith agree on.");
+        throw new PlatformNotSupportedException("Could not find a native window handle SDL and NeoVeldrid agree on.");
     }
 
     /// <summary>Size of the drawable surface, NOT of the window in desktop coordinates. The two differ
