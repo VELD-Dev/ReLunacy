@@ -5,6 +5,8 @@ Because the European date format is better, please keep date format like this: `
 
 ## [v0.05](https://github.com/VELD-Dev/ReLunacy/releases/0.05) - 28-08-2026
 
+[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.04.1..0.05)
+
 ### Overview
 
 Lighting is finally **FULLY OPERATIONAL** on Pre-ACIT games ! As detailed in the previous patchnotes, the
@@ -47,6 +49,8 @@ performance improvements thanks to that. For more details, see under !
 - Fixed Moby Cull Distance and Update Distance being read from swapped file offsets
 - Fixed `3D View` being reset when closed and reopened.
 - Fixed the 3D scene renderer segfaulting on construction after the NeoVeldrid migration, from a Vulkan function-pointer table that was never explicitly initialized (previously only worked by accident, as a side effect of Veldrith initializing the same shared state internally)
+- Fixed a crash when loading a level while one was already loaded (or loading), from the previous level's GPU resources being freed mid-frame while a panel like the 3D View still had an already-queued draw command referencing them this same frame
+- Fixed the shaderc/spirv-cross native libraries not being found on published builds (Windows and Linux alike), from checking only the layout a RID-agnostic build uses when the actual release builds are RID-specific and lay the files out differently
 
 ## [v0.04.1](https://github.com/VELD-Dev/ReLunacy/releases/0.04.1) - 30-07-2026
 
