@@ -935,13 +935,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // transform SSBO and the cubemap are shared (see UpdateEntityTransforms for why the SSBO can be).
         var ssboInfo = new VkDescriptorBufferInfo { buffer = _transformBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var cubeInfo = new VkDescriptorImageInfo { sampler = _sampler, imageView = _envCubeView, imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
-        // Hoisted out of the loop below (and the material loop further down) - a stackalloc textually
-        // inside a loop is NOT reclaimed between iterations, it keeps growing the current frame's stack
-        // usage for as long as the loop runs, so for a level with thousands of materials this blew the
-        // stack (observed as a real "Stack overflow" crash inside CreateDescriptors, on Windows's
-        // smaller default 1MB thread stack - Linux's larger default stack just didn't happen to hit it
-        // yet, same underlying bug). Allocating once and overwriting each iteration is the fix the
-        // compiler's own CA2014 warning was already pointing at.
+        // Every stackalloc below sits OUTSIDE its loop on purpose: stack memory taken by a
+        // stackalloc lives until the whole method returns, not until the iteration ends, so one
+        // inside a loop grows the frame by its size on every pass.
         VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[4];
         for (int f = 0; f < Frames; f++)
         {
@@ -984,8 +980,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // Kept so the sets can be rewritten when the filtering setting changes without re-resolving
         // every texture back to its view.
         _matViews = new VkImageView[nMat * TexPerMaterial];
-        // Hoisted out of the loop below - see the comment on w0 above for why (this is the loop that
-        // actually blew the stack: one iteration per material, and a level can have thousands).
+        // Hoisted out of the loop, and reused by every iteration: a stackalloc inside this loop
+        // leaked its bytes for the rest of the method, so a level with a couple of thousand
+        // materials blew the 1 MB main-thread stack partway through building their sets.
         VkImageView* v = stackalloc VkImageView[TexPerMaterial];
         VkDescriptorImageInfo* imgs = stackalloc VkDescriptorImageInfo[TexPerMaterial];
         VkWriteDescriptorSet* w = stackalloc VkWriteDescriptorSet[TexPerMaterial];
@@ -1721,10 +1718,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, pipeline);
         int boundMat = -1;
         _statDraws += count;
-        // Hoisted out of the loop - see CreateDescriptors's w0 comment for why a stackalloc textually
-        // inside a loop keeps growing the current frame's stack usage instead of being reclaimed per
-        // iteration. This one runs once per bucket per frame rather than once per material at load
-        // time, so it is a smaller contributor, but the same fix applies.
+        // Outside the loop: see CreateDescriptors - a stackalloc per material switch would grow this
+        // frame by 32 bytes for every bind in the pass.
         Vector4* pc = stackalloc Vector4[2];
         for (int k = 0; k < count; k++)
         {
