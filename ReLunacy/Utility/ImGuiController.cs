@@ -1,10 +1,8 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using Bliss.CSharp.Interact;
-using Bliss.CSharp.Interact.Keyboards;
-using Bliss.CSharp.Interact.Mice;
-using Veldrith;
-using Veldrith.SPIRV;
+using System.Runtime.InteropServices;
+using NeoVeldrid;
+using NeoVeldrid.SPIRV;
 
 namespace ReLunacy.Utility;
 
@@ -69,14 +67,21 @@ public class ImGuiController : IDisposable
             if (File.Exists(fontAwesomePath))
             {
                 var config = ImGui.ImFontConfig();
-                config.MergeMode = true;
+                config.MergeMode = true;        // fold the icons into the default font's glyph space
                 config.PixelSnapH = true;
-                config.GlyphMinAdvanceX = 13f;
-                ushort[] ranges = [0xf000, 0xf9ff, 0];
-                fixed (ushort* rangesPtr = ranges)
-                {
-                    io.Fonts.AddFontFromFileTTF(fontAwesomePath, 13f, config);
-                }
+                config.GlyphMinAdvanceX = 13f;  // uniform advance so icons align in a column
+
+                // Font Awesome 6 icons live in the Private Use Area (0xE000-0xF8FF in this build).
+                // TWO reasons the old attempt silently failed: this ImGui is compiled with 32-bit
+                // ImWchar so ranges are uint (not ushort), AND the pinned array was never actually
+                // passed to AddFontFromFileTTF. The ranges pointer must OUTLIVE this call - ImGui
+                // keeps it and reads it lazily at atlas-build time - so it's allocated unmanaged and
+                // intentionally never freed (a one-time 12-byte leak, not per-frame). See Utility.Icons.
+                uint* iconRanges = (uint*)NativeMemory.Alloc((nuint)(3 * sizeof(uint)));
+                iconRanges[0] = 0xE000u;
+                iconRanges[1] = 0xF8FFu;
+                iconRanges[2] = 0u;
+                io.Fonts.AddFontFromFileTTF(fontAwesomePath, 13f, config, iconRanges);
                 config.Destroy();
             }
         }
@@ -110,7 +115,7 @@ public class ImGuiController : IDisposable
         var vertexLayoutDescription = new VertexLayoutDescription(
             new VertexElementDescription("in_position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
             new VertexElementDescription("in_texCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2),
-            new VertexElementDescription("in_color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4Norm));
+            new VertexElementDescription("in_color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm));
 
         var shaderDir = Path.Combine(Program.EditorPath, "Shaders", "ImGui");
         byte[] imguiVertData = File.ReadAllBytes(Path.Combine(shaderDir, "default.vert"));
@@ -131,9 +136,10 @@ public class ImGuiController : IDisposable
             new ResourceLayoutElementDescription("MainTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment)));
 
         var pipelineDescription = new GraphicsPipelineDescription(
-            BlendStateDescription.SINGLE_ALPHA_BLEND,
+            BlendStateDescription.SingleAlphaBlend,
             new DepthStencilStateDescription(false, false, ComparisonKind.Always),
-            new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, true, true),
+            new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
+                depthClipEnabled: true, scissorTestEnabled: true),
             PrimitiveTopology.TriangleList,
             shaderSet,
             [_layout, _textureLayout],
@@ -145,10 +151,10 @@ public class ImGuiController : IDisposable
         // Point-sampled for ALL ImGui drawing, deliberately: texture-inspection previews
         // (TexturesExplorer etc.) must show raw texels, and the 3D viewport image is blitted 1:1
         // (its render texture is sized to the viewport), so filtering it would be a no-op anyway.
-        // Scene texture filtering lives entirely on the 3D side — see
+        // Scene texture filtering lives entirely on the 3D side - see
         // AssetManager.SetTextureFiltering. A previous attempt to make this per-binding (rebinding
         // resource set 0 inside the per-command loop below) was suspected during a GPUVM-fault
-        // investigation and reverted, but never confirmed as the cause — the fault was in fact the
+        // investigation and reverted, but never confirmed as the cause - the fault was in fact the
         // lit effect's descriptor set numbering, see AssetManager.BuildLitModelEffect. Restoring
         // the per-binding sampler here is probably safe; it just hasn't been retried since.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
@@ -223,7 +229,7 @@ public class ImGuiController : IDisposable
                     }
 
                     var gpuTexture = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
-                        (uint)width, (uint)height, 1, 1, PixelFormat.R8G8B8A8UNorm, TextureUsage.Sampled));
+                        (uint)width, (uint)height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
                     gpuTexture.Name = $"ImGui Managed Texture {uniqueId}";
 
                     gd.UpdateTexture(gpuTexture, (nint)texData.Pixels, (uint)(texData.BytesPerPixel * width * height), 0, 0, 0, (uint)width, (uint)height, 1, 0, 0);

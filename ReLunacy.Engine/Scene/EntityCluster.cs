@@ -1,11 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Engine.Rendering;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 
@@ -47,29 +44,19 @@ public class EntityCluster : IDisposable
     public void Add(IUFrag ufrag, GraphicsDevice gd)
     {
         TotalEntities++;
-        Entities.Add(new EntityUFrag(gd, ufrag, _assetManager));
+        Entities.Add(new EntityUFrag(ufrag, _assetManager));
     }
 
     public void Add(Volume volume, GraphicsDevice gd)
     {
         TotalEntities++;
-        Entities.Add(new EntityVolume(volume, gd));
+        Entities.Add(new EntityVolume(volume));
     }
 
     public bool TryGetEntity(int id, [NotNullWhen(true)] out Entity? entity)
     {
         entity = Entities.FirstOrDefault(e => e.ID == id);
         return entity != null;
-    }
-
-    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
-    {
-        if (!allowRender) return;
-
-        foreach (var e in Entities)
-        {
-            e.Draw(renderer, od, cl, camera, immediateRenderer);
-        }
     }
 
     public void Dispose()

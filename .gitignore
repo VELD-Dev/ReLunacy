@@ -9,7 +9,11 @@
 *.zip
 recovery
 
+# Locally-built NuGet packages (patched Veldrith 1.2.19)
+LocalPackages/
+
 # Other files
 *.rdc  # RenderDoc captures
 .claude/
 dev/
+/nuget.config

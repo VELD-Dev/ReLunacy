@@ -1,9 +1,6 @@
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
-using Veldrith;
+using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 
@@ -32,17 +29,6 @@ public class EntityZone : IDisposable
         UFrags = new EntityCluster([], assetManager);
         foreach (var ufrag in zone.UFrags)
             UFrags.Add(ufrag, gd);
-    }
-
-    public void Draw(IRenderer renderer, OutputDescription od, CommandList cl, Cam3D camera, ImmediateRenderer immediateRenderer)
-    {
-        if (!allowRender) return;
-
-        if (EntityManager.Singleton.renderTies)
-            TieInstances.Draw(renderer, od, cl, camera, immediateRenderer);
-
-        if (EntityManager.Singleton.renderUFrags)
-            UFrags.Draw(renderer, od, cl, camera, immediateRenderer);
     }
 
     public void Dispose()

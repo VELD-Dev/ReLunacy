@@ -1,6 +1,6 @@
-using Bliss.CSharp.Images;
-using Bliss.CSharp.Textures;
+using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Assets.Cubemaps;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.Mobys;
 using ReLunacy.Engine.Assets.Ties;
@@ -15,16 +15,25 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 public record struct TextureObject
 {
-    public TextureObject(ITexture texture, Texture2D tex2d)
+    public TextureObject(ITexture texture, GpuTexture tex2d, int index)
     {
         Texture = texture;
+        Index = index;
         TexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
-        BlissTexture = tex2d;
+        GpuTexture = tex2d;
     }
 
     public readonly string? TextureName => Texture.Name;
+
+    /// <summary>Position in the level's texture table, counted in load order. This is the number
+    /// the file formats reference textures BY - foliage's 0xA200 record, for instance, picks its
+    /// texture with a small integer, not with a TUID or a pointer - so it stays visible even when a
+    /// debug name was recovered, since the name is what a human recognises and this is what the
+    /// data actually says.</summary>
+    public readonly int Index;
+
     public readonly ITexture Texture;
-    public readonly Texture2D BlissTexture;
+    public readonly GpuTexture GpuTexture;
     public readonly ImTextureRef TexturePtr;
 }
 
@@ -42,14 +51,42 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     private ImTextureRef selectedTexturePtr;
     private TextureUsageResult? textureUsageResults;
     private List<Shader>? relatedShaders;
-    // Owned by us (unlike TextureObject.BlissTexture, which AssetManager owns) — built on demand
+    // Owned by us (unlike TextureObject.GpuTexture, which AssetManager owns): built on demand
     // when a channel-preview button is clicked, must be disposed before being replaced/dropped.
-    private Texture2D? channelPreviewTexture;
+    private GpuTexture? channelPreviewTexture;
+
+    // Environment cubemaps (section 0x5920). Their faces aren't in AssetManager's texture table, so
+    // the preview textures here are built and owned by this frame (see BuildCubemapFace/RebuildCubemap).
+    private readonly List<CubemapObject> cubemapObjects = [];
+
+    // The cubemap's real signal is a shared HDR exponent in the alpha channel, so a plain RGB view
+    // reads as near-white - HDR exposes rgb * 2^((a-128)/16 * exposure) tonemapped, which is what
+    // actually shows the environment. The single channels are the raw decoded bytes, grayscale.
+    private enum CubemapChannel { Hdr, Rgb, R, G, B, A }
+
+    private sealed class CubemapObject(Cubemap cubemap)
+    {
+        public readonly Cubemap Cubemap = cubemap;
+        public float Exposure = 1f;
+        public CubemapChannel Channel = CubemapChannel.Hdr;
+        public bool Dirty = true;
+        public readonly GpuTexture?[] FaceTextures = new GpuTexture?[cubemap.Faces.Count];
+        public readonly ImTextureRef[] FacePtrs = new ImTextureRef[cubemap.Faces.Count];
+
+        public void DisposeFaces()
+        {
+            for (int i = 0; i < FaceTextures.Length; i++)
+            {
+                FaceTextures[i]?.Dispose();
+                FaceTextures[i] = null;
+            }
+        }
+    }
 
     private enum UsageFilter { All, Used, Unused }
     private UsageFilter textureUsageFilter = UsageFilter.All;
 
-    // "Used" = referenced by at least one loaded Moby/Tie/UFrag material — same definition
+    // "Used" = referenced by at least one loaded Moby/Tie/UFrag material - same definition
     // FindTextureUsages below already answers per-texture on click; computed once per
     // TransmitTextures call instead of re-scanning every asset for every texture every frame.
     private HashSet<ulong> usedTextureIds = [];
@@ -67,16 +104,33 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     public void TransmitTextures(AssetManager assetManager)
     {
         textureObjects.Clear();
+        // The counter advances for EVERY source texture, including ones with no built Texture2D to
+        // show - skipping those would silently renumber everything after them, and the whole point
+        // of the index is that it matches the position the file formats reference.
+        int index = 0;
         foreach (var (id, tex) in assetManager.SourceTextures)
         {
             if (assetManager.BuiltTextures.TryGetValue(id, out var tex2d))
-                textureObjects.Add(new(tex, tex2d));
+                textureObjects.Add(new(tex, tex2d, index));
+            index++;
         }
 
         usedTextureIds = ComputeUsedTextureIds();
     }
 
-    /// <summary>textureObjects wraps AssetManager-owned Texture2Ds that are about to be disposed —
+    private void TransmitCubemaps()
+    {
+        foreach (var obj in cubemapObjects) obj.DisposeFaces();
+        cubemapObjects.Clear();
+
+        var level = LunaWindow.Instance.Level;
+        if (level == null) return;
+
+        foreach (var cubemap in level.Cubemaps)
+            cubemapObjects.Add(new CubemapObject(cubemap)); // face textures built lazily on first render
+    }
+
+    /// <summary>textureObjects wraps AssetManager-owned Texture2Ds that are about to be disposed -
     /// drop the reference before that happens rather than leaving a stale/dangling entry showing.</summary>
     public void OnLevelUnloading()
     {
@@ -87,10 +141,13 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         relatedShaders = null;
         channelPreviewTexture?.Dispose();
         channelPreviewTexture = null;
+
+        foreach (var obj in cubemapObjects) obj.DisposeFaces();
+        cubemapObjects.Clear();
     }
 
     /// <summary>Rebuilds selectedTexturePtr as a grayscale view of a single channel of the
-    /// currently selected texture's decoded RGBA — lets the user visually confirm whether a
+    /// currently selected texture's decoded RGBA - lets the user visually confirm whether a
     /// texture actually carries real alpha data instead of guessing from the format alone.</summary>
     private void ShowChannel(TextureObject selection, ReLunacy.Engine.Rendering.TextureUtils.Colours channel)
     {
@@ -98,17 +155,168 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         if (rgba == null) return;
 
         byte[] filtered = ReLunacy.Engine.Rendering.TextureUtils.ColourAsMain(rgba, channel);
-        var image = new Image(width, height, filtered);
 
         channelPreviewTexture?.Dispose();
-        channelPreviewTexture = new Texture2D(LunaWindow.Instance.GraphicsDevice, image, true);
+        channelPreviewTexture = new GpuTexture(LunaWindow.Instance.GraphicsDevice, (uint)width, (uint)height, filtered);
         selectedTexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, channelPreviewTexture.DeviceTexture);
+    }
+
+    // Cross cell (row, col) for each face, parallel to Cubemap.FaceNames (+X,-X,+Y,-Y,+Z,-Z) - a
+    // standard horizontal cross, the same arrangement the RenderDoc reference used.
+    private static readonly (int Row, int Col)[] CrossCells =
+        [(1, 2), (1, 0), (0, 1), (2, 1), (1, 1), (1, 3)];
+
+    private void RenderCubemaps()
+    {
+        if (cubemapObjects.Count == 0) return;
+        if (!ImGui.CollapsingHeader(LM.Get("GUI_Frame_TextureExplorer_Cubemaps", cubemapObjects.Count), ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        string[] channelLabels = ["HDR", "RGB", "R", "G", "B", "A"];
+
+        for (int ci = 0; ci < cubemapObjects.Count; ci++)
+        {
+            var obj = cubemapObjects[ci];
+            ImGui.PushID(ci);
+
+            for (int i = 0; i < channelLabels.Length; i++)
+            {
+                if (i > 0) ImGui.SameLine();
+                if (ImGui.RadioButton(channelLabels[i], (int)obj.Channel == i))
+                {
+                    obj.Channel = (CubemapChannel)i;
+                    obj.Dirty = true;
+                }
+            }
+
+            if (obj.Channel == CubemapChannel.Hdr)
+            {
+                float exposure = obj.Exposure;
+                ImGui.SetNextItemWidth(220);
+                if (ImGui.SliderFloat(LM.Get("GUI_Frame_TextureExplorer_Cubemap_Exposure"), ref exposure, 0.1f, 4f))
+                {
+                    obj.Exposure = exposure;
+                    obj.Dirty = true;
+                }
+            }
+
+            if (obj.Dirty) RebuildCubemap(obj);
+
+            for (int f = 0; f < obj.Cubemap.Faces.Count; f++)
+            {
+                if (f > 0) ImGui.SameLine();
+                ImGui.BeginGroup();
+                if (obj.FaceTextures[f] != null)
+                    ImGui.Image(obj.FacePtrs[f], new Vector2(96, 96), Vector2.UnitY, Vector2.UnitX);
+                else
+                    ImGui.Dummy(new Vector2(96, 96));
+                ImGui.Text(Cubemap.FaceNames[f]);
+                ImGui.EndGroup();
+            }
+
+            ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Cubemap_Info", obj.Cubemap.FaceSize, obj.Cubemap.Faces.Count));
+            if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Cubemap_ExportCross")))
+                ExportCubemapCross(obj);
+
+            ImGui.PopID();
+            ImGui.Separator();
+        }
+    }
+
+    private static void RebuildCubemap(CubemapObject obj)
+    {
+        obj.Dirty = false;
+        var gd = LunaWindow.Instance.GraphicsDevice;
+
+        for (int f = 0; f < obj.Cubemap.Faces.Count; f++)
+        {
+            obj.FaceTextures[f]?.Dispose();
+            obj.FaceTextures[f] = null;
+
+            byte[]? rgba = BuildCubemapFace(obj.Cubemap.Faces[f], obj.Channel, obj.Exposure, out int w, out int h);
+            if (rgba == null) continue;
+
+            obj.FaceTextures[f] = new GpuTexture(gd, (uint)w, (uint)h, rgba, mipmap: false);
+            obj.FacePtrs[f] = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(gd.ResourceFactory, obj.FaceTextures[f]!.DeviceTexture);
+        }
+    }
+
+    /// <summary>Decodes one cubemap face and applies the current view mode. HDR reconstructs the
+    /// probe's brightness from the alpha exponent (rgb * 2^((a-128)/16 * exposure)) and tonemaps it;
+    /// the single-channel modes are the raw decoded bytes shown grayscale, same as the texture
+    /// channel preview.</summary>
+    private static byte[]? BuildCubemapFace(ITexture face, CubemapChannel channel, float exposure, out int w, out int h)
+    {
+        byte[]? rgba = ReLunacy.Engine.Rendering.TextureUtils.DecodeToRgba8888(face, out w, out h);
+        if (rgba == null) return null;
+
+        var result = new byte[rgba.Length];
+        for (int i = 0; i < rgba.Length; i += 4)
+        {
+            byte r = rgba[i], g = rgba[i + 1], b = rgba[i + 2], a = rgba[i + 3];
+            switch (channel)
+            {
+                case CubemapChannel.Hdr:
+                    float e = MathF.Pow(2f, (a - 128) / 16f * exposure);
+                    result[i + 0] = Tonemap(r / 255f * e);
+                    result[i + 1] = Tonemap(g / 255f * e);
+                    result[i + 2] = Tonemap(b / 255f * e);
+                    result[i + 3] = 255;
+                    break;
+                case CubemapChannel.Rgb:
+                    result[i + 0] = r; result[i + 1] = g; result[i + 2] = b; result[i + 3] = 255;
+                    break;
+                default:
+                    byte v = channel switch
+                    {
+                        CubemapChannel.R => r,
+                        CubemapChannel.G => g,
+                        CubemapChannel.B => b,
+                        _ => a,
+                    };
+                    result[i + 0] = v; result[i + 1] = v; result[i + 2] = v; result[i + 3] = 255;
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // Reinhard tonemap + gamma, so HDR values above 1 roll off instead of clipping flat white.
+    private static byte Tonemap(float c)
+    {
+        c = c / (1f + c);
+        return (byte)(Math.Clamp(MathF.Pow(c, 1f / 2.2f), 0f, 1f) * 255f);
+    }
+
+    private static void ExportCubemapCross(CubemapObject obj)
+    {
+        int fs = obj.Cubemap.FaceSize;
+        var cross = new byte[4 * fs * 3 * fs * 4]; // 4x3 grid of faces, RGBA, transparent by default
+
+        for (int f = 0; f < obj.Cubemap.Faces.Count; f++)
+        {
+            byte[]? face = BuildCubemapFace(obj.Cubemap.Faces[f], obj.Channel, obj.Exposure, out int w, out int h);
+            if (face == null || w != fs || h != fs) continue;
+
+            var (row, col) = CrossCells[f];
+            for (int y = 0; y < fs; y++)
+            {
+                int srcRow = y * fs * 4;
+                int dstRow = ((row * fs + y) * (4 * fs) + col * fs) * 4;
+                Array.Copy(face, srcRow, cross, dstRow, fs * 4);
+            }
+        }
+
+        var path = Path.Combine(Program.EditorPath, "Extracted");
+        if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+        new Image(4 * fs, 3 * fs, cross).SaveAsPng(Path.Combine(path, $"Cubemap_{obj.Cubemap.Id:X}_cross.png"));
     }
 
     /// <summary>Same "referenced by a loaded Moby/Tie/UFrag material" definition as
     /// MaterialUsesTexture/FindTextureUsages below, just collected in one pass over every asset
-    /// instead of one scan per texture — building this once for potentially thousands of textures
-    /// the way FindTextureUsages does per-click would be O(textures × assets).</summary>
+    /// instead of one scan per texture - building this once for potentially thousands of textures
+    /// the way FindTextureUsages does per-click would be O(textures x assets).</summary>
     private static HashSet<ulong> ComputeUsedTextureIds()
     {
         var used = new HashSet<ulong>();
@@ -142,6 +350,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     {
         if (LunaWindow.Instance.AssetManager != null)
             TransmitTextures(LunaWindow.Instance.AssetManager);
+        TransmitCubemaps();
     }
 
     /// <summary>Selects the texture with the given asset id, e.g. when jumping here from another frame. Returns false if it isn't in the currently transmitted set.</summary>
@@ -161,7 +370,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
 
     // Texture names come straight from the game's own string tables, which for some formats
     // (e.g. new-engine shader-referenced texture names) are full slash-delimited asset paths,
-    // not bare filenames — writing that as-is into Path.Combine either creates unwanted nested
+    // not bare filenames - writing that as-is into Path.Combine either creates unwanted nested
     // directories under Extracted/ or fails outright. Keep only the last path segment, and fall
     // back to the texture's index (not e.g. "unnamed") when it has no name at all.
     private static string GetExportFileName(string? textureName, int index) =>
@@ -185,7 +394,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
 
         var mobys = level.Mobys.Values.Where(m => MobyUsesTexture(m, textureId)).ToList();
         var ties = level.Ties.Values.Where(t => TieUsesTexture(t, textureId)).ToList();
-        // UFrags carry a single Material directly (no per-mesh loop — a UFrag is one mesh).
+        // UFrags carry a single Material directly (no per-mesh loop - a UFrag is one mesh).
         var ufrags = level.Zones.Values
             .SelectMany(z => z.UFrags)
             .Where(u => MaterialUsesTexture(u.Material, textureId))
@@ -194,7 +403,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         return new TextureUsageResult(mobys, ties, ufrags);
     }
 
-    // Raw shaders, not materials — a texture can be referenced by a shader that isn't actually
+    // Raw shaders, not materials - a texture can be referenced by a shader that isn't actually
     // used by any loaded mesh (cut content), which FindTextureUsages above wouldn't find at all
     // since it only walks placed Mobys/Ties/UFrags. Level.Shaders carries every shader the loader
     // parsed regardless of whether it's reachable from loaded geometry (see LevelData.Shaders).
@@ -257,10 +466,10 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         return viewer;
     }
 
-    // UFrags are baked per-zone terrain, not a browsable asset catalog like Mobys/Ties — the
+    // UFrags are baked per-zone terrain, not a browsable asset catalog like Mobys/Ties - the
     // coherent selection target for one is the scene entity already loaded in the 3D view.
     // Matched by reference, not Id: IUFrag.Id is only unique within its own zone (ZoneReader
-    // assigns it as a local loop index), so two UFrags from different zones can share an Id —
+    // assigns it as a local loop index), so two UFrags from different zones can share an Id -
     // EntityUFrag.UFrag holds the exact same IUFrag instance from LevelData.Zones though, so
     // reference equality is the one comparison that's actually unambiguous here.
     private static void SelectUFragInView3D(IUFrag ufrag)
@@ -282,13 +491,21 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             _ => textureObjects,
         };
 
-        return string.IsNullOrWhiteSpace(inputText)
-            ? objects
-            : objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(inputText)) return objects;
+
+        // A bare number matches the index exactly, so typing "1" finds texture #1 rather than
+        // every name containing a 1 - that's the only way to look a texture up when all you have
+        // is the number some other structure referenced it by. Anything else searches names.
+        if (int.TryParse(inputText.Trim(), out int wantedIndex))
+            return objects.Where(t => t.Index == wantedIndex);
+
+        return objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
     }
 
     protected override void Render(double deltaTime)
     {
+        RenderCubemaps();
+
         ImGui.InputTextWithHint(LM.Get("GUI_Frame_TextureExplorer_SearchLabel"), LM.Get("GUI_Frame_TextureExplorer_SearchHint", textureObjects.Count), ref inputText, 128);
 
         int filter = (int)textureUsageFilter;
@@ -315,7 +532,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                     ImGui.Image(texobj.TexturePtr, new(128, 128), Vector2.UnitY, Vector2.UnitX);
                     if (ImGui.IsItemClicked())
                     {
-                        // Index into the FULL textureObjects list, not filteredObjects — the
+                        // Index into the FULL textureObjects list, not filteredObjects - the
                         // preview panel below indexes textureObjects[selectedTexture] directly, and
                         // filtering/searching can reorder or drop entries relative to it.
                         selectedTexture = textureObjects.FindIndex(t => t.Texture.Id == texobj.Texture.Id);
@@ -328,7 +545,15 @@ public class TexturesExplorer : DockedFrame, ILevelListener
 
                     bool isUsed = usedTextureIds.Contains(texobj.Texture.Id);
                     if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-                    ImGui.Text(texobj.TextureName ?? $"Tex_{i}");
+                    // texobj.Index, never the loop counter: `i` walks the FILTERED list, so with a
+                    // search or usage filter active it labelled textures with whatever position
+                    // they happened to land on that frame.
+                    ImGui.Text($"#{texobj.Index}");
+                    if (texobj.TextureName is { Length: > 0 } name)
+                    {
+                        ImGui.SameLine();
+                        ImGui.TextWrapped(name.Split('/')[^1]);
+                    }
                     if (!isUsed) ImGui.PopStyleColor();
 
                     ImGui.NextColumn();
@@ -341,7 +566,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             ImGui.SameLine();
             // AlwaysVerticalScrollbar: without it, the scrollbar's appearance depends on whether
             // the Find Usages results (a variable-length list) push content past the visible
-            // height — but the image above is sized from ContentRegionAvail().X, so the
+            // height - but the image above is sized from ContentRegionAvail().X, so the
             // scrollbar showing up shrinks the available width, which shrinks the square image,
             // which shrinks total content height, which removes the need for a scrollbar next
             // frame, which grows the image back... an every-frame oscillation. Reserving the
@@ -386,6 +611,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 }
                 ImGui.Separator();
                 ImGui.BeginGroup();
+                ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureIndex"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureName"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureCompressionType"));
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_TextureDimensions"));
@@ -393,10 +619,14 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 ImGui.EndGroup();
                 ImGui.SameLine();
                 ImGui.BeginGroup();
-                ImGui.Text(selection.TextureName ?? $"Tex_{selectedTexture}");
+                // Both numbers, because they answer different questions: Index is the position the
+                // file formats reference a texture by, Id is where its metadata record physically
+                // sits (the old engine uses the record's own offset in main.dat as its id).
+                ImGui.Text($"{selection.Index}  (id 0x{selection.Texture.Id:X})");
+                ImGui.Text(selection.TextureName is { Length: > 0 } n ? n : $"Tex_{selection.Index}");
                 ImGui.Text(selection.Texture.Format.ToString());
                 ImGui.Text($"{selection.Texture.Width}x{selection.Texture.Height}");
-                ImGui.Text($"{selection.BlissTexture.Images[0].Data.Length / 1000f}KB");
+                ImGui.Text($"{selection.Texture.Width * selection.Texture.Height * 4 / 1000f}KB");
                 ImGui.EndGroup();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportRaw")))
                 {
@@ -404,7 +634,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
 
-                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selectedTexture) + ".raw"), selection.Texture.GetPixelData());
+                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".raw"), selection.Texture.GetPixelData());
                 }
                 ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
@@ -413,8 +643,12 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
 
-                    var clone = (Image)selection.BlissTexture.Images[0].Clone();
-                    clone.SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selectedTexture) + ".png"));
+                    // Re-decoded from the source texture rather than read back off the GPU one: the
+                    // GPU copy has a mip chain and no CPU-side pixels, and this is the same decode
+                    // every other view in this frame does.
+                    byte[]? pixels = ReLunacy.Engine.Rendering.TextureUtils.DecodeToRgba8888(selection.Texture, out int pw, out int ph);
+                    if (pixels != null)
+                        new Image(pw, ph, pixels).SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".png"));
                 }
                 ImGui.Separator();
                 if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindUsages")))
@@ -451,7 +685,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                             ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_UsagesUFrags", textureUsageResults.UFrags.Count));
                             // Indexed, not keyed by ufrag.Id: IUFrag.Id is only unique within its
                             // own zone (see SelectUFragInView3D), so two results here can share
-                            // an Id — using the list index keeps these ImGui ids unique instead.
+                            // an Id - using the list index keeps these ImGui ids unique instead.
                             for (int i = 0; i < textureUsageResults.UFrags.Count; i++)
                             {
                                 var ufrag = textureUsageResults.UFrags[i];

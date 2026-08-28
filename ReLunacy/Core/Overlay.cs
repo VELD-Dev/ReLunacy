@@ -40,8 +40,8 @@ public class Overlay
 
         if (Location is >= 0 and <= 3)
         {
-            Vector2 workPos = useView && view != null ? view.FramePos + view.FrameContentRegion.GetOriginF() : viewport.WorkPos;
-            Vector2 workSize = useView && view != null ? view.FrameContentRegion.GetSizeF() : viewport.WorkSize;
+            Vector2 workPos = useView && view != null ? view.ViewportScreenPos : viewport.WorkPos;
+            Vector2 workSize = useView && view != null ? view.ViewportSize : viewport.WorkSize;
             Vector2 windowPos, windowPosPivot;
             windowPos.X = Location is 1 or 3 ? workPos.X + workSize.X - Padding.X : workPos.X + Padding.X;
             windowPos.Y = Location >= 2 ? workPos.Y + workSize.Y - Padding.Y : workPos.Y + Padding.Y;
@@ -52,7 +52,10 @@ public class Overlay
         }
         else if (Location == 4)
         {
-            ImGui.SetNextWindowPos(useView && view != null ? view.FrameContentRegion.GetCenterF() : ImGui.GetWorkCenter(viewport), ImGuiCond.Always, new Vector2(0.5f, 0.5f));
+            // Centre of the rendered image in SCREEN space. This used to read the centre of a
+            // zero-origin rectangle, which is half the panel size measured from the top-left of the
+            // monitor, so the centred overlay landed nowhere near the view.
+            ImGui.SetNextWindowPos(useView && view != null ? view.ViewportScreenPos + view.ViewportSize * 0.5f : ImGui.GetWorkCenter(viewport), ImGuiCond.Always, new Vector2(0.5f, 0.5f));
             flags |= ImGuiWindowFlags.NoMove;
         }
 
@@ -119,8 +122,8 @@ public class Overlay
                 ImGui.SeparatorText(LM.Get("GUI_Overlay_CameraStats"));
                 ImGui.BeginGroup();
                 ImGui.Text($"{LM.Get("GUI_Overlay_CameraPosition")}: {view.Camera.Position:N3}");
-                ImGui.Text($"{LM.Get("GUI_Overlay_CameraRotation")}: ({x:N3}°, {y:N3}°)");
-                ImGui.Text($"{LM.Get("GUI_Overlay_Resolution")}: ({view.FrameContentRegion.Width}x{view.FrameContentRegion.Height})");
+                ImGui.Text($"{LM.Get("GUI_Overlay_CameraRotation")}: ({x:N3} deg, {y:N3} deg)");
+                ImGui.Text($"{LM.Get("GUI_Overlay_Resolution")}: ({(int)view.ViewportSize.X}x{(int)view.ViewportSize.Y})");
                 ImGui.EndGroup();
             }
         }

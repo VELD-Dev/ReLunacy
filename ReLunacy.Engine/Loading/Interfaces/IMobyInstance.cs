@@ -10,4 +10,6 @@ public interface IMobyInstance
     public ushort MobyIndex { get; set; }
     /// <summary>Distance (in-game units) beyond which the game itself stops rendering this instance. Raw file value; &lt;= 0 means unlimited.</summary>
     public float DisplayDistance { get; set; }
+    /// <summary>Distance (in-game units) beyond which the game stops updating this instance's logic. Raw file value; &lt;= 0 means unlimited.</summary>
+    public float UpdateDistance { get; set; }
 }

@@ -23,7 +23,9 @@
 </p>
 
 <p align="center">
-    <video src="https://github.com/user-attachments/assets/9031135c-a13b-4e37-a829-c0ffb7aa1ce6" autoplay muted loop playsinline></video>
+  <a href="https://www.youtube.com/watch?v=ikCgyPvIbjo&feature=player_embedded" target="_blank">
+    <img src="https://img.youtube.com/vi/ikCgyPvIbjo/mqdefault.jpg" alt="Watch preview" width="480"/>
+  </a>
 </p>
 
 <p align="center">
@@ -34,19 +36,19 @@
 
 <h2 id="compatibility">✅ Compatibility</h2>
 
-| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs | Foliages | Particles | Volumes & Triggers |
-|---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:------:|:--------:|:---------:|:------------------:|
-| Resistance: Fall Of Man               |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |         ✅         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance 2                          |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: A Crack In Time      |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance: Retribution               |      New       |   ⚠³    |   ✅¹    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: All 4 One            |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance 3                          |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Full Frontal Assault |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Resistance: Burning Skies             |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
-| Ratchet & Clank: Into the Nexus       |      New+      |   ⚠³    |   ✅²    |         🚧         |   ✅   |  ✅   |   ✅    |   ❌    |    ❌     |     ❌     |         ✅          |
+| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  | Volumes & Triggers |
+|---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:-------:|:--------:|:-----------:|:------------------:|
+| Resistance: Fall Of Man               |      Old+      |    🚧    |    🚧    |        🚧         |  🚧   |  🚧  |   🚧   |   ❌    |    🚧    |     ❌      |         🚧         |
+| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ❌      |         ✅         |
+| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ❌      |         ✅         |
+| Resistance 2                          |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Ratchet & Clank: A Crack In Time      |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Resistance: Retribution               |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Ratchet & Clank: All 4 One            |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Resistance 3                          |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Ratchet & Clank: Full Frontal Assault |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |   ❌    |    ❌    |     ❌      |         ?          |
+| Ratchet & Clank: Into the Nexus       |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
 
 Notes:
 - **¹** : Textures are supported but some artifacts remain.
@@ -59,7 +61,7 @@ ReLunacy is still in early development, but it already comes with a solid set of
 
 - **Level viewing**
   - Renders Mobys, Ties, UFrags (terrain) and Volumes, each independently toggleable from the `Render` menu.
-  - Experimental backface culling and experimental decal-aware translucent rendering (depth-tested but not depth-written, so decals like moss/vines don't z-fight with the terrain underneath).
+  - Original lighting support (at least for pre-ACIT games)
   - Frustum culling with an optional bounding-sphere debug overlay.
 - **Asset browsing & inspection**
   - **Asset Viewer**: a dedicated 3D preview for individual Mobys/Ties, with a searchable/filterable asset tree, per-bangle visibility toggles, skeleton overlay for skinned Mobys, GPU mesh/bangle picking, a read-only per-vertex data inspector, and one-click "Find Usages" to jump to placed instances in the level.
@@ -72,7 +74,7 @@ ReLunacy is still in early development, but it already comes with a solid set of
   - Direct numeric Position/Rotation/Scale editing from the Property Inspector.
   - This is placement editing for the current session/export, not a level format writer yet. There's no "Save Level" that writes changes back into the game's own files.
 - **Export**
-  - Export individual Mobys/Ties, or a whole level, to **glTF** (`.glb`), whole-level export uses true mesh instancing (each unique asset's geometry is stored once, referenced by every placed instance reducing file size) and includes skeletons/skinning for animated Mobys, as well as pre-configured materials for exportation.
+  - Export individual Mobys/Ties, or a whole level, to **glTF** (`.glb` or `.gltf`+`.glb`+textures), whole-level export uses true mesh instancing (each unique asset's geometry is stored once, referenced by every placed instance reducing file size) and includes skeletons/skinning for animated Mobys, as well as pre-configured materials for exportation.
   - Export individual Mobys/Ties to **Wavefront OBJ** (`.obj`) (with materials and textures; no skeleton support).
   - Export individual textures as PNG or raw pixel data.
 - **Format support**

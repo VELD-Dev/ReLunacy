@@ -51,7 +51,7 @@ public sealed class RegionReader
         }
 
         // New engine: gameplay.dat itself only carries a string table of region names (see
-        // Legacy's Gameplay class) — the actual moby/volume instance and zone-membership data
+        // Legacy's Gameplay class) - the actual moby/volume instance and zone-membership data
         // lives in a pair of per-region-named files (<regionName>/gp_prius.dat and
         // <regionName>/region.dat), loaded lazily here since FileManager only eagerly opens the
         // fixed top-level set. FileManager's suffix-based archive path resolution already handles
@@ -67,7 +67,7 @@ public sealed class RegionReader
             // Every new-engine level observed so far has exactly one region ("default"); the
             // format supports more (see Legacy's Gameplay.regions array), but the data model here
             // (LevelData.Region, singular) doesn't yet. Load the first and flag the rest.
-            Console.WriteLine($"Level has {regionNames.Count} regions ({string.Join(", ", regionNames)}) — only '{regionNames[0]}' is currently loaded.");
+            Console.WriteLine($"Level has {regionNames.Count} regions ({string.Join(", ", regionNames)}) - only '{regionNames[0]}' is currently loaded.");
         }
 
         string regionName = regionNames[0];
@@ -96,7 +96,7 @@ public sealed class RegionReader
     /// <summary>
     /// Reads gameplay.dat's region-name string table (section 0x25000): its last 8 bytes are
     /// [regionCount, regionTableOffset], and regionTableOffset points to `regionCount` uint32
-    /// name-string pointers — matches Legacy's Gameplay(AssetLoader) constructor exactly.
+    /// name-string pointers - matches Legacy's Gameplay(AssetLoader) constructor exactly.
     /// </summary>
     private static List<string> ReadRegionNames(IGFile gameplay)
     {
@@ -153,10 +153,11 @@ public sealed class RegionReader
                 // Matches Legacy's Region(IGFile, AssetLoader): debug.dat instance names (when
                 // present) are matched purely by array position, not by any tuid.
                 string name = _debugReader.GetMobyInstanceName(i) ?? $"Moby_{legacyInstance.mobyIndex:X4}_Instance_{i}";
-                // 0 or negative in the file means unlimited — normalize to -1 so callers only
+                // 0 or negative in the file means unlimited - normalize to -1 so callers only
                 // ever need to check "< 0 = unlimited".
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance));
+                float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance, updateDistance));
             }
         }
 
@@ -166,7 +167,7 @@ public sealed class RegionReader
     private List<IPlacedInstance<IMoby>> ReadMobyInstancesNew(IGFile prius, IGFile region)
     {
         var mobyInstances = new List<IPlacedInstance<IMoby>>();
-        // Instances, their names, and volumes all live in gp_prius.dat — not region.dat, which
+        // Instances, their names, and volumes all live in gp_prius.dat - not region.dat, which
         // only carries the region-local moby-index lookup table and zone membership/names (see
         // Legacy's Region(AssetLoader, regionName) constructor).
         var mobyInstanceSection = prius.QuerySection(MobyInstanceNew.ID);
@@ -175,7 +176,7 @@ public sealed class RegionReader
             return mobyInstances;
 
         // Moby prototypes are resolved through a *region-local* mobyIndex -> TUID lookup table in
-        // region.dat (section 0x1C600, 8 bytes/entry) — not the global assetlookup.dat pointer
+        // region.dat (section 0x1C600, 8 bytes/entry) - not the global assetlookup.dat pointer
         // table. Using the global table indexed the wrong prototypes (or found none at all).
         var mobyLookupSection = region.QuerySection(0x1C600);
 
@@ -189,7 +190,7 @@ public sealed class RegionReader
             {
                 metadatas[i] = new InstanceMetadata(prius.sh);
                 // ReadString(offset) seeks absolutely into the string pool and leaves the stream
-                // there — capture the sequential position first and restore it after, or every
+                // there - capture the sequential position first and restore it after, or every
                 // later iteration of this loop (and the seek-independent instance loop below)
                 // silently reads from a drifted position instead of the next record.
                 if (metadatas[i].namePointer != 0)
@@ -226,7 +227,8 @@ public sealed class RegionReader
                     : $"Moby_{legacyInstance.mobyIndex:X4}_Instance_{i}";
 
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance));
+                float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance, updateDistance));
             }
         }
 
@@ -247,14 +249,14 @@ public sealed class RegionReader
         {
             // Old-engine volume entries are 0x90 bytes each: a 0x40-byte (16-float, row-major,
             // same convention as TieBound/new-engine volumes) transform matrix followed by 0x50
-            // bytes of still-unidentified trailing data — confirmed against ReLunacy-Ymir's own
+            // bytes of still-unidentified trailing data - confirmed against ReLunacy-Ymir's own
             // OldVolumeInstance, which documents this exact layout and explicitly warns against
             // reading it as a packed array of bare matrices. Reading with no stride skip (what
-            // this used to do — sequential 0x40-byte reads with no gap) meant every entry after
+            // this used to do - sequential 0x40-byte reads with no gap) meant every entry after
             // the first started inside the PREVIOUS entry's unknown trailing bytes instead of at
             // its own real matrix: since gcd(0x40, 0x90) leaves a common period of 9 iterations
             // (9 * 0x40 == 4 * 0x90), only every 9th "volume" happened to land back on a genuine
-            // entry boundary and decode correctly — everything else decomposed into a garbled
+            // entry boundary and decode correctly - everything else decomposed into a garbled
             // scale/rotation, which reads as a visibly wrong-shaped/wrong-proportioned volume.
             gameplayFile.sh.Seek(volumeSection.offset + i * 0x90);
             string name = debugReader.GetVolumeName(i) ?? $"Volume_{i}";

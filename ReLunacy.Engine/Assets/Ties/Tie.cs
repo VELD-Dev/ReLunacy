@@ -13,6 +13,10 @@ public sealed class Tie : ITie
     public IReadOnlyList<IMesh> Meshes { get; init; }
     public float Scale { get; init; }
 
+    /// <summary>Backing store for <see cref="GetLightmapUVs"/> - see ITie for the shape and for why
+    /// nothing sets it yet.</summary>
+    private readonly float[]? _lightmapUVs;
+
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;
 
     public Tie(
@@ -20,12 +24,14 @@ public sealed class Tie : ITie
         IReadOnlyList<IMesh> meshes,
         float scale = 1.0f,
         string? name = null,
-        Func<(Vector3, float)>? boundingSphereCalculator = null)
+        Func<(Vector3, float)>? boundingSphereCalculator = null,
+        float[]? lightmapUVs = null)
     {
         Id = id;
         Name = name;
         Meshes = meshes ?? throw new ArgumentNullException(nameof(meshes));
         Scale = scale;
+        _lightmapUVs = lightmapUVs;
         IsLoaded = true;
 
         if (boundingSphereCalculator != null)
@@ -33,6 +39,9 @@ public sealed class Tie : ITie
             _boundingSphere = new Lazy<(Vector3, float)>(boundingSphereCalculator);
         }
     }
+
+    /// <inheritdoc />
+    public float[]? GetLightmapUVs() => _lightmapUVs;
 
     public (Vector3 center, float radius) GetBoundingSphere()
     {

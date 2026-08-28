@@ -84,6 +84,38 @@ public static class ImGuiPlus
         ImGui.Image(textureId, size);
     }
 
+    /// <summary>A clickable, underlined text link that opens <paramref name="url"/> in the browser
+    /// on click and shows a hand cursor + URL tooltip on hover. Behaves as a single inline item, so
+    /// SameLine works around it.</summary>
+    public static void Hyperlink(string label, string url)
+    {
+        var color = new Vector4(0.35f, 0.65f, 1f, 1f);
+        ImGui.TextColored(color, label);
+
+        var min = ImGui.GetItemRectMin();
+        var max = ImGui.GetItemRectMax();
+        ImGui.GetWindowDrawList().AddLine(new Vector2(min.X, max.Y - 1f), new Vector2(max.X, max.Y - 1f), ImGui.GetColorU32(color));
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+            ImGui.SetTooltip(url);
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                ShellUtils.OpenUrl(url);
+        }
+    }
+
+    /// <summary>Combines a Font Awesome glyph (see <see cref="Icons"/>) and text into one label with
+    /// a small gap, for use as a button/menu-item/header label - e.g.
+    /// <c>ImGui.MenuItem(ImGuiPlus.Label(Icons.FolderOpen, "Open level"))</c>. The icon is merged
+    /// into the default font, so it just renders inline with the text.</summary>
+    public static string Label(string icon, string text) => $"{icon}  {text}";
+
+    /// <summary>An icon-only button. <paramref name="id"/> keeps ImGui's label-based identity unique
+    /// when several buttons share the same glyph - pass something stable and distinct per button.</summary>
+    public static bool IconButton(string icon, string id, Vector2? size = null) =>
+        size is { } s ? ImGui.Button($"{icon}##{id}", s) : ImGui.Button($"{icon}##{id}");
+
     public static void CenteredText(string label, float pivot = 0.5f)
     {
         float horizontalSize = ImGui.CalcTextSize(label).X;
