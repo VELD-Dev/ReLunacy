@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- LibreFios (git submodule, LibreFios/) multi-targets net6.0;net8.0 - fine for a normal Build,
+       but publishing the solution invokes the Publish target directly on every project it lists,
+       and Publish on a multi-targeted project with no -f/TargetFramework to disambiguate fails with
+       NETSDK1129. LibreFios is only ever consumed as a ProjectReference (a plain library, never run
+       standalone), so it never needs its own publish output - IsPublishable=false stops solution-wide
+       publish from trying to produce one, without touching the submodule's own csproj. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'LibreFios'">
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+
+</Project>

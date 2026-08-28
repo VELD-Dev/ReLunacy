@@ -13,7 +13,14 @@ namespace ReLunacy.Utility.Host;
 /// NativeLibrary.TryLoad("libshaderc_shared.so") fails, but NativeLibrary.Load(fullPath) to the exact
 /// same file succeeds. Loading it explicitly once, before anything calls into Shaderc/Cross, is enough:
 /// once a shared object is resident in the process, later bare-name lookups for it resolve against the
-/// already-loaded copy instead of searching again.</summary>
+/// already-loaded copy instead of searching again.
+///
+/// Where that file actually lands depends on how the app was built - confirmed by reproducing the
+/// release workflow's own build command locally: a RID-agnostic build/publish (no -r, e.g. plain
+/// `dotnet run`) nests it under runtimes/{rid}/native/ as expected, but an explicit single-RID build
+/// (`dotnet build/publish -r &lt;rid&gt;`, what the nightly/release workflow actually uses) flattens it
+/// straight into the output root instead, alongside ReLunacy.exe/ReLunacy.dll. This checks the flat
+/// path first since that's what every real release build produces.</summary>
 internal static class NativeLibraryPreloader
 {
     public static void PreloadShaderCompilers()
@@ -28,10 +35,14 @@ internal static class NativeLibraryPreloader
             : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? $"lib{baseName}.dylib"
             : $"lib{baseName}.so";
 
-        string path = Path.Combine(AppContext.BaseDirectory, "runtimes", GetRid(), "native", fileName);
+        string flatPath = Path.Combine(AppContext.BaseDirectory, fileName);
+        string nestedPath = Path.Combine(AppContext.BaseDirectory, "runtimes", GetRid(), "native", fileName);
+        string path = File.Exists(flatPath) ? flatPath
+            : File.Exists(nestedPath) ? nestedPath
+            : flatPath;
         if (!File.Exists(path))
         {
-            Console.WriteLine($"Warning: native library not found for preload: {path}");
+            Console.WriteLine($"Warning: native library not found for preload (checked {flatPath} and {nestedPath})");
             return;
         }
 

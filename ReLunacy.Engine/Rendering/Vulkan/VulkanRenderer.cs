@@ -935,6 +935,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // transform SSBO and the cubemap are shared (see UpdateEntityTransforms for why the SSBO can be).
         var ssboInfo = new VkDescriptorBufferInfo { buffer = _transformBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var cubeInfo = new VkDescriptorImageInfo { sampler = _sampler, imageView = _envCubeView, imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
+        // Every stackalloc below sits OUTSIDE its loop on purpose: stack memory taken by a
+        // stackalloc lives until the whole method returns, not until the iteration ends, so one
+        // inside a loop grows the frame by its size on every pass.
+        VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[4];
         for (int f = 0; f < Frames; f++)
         {
             VkDescriptorSetLayout l0 = _descLayout;
@@ -942,7 +946,6 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             VkDescriptorSet ds0; Check(_api.vkAllocateDescriptorSets(&alloc0, &ds0), "vkAllocateDescriptorSets(0)"); _descSets[f] = ds0;
             var uboInfo = new VkDescriptorBufferInfo { buffer = _uniformBuffers[f], offset = 0, range = UboSize };
             var lightInfo = new VkDescriptorBufferInfo { buffer = _lightBuffers[f], offset = 0, range = (ulong)sizeof(LightData) };
-            VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[4];
             w0[0] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 0, descriptorCount = 1, descriptorType = VkDescriptorType.UniformBuffer, pBufferInfo = &uboInfo };
             w0[1] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 1, descriptorCount = 1, descriptorType = VkDescriptorType.StorageBuffer, pBufferInfo = &ssboInfo };
             w0[2] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 2, descriptorCount = 1, descriptorType = VkDescriptorType.UniformBuffer, pBufferInfo = &lightInfo };
@@ -977,16 +980,20 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // Kept so the sets can be rewritten when the filtering setting changes without re-resolving
         // every texture back to its view.
         _matViews = new VkImageView[nMat * TexPerMaterial];
+        // Hoisted out of the loop, and reused by every iteration: a stackalloc inside this loop
+        // leaked its bytes for the rest of the method, so a level with a couple of thousand
+        // materials blew the 1 MB main-thread stack partway through building their sets.
+        VkImageView* v = stackalloc VkImageView[TexPerMaterial];
+        VkDescriptorImageInfo* imgs = stackalloc VkDescriptorImageInfo[TexPerMaterial];
+        VkWriteDescriptorSet* w = stackalloc VkWriteDescriptorSet[TexPerMaterial];
         for (int i = 0; i < nMat; i++)
         {
             var m = materials[i];
-            VkImageView* v = stackalloc VkImageView[TexPerMaterial] { ViewFor(m.Albedo), ViewFor(m.Normal), ViewFor(m.Props), ViewFor(m.LightColour), ViewFor(m.LightDir) };
+            v[0] = ViewFor(m.Albedo); v[1] = ViewFor(m.Normal); v[2] = ViewFor(m.Props); v[3] = ViewFor(m.LightColour); v[4] = ViewFor(m.LightDir);
             for (int bnd = 0; bnd < TexPerMaterial; bnd++) _matViews[i * TexPerMaterial + bnd] = v[bnd];
             VkDescriptorSetLayout l1 = _matSetLayout;
             var alloc1 = new VkDescriptorSetAllocateInfo { descriptorPool = _descPool, descriptorSetCount = 1, pSetLayouts = &l1 };
             VkDescriptorSet ds; Check(_api.vkAllocateDescriptorSets(&alloc1, &ds), "vkAllocateDescriptorSets(mat)"); _matSets[i] = ds;
-            VkDescriptorImageInfo* imgs = stackalloc VkDescriptorImageInfo[TexPerMaterial];
-            VkWriteDescriptorSet* w = stackalloc VkWriteDescriptorSet[TexPerMaterial];
             for (uint bnd = 0; bnd < TexPerMaterial; bnd++)
             {
                 imgs[bnd] = new VkDescriptorImageInfo { sampler = _sampler, imageView = v[bnd], imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
@@ -1711,6 +1718,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, pipeline);
         int boundMat = -1;
         _statDraws += count;
+        // Outside the loop: see CreateDescriptors - a stackalloc per material switch would grow this
+        // frame by 32 bytes for every bind in the pass.
+        Vector4* pc = stackalloc Vector4[2];
         for (int k = 0; k < count; k++)
         {
             int i = visible[k];
@@ -1723,7 +1733,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 var pc0 = _matPC0[boundMat];
                 // Soft-Edge pass 1 clips at 128/255 (the material's stored ref is pass 2's 4/255).
                 if (softEdgeDepthPrepass) pc0.W = 128f / 255f;
-                Vector4* pc = stackalloc Vector4[2] { pc0, new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], _lit ? 1f : 0f, _matAlbedoHasAlpha[boundMat]) };
+                pc[0] = pc0;
+                pc[1] = new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], _lit ? 1f : 0f, _matAlbedoHasAlpha[boundMat]);
                 _api.vkCmdPushConstants(_cmd, _layout, VkShaderStageFlags.Fragment, 0, 32, pc);
             }
             _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);

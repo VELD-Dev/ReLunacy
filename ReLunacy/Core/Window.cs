@@ -261,11 +261,13 @@ public class LunaWindow : IDisposable
     }
 
     /// <summary>
-    /// Disposes the currently loaded level (EntityManager's GPU meshes, AssetManager's built
+    /// Clears the currently loaded level (EntityManager's GPU meshes, AssetManager's built
     /// models/textures, FileManager's open file handles) and notifies every open frame that
     /// implements <see cref="ILevelListener"/> beforehand, so nothing is left holding a reference
     /// to an object that's about to be destroyed - most importantly the current selection, which
-    /// otherwise leaves View3D pointing a disposed mesh at the GPU the very next frame.
+    /// otherwise leaves View3D pointing a disposed mesh at the GPU the very next frame. The GPU-side
+    /// disposal itself happens slightly later - see FlushPendingLevelWipe - but every field this
+    /// class exposes (Level, AssetManager, fileManager) already reads as cleared once this returns.
     /// </summary>
     public void TryWipeLevel()
     {
@@ -277,15 +279,17 @@ public class LunaWindow : IDisposable
 
         SelectionManager.Singleton.Deselect();
 
-        // Must go before EntityManager.Dispose(): the captured scene (now owned by AssetManager, see
-        // its SceneRenderer property) references live entity meshes/geometry and the VulkanSceneCapture
-        // registry, both of which EntityManager's own disposal below invalidates - otherwise the next
-        // level captures on top of a stale geometry registry and the renderer keeps buffers for meshes
-        // that no longer exist.
-        AssetManager.DisposeSceneRenderer();
-
-        EntityManager.Singleton.Dispose();
-        AssetManager.Dispose();
+        // The actual GPU-resource disposal (scene renderer, entity meshes, asset textures) is deferred
+        // to FlushPendingLevelWipe, run from AfterUpdate - after this frame's Draw has submitted,
+        // presented and WaitForIdle'd. Disposing them here instead, synchronously, frees resources
+        // ImGui may already have queued a draw command against earlier THIS SAME frame (any panel that
+        // rendered before whichever one triggered this wipe - View3D's scene image is the common case,
+        // since it's opened by default and registered first in openFrames, so it renders before a
+        // File > Open dialog opened later gets to call this): the command survives in this frame's
+        // already-built ImDrawData and blows up as a NeoVeldridDisposedResourceException when Draw
+        // replays it. fileManager.Dispose() just closes file handles, not GPU state, so it stays
+        // synchronous.
+        _pendingWipeAssetManager = AssetManager;
         fileManager.Dispose();
 
         Level = null;
@@ -298,6 +302,23 @@ public class LunaWindow : IDisposable
         // next resets both anyway. Harmless either way, but this makes the state honest immediately.
         _finalizingLevelLoad = false;
         _uploadProgress = null;
+    }
+
+    private AssetManager? _pendingWipeAssetManager;
+
+    /// <summary>Actually frees the GPU resources a wipe queued up in TryWipeLevel - see its comment
+    /// for why this can't happen synchronously there. Order matches what TryWipeLevel used to do
+    /// inline: DisposeSceneRenderer before EntityManager.Dispose(), since the captured scene
+    /// references live entity meshes/geometry and the VulkanSceneCapture registry that EntityManager's
+    /// own disposal invalidates - otherwise the next level captures on top of a stale geometry
+    /// registry and the renderer keeps buffers for meshes that no longer exist.</summary>
+    private void FlushPendingLevelWipe()
+    {
+        if (_pendingWipeAssetManager is null) return;
+        _pendingWipeAssetManager.DisposeSceneRenderer();
+        EntityManager.Singleton.Dispose();
+        _pendingWipeAssetManager.Dispose();
+        _pendingWipeAssetManager = null;
     }
 
     // True from the moment a level's AssetManager/entities are built until its queued texture uploads
@@ -554,6 +575,7 @@ public class LunaWindow : IDisposable
 
     protected virtual void AfterUpdate()
     {
+        FlushPendingLevelWipe();
         DoLoadEntitiesCheck();
         DoExportCompletionsCheck();
     }

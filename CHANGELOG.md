@@ -3,7 +3,17 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
+## [v0.05.1](https://github.com/VELD-Dev/releases/0.05.1) - 28-08-2026
+
+[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.05..0.05.1)
+
+- Fixed a crash when loading a level while one was already loaded (or loading), from the previous level's GPU resources being freed mid-frame while a panel like the 3D View still had an already-queued draw command referencing them this same frame
+- Fixed the shaderc/spirv-cross native libraries not being found on published builds (Windows and Linux alike), from checking only the layout a RID-agnostic build uses when the actual release builds are RID-specific and lay the files out differently
+- Fixed a Windows-specific stack overflow when loading a level with many materials, from a Vulkan descriptor-building loop doing a `stackalloc` per material instead of once outside the loop - C# doesn't reclaim `stackalloc`'d memory between loop iterations, so it kept growing for as long as the loop ran, and a level with thousands of materials was enough to exceed Windows's much smaller default thread stack (this had gone unnoticed on Linux, whose default stack is several times larger)
+
 ## [v0.05](https://github.com/VELD-Dev/ReLunacy/releases/0.05) - 28-08-2026
+
+[View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.04.1..0.05)
 
 ### Overview
 
