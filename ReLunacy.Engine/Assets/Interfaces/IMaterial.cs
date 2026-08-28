@@ -63,8 +63,9 @@ public interface IMaterial : IAsset
     // their metadata - so they fall back to "has a detail texture" alone.
     bool UsesDetailMap { get; }
 
-    // See Material.UsesVertexAlphaCandidate - true when this material's render mode blends and
-    // its albedo has no format-level alpha channel, the one condition we've confirmed a per-vertex
-    // alpha candidate (VertexFormat0.boneIndex) actually correlates with real fade behavior.
+    // See Material.UsesVertexAlphaCandidate - true whenever this material's render mode isn't Opaque.
     bool UsesVertexAlphaCandidate { get; }
+
+    // See Material.AlbedoHasAlphaChannel - true when the albedo texture's format carries real alpha.
+    bool AlbedoHasAlphaChannel { get; }
 }

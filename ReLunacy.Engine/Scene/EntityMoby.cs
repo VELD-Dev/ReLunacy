@@ -16,7 +16,14 @@ public class EntityMoby : Entity
     public override Vector4 BoundingSphere { get; set; }
 
     /// <summary>In-game display distance for this instance (units), &lt; 0 = unlimited. Read straight from the level's own gameplay data - see MobyInstanceOld/New.</summary>
-    public float DisplayDistance { get; }
+    public float DisplayDistance { get; set; }
+
+    /// <summary>In-game update distance for this instance (units), &lt; 0 = unlimited - a separate
+    /// budget from <see cref="DisplayDistance"/> that gates the game's own logic updates, not
+    /// rendering. Read straight from the level's own gameplay data - see MobyInstanceOld/New. Not
+    /// used by anything in ReLunacy's own rendering/culling; carried purely so it's visible and
+    /// editable in the Property Inspector, matching ReLunacy-Ymir.</summary>
+    public float UpdateDistance { get; set; }
 
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
@@ -42,6 +49,7 @@ public class EntityMoby : Entity
         BoundingSphere = new Vector4(center, radius);
 
         DisplayDistance = mobyInstance.DisplayDistance;
+        UpdateDistance = mobyInstance.UpdateDistance;
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";
 

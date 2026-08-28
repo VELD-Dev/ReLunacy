@@ -156,7 +156,8 @@ public sealed class RegionReader
                 // 0 or negative in the file means unlimited - normalize to -1 so callers only
                 // ever need to check "< 0 = unlimited".
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance));
+                float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance, updateDistance));
             }
         }
 
@@ -226,7 +227,8 @@ public sealed class RegionReader
                     : $"Moby_{legacyInstance.mobyIndex:X4}_Instance_{i}";
 
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance));
+                float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance, updateDistance));
             }
         }
 

@@ -527,6 +527,15 @@ public class AssetViewer : DockedFrame, ILevelListener
         return true;
     }
 
+    public bool SelectUFragById(ulong ufragId)
+    {
+        var match = ufragAssets.FirstOrDefault(a => a.UFrag.Id == ufragId);
+        if (match.UFrag == null) return false;
+        
+        SelectedUFragAsset = match;
+        return true;
+    }
+
     private static List<EntityMoby> FindMobyInstances(ulong mobyId) =>
         EntityManager.Singleton.AllEntities().OfType<EntityMoby>().Where(e => e.BaseMoby.Id == mobyId).ToList();
 
@@ -806,7 +815,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                 ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(ObjExporter.Export, "obj", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
             
             ImGui.BeginGroup();
             ImGui.Text("Id");
@@ -878,7 +887,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                 ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(tieAssetName), tieGroups, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", GetExportName(tieAssetName), tieGroups);
+                ExportModel(ObjExporter.Export, "obj", GetExportName(tieAssetName), tieGroups, ownFolder: true);
             
             ImGui.BeginGroup();
             ImGui.Text("Id");
@@ -1017,7 +1026,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             ExportModel(GltfExporter.ExportGltfSeparate, "gltf", exportName, GetUFragGroups(asset, exportName), ownFolder: true);
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-            ExportModel(ObjExporter.Export, "obj", exportName, GetUFragGroups(asset, exportName));
+            ExportModel(ObjExporter.Export, "obj", exportName, GetUFragGroups(asset, exportName), ownFolder: true);
         ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_UFragExportNote"));
 
         ImGui.BeginGroup();

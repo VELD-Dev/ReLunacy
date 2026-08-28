@@ -181,7 +181,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         sh.Seek(savedPosition);
     }
 
-    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[] vertexAlphaCandidates)
+    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
@@ -190,7 +190,6 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         uvcoords = new float[verticesCount * 2];
         normals = new float[verticesCount * 3];
         tangents = new float[verticesCount * 3];
-        vertexAlphaCandidates = new float[verticesCount];
 
         for (int k = 0; k < verticesCount; k++)
         {
@@ -208,7 +207,6 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                 uvcoords[k * 2 + 1] = (float)vertices0[k].UVs.Item2;
                 n = vertices0[k].Normal;
                 t = vertices0[k].Tangent;
-                vertexAlphaCandidates[k] = vertices0[k].VertexAlphaCandidate;
             }
             else
             {
@@ -219,10 +217,6 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                 uvcoords[k * 2 + 1] = (float)vertices1[k].UVs.Item2;
                 n = vertices1[k].Normal;
                 t = vertices1[k].Tangent;
-                // VertexFormat1's Unk1 is the skinned equivalent of VertexFormat0.boneIndex, but
-                // unlike boneIndex it's confirmed to carry tangible (bone-related) data on boned
-                // meshes - not a vertex alpha candidate, so no decode applies here.
-                vertexAlphaCandidates[k] = 1f;
             }
 
             n = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitY;

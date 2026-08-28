@@ -2,6 +2,8 @@ using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Rendering.Resources;
+using ReLunacy.Engine.Rendering.Vulkan;
+using ReLunacy.Engine.Scene;
 using Veldrith;
 using IMesh = ReLunacy.Engine.Assets.Interfaces.IMesh;
 
@@ -13,6 +15,16 @@ namespace ReLunacy.Engine.Rendering;
 public sealed class AssetManager : IDisposable
 {
     private readonly GraphicsDevice _gd;
+
+    /// <summary>The whole level's geometry/materials/textures, captured once and replayed every frame
+    /// by whichever 3D view needs it. Lives here, not on a DockedFrame, specifically so closing and
+    /// reopening the 3D View panel does not force re-uploading the entire level to the GPU: this
+    /// object's lifetime matches the LEVEL (constructed with the rest of AssetManager, disposed by
+    /// <see cref="DisposeSceneRenderer"/> on level unload), not any particular panel's open/closed
+    /// state. The panel still owns calling into it every frame (Frame/SubmitFrame/Pick/Resize) - only
+    /// the expensive captured GPU state moved, not who drives it or when.</summary>
+    public VulkanRenderer? SceneRenderer { get; private set; }
+
     private readonly Dictionary<ulong, GpuTexture> _textureCache = [];
     private readonly Dictionary<ulong, ITexture> _sourceTextures = [];
     // Keyed on (shader TUID, lightmap index), NOT on the TUID alone. Baked lighting is a
@@ -30,10 +42,11 @@ public sealed class AssetManager : IDisposable
     // metadata, and the live-tuning API needs it back (see TryGetDetailTiling, which hides its control
     // for a shader that has no detail texture at all).
     private readonly Dictionary<ulong, IMaterial> _sourceMaterials = [];
-    // Per-built-material data for the raw-Vulkan renderer: the game's own rendering mode (0-6) and
-    // whether opacity comes from the per-vertex alpha. A side table rather than two more map slots,
-    // because neither is a texture and the renderer wants them as one lookup.
-    private readonly Dictionary<RenderMaterial, (byte GameRenderMode, bool UsesVertexAlpha)> _vkMaterialInfo =
+    // Per-built-material data for the raw-Vulkan renderer: the game's own rendering mode (0-6),
+    // whether vertex alpha was decoded for it, and whether its albedo's own alpha is real. A side
+    // table rather than three more map slots, because none of them is a texture and the renderer
+    // wants them as one lookup.
+    private readonly Dictionary<RenderMaterial, (byte GameRenderMode, bool UsesVertexAlpha, bool AlbedoHasAlphaChannel)> _vkMaterialInfo =
         new(ReferenceEqualityComparer.Instance);
 
     // Foliage billboard materials: the set is what IsBillboardMaterial answers from, the cache is what
@@ -44,15 +57,16 @@ public sealed class AssetManager : IDisposable
     /// <summary>The game's rendering mode (0 Opaque, 1 Overlay, 2 Additive, 3 Scunge, 4 Cutout,
     /// 5 Soft-Edge, 6 Blended) and vertex-alpha flag for a built material. See IMaterial.GameRenderMode
     /// and dev/chatgpt-eboot-1..3.txt for what each mode's real RSX state is.</summary>
-    public bool TryGetVkMaterialInfo(RenderMaterial bMat, out byte gameRenderMode, out bool usesVertexAlpha)
+    public bool TryGetVkMaterialInfo(RenderMaterial bMat, out byte gameRenderMode, out bool usesVertexAlpha, out bool albedoHasAlphaChannel)
     {
         if (_vkMaterialInfo.TryGetValue(bMat, out var info))
         {
-            (gameRenderMode, usesVertexAlpha) = info;
+            (gameRenderMode, usesVertexAlpha, albedoHasAlphaChannel) = info;
             return true;
         }
         gameRenderMode = 0;
         usesVertexAlpha = false;
+        albedoHasAlphaChannel = false;
         return false;
     }
     // Scene-wide default filtering plus per-texture overrides (keyed by texture TUID) - samplers
@@ -148,9 +162,11 @@ public sealed class AssetManager : IDisposable
         BuildEnvironmentCubemap(level);
         if (!_prepared.IsEmpty)
             Console.WriteLine($"Warning: {_prepared.Count} decoded textures were prepared but never built - they are holding memory for nothing.");
-        // Timings kept because load time is a feature here and these are what showed where it went:
-        // with the decode moved to the loading task, what is left is almost entirely GPU upload.
-        Console.WriteLine($"Assets built in {sw.ElapsedMilliseconds}ms (mobys {tMobys}, ties {tTies}, textures {tTextures}, zone lighting {tZone}).");
+        // Timings kept because load time is a feature here and these are what showed where it went.
+        // GPU upload no longer happens in here at all (see GetOrBuildTexture/UploadOnePendingTexture) -
+        // these numbers are now CPU-only mesh/material building, which is why they're small even on a
+        // level with thousands of materials; TotalQueuedUploads is what the caller drains afterwards.
+        Console.WriteLine($"Assets built in {sw.ElapsedMilliseconds}ms (mobys {tMobys}, ties {tTies}, textures {tTextures}, zone lighting {tZone}). {TotalQueuedUploads} textures queued for GPU upload.");
     }
 
     /// <summary>Decodes every texture the level is about to need, in parallel, before a single one is
@@ -410,12 +426,12 @@ public sealed class AssetManager : IDisposable
         bMat.AddMaterialMap("fLightColour", new MaterialMap(lightColour, ResolveSampler(lightColour), hasBakedLighting ? 1f : 0f));
         bMat.AddMaterialMap("fLightDir", new MaterialMap(lightDir, ResolveSampler(lightDir)));
 
-        // The game's own render mode, plus: 1 when opacity should come from the per-vertex alpha rather
-        // than the albedo's own alpha (a transparent material whose albedo has no alpha channel, see
-        // MaterialReader.UsesVertexAlphaCandidate). The albedo of such materials decodes to a
-        // meaningless alpha, so the shader SELECTS vertex vs texture alpha on this flag rather than
-        // multiplying them. Neither is a texture, so neither belongs in a MaterialMap.
-        _vkMaterialInfo[bMat] = (material.GameRenderMode, material.UsesVertexAlphaCandidate);
+        // The game's own render mode, plus: 1 when this material has decoded vertex alpha to
+        // contribute (any non-Opaque mode, see MaterialReader.UsesVertexAlphaCandidate), and whether
+        // the albedo's own alpha channel is real enough to fold in alongside it (AlbedoHasAlphaChannel)
+        // rather than being garbage sampled from a format with no alpha channel at all. Neither is a
+        // texture, so neither belongs in a MaterialMap.
+        _vkMaterialInfo[bMat] = (material.GameRenderMode, material.UsesVertexAlphaCandidate, material.AlbedoHasAlphaChannel);
 
         _materialCache[cacheKey] = bMat;
         _sourceMaterials[material.Id] = material;
@@ -447,7 +463,7 @@ public sealed class AssetManager : IDisposable
             MaterialMapType.Albedo,
             new MaterialMap(albedo, ResolveSampler(albedo), material?.AlphaClipThreshold ?? 0f));
 
-        _vkMaterialInfo[billboard] = (material?.GameRenderMode ?? 0, material?.UsesVertexAlphaCandidate ?? false);
+        _vkMaterialInfo[billboard] = (material?.GameRenderMode ?? 0, material?.UsesVertexAlphaCandidate ?? false, material?.AlbedoHasAlphaChannel ?? false);
         _billboardMaterials.Add(billboard);
         _billboardMaterialCache[material?.Id ?? ulong.MaxValue] = billboard;
         return billboard;
@@ -671,10 +687,37 @@ public sealed class AssetManager : IDisposable
             return fallback;
         }
 
-        var tex = new GpuTexture(_gd, levels);
+        // Allocated now (cheap: no queue submission, just image+memory) but not uploaded yet - the
+        // pixel data is queued for UploadOnePendingTexture instead, so a caller loading a whole level
+        // can spread potentially thousands of GraphicsDevice.UpdateTexture calls across many frames
+        // instead of blocking through all of them in this one constructor call. Safe to hand out
+        // immediately: nothing samples it until the scene is actually rendered, well after the queue
+        // this feeds has had a chance to drain (see View3D's gate on AssetManager.HasPendingUploads).
+        var tex = new GpuTexture(_gd, levels.Width, levels.Height, (uint)levels.Levels.Length);
+        _pendingUploads.Enqueue((tex, levels));
+        TotalQueuedUploads++;
         _textureCache[texture.Id] = tex;
         _builtTextureIds[tex] = texture.Id;
         return tex;
+    }
+
+    // Deferred texture uploads - see GetOrBuildTexture's remarks and UploadOnePendingTexture.
+    private readonly Queue<(GpuTexture tex, TextureLevels levels)> _pendingUploads = new();
+
+    /// <summary>Total textures ever queued for upload this AssetManager's lifetime, for a progress bar
+    /// ("done" = this minus <see cref="PendingUploadCount"/>). Never decreases.</summary>
+    public int TotalQueuedUploads { get; private set; }
+    public int PendingUploadCount => _pendingUploads.Count;
+    public bool HasPendingUploads => _pendingUploads.Count > 0;
+
+    /// <summary>Uploads exactly one queued texture's full mip chain - the same
+    /// GraphicsDevice.UpdateTexture calls GpuTexture always made, just moved out of the constructor so
+    /// a caller can call this repeatedly across frames (time-boxed, not all at once) instead of eating
+    /// the whole level's texture upload cost in a single blocking call. A no-op if nothing is queued.</summary>
+    public void UploadOnePendingTexture()
+    {
+        if (!_pendingUploads.TryDequeue(out var item)) return;
+        item.tex.UploadAll(_gd, item.levels);
     }
 
     // Normals and tangents are decoded straight from the source vertex data (VertexFormat0/1's
@@ -720,8 +763,132 @@ public sealed class AssetManager : IDisposable
         return vertices;
     }
 
+    // Reused per-frame scratch (moved from View3D's own instance-scoped field): the selected entity's
+    // world matrices, pushed into the renderer's transform SSBO. Fine to share across whichever single
+    // 3D view is driving the renderer, same as SceneRenderer itself.
+    private readonly List<Matrix4x4> _vkTransformScratch = [];
+
+    /// <summary>Pushes an edited entity's world matrices straight into the captured scene's transform
+    /// SSBO, without rebuilding or re-recording anything - see VulkanRenderer.UpdateEntityTransforms.
+    /// No-op if the scene has not been captured yet.</summary>
+    public void UpdateEntityTransforms(Entity moved)
+    {
+        if (SceneRenderer == null) return;
+        _vkTransformScratch.Clear();
+        foreach (var (_, _, world, _) in moved.GetRenderablesForVk())
+            _vkTransformScratch.Add(world);
+        SceneRenderer.UpdateEntityTransforms(moved, _vkTransformScratch, moved.WorldBoundingSphere);
+    }
+
+    /// <summary>Assembles the whole level's scene from the geometry registry (VulkanSceneCapture) and
+    /// EntityManager's live per-instance world transforms - moved here from View3D verbatim (see that
+    /// file's history): every dependency below (VulkanSceneCapture, EntityManager.Singleton, this
+    /// AssetManager itself) was already level-scoped, not panel-scoped, so there was nothing
+    /// View3D-specific about it in the first place. Only geometries actually referenced by an instance
+    /// are included, remapped to a compact index. Returns null until instances exist.</summary>
+    private (List<float[]> verts, List<uint[]> idx, List<VkMaterialDesc> materials,
+        List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances,
+        Texture? envCube)? BuildVkScene()
+    {
+        if (VulkanSceneCapture.VertexData.Count == 0)
+            return null;
+
+        var verts = new List<float[]>();
+        var idx = new List<uint[]>();
+        var materials = new List<VkMaterialDesc>();
+        var instances = new List<(int, int, Matrix4x4, Vector4, object, float, uint)>();
+        var geoRemap = new Dictionary<int, int>();
+        var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
+
+        foreach (var entity in EntityManager.Singleton.AllEntities())
+        {
+            foreach (var (mesh, material, world, sphere) in entity.GetRenderablesForVk())
+            {
+                if (!VulkanSceneCapture.TryGet(mesh, out int gi))
+                    continue;
+                if (!geoRemap.TryGetValue(gi, out int geoSlot))
+                {
+                    geoSlot = verts.Count;
+                    verts.Add(VulkanSceneCapture.VertexData[gi]);
+                    idx.Add(VulkanSceneCapture.Indices[gi]);
+                    geoRemap[gi] = geoSlot;
+                }
+                if (!matRemap.TryGetValue(material, out int matSlot))
+                {
+                    matSlot = materials.Count;
+                    materials.Add(VkMaterialBuilder.Build(material, this));
+                    matRemap[material] = matSlot;
+                }
+                float displayDistance = entity is EntityMoby moby ? moby.DisplayDistance : -1f;
+                instances.Add((geoSlot, matSlot, world, sphere, entity, displayDistance, (uint)entity.ID));
+            }
+        }
+
+        if (instances.Count == 0)
+            return null;
+        var envCube = EnvironmentCubemapView?.Target;
+        return (verts, idx, materials, instances, envCube);
+    }
+
+    /// <summary>Builds <see cref="SceneRenderer"/> if it does not exist yet - a no-op once it does, which
+    /// is the whole point: the caller (View3D) can call this every frame with no cost once the scene is
+    /// captured, instead of needing to track "have I captured yet" itself. Also a no-op while textures
+    /// are still uploading (<see cref="HasPendingUploads"/>), so the very first capture never samples a
+    /// texture before its pixel data has actually reached the GPU. Returns true once SceneRenderer is
+    /// ready to use (whether captured just now or already captured before).</summary>
+    public bool TryCaptureScene(GraphicsDevice gd, uint viewWidth, uint viewHeight)
+    {
+        if (SceneRenderer != null) return true;
+        if (HasPendingUploads) return false;
+
+        try
+        {
+            var scene = BuildVkScene();
+            if (scene is not { } s) return false;
+            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, s.envCube, viewWidth, viewHeight);
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[VkRenderer] init failed: {e.Message}");
+            SceneRenderer = null;
+            return false;
+        }
+    }
+
+    /// <summary>Disposes and drops <see cref="SceneRenderer"/> after it faults mid-frame (submit/resize
+    /// failure) - the caller just tried to use it and hit an exception, so the safe recovery is to
+    /// throw the whole thing away and let TryCaptureScene rebuild it next frame, same as before this
+    /// was ever captured. Unlike the ad-hoc "set the field to null" this replaces, this actually
+    /// disposes the GPU resources first instead of leaking them on the failure path.</summary>
+    public void InvalidateSceneRenderer()
+    {
+        SceneRenderer?.Dispose();
+        SceneRenderer = null;
+    }
+
+    /// <summary>Tears down the captured scene - called explicitly by LunaWindow.TryWipeLevel, BEFORE
+    /// EntityManager.Singleton.Dispose(): the scene references live entity meshes/geometry and the
+    /// VulkanSceneCapture registry, both of which the level's own disposal invalidates. This is
+    /// deliberately not part of Dispose() itself, which callers only reach afterwards (Dispose() then
+    /// frees the textures/materials SceneRenderer's descriptor sets point at, which is only safe once
+    /// SceneRenderer itself is already gone).</summary>
+    public void DisposeSceneRenderer()
+    {
+        SceneRenderer?.Dispose();
+        SceneRenderer = null;
+        VulkanSceneCapture.Clear();
+    }
+
     public void Dispose()
     {
+        // Safety net: the real teardown order is DisposeSceneRenderer() then this (see that method's
+        // remarks) - SceneRenderer's descriptor sets reference the textures freed below, so it must
+        // already be gone before they go. Idempotent (DisposeSceneRenderer already nulls it) - only
+        // does anything if some future caller reaches Dispose() without calling that first.
+        SceneRenderer?.Dispose();
+        SceneRenderer = null;
+
         // Models and meshes hold no GPU resources any more, so only the textures need releasing.
         // The shared default stands in for every texture that failed to decode, so it is in the cache
         // many times over and must not be disposed through it.

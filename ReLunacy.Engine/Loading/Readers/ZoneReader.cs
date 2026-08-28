@@ -193,10 +193,11 @@ public sealed class ZoneReader
         // "has lightmap UVs" stop implying "is lightmapped" for every consumer downstream.
         var lightmapIndex = legacyUFrag.metadata.lightmapIndex;
         var lightmapUVs = legacyUFrag.metadata.HasLightmap && legacyUFrag.uvs2.Length > 0 ? legacyUFrag.uvs2 : null;
+        var vertexAlphaCandidates = legacyUFrag.vertexAlphaCandidates;
 
         return legacyUFrag.isOld
-            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata)
-            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata);
+            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlphaCandidates: vertexAlphaCandidates, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata)
+            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlphaCandidates: vertexAlphaCandidates, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata);
     }
 
     private List<IPlacedInstance<ITie>> ReadTieInstances(Objects.Zone legacyZone)

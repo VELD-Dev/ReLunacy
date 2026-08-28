@@ -9,7 +9,7 @@ using Veldrith;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
-public class View3D : DockedFrame, ILevelListener
+public class View3D : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
@@ -73,26 +73,12 @@ public class View3D : DockedFrame, ILevelListener
         graphicsDevice = gd;
     }
 
-    // The scene renderer. Created lazily in Render() once the level's entities exist, from the geometry
-    // the asset system registered with VulkanSceneCapture. Wrapped so a failure leaves the view empty
-    // rather than taking the app down.
-    private Engine.Rendering.Vulkan.VulkanRenderer? _vkStage;
-
-    // Assembles the raw-Vulkan scene from the geometry registry (VulkanSceneCapture) and the live
-    // per-instance world transforms (Entity.GetPickableMeshes, populated once the scene has drawn).
-    // Only geometries actually referenced by an instance are included, remapped to a compact index.
-    // Returns null until instances exist, so the caller retries on a later frame.
-    /// <summary>The raw-Vulkan scene is built once from the level's geometry and holds GPU buffers
-    /// derived from it, so it has to go before the level does - otherwise the next level captures on
-    /// top of a stale geometry registry and the renderer keeps buffers for meshes that no longer exist.</summary>
-    public void OnLevelUnloading()
-    {
-        _vkStage?.Dispose();
-        _vkStage = null;
-        Engine.Rendering.Vulkan.VulkanSceneCapture.Clear();
-    }
-
-    public void OnLevelLoaded() { }
+    // The scene renderer now lives on AssetManager (see its SceneRenderer property) so closing and
+    // reopening this panel does not force re-uploading the whole level's geometry/textures - only this
+    // panel's own state (camera, gizmo, viewport size) was ever View3D-specific. This view still owns
+    // DRIVING it every frame (Frame/SubmitFrame/Pick/Resize below), so the renderer is never touched
+    // while the panel is closed - only its GPU-resident state outlives the panel now, not its activity.
+    private Engine.Rendering.Vulkan.VulkanRenderer? VkStage => Core.LunaWindow.Instance.AssetManager?.SceneRenderer;
 
     /// <summary>Hands the recorded scene to the GPU. Called by the host AFTER the swapchain present, so
     /// the GPU works through it while the next frame is being pumped, updated and recorded. Submitting
@@ -100,9 +86,10 @@ public class View3D : DockedFrame, ILevelListener
     /// immediately and leave nothing overlapping.</summary>
     public void SubmitScene()
     {
-        if (_vkStage == null) return;
-        try { _vkStage.SubmitFrame(); }
-        catch (Exception e) { LunaLog.LogError($"[VkRenderer] submit failed: {e.Message}"); _vkStage = null; }
+        var vkStage = VkStage;
+        if (vkStage == null) return;
+        try { vkStage.SubmitFrame(); }
+        catch (Exception e) { LunaLog.LogError($"[VkRenderer] submit failed: {e.Message}"); Core.LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer(); }
     }
 
     /// <summary>The Render menu's per-type toggles, as the mask the renderer culls with. Volumes are not
@@ -152,7 +139,7 @@ public class View3D : DockedFrame, ILevelListener
             }
         }
 
-        try { _vkStage?.SetDebugLines(_sphereLines); }
+        try { VkStage?.SetDebugLines(_sphereLines); }
         catch (Exception e) { LunaLog.LogError($"[VkRenderer] debug lines failed: {e.Message}"); }
     }
 
@@ -188,65 +175,15 @@ public class View3D : DockedFrame, ILevelListener
         }
     }
 
-    private (List<float[]> verts, List<uint[]> idx, List<Engine.Rendering.Vulkan.VkMaterialDesc> materials, List<(int geo, int mat, System.Numerics.Matrix4x4 world, System.Numerics.Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, Veldrith.Texture? envCube)? BuildVkScene()
-    {
-        if (Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData.Count == 0)
-            return null;
-
-        var verts = new List<float[]>();
-        var idx = new List<uint[]>();
-        var materials = new List<Engine.Rendering.Vulkan.VkMaterialDesc>();
-        var instances = new List<(int, int, System.Numerics.Matrix4x4, System.Numerics.Vector4, object, float, uint)>();
-        var geoRemap = new Dictionary<int, int>();
-        var matRemap = new Dictionary<Engine.Rendering.Resources.RenderMaterial, int>(ReferenceEqualityComparer.Instance);
-
-        // Per-renderable (not per-mesh): a lit tie shares one IMesh across placements but carries a
-        // per-instance material with that placement's lightmap textures - so material is keyed per
-        // renderable while geometry stays keyed per mesh. Each also carries the entity's world bounding
-        // sphere (the game's own) for frustum culling.
-        foreach (var entity in Engine.Scene.EntityManager.Singleton.AllEntities())
-        {
-            foreach (var (mesh, material, world, sphere) in entity.GetRenderablesForVk())
-            {
-                if (!Engine.Rendering.Vulkan.VulkanSceneCapture.TryGet(mesh, out int gi))
-                    continue;
-                if (!geoRemap.TryGetValue(gi, out int geoSlot))
-                {
-                    geoSlot = verts.Count;
-                    verts.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]);
-                    idx.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.Indices[gi]);
-                    geoRemap[gi] = geoSlot;
-                }
-                if (!matRemap.TryGetValue(material, out int matSlot))
-                {
-                    matSlot = materials.Count;
-                    materials.Add(Engine.Rendering.Vulkan.VkMaterialBuilder.Build(material, Core.LunaWindow.Instance.AssetManager));
-                    matRemap[material] = matSlot;
-                }
-                // The owning entity travels with the instance so the renderer can address one entity's
-                // draws by reference - that is what the selection outline and live gizmo edits need.
-                // The game's own per-placement display distance rides along too, so the renderer can
-                // reproduce moby distance culling without walking entities every frame.
-                float displayDistance = entity is Engine.Scene.EntityMoby moby ? moby.DisplayDistance : -1f;
-                instances.Add((geoSlot, matSlot, world, sphere, entity, displayDistance, (uint)entity.ID));
-            }
-        }
-
-        if (instances.Count == 0)
-            return null;
-        // Scene-wide environment cubemap for reflections (AssetManager always provides one - a 1x1
-        // fallback when the level has none). The renderer reflects against it in the env-fill term.
-        var envCube = Core.LunaWindow.Instance.AssetManager?.EnvironmentCubemapView?.Target;
-        return (verts, idx, materials, instances, envCube);
-    }
+    // BuildVkScene moved to AssetManager (see AssetManager.TryCaptureScene) - everything it read
+    // (VulkanSceneCapture, EntityManager.Singleton, AssetManager itself) was already level-scoped, not
+    // View3D-specific, which is what let the captured scene's lifetime move with it.
 
     // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
     // per volume), handed to the VK renderer to draw as depth-tested thin-box edges - same geometry the
     // pick target uses. Rebuilt every frame so selection colour, edits and the Render>Volumes toggle all
     // take effect immediately without touching the static scene capture.
     private readonly List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> _vkVolumes = new();
-    // Reused buffer for pushing the selected entity's world matrices into the VK transform SSBO.
-    private readonly List<System.Numerics.Matrix4x4> _vkTransformScratch = new();
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
@@ -320,26 +257,19 @@ public class View3D : DockedFrame, ILevelListener
         // instances are known), assemble the WHOLE scene from the geometry registry + EntityManager's
         // live per-instance world transforms and hand it to the raw-Vulkan renderer, which records one
         // indexed draw per instance ONCE and replays it into a display texture with the LIVE camera.
-        // Lazy + retried each frame until instances exist. When active, the panel shows its output.
-        if (_vkStage == null)
-        {
-            // Every entity builds its renderables on demand (Entity.EnsureRenderables), so the whole
-            // level can be captured as soon as there is one. This used to wait two frames with culling
-            // forced off, because entities only populated their renderables from inside a draw call
-            // that no longer exists.
-            try
-            {
-                var scene = BuildVkScene();
-                if (scene is { } s)
-                {
-                    _vkStage = new Engine.Rendering.Vulkan.VulkanRenderer(graphicsDevice, s.verts, s.idx, s.materials, s.instances, s.envCube, viewWidth, viewHeight);
-                    // A new renderer holds no debug lines, so force the overlay to be re-pushed rather
-                    // than assuming the flag still matches what the previous one was given.
-                    _appliedBoundingSpheres = false;
-                }
-            }
-            catch (Exception e) { LunaLog.LogError($"[VkRenderer] init failed: {e.Message}"); _vkStage = null; }
-        }
+        //
+        // AssetManager owns capturing/building the scene (see TryCaptureScene's remarks) - this call is
+        // a no-op once it has already been captured, including across this panel being closed and
+        // reopened, which is the whole point: the captured scene's lifetime is the LEVEL's, not this
+        // panel's. It also stays a no-op while textures are still uploading (see AssetManager's queued-
+        // upload drain, spread across frames by Window.DoLoadEntitiesCheck instead of blocking one),
+        // so the very first capture never samples a texture before its pixel data has actually landed.
+        bool hadStage = VkStage != null;
+        Core.LunaWindow.Instance.AssetManager?.TryCaptureScene(graphicsDevice, viewWidth, viewHeight);
+        var vkStage = VkStage;
+        // A freshly captured renderer holds no debug lines yet, so force the bounding-sphere overlay
+        // to be re-pushed rather than assuming the flag still matches what the previous one was given.
+        if (!hadStage && vkStage != null) _appliedBoundingSpheres = false;
 
         // "3D Record" is now the whole CPU cost of the view: refreshing the camera, pushing the
         // selection's transforms, and the renderer's own cull + re-record + submit. The old
@@ -352,7 +282,7 @@ public class View3D : DockedFrame, ILevelListener
         // matrices from that, and only then is the view handed over. Sampling earlier gave a view one
         // frame behind the position, which made reflections and parallax (both driven by
         // uCameraPosition) run visibly "ahead" of the geometry.
-        if (_vkStage != null)
+        if (vkStage != null)
         {
             try
             {
@@ -361,16 +291,11 @@ public class View3D : DockedFrame, ILevelListener
                 // re-recording the scene. Only the selection is pushed: it is the only thing that can
                 // move in the editor, and it is a handful of matrices.
                 if (SelectedEntity is { } moved)
-                {
-                    _vkTransformScratch.Clear();
-                    foreach (var (_, _, world, _) in moved.GetRenderablesForVk())
-                        _vkTransformScratch.Add(world);
-                    _vkStage.UpdateEntityTransforms(moved, _vkTransformScratch, moved.WorldBoundingSphere);
-                }
+                    Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(moved);
 
                 UpdateBoundingSphereOverlay();
 
-                _vkStage.Frame(
+                vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),
                     BuildVolumeList(), EntityManager.Singleton.VolumeWireThickness,
@@ -379,9 +304,12 @@ public class View3D : DockedFrame, ILevelListener
                     // 12 disjoint edge boxes.
                     SelectedEntity is EntityVolume ? null : SelectedEntity,
                     Program.Settings.SelectionOutlineColor, 0.006f,
-                    // camera.Position is stored negated relative to world positions (the convention
-                    // used throughout the editor), so the renderer gets it un-negated.
-                    -Camera.Position, EntityManager.Singleton.MobyDistanceCullingEnabled,
+                    // True world-space position, same convention as lighting.BuildLightData(Camera.Position)
+                    // just above and as Entity.WorldBoundingSphere (what _instCenter/Visible() compares
+                    // this against) - negating it here used to feed the distance-cull test a mirrored
+                    // camera position, so a moby could cross its display-distance threshold in the wrong
+                    // direction as the real camera moved closer, making it disappear when it should not.
+                    Camera.Position, EntityManager.Singleton.MobyDistanceCullingEnabled,
                     // Lit/unlit is a live switch in the shader now, not a rebuild: the setting used to
                     // pick a different Bliss Effect per material, which meant every material had to be
                     // rebuilt to change it.
@@ -393,9 +321,9 @@ public class View3D : DockedFrame, ILevelListener
                 // The overlay's "entities rendered" readout used to be incremented by each entity's
                 // Bliss Draw. That path is gone, so it comes from the renderer's own post-cull visible
                 // count instead - which is the same quantity, measured where the culling now happens.
-                Engine.Scene.Entity.EntitiesRenderedThisFrame = _vkStage.VisibleDrawCount;
+                Engine.Scene.Entity.EntitiesRenderedThisFrame = vkStage.VisibleDrawCount;
             }
-            catch (Exception e) { LunaLog.LogError($"[VkRenderer] frame failed: {e.Message}"); _vkStage = null; }
+            catch (Exception e) { LunaLog.LogError($"[VkRenderer] frame failed: {e.Message}"); Core.LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer(); }
         }
 
         record.Dispose();
@@ -408,8 +336,8 @@ public class View3D : DockedFrame, ILevelListener
         // The raw-Vulkan renderer renders the scene into its own display texture; before a level is
         // captured there is simply nothing to show, so the panel stays empty rather than falling back
         // to a Bliss target.
-        if (_vkStage != null)
-            _viewport.DrawImage(Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, _vkStage.ColorTexture));
+        if (vkStage != null)
+            _viewport.DrawImage(Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, vkStage.ColorTexture));
         else
             _viewport.DrawEmpty();
 
@@ -468,14 +396,15 @@ public class View3D : DockedFrame, ILevelListener
     private void PickEntityUnderCursor()
     {
         if (!_viewport.HasArea) return;
-        if (_vkStage == null) { SelectedEntity = null; return; }
+        var vkStage = VkStage;
+        if (vkStage == null) { SelectedEntity = null; return; }
 
         try
         {
             // The raw-Vulkan renderer picks straight out of the scene it already holds: it narrows the
             // projection to the few pixels under the cursor, which shrinks the target AND gives a
             // frustum that rejects everything else before a draw is issued.
-            uint hitId = _vkStage.Pick(
+            uint hitId = vkStage.Pick(
                 Camera.GetView(), Camera.GetProjection(),
                 (int)_viewport.MousePos.X, (int)_viewport.MousePos.Y,
                 _viewport.Size.X, _viewport.Size.Y);
@@ -496,8 +425,8 @@ public class View3D : DockedFrame, ILevelListener
         viewHeight = (uint)_viewport.PixelHeight;
         Camera.Resize(viewWidth, viewHeight);
         // Keep the raw-Vulkan display texture (Stage 12) matched to the panel so ImGui shows it 1:1.
-        try { _vkStage?.Resize(graphicsDevice, viewWidth, viewHeight); }
-        catch (Exception e) { LunaLog.LogError($"[VkRenderer] resize failed: {e.Message}"); _vkStage = null; }
+        try { VkStage?.Resize(graphicsDevice, viewWidth, viewHeight); }
+        catch (Exception e) { LunaLog.LogError($"[VkRenderer] resize failed: {e.Message}"); Core.LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer(); }
     }
 
     public void HandleShortcuts()

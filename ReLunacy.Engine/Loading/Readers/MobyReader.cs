@@ -178,10 +178,13 @@ public sealed class MobyReader
     {
         // Positions are fixed-point int16 in bangle-local space; the moby's own scale must be
         // applied here, matching what MobyMesh.GetBuffers already does for the legacy renderer.
-        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
+        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents);
 
         var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh, (int)(moby.Skeleton?.NumBones ?? 0));
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
+        // No vertexAlphaCandidates here: VertexFormat0.boneIndex is genuinely a bone index on Mobys
+        // (confirmed - it's the very field ExtractSkinData resolves above), not vertex alpha. That
+        // decode is only valid on Ties, which have no skeleton for the field to mean anything else.
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights);
 
         IMaterial material = moby.IsOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.shaderIndex)

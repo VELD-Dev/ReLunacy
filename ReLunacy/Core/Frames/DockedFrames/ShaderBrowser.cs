@@ -386,13 +386,6 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         ImGui.Text($"{label}: {(string.IsNullOrEmpty(tex.name) ? tex.id.ToString("X") : tex.name)} (0x{tex.id:X}, {tex.Width}x{tex.Height}, {tex.TexFormat})");
 
-        // See TextureMetadataOld.AlphaKillCandidate - a candidate per-texture alpha bit distinct
-        // from the shader's own renderingMode byte, cross-referenced from InsomniaToolset but not
-        // yet confirmed against real data. Surfaced here since it's a texture-level flag, not a
-        // shader-level one.
-        if (tex.isOld && tex.textureMetadata is TextureMetadataOld oldMeta)
-            ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_AlphaKillCandidate", oldMeta.AlphaKillCandidate));
-
         var am = LunaWindow.Instance.AssetManager;
         if (am != null && am.BuiltTextures.TryGetValue(tex.id, out var tex2d))
         {

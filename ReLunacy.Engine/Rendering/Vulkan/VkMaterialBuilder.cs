@@ -14,7 +14,8 @@ public static class VkMaterialBuilder
     {
         byte gameRenderMode = 0;
         bool usesVertexAlpha = false;
-        assetManager?.TryGetVkMaterialInfo(material, out gameRenderMode, out usesVertexAlpha);
+        bool albedoHasAlphaChannel = false;
+        assetManager?.TryGetVkMaterialInfo(material, out gameRenderMode, out usesVertexAlpha, out albedoHasAlphaChannel);
 
         return new VkMaterialDesc
         {
@@ -28,10 +29,11 @@ public static class VkMaterialBuilder
             ParallaxScale = ValueOf(material, "fParallaxScale"),
             ParallaxBias = ValueOf(material, "fParallaxBias"),
             AlphaThreshold = ValueOf(material, MaterialMapType.Albedo),
-            // The game's own 0-6 mode + vertex-alpha flag come from AssetManager's side table rather
-            // than a map slot: neither is a texture, and the renderer wants both in one lookup.
+            // The game's own 0-6 mode + vertex-alpha flags come from AssetManager's side table rather
+            // than a map slot: none of them is a texture, and the renderer wants all three in one lookup.
             GameRenderMode = gameRenderMode,
             UsesVertexAlpha = usesVertexAlpha ? 1f : 0f,
+            AlbedoHasAlphaChannel = albedoHasAlphaChannel ? 1f : 0f,
             // Foliage sprite cards are billboarded in the vertex shader from data packed into the
             // geometry, so they need the billboard pipeline rather than the lit one.
             IsBillboard = assetManager != null && assetManager.IsBillboardMaterial(material) ? 1f : 0f,

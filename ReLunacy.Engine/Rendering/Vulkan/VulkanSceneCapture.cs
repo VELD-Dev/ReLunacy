@@ -23,7 +23,10 @@ public struct VkMaterialDesc
     /// 5 Soft-Edge, 6 Blended) - the renderer implements each one's real RSX blend/depth/alpha state.
     /// See IMaterial.GameRenderMode and dev/chatgpt-eboot-{1,2,3}.txt.</summary>
     public float GameRenderMode;
-    public float UsesVertexAlpha; // 1 = opacity comes from the per-vertex alpha, not the albedo's alpha
+    public float UsesVertexAlpha; // 1 = this material has decoded per-vertex alpha to contribute
+    // 1 = the albedo's own alpha channel is real (not a format with no alpha bits at all), so it's
+    // meaningful to fold into the final opacity alongside vertex alpha rather than being garbage.
+    public float AlbedoHasAlphaChannel;
     /// <summary>1 = foliage: the geometry packs a shared anchor into every vertex position and the
     /// card's corner offset into the lightmap UV slot, so it needs the billboard vertex shader rather
     /// than the lit one. This is a property of the GEOMETRY, not of the shader the material came from,

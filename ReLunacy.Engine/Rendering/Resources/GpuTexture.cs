@@ -111,22 +111,45 @@ public sealed class GpuTexture : IDisposable
 
     /// <summary>Uploads an already-prepared chain. Must run on the thread that owns the device.</summary>
     public GpuTexture(GraphicsDevice graphicsDevice, TextureLevels prepared)
+        : this(graphicsDevice, prepared.Width, prepared.Height, (uint)prepared.Levels.Length)
     {
-        Width = prepared.Width;
-        Height = prepared.Height;
-        MipLevels = (uint)prepared.Levels.Length;
+        UploadAll(graphicsDevice, prepared);
+    }
 
+    /// <summary>Allocates the device texture only - no pixel data yet, so DeviceTexture's content is
+    /// undefined until <see cref="UploadAll"/>/<see cref="UploadMip"/> runs. CreateTexture is a plain
+    /// image+memory allocation (no queue submission), so this is cheap and does not need staging: the
+    /// point is to let a caller hand out a valid Texture reference immediately, then perform however
+    /// many mips' worth of actual GraphicsDevice.UpdateTexture calls later, spread across as many
+    /// frames as it wants instead of paying for all of them in one blocking call - see
+    /// AssetManager.UploadOnePendingTexture, which is what this exists for.</summary>
+    public GpuTexture(GraphicsDevice graphicsDevice, uint width, uint height, uint mipLevels)
+    {
+        Width = width;
+        Height = height;
+        MipLevels = mipLevels;
         DeviceTexture = graphicsDevice.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
             Width, Height, MipLevels, 1, PixelFormat.R8G8B8A8UNorm, TextureUsage.Sampled));
+    }
 
+    /// <summary>Uploads every mip of an already-prepared chain in one call - the original, immediate,
+    /// fully-synchronous behaviour, still used for anything not going through the deferred queue.</summary>
+    public void UploadAll(GraphicsDevice graphicsDevice, TextureLevels prepared)
+    {
         uint w = Width, h = Height;
         for (uint mip = 0; mip < MipLevels; mip++)
         {
-            graphicsDevice.UpdateTexture(DeviceTexture, prepared.Levels[mip], 0, 0, 0, w, h, 1, mip, 0);
+            UploadMip(graphicsDevice, mip, prepared.Levels[mip], w, h);
             w = Math.Max(1u, w / 2);
             h = Math.Max(1u, h / 2);
         }
     }
+
+    /// <summary>Uploads exactly one mip level - the same GraphicsDevice.UpdateTexture call UploadAll
+    /// makes in its loop, exposed so a caller can spread a texture's mips (or many textures) across
+    /// multiple frames instead of blocking through all of them at once.</summary>
+    public void UploadMip(GraphicsDevice graphicsDevice, uint mip, byte[] data, uint mipWidth, uint mipHeight) =>
+        graphicsDevice.UpdateTexture(DeviceTexture, data, 0, 0, 0, mipWidth, mipHeight, 1, mip, 0);
 
     /// <summary>Prepares and uploads in one step, for callers with a single texture and no reason to
     /// stage the work (previews, the 1x1 fallbacks).</summary>

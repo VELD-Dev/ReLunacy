@@ -3,6 +3,49 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
+## [v0.05](https://github.com/VELD-Dev/ReLunacy/releases/0.05) - 28-08-2026
+
+### Overview
+
+Lighting is finally **FULLY OPERATIONAL** on Pre-ACIT games ! As detailed in the previous patchnotes, the
+shader is 100% faithful to the original game, it's because it's actually based off the actual game shader,
+extracted thanks to RenderDoc. This update comes with a brand new renderer (again), working only in Vulkan
+this time (no OpenGL, sorry old PCs). Thanks to Vulkan I was able to add the exact same render pipeline than
+the original game (threaded Frustum Culling, multi passes for transparency types, etc.), and it comes with HUGE
+performance improvements thanks to that. For more details, see under !
+
+### Details
+
+- Added lighting for Ties and Mobys too
+- Added the game's own analytic level lighting (ambient + two directional lights, straight from the level data) as the fallback light rig for surfaces with no bake of their own
+- Added cubemaps support (for reflections). Works at least for ToD.
+- Added Foliages support for Pre-ACIT games
+- New render system working on Vulkan:
+  - Better transparency, Anti-aliasing, threaded rendering & culling, register-once scene...
+  - Huge performances improvements (over 560% gain)
+  - Render pipeline of the original engine (+ custom ones for ReLunacy specific stuff), including the game's real 7 render modes (Opaque/Cutout/Overlay/Additive/Scunge/Soft-Edge/Blended) with their actual blend and alpha-test states, reversed straight from the EBOOT - this also fixed Scunge (glass, decals) rendering fully solid instead of blending
+  - Threaded asset loading: cut the post-disk-load freeze on a large level from ~14s down to ~5s
+  - Frame pipelining: CPU recording and GPU execution now overlap across frames, instead of the CPU immediately waiting on the previous frame's fence right after submitting it
+  - Unified viewport input handling (which of the overlay/gizmo/picking/camera gets a click) across the 3D View and Asset Viewer
+  - Fixed a large Tie frustum-culling error that could clip visible geometry at the edges of the screen
+- Added a better `Frame Profiler` frame (performances debug)
+- Added `Level Data` frame (including instances count, assets count, and light sources)
+- Added an in-app Markdown renderer, used to show this changelog straight from the Update Info frame
+- Added Font Awesome icons to parts of the UI
+- Added Moby Distance culling and Moby Update distance (used by Luna Engine, not ReLunacy)
+- Added Texture, Assets and Shaders browse filter (Filter by usage - used/unused - or other asset-specific filters)
+- Selection is now pixel-perfect (easier to select volumes), and foliage instances can now be picked too
+- Changed `.obj` export to write into its own per-asset subfolder, same as the separate `.gltf` export already did, instead of dumping every export into one shared folder
+- Fixed freeze when loading level by threading assets upload to GPU.
+- Fixed textures being read only from `textures.dat` (low-res) instead of `texstream.dat`. It was essentially impacting mobys.
+- Fixed UVs for model exportation to `.obj`. They were upside down.
+- Fixed vertex alpha on transparent materials: it's now multiplied with the texture's own alpha instead of replacing it, applies to every transparent render mode instead of only textures with no alpha channel of their own, and Mobys no longer misread their bone index as vertex alpha the way Ties/UFrags legitimately do (Mobys carry a real bone index there)
+- Fixed foliage sprites on old-engine levels not showing their texture (was resolved indirectly instead of through a direct index into the old texture table)
+- Fixed a segfault when opening certain assets in the Asset Viewer
+- Fixed GPU buffer picking (clicking to select in the 3D View) silently not working, due to an input event-ordering bug
+- Fixed Moby Cull Distance and Update Distance being read from swapped file offsets
+- Fixed `3D View` being reset when closed and reopened.
+
 ## [v0.04.1](https://github.com/VELD-Dev/ReLunacy/releases/0.04.1) - 30-07-2026
 
 [View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.04..0.04.1)

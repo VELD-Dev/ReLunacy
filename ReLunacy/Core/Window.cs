@@ -38,12 +38,15 @@ public class LunaWindow : IDisposable
     public FileManager? fileManager { get; private set; }
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
-    private bool doLoadEntities;
 
-    /// <summary>Textures decoded on the loading task, handed to the AssetManager when it is built on the
-    /// main thread. Cleared as soon as it takes them: these are the level's pixels, and holding a second
-    /// reference would keep them alive for nothing.</summary>
-    private Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?>? pendingTextures;
+    /// <summary>The level and its background-decoded textures, handed from LoadLevelDataAsync's
+    /// background task to <see cref="DoLoadEntitiesCheck"/> on the main thread - queued rather than
+    /// signalled through a bare flag (the previous doLoadEntities/pendingTextures pair), same pattern
+    /// as <see cref="pendingExportCompletions"/>, so the level and its textures arrive as one atomic
+    /// message instead of two fields a reader could observe half-set.</summary>
+    private readonly ConcurrentQueue<LevelReady> pendingLevelReady = new();
+
+    private readonly record struct LevelReady(LevelData Level, Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?> PreparedTextures);
 
     /// <summary>Background export tasks (see AssetViewer) can only touch <see cref="openFrames"/>
     /// from the main thread, same rule as the rest of this class - so completions are queued here
@@ -137,8 +140,14 @@ public class LunaWindow : IDisposable
 
             using (FrameProfiler.Sample("Events"))
             {
-                MainWindow.PumpEvents();
+                // Must snapshot the previous frame's state before this frame's SDL events land: Begin()
+                // copies _mouseDown/_keysDown into the "last" arrays that edge-triggered queries
+                // (IsMouseButtonPressed, IsKeyPressed) compare against. Pumping first would let a
+                // button-down event this frame land in _mouseDown before Begin() copies it into
+                // _mouseDownLast too, making the press-edge unobservable for as long as the button
+                // stays held.
                 Input.Begin();
+                MainWindow.PumpEvents();
             }
 
             using (FrameProfiler.Sample("ImGui NewFrame"))
@@ -232,11 +241,12 @@ public class LunaWindow : IDisposable
             // parallel across cores. It is the single largest piece of what used to be a main-thread
             // freeze after the files had finished reading, and none of it needs the graphics device.
             var swPrep = System.Diagnostics.Stopwatch.StartNew();
-            pendingTextures = AssetManager.PrepareTextures(Level);
-            LunaLog.LogDebug($"Decoded {pendingTextures.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
+            var prepared = AssetManager.PrepareTextures(Level);
+            LunaLog.LogDebug($"Decoded {prepared.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
+
+            pendingLevelReady.Enqueue(new LevelReady(Level, prepared));
         });
 
-        doLoadEntities = true;
         LunaLog.LogDebug("Level loaded.");
     }
 
@@ -267,6 +277,13 @@ public class LunaWindow : IDisposable
 
         SelectionManager.Singleton.Deselect();
 
+        // Must go before EntityManager.Dispose(): the captured scene (now owned by AssetManager, see
+        // its SceneRenderer property) references live entity meshes/geometry and the VulkanSceneCapture
+        // registry, both of which EntityManager's own disposal below invalidates - otherwise the next
+        // level captures on top of a stale geometry registry and the renderer keeps buffers for meshes
+        // that no longer exist.
+        AssetManager.DisposeSceneRenderer();
+
         EntityManager.Singleton.Dispose();
         AssetManager.Dispose();
         fileManager.Dispose();
@@ -275,23 +292,66 @@ public class LunaWindow : IDisposable
         fileManager = null;
         AssetManager = null;
         Program.ProvidedPath = string.Empty;
+        // In case this level was wiped mid-load, while DoLoadEntitiesCheck was still draining its
+        // queued texture uploads - without this the next AfterUpdate would see _finalizingLevelLoad
+        // still true against an AssetManager that's gone, and just no-op until whatever level loads
+        // next resets both anyway. Harmless either way, but this makes the state honest immediately.
+        _finalizingLevelLoad = false;
+        _uploadProgress = null;
     }
+
+    // True from the moment a level's AssetManager/entities are built until its queued texture uploads
+    // have fully drained - see DoLoadEntitiesCheck. Distinct from doLoadEntities-style polling: this
+    // spans MANY frames for one level, not just the one frame the transition happens on.
+    private bool _finalizingLevelLoad;
+    // The upload phase's own progress bar slot on the loading modal - kept as a direct reference so
+    // each frame can just mutate .current instead of reconstructing/relocking through UpdateProgress.
+    private LoadingProgress? _uploadProgress;
+
+    // Per-frame time budget for draining queued texture uploads (see AssetManager.UploadOnePendingTexture).
+    // Not a count, because texture sizes vary hugely (a 4K atlas vs a 32x32 icon) - a fixed count either
+    // stalls badly on the big ones or wastes frames doing nothing on the small ones. This runs inside
+    // AfterUpdate, after this frame's Draw, so spending a bit extra here delays next frame's Present
+    // rather than corrupting this one - the goal is only to keep it short enough that the loop still
+    // pumps events and redraws the loading modal every frame instead of one multi-second blocking call.
+    private const double UploadBudgetMs = 20.0;
 
     private void DoLoadEntitiesCheck()
     {
-        if (!doLoadEntities) return;
-        doLoadEntities = false;
+        if (pendingLevelReady.TryDequeue(out var ready))
+        {
+            var lsw = System.Diagnostics.Stopwatch.StartNew();
+            AssetManager = new AssetManager(ready.Level, GraphicsDevice, ready.PreparedTextures);
+            long a0 = lsw.ElapsedMilliseconds;
+            EntityManager.Singleton.LoadRegion(ready.Level.Region, AssetManager, GraphicsDevice);
+            long tRegion = lsw.ElapsedMilliseconds - a0; a0 = lsw.ElapsedMilliseconds;
+            EntityManager.Singleton.LoadFoliage(ready.Level.Foliages, AssetManager, GraphicsDevice);
+            LunaLog.LogDebug($"Entities built in {lsw.ElapsedMilliseconds}ms (region {tRegion}, foliage {lsw.ElapsedMilliseconds - a0}). {AssetManager.TotalQueuedUploads} textures queued for GPU upload.");
 
-        if (Level is null) return;
+            _uploadProgress = new LoadingProgress(LM.Get("GUI_LoadLevelModal_UploadingTextures"), (uint)Math.Max(1, AssetManager.TotalQueuedUploads), true);
+            GetFirstFrame<LoadingModal>()?.AddProgress(_uploadProgress);
+            _finalizingLevelLoad = true;
+        }
 
-        var lsw = System.Diagnostics.Stopwatch.StartNew();
-        AssetManager = new AssetManager(Level, GraphicsDevice, pendingTextures);
-        pendingTextures = null;
-        long a0 = lsw.ElapsedMilliseconds;
-        EntityManager.Singleton.LoadRegion(Level.Region, AssetManager, GraphicsDevice);
-        long tRegion = lsw.ElapsedMilliseconds - a0; a0 = lsw.ElapsedMilliseconds;
-        EntityManager.Singleton.LoadFoliage(Level.Foliages, AssetManager, GraphicsDevice);
-        LunaLog.LogDebug($"Entities built in {lsw.ElapsedMilliseconds}ms (region {tRegion}, foliage {lsw.ElapsedMilliseconds - a0}).");
+        if (!_finalizingLevelLoad || AssetManager is null) return;
+
+        if (AssetManager.HasPendingUploads)
+        {
+            // The same GraphicsDevice.UpdateTexture work AssetManager's constructor always did
+            // synchronously in one pass - just spread across as many AfterUpdate calls as it takes,
+            // bounded per call so the window keeps pumping events instead of appearing to hang.
+            var uploadSw = System.Diagnostics.Stopwatch.StartNew();
+            while (AssetManager.HasPendingUploads && uploadSw.Elapsed.TotalMilliseconds < UploadBudgetMs)
+                AssetManager.UploadOnePendingTexture();
+
+            if (_uploadProgress != null)
+                _uploadProgress.current = (uint)(AssetManager.TotalQueuedUploads - AssetManager.PendingUploadCount);
+
+            if (AssetManager.HasPendingUploads) return; // more queued - resume next frame
+        }
+
+        _finalizingLevelLoad = false;
+        _uploadProgress = null;
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();

@@ -57,8 +57,11 @@ public static class ObjExporter
                 for (int i = 0; i < vertexCount; i++)
                     obj.AppendLine(FormattableString.Invariant($"v {positions[i * 3]} {positions[i * 3 + 1]} {positions[i * 3 + 2]}"));
 
+                // OBJ's vt V axis runs bottom-to-top; the engine's (and glTF's) runs top-to-bottom
+                // like every other texture-space convention here, so it has to be flipped on the way
+                // out or every exported texture reads upside down in OBJ-consuming tools.
                 for (int i = 0; i < vertexCount; i++)
-                    obj.AppendLine(FormattableString.Invariant($"vt {uvs[i * 2]} {uvs[i * 2 + 1]}"));
+                    obj.AppendLine(FormattableString.Invariant($"vt {uvs[i * 2]} {1f - uvs[i * 2 + 1]}"));
 
                 bool hasNormals = normals != null && normals.Length >= vertexCount * 3;
                 if (hasNormals)

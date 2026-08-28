@@ -28,6 +28,10 @@ public class UFrag : IDisposable, IMesh
     // ZoneReader.ConvertUFrag, since the packed word spends all 32 bits on xyz.
     public float[] normals { get; set; } = [];
     public float[] tangents { get; set; } = [];
+    // Same field/decode as VertexFormat0.boneIndex on Ties (UFragVertex.unk, see its
+    // VertexAlphaCandidate) - UFrags have no skeleton either, so there's no competing bone-index
+    // use of the field the way there is on Mobys.
+    public float[] vertexAlphaCandidates { get; set; } = [];
     public uint[] boneWeight { get; set; } = [];
     public uint[] vertToBonemap { get; set; } = [];
 
@@ -61,6 +65,7 @@ public class UFrag : IDisposable, IMesh
         uvs2 = new float[metadata.vertexCount * 2];
         normals = new float[metadata.vertexCount * 3];
         tangents = new float[metadata.vertexCount * 3];
+        vertexAlphaCandidates = new float[metadata.vertexCount];
         for (int i = 0; i < metadata.vertexCount; i++)
         {
             vpos[i * 3 + 0] = vertices[i].position.Item1;
@@ -83,6 +88,8 @@ public class UFrag : IDisposable, IMesh
             tangents[i * 3 + 0] = t.X;
             tangents[i * 3 + 1] = t.Y;
             tangents[i * 3 + 2] = t.Z;
+
+            vertexAlphaCandidates[i] = vertices[i].VertexAlphaCandidate;
         }
     }
 

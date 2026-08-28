@@ -73,7 +73,7 @@ public class EntityManager : IDisposable
             // 0x5200 table, see FoliageMetadata.TextureIndex). Null (0xFFFFFFFF sentinel / new
             // engine) falls back to the default billboard texture inside GetOrBuildBillboardMaterial.
             foreach (var placement in foliage.Placements)
-                Foliage.Add(new EntityFoliage(foliage, placement, null, am));
+                Foliage.Add(new EntityFoliage(foliage, placement, foliage.Material, am));
         }
 
         if (Foliage.Count != 0)

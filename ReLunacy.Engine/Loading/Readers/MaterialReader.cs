@@ -116,7 +116,8 @@ public sealed class MaterialReader
             // (see IMaterial.GameRenderMode). Values outside 0-6 aren't render modes - clamp to Opaque.
             gameRenderMode: (byte)shader.RenderingMode <= 6 ? (byte)shader.RenderingMode : (byte)0,
             alphaClipThreshold: GetAlphaClip(shader),
-            usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode, albedo),
+            usesVertexAlphaCandidate: UsesVertexAlphaCandidate(shader.RenderingMode),
+            albedoHasAlphaChannel: HasAlphaChannel(albedo),
             parallaxScale: GetParallaxScale(shader),
             parallaxBias: GetParallaxBias(shader),
             detailTiling: GetDetailTiling(shader),
@@ -127,18 +128,10 @@ public sealed class MaterialReader
         return material;
     }
 
-    // See TextureMetadataOld.AlphaKillCandidate - logged once per distinct texture so a real
-    // level load can show whether this bit actually correlates with textures that should be
-    // transparent but currently render solid.
-    private static readonly HashSet<ulong> _loggedAlphaKillTextures = [];
-
     private Texture WrapTexture(Textures.Texture legacy)
     {
         if (_textureCache.TryGetValue(legacy.id, out var cached))
             return cached;
-
-        if (legacy.isOld && legacy.textureMetadata is Textures.TextureMetadataOld oldMeta && oldMeta.AlphaKillCandidate && _loggedAlphaKillTextures.Add(legacy.id))
-            Console.WriteLine($"Diagnostic: texture {legacy.id:X} ('{legacy.name}') has the candidate old-engine alphaKill bit set (unverified - see TextureMetadataOld.AlphaKillCandidate).");
 
         var texture = Texture.FromData(legacy.id, legacy.Width, legacy.Height, ToTextureFormat(legacy.TexFormat), legacy.data, (int)legacy.MipmapCounts);
         texture.Name = legacy.name;
@@ -262,18 +255,22 @@ public sealed class MaterialReader
     // The current best lead is per-vertex alpha (VertexFormat0.boneIndex, see PackedNormal-style
     // decode on that field) - but the user suspects there's a shader-level enum somewhere that
     // says whether a given mesh's ambiguous vertex field means bone index, vertex alpha, or vertex
-    // color (not yet found). Until that's identified, this is the one condition confirmed to
-    // correlate: a blending render mode with no albedo alpha to source transparency from.
-    // Opacity comes from the albedo's own alpha whenever it HAS one; the per-vertex alpha is the
-    // fallback for a transparency-using material whose albedo has no alpha channel to source it from.
+    // color (not yet found).
     // Applies to every non-Opaque mode, not just a subset: Scunge and Additive blend just as much as
     // Overlay/Soft-Edge/Blended do, and Cutout tests alpha, so all of them need somewhere to read it.
-    private static bool UsesVertexAlphaCandidate(RenderingMode mode, ITexture? albedo) =>
-        mode != RenderingMode.Opaque && !HasAlphaChannel(albedo);
+    // Unlike the original version of this heuristic, it no longer requires the albedo to lack its
+    // own alpha channel: a transparent material's vertex alpha and its texture's alpha are not
+    // mutually exclusive sources (a decal with edge falloff baked into vertex colour can sit on a
+    // texture that already carries real alpha of its own) - see LitFragCommon.shade, which combines
+    // the two rather than picking one, using Material.AlbedoHasAlphaChannel to know whether the
+    // albedo's own alpha is meaningful enough to fold in.
+    private static bool UsesVertexAlphaCandidate(RenderingMode mode) =>
+        mode != RenderingMode.Opaque;
 
-    // A1R5G5B5/RGBA4 carry real (if low-precision) alpha bits, same as A8R8G8B8/DXT3/DXT5 -
-    // included here for the same reason those are: UsesVertexAlphaCandidate should only kick in
-    // when the albedo genuinely has nowhere else to source transparency from.
+    // A1R5G5B5/RGBA4 carry real (if low-precision) alpha bits, same as A8R8G8B8/DXT3/DXT5. Feeds
+    // Material.AlbedoHasAlphaChannel, which the shader uses to decide whether the albedo's own
+    // alpha is meaningful enough to fold into the final opacity alongside vertex alpha, or whether
+    // sampling .a would just be reading garbage from a format with no alpha channel at all.
     private static bool HasAlphaChannel(ITexture? texture) =>
         texture?.Format is TextureFormat.A8R8G8B8 or TextureFormat.DXT3 or TextureFormat.DXT5
             or TextureFormat.A1R5G5B5 or TextureFormat.RGBA4;

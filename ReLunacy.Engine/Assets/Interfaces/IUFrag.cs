@@ -22,6 +22,11 @@ public interface IUFrag : IAsset
 
     float[]? GetNormals();
     float[]? GetTangents();
+    /// <summary>Per-vertex alpha decoded from UFragVertex.unk (see its VertexAlphaCandidate - same
+    /// field role and decode as Ties' VertexFormat0.boneIndex; UFrags have no skeleton either, so
+    /// there's no competing bone-index use of the field the way there is on Mobys). Null for a
+    /// UFrag whose material has no use for it - see Material.UsesVertexAlphaCandidate.</summary>
+    float[]? GetVertexAlphaCandidates();
     uint[] GetIndices();
     IMaterial Material { get; }
     /// <summary>World-space placement anchor: local (0,0,0) of GetVertexPositions() maps here. Distinct from the bounding sphere below - see GetAnchor/GetBoundingCenter split in ZoneReader.ConvertUFrag.</summary>

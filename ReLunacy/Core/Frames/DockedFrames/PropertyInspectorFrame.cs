@@ -1,6 +1,7 @@
 using System.Numerics;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -18,6 +19,8 @@ public class PropertyInspectorFrame : DockedFrame
     private Vector3 selectedScale;
     private Vector3 selectedBSphere;
     private float selectedBSphereRadius;
+    private float selectedCullDistance;
+    private float selectedUpdateDistance;
 
     public Entity? SelectedEntity => SelectionManager.Singleton.SelectedEntity;
 
@@ -82,6 +85,11 @@ public class PropertyInspectorFrame : DockedFrame
             }
         }
 
+        if (v3d != null)
+        {
+            ImGui.Text($"{(v3d.Camera.Position - selectedPosition).Length():N03}m away");
+        }
+
         ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_RenderingCategory"));
 
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_BoundingSpherePos"), ref selectedBSphere, "%.3fm", ImGuiInputTextFlags.ReadOnly))
@@ -96,6 +104,17 @@ public class PropertyInspectorFrame : DockedFrame
 
         if (SelectedEntity is EntityMoby moby)
         {
+            if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_CullDistance"), ref selectedCullDistance, 0, 0,
+                    "%.3f", ImGuiInputTextFlags.ReadOnly))
+            {
+                ((EntityMoby)SelectedEntity).DisplayDistance = selectedCullDistance;
+            }
+            if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_UpdateDistance"), ref selectedUpdateDistance, 0, 0,
+                    "%.3f", ImGuiInputTextFlags.ReadOnly))
+            {
+                ((EntityMoby)SelectedEntity).UpdateDistance = selectedUpdateDistance;
+            }
+
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenMobyInAssetViewer(moby.BaseMoby.Id);
         }
@@ -106,10 +125,8 @@ public class PropertyInspectorFrame : DockedFrame
         }
         else if (SelectedEntity is EntityUFrag ufrag)
         {
-            var mat = ufrag.UFrag.Material;
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialRenderMode", mat.RenderMode));
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlphaClip", mat.AlphaClipThreshold));
-            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_MaterialAlbedoFormat", mat.AlbedoTexture?.Format.ToString() ?? "None"));
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
+                OpenUFragInAssetViewer(ufrag.UFrag.Id);
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
@@ -167,6 +184,16 @@ public class PropertyInspectorFrame : DockedFrame
         }
     }
 
+    private static void OpenUFragInAssetViewer(ulong ufragId)
+    {
+        var viewer = OpenAssetViewer();
+        if (viewer != null)
+        {
+            viewer.SelectUFragById(ufragId);
+            viewer.Focus();
+        }
+    }
+
     private static AssetViewer? OpenAssetViewer()
     {
         var viewer = LunaWindow.Instance.GetFirstFrame<AssetViewer>();
@@ -190,6 +217,8 @@ public class PropertyInspectorFrame : DockedFrame
             selectedBSphere = Vector3.Zero;
             selectedPosition = Vector3.Zero;
             selectedScale = Vector3.Zero;
+            selectedCullDistance = 0f;
+            selectedUpdateDistance = 0f;
             return;
         }
 
@@ -198,5 +227,10 @@ public class PropertyInspectorFrame : DockedFrame
         selectedScale = SelectedEntity is EntityVolume volume ? volume.scale : SelectedEntity.Transform.Scale;
         selectedBSphere = SelectedEntity.BoundingSphere.GetXYZ();
         selectedBSphereRadius = SelectedEntity.BoundingSphere.W;
+        if (SelectedEntity is EntityMoby moby)
+        {
+            selectedCullDistance = moby.DisplayDistance;
+            selectedUpdateDistance = moby.UpdateDistance;
+        }
     }
 }

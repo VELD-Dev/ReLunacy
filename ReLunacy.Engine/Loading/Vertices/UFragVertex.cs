@@ -9,6 +9,14 @@ public record struct UFragVertex
 
     public (short, short, short) position;
     public short unk;
+
+    // Same field role, same decode, as VertexFormat0.boneIndex/VertexAlphaCandidate: a SINT16
+    // immediately after position (confirmed by the RSX attribute descriptor below - attr0 is a
+    // genuine 4-component SINT16 attribute, not two unrelated reads), on a mesh type with no
+    // skeleton at all - UFrags have no bones, so there is nothing else this field could be doing
+    // its nominal job as here, same reasoning that applies on Ties.
+    public readonly float VertexAlphaCandidate => Math.Clamp((0xC000 - (ushort)unk) / 127f, 0f, 1f);
+
     public (Half, Half) UVs;
 
     /// <summary>LIGHTMAP UVs - atlas coordinates into the zone's baked light colour / direction

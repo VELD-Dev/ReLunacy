@@ -94,7 +94,7 @@ layout(set = 1, binding = 1) uniform sampler2D uNormal;
 layout(set = 1, binding = 2) uniform sampler2D uProps;
 layout(set = 1, binding = 3) uniform sampler2D uLightColour;
 layout(set = 1, binding = 4) uniform sampler2D uLightDir;
-layout(push_constant) uniform PC { vec4 uMat0; vec4 uMat1; }; // uMat0=(hasBaked,pScale,pBias,alphaThr); uMat1=(renderMode,vtxAlpha,lit,0)
+layout(push_constant) uniform PC { vec4 uMat0; vec4 uMat1; }; // uMat0=(hasBaked,pScale,pBias,alphaThr); uMat1=(renderMode,vtxAlpha,lit,albedoHasAlpha)
 layout(location = 0) in vec2 fUV;
 layout(location = 1) in vec3 fWorldNormal;
 layout(location = 2) in vec3 fWorldTangent;
@@ -114,7 +114,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     vec4 albedoTex = texture(uAlbedo, uv);
     // Alpha test, GEQUAL against the mode's hardcoded reference (uMat0.w; 0 = no test). Cutout uses
     // 128/255, the blended paths 4/255 - see dev/chatgpt-eboot-{2,3,5}.txt. Sourced like litAlpha below.
-    float testAlpha = uMat1.y > 0.5 ? fColor.a : albedoTex.a;
+    float testAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? albedoTex.a * fColor.a : fColor.a) : albedoTex.a;
     if (uMat0.w > 0.0 && testAlpha < uMat0.w) discard;
     vec4 nrmSample = texture(uNormal, uv);
     vec2 derivativeSum = vec2(nrmSample.a * 2.0 - 1.0, nrmSample.g * 2.0 - 1.0);
@@ -163,9 +163,15 @@ void shade(out vec3 litColor, out float litAlpha) {
     litColor = uMat1.z > 0.5
         ? pow(albedo * lighting + envFill, vec3(1.0 / 2.2))
         : albedoTex.rgb;
-    // Opacity is the per-vertex alpha for materials whose albedo has no real alpha channel (uMat1.y),
-    // else the albedo's own alpha. SELECT, not multiply - the no-alpha albedos decode to garbage alpha.
-    litAlpha = uMat1.y > 0.5 ? fColor.a : albedoTex.a;
+    // Opacity combines vertex alpha and the albedo's own alpha for any material with decoded vertex
+    // alpha to contribute (uMat1.y - any non-Opaque mode). MULTIPLY, not select: vertex alpha (a
+    // decal fade, LOD dither, etc.) and the texture's own alpha are independent sources, not
+    // mutually exclusive ones - a glass pane with edge falloff baked into vertex colour can still
+    // have its own alpha-cut leaf pattern. The albedo's alpha only enters that product when it is
+    // real (uMat1.w, AlbedoHasAlphaChannel) - a format with no alpha channel decodes to garbage
+    // there, so a no-alpha albedo contributes nothing and vertex alpha alone stands in for it.
+    // Materials with nothing to contribute (Opaque, uMat1.y == 0) read straight from the albedo.
+    litAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? albedoTex.a * fColor.a : fColor.a) : albedoTex.a;
 }";
     private const string FragmentOpaqueGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 o;
@@ -247,6 +253,29 @@ layout(push_constant) uniform Push { mat4 uWorld; uvec4 uId; };
 layout(location = 0) in vec3 inPos;
 void main() { gl_Position = uPick * (uWorld * vec4(inPos, 1.0)); }";
 
+    // Foliage billboards need the same view-space corner offset BillboardVertexGlsl applies - without
+    // it every corner of a card projects to its shared anchor point, a zero-area triangle the
+    // rasterizer drops, so foliage would never appear in the pick target. uPickProj is the projection
+    // half of the windowed pick matrix (projection * window, see Pick()): the offset has to be added
+    // in view space, same as the main billboard pass, so the windowing can only be folded into the
+    // projection step rather than the combined view+projection uPick above.
+    private const string PickBillboardVertexGlsl = @"#version 450
+layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; mat4 uPickProj; };
+layout(set = 0, binding = 1) readonly buffer Transforms { mat4 uT[]; };
+layout(location = 0) in vec3 inPos;
+layout(location = 1) in vec2 inUV;
+layout(location = 2) in vec3 inNormal;
+layout(location = 3) in vec4 inTangent;
+layout(location = 4) in vec2 inUV2;
+layout(location = 5) in vec4 inColor;
+void main() {
+    mat4 m = uT[gl_InstanceIndex];
+    vec4 anchorView = uView * (m * vec4(inPos, 1.0));
+    vec2 instanceScale = vec2(length(m[0].xyz), length(m[1].xyz));
+    anchorView.xy += inUV2 * instanceScale;
+    gl_Position = uPickProj * anchorView;
+}";
+
     // The id is written as four bytes of an RGBA8 target (little-endian on readback), which keeps the
     // whole path to plain colour attachments and needs no integer-format support.
     private const string PickFragmentGlsl = @"#version 450
@@ -296,7 +325,8 @@ layout(location = 1) in vec4 fColor;
 layout(location = 0) out vec4 outColor;
 void main() {
     vec4 texel = texture(uAlbedo, fUV);
-    float testAlpha = uMat1.y > 0.5 ? fColor.a : texel.a;
+    // Same combine as LitFragCommon.shade's testAlpha - see that comment.
+    float testAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? texel.a * fColor.a : fColor.a) : texel.a;
     if (uMat0.w > 0.0 && testAlpha < uMat0.w) discard;
     outColor = vec4(texel.rgb * fColor.rgb, 1.0);
 }";
@@ -359,6 +389,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly Vector4[] _matPC0;
     private readonly float[] _matRenderMode;   // the game's mode 0-6 (pushed as uMat1.x)
     private readonly float[] _matVertexAlpha;
+    private readonly float[] _matAlbedoHasAlpha; // pushed as uMat1.w
     private readonly float[] _matAlphaRef;     // per-mode alpha-test reference (GEQUAL), 0 = no test
     // Bucket boundaries in the mode-sorted instance list: [0,_overStart) opaque+cutout,
     // [_overStart,_addStart) over-blended (WBOIT), [_addStart,_softStart) additive,
@@ -458,10 +489,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     public const int PickWindowPixels = 5;
     /// <summary>Returned by <see cref="Pick"/> when nothing was under the cursor.</summary>
     public const uint NoHit = uint.MaxValue;
+    // 5 mat4s - see CreateUniformBuffers for what each slot holds.
+    private const ulong UboSize = 320;
     private VkRenderPass _rpPick;
-    private VkPipeline _pipelinePick, _pipelinePickVolume;
+    private VkPipeline _pipelinePick, _pipelinePickVolume, _pipelinePickBillboard;
     private VkPipelineLayout _pickLayout;
-    private VkShaderModule _pickVs, _pickVolumeVs, _pickFs;
+    private VkShaderModule _pickVs, _pickVolumeVs, _pickFs, _pickBillboardVs;
     private VkImage _pickImage; private VkDeviceMemory _pickMemory; private VkImageView _pickView;
     private VkImage _pickDepthImage; private VkDeviceMemory _pickDepthMemory; private VkImageView _pickDepthView;
     private VkFramebuffer _fbPick;
@@ -541,6 +574,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _matPC0 = new Vector4[materials.Count];
         _matRenderMode = new float[materials.Count];
         _matVertexAlpha = new float[materials.Count];
+        _matAlbedoHasAlpha = new float[materials.Count];
         _matAlphaRef = new float[materials.Count];
         for (int i = 0; i < materials.Count; i++)
         {
@@ -564,6 +598,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _matPC0[i] = new Vector4(materials[i].HasBaked, materials[i].ParallaxScale, materials[i].ParallaxBias, alphaRef);
             _matRenderMode[i] = materials[i].GameRenderMode;
             _matVertexAlpha[i] = materials[i].UsesVertexAlpha;
+            _matAlbedoHasAlpha[i] = materials[i].AlbedoHasAlphaChannel;
             _matAlphaRef[i] = alphaRef;
         }
 
@@ -688,17 +723,25 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         }
         _cmd = _cmds[0];
 
-        var vsw = System.Diagnostics.Stopwatch.StartNew();
+        var vsw = System.Diagnostics.Stopwatch.StartNew(); long vt0 = 0;
         UploadGeometry(mergedVerts, mergedIdx);
         CreateVolumeGeometry();
         UploadTransforms(worlds);
+        long tUpload = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateUniformBuffers();
         CreateSampler();
+        long tSamplers = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
+        // One vkAllocateDescriptorSets + up to 5 vkCreateImageView + one vkUpdateDescriptorSets PER
+        // material, all synchronous driver calls - isolated because it is the one phase here that
+        // scales with the LEVEL (material count), not with a fixed viewport/shader cost like the rest.
         CreateDescriptors(materials);
+        long tDescriptors = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateRenderPasses();
         CreatePipelines();
+        long tPipelines = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateTargets(graphicsDevice);
         CreatePickResources();
+        long tTargets = vsw.ElapsedMilliseconds - vt0;
         long buildMs = vsw.ElapsedMilliseconds;
         // Command buffer is recorded per-frame in Frame() (only the visible, frustum-culled draws).
 
@@ -716,7 +759,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var census = string.Join(", ", Enumerable.Range(0, 7)
             .Where(m => modeCensus[m] > 0)
             .Select(m => $"{modeNames[m]}={modeCensus[m]}" + (modeVertexAlpha[m] > 0 ? $"({modeVertexAlpha[m]} vtxA)" : "")));
-        Console.WriteLine($"[VkRenderer] init OK - {geoCount} geometries, {materials.Count} materials, {_instanceCount} draws. Buckets: {_overStart} opaque/cutout, {_addStart - _overStart} over-blended, {_softStart - _addStart} additive, {_billStart - _softStart} soft-edge, {_instanceCount - _billStart} foliage. Materials by mode: {census}. Into a {_width}x{_height} texture. Built in {buildMs}ms.");
+        Console.WriteLine($"[VkRenderer] init OK - {geoCount} geometries, {materials.Count} materials, {_instanceCount} draws. Buckets: {_overStart} opaque/cutout, {_addStart - _overStart} over-blended, {_softStart - _addStart} additive, {_billStart - _softStart} soft-edge, {_instanceCount - _billStart} foliage. Materials by mode: {census}. Into a {_width}x{_height} texture. Built in {buildMs}ms (upload {tUpload}, samplers/UBOs {tSamplers}, descriptors {tDescriptors}, pipelines {tPipelines}, targets {tTargets}).");
     }
 
     private void UploadGeometry(float[] mergedVerts, uint[] mergedIdx)
@@ -781,18 +824,20 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     private void CreateUniformBuffers()
     {
-        // 4 * mat4: viewProj, view, proj, and the pick window's view-projection. The lit and outline
-        // shaders only declare the first, the billboard shader three, the pick shaders all four - a
-        // shader may declare a prefix of a UBO's contents.
+        // 5 * mat4: viewProj, view, proj, the pick window's view-projection, and the pick window's
+        // projection-only (for billboards, which need the windowing folded into just the projection
+        // step - see PickBillboardVertexGlsl). The lit and outline shaders only declare the first, the
+        // billboard shader three, the generic pick shaders four, the billboard pick shader all five -
+        // a shader may declare a prefix of a UBO's contents.
         // One set per in-flight frame: these are written while the PREVIOUS frame is still reading its
         // own copy on the GPU.
         ulong lightSize = (ulong)sizeof(LightData);
         for (int f = 0; f < Frames; f++)
         {
-            (_uniformBuffers[f], _ubMemories[f]) = CreateBuffer(256, VkBufferUsageFlags.UniformBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
-            void* p; Check(_api.vkMapMemory(_ubMemories[f], 0, 256, 0, &p), "vkMapMemory(ub)"); _ubMappings[f] = p;
+            (_uniformBuffers[f], _ubMemories[f]) = CreateBuffer(UboSize, VkBufferUsageFlags.UniformBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+            void* p; Check(_api.vkMapMemory(_ubMemories[f], 0, UboSize, 0, &p), "vkMapMemory(ub)"); _ubMappings[f] = p;
             var ident = (Matrix4x4*)p;
-            ident[0] = ident[1] = ident[2] = ident[3] = Matrix4x4.Identity;
+            ident[0] = ident[1] = ident[2] = ident[3] = ident[4] = Matrix4x4.Identity;
 
             (_lightBuffers[f], _lightMemories[f]) = CreateBuffer(lightSize, VkBufferUsageFlags.UniformBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
             void* lp; Check(_api.vkMapMemory(_lightMemories[f], 0, lightSize, 0, &lp), "vkMapMemory(light)"); _lightMappings[f] = lp;
@@ -895,7 +940,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             VkDescriptorSetLayout l0 = _descLayout;
             var alloc0 = new VkDescriptorSetAllocateInfo { descriptorPool = _descPool, descriptorSetCount = 1, pSetLayouts = &l0 };
             VkDescriptorSet ds0; Check(_api.vkAllocateDescriptorSets(&alloc0, &ds0), "vkAllocateDescriptorSets(0)"); _descSets[f] = ds0;
-            var uboInfo = new VkDescriptorBufferInfo { buffer = _uniformBuffers[f], offset = 0, range = 256 };
+            var uboInfo = new VkDescriptorBufferInfo { buffer = _uniformBuffers[f], offset = 0, range = UboSize };
             var lightInfo = new VkDescriptorBufferInfo { buffer = _lightBuffers[f], offset = 0, range = (ulong)sizeof(LightData) };
             VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[4];
             w0[0] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 0, descriptorCount = 1, descriptorType = VkDescriptorType.UniformBuffer, pBufferInfo = &uboInfo };
@@ -1325,6 +1370,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // 80 bytes, well inside the 128-byte guaranteed minimum.
         _pickVs = Module(PickVertexGlsl, ShaderStages.Vertex);
         _pickVolumeVs = Module(PickVolumeVertexGlsl, ShaderStages.Vertex);
+        _pickBillboardVs = Module(PickBillboardVertexGlsl, ShaderStages.Vertex);
         _pickFs = Module(PickFragmentGlsl, ShaderStages.Fragment);
         VkDescriptorSetLayout pl = _descLayout;
         var pickPush = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = 80 };
@@ -1349,6 +1395,15 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             var vin = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbind, vertexAttributeDescriptionCount = 1, pVertexAttributeDescriptions = &vattr };
             var vinfo = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = vstages, pVertexInputState = &vin, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _pickLayout, renderPass = _rpPick, subpass = 0 };
             VkPipeline vp; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &vinfo, &vp), "vkCreateGraphicsPipelines(pickVolume)"); _pipelinePickVolume = vp;
+
+            // Foliage billboards: same vertex layout and pipeline state as the generic pick pipeline
+            // above, just PickBillboardVertexGlsl in place of PickVertexGlsl so the card's corner
+            // offset gets applied before projecting - see that shader's comment.
+            VkPipelineShaderStageCreateInfo* bstages = stackalloc VkPipelineShaderStageCreateInfo[2];
+            bstages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _pickBillboardVs, pName = entry };
+            bstages[1] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Fragment, module = _pickFs, pName = entry };
+            var binfo = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = bstages, pVertexInputState = &litVertexInput, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _pickLayout, renderPass = _rpPick, subpass = 0 };
+            VkPipeline bp; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &binfo, &bp), "vkCreateGraphicsPipelines(pickBillboard)"); _pipelinePickBillboard = bp;
         }
     }
 
@@ -1668,7 +1723,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 var pc0 = _matPC0[boundMat];
                 // Soft-Edge pass 1 clips at 128/255 (the material's stored ref is pass 2's 4/255).
                 if (softEdgeDepthPrepass) pc0.W = 128f / 255f;
-                Vector4* pc = stackalloc Vector4[2] { pc0, new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], _lit ? 1f : 0f, 0f) };
+                Vector4* pc = stackalloc Vector4[2] { pc0, new Vector4(_matRenderMode[boundMat], _matVertexAlpha[boundMat], _lit ? 1f : 0f, _matAlbedoHasAlpha[boundMat]) };
                 _api.vkCmdPushConstants(_cmd, _layout, VkShaderStageFlags.Fragment, 0, 32, pc);
             }
             _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
@@ -1830,7 +1885,13 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         WaitForPendingFrames();
 
         Matrix4x4 pickViewProj = (view * projection) * window;
-        ((Matrix4x4*)_ubMappings[_displaySlot])[3] = pickViewProj;
+        // Billboards add their corner offset in VIEW space (see BillboardVertexGlsl), so the windowing
+        // has to be folded into the projection alone rather than the combined view+projection above -
+        // PickBillboardVertexGlsl applies uView itself, then this in place of the main pass's uProj.
+        Matrix4x4 pickBillboardProj = projection * window;
+        var ub = (Matrix4x4*)_ubMappings[_displaySlot];
+        ub[3] = pickViewProj;
+        ub[4] = pickBillboardProj;
         _descSet = _descSets[_displaySlot];
         ExtractPlanes(pickViewProj, _pickPlanes);
 
@@ -1856,19 +1917,37 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         byte* pc = stackalloc byte[80];
         *(Matrix4x4*)pc = Matrix4x4.Identity;
 
-        // Scene geometry. Every bucket is walked, including the two the visible lists overlap on
-        // (Soft-Edge) - drawing an instance twice is harmless here, both draws write the same id.
+        // Scene geometry. Every non-billboard bucket is walked, including the two the visible lists
+        // overlap on (Soft-Edge) - drawing an instance twice is harmless here, both draws write the
+        // same id. Billboards are excluded: PickVertexGlsl transforms inPos alone, and every corner of
+        // a foliage card shares the same anchor position, so it would draw a zero-area triangle -
+        // they get their own pipeline/loop below instead.
         _api.vkCmdBindPipeline(_pickCmd, VkPipelineBindPoint.Graphics, _pipelinePick);
         VkBuffer vb = _vertexBuffer; ulong offset = 0;
         _api.vkCmdBindVertexBuffers(_pickCmd, 0, 1, &vb, &offset);
         _api.vkCmdBindIndexBuffer(_pickCmd, _indexBuffer, 0, VkIndexType.Uint32);
-        for (int i = 0; i < _instanceCount; i++)
+        for (int i = 0; i < _billStart; i++)
         {
             if (_instPickId[i] == NoHit) continue;
             if (!InPickFrustum(i)) continue;
             *(uint*)(pc + 64) = _instPickId[i];
             _api.vkCmdPushConstants(_pickCmd, _pickLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);
             _api.vkCmdDrawIndexed(_pickCmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
+        }
+
+        // Foliage billboards: same shared vertex/index buffers, but PickBillboardVertexGlsl so the
+        // card's corner offset gets applied in view space before projecting, same as the visible pass.
+        if (_billStart < _instanceCount)
+        {
+            _api.vkCmdBindPipeline(_pickCmd, VkPipelineBindPoint.Graphics, _pipelinePickBillboard);
+            for (int i = _billStart; i < _instanceCount; i++)
+            {
+                if (_instPickId[i] == NoHit) continue;
+                if (!InPickFrustum(i)) continue;
+                *(uint*)(pc + 64) = _instPickId[i];
+                _api.vkCmdPushConstants(_pickCmd, _pickLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);
+                _api.vkCmdDrawIndexed(_pickCmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
+            }
         }
 
         // Volume edges, so trigger volumes stay selectable - same thin-box geometry the wireframe uses,
@@ -2106,6 +2185,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyRenderPass(_rpPick);
         _api.vkDestroyPipelineLayout(_pickLayout);
         _api.vkDestroyPipeline(_pipelinePickVolume);
+        _api.vkDestroyPipeline(_pipelinePickBillboard);
         _api.vkDestroyPipeline(_pipelinePick);
         _api.vkDestroyPipeline(_pipelineDebugLines);
         if (_debugLineBuffer.Handle != 0) { _api.vkDestroyBuffer(_debugLineBuffer); _api.vkFreeMemory(_debugLineMemory); }
@@ -2131,6 +2211,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyShaderModule(_debugLineFs);
         _api.vkDestroyShaderModule(_pickVs);
         _api.vkDestroyShaderModule(_pickVolumeVs);
+        _api.vkDestroyShaderModule(_pickBillboardVs);
         _api.vkDestroyShaderModule(_pickFs);
         _api.vkDestroyShaderModule(_billboardVs);
         _api.vkDestroyShaderModule(_billboardFs);

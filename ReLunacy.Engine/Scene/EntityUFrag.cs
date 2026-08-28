@@ -23,7 +23,7 @@ public class EntityUFrag : Entity
         UFrag = ufrag;
         Name = !string.IsNullOrEmpty(ufrag.Name) ? $"{ufrag.Name}_{ID}" : $"UFrag_{ID}";
 
-        var vertices = ConvertUFragToVertices(ufrag);
+        var vertices = ConvertUFragToVertices(ufrag, ufrag.Material.UsesVertexAlphaCandidate);
         var indices = ufrag.GetIndices();
 
         // Passing the lightmap index is what makes UFrags sharing a shader but not a lightmap get
@@ -68,13 +68,17 @@ public class EntityUFrag : Entity
             ufrag.GetBoundingRadius() * UFragQuantisation);
     }
 
-    private static Vertex3D[] ConvertUFragToVertices(IUFrag ufrag)
+    private static Vertex3D[] ConvertUFragToVertices(IUFrag ufrag, bool useVertexAlpha)
     {
         var positions = ufrag.GetVertexPositions();
         var uvs = ufrag.GetTextureCoordinates();
         var normals = ufrag.GetNormals();
         var tangents = ufrag.GetTangents();
         var lightmapUVs = ufrag.GetLightmapUVs();
+        // See Material.UsesVertexAlphaCandidate / AssetManager.ConvertGeometryToVertices, which this
+        // mirrors: only read when the material has a use for it, same reason - a mesh not gated on
+        // this shouldn't pay for (or risk garbage from) a decode nothing downstream will read.
+        var vertexAlpha = useVertexAlpha ? ufrag.GetVertexAlphaCandidates() : null;
 
         int vertexCount = positions.Length / 3;
         var vertices = new Vertex3D[vertexCount];
@@ -108,7 +112,8 @@ public class EntityUFrag : Entity
                 ? new Vector2(lightmapUVs[uvIdx], lightmapUVs[uvIdx + 1])
                 : uv;
 
-            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, Vector4.One);
+            float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
+            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, new Vector4(1f, 1f, 1f, alpha));
         }
 
         return vertices;

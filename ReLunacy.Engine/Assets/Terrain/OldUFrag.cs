@@ -19,6 +19,7 @@ public sealed class OldUFrag : IUFrag
     // Second UV set = lightmap UVs, and the per-instance index selecting this UFrag's entry in the
     // zone's baked light colour (0x5400) / light direction (0x5410) lists. See IUFrag.
     private readonly float[]? _lightmapUVs;
+    private readonly float[]? _vertexAlphaCandidates;
     private readonly uint[] _indices;
     private readonly Vector3 _anchor;
     private readonly Vector3 _boundingCenter;
@@ -36,6 +37,7 @@ public sealed class OldUFrag : IUFrag
         float[]? normals = null,
         float[]? tangents = null,
         float[]? lightmapUVs = null,
+        float[]? vertexAlphaCandidates = null,
         ushort lightmapIndex = Loading.Objects.UFragMetadata.NoLightmap,
         Loading.Objects.UFragMetadata? metadata = null,
         string? name = null)
@@ -49,6 +51,7 @@ public sealed class OldUFrag : IUFrag
         _normals = normals;
         _tangents = tangents;
         _lightmapUVs = lightmapUVs;
+        _vertexAlphaCandidates = vertexAlphaCandidates;
         LightmapIndex = lightmapIndex;
         Metadata = metadata;
         _anchor = anchor;
@@ -93,6 +96,7 @@ public sealed class OldUFrag : IUFrag
     public Loading.Objects.UFragMetadata? Metadata { get; init; }
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
+    public float[]? GetVertexAlphaCandidates() => _vertexAlphaCandidates;
     public uint[] GetIndices() => _indices;
     public Vector3 GetAnchor() => _anchor;
     public Vector3 GetBoundingCenter() => _boundingCenter;
