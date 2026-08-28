@@ -53,15 +53,15 @@ public sealed class GeometryData : IGeometry
         _positions = positions;
         _uvs = uvs;
         // Moby/Tie readers now decode real per-vertex normals (VertexFormat0/1's packed signed
-        // 11:11:10 normal word — see PackedNormal) and pass them in. This fallback only fires for
+        // 11:11:10 normal word - see PackedNormal) and pass them in. This fallback only fires for
         // formats that don't carry real normals at all (UFrags currently don't plumb theirs
-        // through either) — computed from the triangle data itself rather than guessed, so it's
+        // through either) - computed from the triangle data itself rather than guessed, so it's
         // still a reasonable substitute where no real data is available.
         _normals = normals ?? GeometryMath.ComputeNormals(positions, indices);
         // Same idea for tangents: readers pass in the packed tangent word's decode (real
         // tangent-space data) when they have it, and GeometryMath falls back to deriving one from
         // UV gradients (and always derives the handedness sign, since the source format never
-        // carries one either way — see GeometryMath.ComputeTangents).
+        // carries one either way - see GeometryMath.ComputeTangents).
         _tangents = GeometryMath.ComputeTangents(positions, uvs, _normals, indices, tangents);
         _lightmapUVs = lightmapUVs;
         _vertexAlphaCandidates = vertexAlphaCandidates;

@@ -9,10 +9,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Bliss" Version="1.6.15" />
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
+    <!-- PNG/JPEG/etc decode and encode. Same two libraries Bliss used underneath its own Image type,
+         referenced directly now. -->
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
+    <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
     <PackageReference Include="TinyBCSharp" Version="0.1.2" />
     <PackageReference Include="Veldrith" Version="1.2.19" />
+    <!-- GLSL to SPIR-V for the renderer's own shaders. Came in transitively through Bliss. -->
+    <PackageReference Include="Veldrith.SPIRV" Version="1.2.19" />
+    <!-- Raw Vulkan for the new from-scratch renderer (Docs/NewRenderer.md). Pinned to exactly the
+         version Veldrith uses so the handles GraphicsDevice.GetVulkanInfo() returns are the same
+         Vortice types we consume. -->
+    <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,7 +29,7 @@
   </ItemGroup>
 
   <!-- Engine shader assets. Copied into the host app's output Shaders/ folder (they flow through
-       the project reference), fusing with ReLunacy's own Shaders/ there — see ShaderAsset, which
+       the project reference), fusing with ReLunacy's own Shaders/ there - see ShaderAsset, which
        resolves both from that single output location. -->
   <ItemGroup>
     <Content Include="Shaders\**\*">

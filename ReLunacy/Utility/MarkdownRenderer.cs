@@ -5,12 +5,12 @@ namespace ReLunacy.Utility;
 
 /// <summary>
 /// Minimal, self-contained Markdown renderer for Dear ImGui, written for the update changelog
-/// (GitHub release bodies — see <see cref="UpdateChecker"/>). It deliberately supports only a small
+/// (GitHub release bodies - see <see cref="UpdateChecker"/>). It deliberately supports only a small
 /// subset: headers, bold, italic, underline, inline code, links, and bullet / numbered lists.
 ///
-/// Only the single default ImGui font is loaded (see ImGuiController — there is no bold or italic
+/// Only the single default ImGui font is loaded (see ImGuiController - there is no bold or italic
 /// font family), so styling is faked: bold is over-drawn a fraction of a pixel to fatten the
-/// glyphs, and italic — which needs a real slanted font to look right — is shown as a dimmed
+/// glyphs, and italic - which needs a real slanted font to look right - is shown as a dimmed
 /// emphasis colour rather than a true slant. Headers use ImGui 1.92's dynamic font sizing
 /// (<c>PushFont(font, size)</c>) to scale the one font up. This is not a CommonMark parser and is
 /// intentionally not extensible; it only has to make a release's notes readable in-app.
@@ -85,7 +85,7 @@ public static class MarkdownRenderer
         var bullet = BulletPattern.Match(line);
         if (bullet.Success)
         {
-            RenderListItem("•  ", IndentFor(bullet.Groups[1].Value), ParseInline(bullet.Groups[2].Value), wrapWidth);
+            RenderListItem("-  ", IndentFor(bullet.Groups[1].Value), ParseInline(bullet.Groups[2].Value), wrapWidth);
             return;
         }
 

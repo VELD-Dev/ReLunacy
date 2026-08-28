@@ -10,7 +10,7 @@ public sealed record GameLibrary(GameDefinition? DetectedGame, string RootPath, 
 /// layout up front: old-engine games keep extracted level folders under packed/levels/&lt;name&gt;,
 /// new-engine games (and repacked old-engine dumps) may ship the same data as .psarc archives
 /// anywhere under the root. A folder/archive only counts as a level if it actually contains
-/// main.dat (old engine) or gameplay.dat (new engine) — not just because it has a plausible name.
+/// main.dat (old engine) or gameplay.dat (new engine) - not just because it has a plausible name.
 /// Game identification itself depends on GameDefinition.KnownLevels being populated; until then
 /// this still finds and lists every level, it just can't say which of the 6 games they belong to.
 /// </summary>
@@ -65,7 +65,7 @@ public static class GameLibraryScanner
                 continue;
 
             // The archive's own filename is always one of a fixed handful (level_cached,
-            // level_uncached, level_textures) — the actual level name is the folder it lives in
+            // level_uncached, level_textures) - the actual level name is the folder it lives in
             // (packed/levels/<name>/level_cached.psarc), which is also what GameDefinition's
             // KnownLevels lists match against.
             string levelName = Path.GetFileName(Path.GetDirectoryName(psarcPath)) ?? Path.GetFileNameWithoutExtension(psarcPath);
@@ -74,7 +74,7 @@ public static class GameLibraryScanner
     }
 
     /// <summary>
-    /// Old engine only: debug.dat almost never lives inside the level's own main.dat/psarc — it's
+    /// Old engine only: debug.dat almost never lives inside the level's own main.dat/psarc - it's
     /// a loose file at &lt;root&gt;/built/levels/&lt;name&gt;/debug.dat, next to (but not part of) the
     /// packed level data under packed/levels/&lt;name&gt;.
     /// </summary>
@@ -89,7 +89,7 @@ public static class GameLibraryScanner
     /// something like Program.ProvidedPath and never went through <see cref="Scan"/> (so never got
     /// a proper <see cref="Level"/>.Name). Same rule as <see cref="ScanPsarcLevels"/>: a .psarc's own
     /// filename is always one of a fixed handful (level_cached, level_uncached, level_textures), so
-    /// for a file path the actual level name is its containing folder, not the file itself — a
+    /// for a file path the actual level name is its containing folder, not the file itself - a
     /// folder path (old engine, or a pre-extracted new-engine level) is already the level name.
     /// </summary>
     public static string GetLevelNameFromPath(string path)
@@ -101,7 +101,7 @@ public static class GameLibraryScanner
 
     /// <summary>
     /// Same lookup as <see cref="ResolveDebugDatPath"/>, but starting from a level's own folder or
-    /// .psarc file path instead of an already-known root — for callers (manual "Open level" file
+    /// .psarc file path instead of an already-known root - for callers (manual "Open level" file
     /// pickers) that never went through <see cref="Scan"/> and so never got a root path at all.
     /// Only works when the path still matches the standard packed/levels/&lt;name&gt; nesting.
     /// </summary>

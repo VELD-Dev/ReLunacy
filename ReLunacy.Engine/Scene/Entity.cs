@@ -1,10 +1,5 @@
 using System.Numerics;
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Colors;
-using Bliss.CSharp.Graphics.Rendering.Renderers;
-using Bliss.CSharp.Graphics.Rendering.Renderers.Forward;
-using Bliss.CSharp.Transformations;
-using Veldrith;
+using ReLunacy.Engine.Rendering.Resources;
 
 namespace ReLunacy.Engine.Scene;
 
@@ -17,28 +12,50 @@ public abstract class Entity : IDisposable
     public bool allowRender = true;
     public bool selected = false;
 
-    private Transform transform;
+    private Transform transform = new();
     public Transform Transform
     {
         get => transform;
         set { transform = value; IsDirty = true; }
     }
 
-    /// <summary>Bounding sphere in LOCAL space — center is an offset from this entity's own pivot, not an absolute world position. Set once at load and never needs updating when the entity moves; see <see cref="WorldBoundingSphere"/> for the world-space value used by culling/rendering.</summary>
+    /// <summary>Bounding sphere in LOCAL space - center is an offset from this entity's own pivot, not an absolute world position. Set once at load and never needs updating when the entity moves; see <see cref="WorldBoundingSphere"/> for the world-space value used by culling/rendering.</summary>
     public abstract Vector4 BoundingSphere { get; set; }
 
-    /// <summary>Current world-space bounding sphere, tracking <see cref="Transform"/> live — always reflects the entity's current position, including mid-drag via the gizmo.</summary>
+    /// <summary>Current world-space bounding sphere, tracking <see cref="Transform"/> live, including
+    /// mid-drag via the gizmo. This is what the renderer frustum-culls against.
+    ///
+    /// The local centre goes through the WHOLE transform, not just its translation. It is an offset in
+    /// the entity's own space, so a rotated entity whose model origin is not at its centre needs that
+    /// offset rotated with it, and a scaled one needs it scaled. Adding the raw offset to the
+    /// translation (what this used to do) left the sphere in the wrong place for every rotated tie and
+    /// every moby placed with a scale, which showed up as geometry vanishing while still on screen.
+    ///
+    /// The radius scales by the LARGEST absolute scale component: a sphere under non-uniform scale is
+    /// bounded by one of radius r * max|s|, and over-estimating only costs a few draws that survive the
+    /// cull, where under-estimating clips something the camera can see.</summary>
     public Vector4 WorldBoundingSphere
     {
         get
         {
-            var worldCenter = Transform.Translation + new Vector3(BoundingSphere.X, BoundingSphere.Y, BoundingSphere.Z);
-            return new Vector4(worldCenter, BoundingSphere.W);
+            var transform = Transform;
+            var localCenter = new Vector3(BoundingSphere.X, BoundingSphere.Y, BoundingSphere.Z);
+            var worldCenter = Vector3.Transform(localCenter, transform.GetMatrix());
+            float maxScale = MathF.Max(
+                MathF.Abs(transform.Scale.X),
+                MathF.Max(MathF.Abs(transform.Scale.Y), MathF.Abs(transform.Scale.Z)));
+            return new Vector4(worldCenter, BoundingSphere.W * maxScale * BoundingSphereMargin);
         }
     }
 
     public abstract string Name { get; protected set; }
     public bool IsDirty { get; set; } = true;
+
+    /// <summary>Slack on the culling radius. Measuring every instance's transformed vertices against
+    /// its own sphere on metropolis put the tightest ties, mobys and UFrags at 1.000 to 1.006 of it, so
+    /// the assets' own fitted radii are very slightly optimistic. A sliver of geometry outside the
+    /// sphere is a visible pop at the screen edge; a 2% larger sphere is a handful of extra draws.</summary>
+    private const float BoundingSphereMargin = 1.02f;
 
     protected List<Renderable> cachedRenderables = [];
 
@@ -47,42 +64,40 @@ public abstract class Entity : IDisposable
         ID = EntityIndex++;
     }
 
-    public abstract void Draw(IRenderer renderer, OutputDescription outputDescription, CommandList commandList, Cam3D camera, ImmediateRenderer immediateRenderer);
+    /// <summary>Rebuilds <see cref="cachedRenderables"/> if <see cref="IsDirty"/>. Every entity type
+    /// that caches renderables overrides this; Draw and GetRenderablesForVk both go through it.
+    ///
+    /// It has to be reachable from OUTSIDE Draw because the raw-Vulkan renderer never calls Draw. A
+    /// gizmo edit ASSIGNS a new Transform (GizmoController) rather than mutating the existing one, so
+    /// the Renderables built earlier keep pointing at the old Transform object and hand back stale
+    /// matrices until they are rebuilt. Leaving that rebuild inside Draw meant edits never reached the
+    /// VK path, and that the initial scene capture could only see entities that some earlier frame
+    /// happened to have drawn.</summary>
+    protected virtual void EnsureRenderables() { }
 
-    /// <summary>Meshes to draw for GPU picking, each with its own already-fully-world-baked
-    /// transform, all tagged with this entity's own ID — populated from the last Draw() call. A
-    /// Moby's bangles/submeshes all resolve back to the one Moby entity. Reads each Renderable's
-    /// OWN Transform(s) rather than this entity's Transform directly: every entity (Moby/Tie/UFrag,
-    /// and EntityVolume's 12 separate per-edge Renderables) constructs each Renderable with the
-    /// exact Transform that Renderable should be drawn/picked at, so this is just trusting that
-    /// directly instead of recomputing/assuming it's always equal to Entity.Transform — which lets
-    /// an entity with more than one Renderable (like EntityVolume) report each one's real world
-    /// position instead of collapsing them all onto one shared matrix. GetTransforms() returns a
-    /// capacity-sized backing array (rounded up to a power of two, padded with default Transforms
-    /// past the real count) — InstanceCount is the actual number of live entries, hence the
-    /// explicit bound below rather than trusting the span's own length; this matters even for a
-    /// non-instanced single-transform Renderable in principle, and is essential the moment
-    /// anything in this codebase uses real GPU instancing (useInstancing: true) again. Materializes
-    /// into a List rather than using yield return because ReadOnlySpan&lt;Transform&gt; can't be
-    /// held live across a yield boundary.</summary>
-    public IEnumerable<(Bliss.CSharp.Geometry.Meshes.IMesh mesh, Matrix4x4 world)> GetPickableMeshes()
+    /// <summary>Every mesh this entity places, with the material that placement is drawn with.
+    ///
+    /// The material is per-RENDERABLE, not per-mesh, which is what lit ties need: one tie model is
+    /// shared across many placements, but each placement's baked lightmap lives on its own material
+    /// (EntityTie builds <c>new Renderable(mesh, Transform, perInstanceMaterial)</c>).
+    /// Rebuilds the cache first (see <see cref="EnsureRenderables"/>) so it never depends on anything
+    /// else having run this frame.</summary>
+    public virtual IEnumerable<(RenderMesh mesh, RenderMaterial material, Matrix4x4 world, Vector4 sphere)> GetRenderablesForVk()
     {
-        var results = new List<(Bliss.CSharp.Geometry.Meshes.IMesh, Matrix4x4)>();
+        EnsureRenderables();
+        // The game's own per-entity world bounding sphere (xyz centre, w radius). Shared across the
+        // entity's renderables, so the renderer culls at entity granularity like the game rather than
+        // from a looser per-mesh AABB sphere.
+        var sphere = WorldBoundingSphere;
+        var results = new List<(RenderMesh, RenderMaterial, Matrix4x4, Vector4)>();
         foreach (var renderable in cachedRenderables)
         {
             var transforms = renderable.GetTransforms();
-            int count = (int)renderable.InstanceCount;
+            int count = renderable.InstanceCount;
             for (int i = 0; i < count; i++)
-                results.Add((renderable.Mesh, transforms[i].GetMatrix()));
+                results.Add((renderable.Mesh, renderable.Material, transforms[i].GetMatrix(), sphere));
         }
         return results;
-    }
-
-    public virtual void DrawBoundingSphere(OutputDescription outputDescription, CommandList commandList, ImmediateRenderer immediateRenderer)
-    {
-        var sphere = WorldBoundingSphere;
-        var center = new Vector3(sphere.X, sphere.Y, sphere.Z);
-        immediateRenderer.DrawSphereWires(new Transform { Translation = center }, sphere.W, 8, 8, Color.Cyan);
     }
 
     public virtual void Dispose() { }

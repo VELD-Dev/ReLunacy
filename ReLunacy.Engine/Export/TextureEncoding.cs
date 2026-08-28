@@ -1,13 +1,12 @@
-using Bliss.CSharp.Images;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
+using ReLunacy.Engine.Rendering.Resources;
 
 namespace ReLunacy.Engine.Export;
 
 /// <summary>
-/// Shared PNG-encoding helpers for the model exporters (glTF embeds PNG bytes directly, OBJ
-/// writes them as loose sibling files). Bliss's Image only exposes SaveAsPng(path), so encoding
-/// to an in-memory byte[] round-trips through a temp file rather than reimplementing a PNG encoder.
+/// Shared PNG-encoding helpers for the model exporters (glTF embeds PNG bytes directly, OBJ writes
+/// them as loose sibling files).
 /// </summary>
 public static class TextureEncoding
 {
@@ -20,16 +19,8 @@ public static class TextureEncoding
 
     public static byte[] EncodeRgbaToPng(byte[] rgba, int width, int height)
     {
-        var image = new Image(width, height, rgba);
-        string tempPath = Path.Combine(Path.GetTempPath(), $"relunacy_export_{Guid.NewGuid():N}.png");
-        try
-        {
-            image.SaveAsPng(tempPath);
-            return File.ReadAllBytes(tempPath);
-        }
-        finally
-        {
-            File.Delete(tempPath);
-        }
+        // This used to write a temp file and read it straight back, because the encoder behind the
+        // old Image type was only reachable through a path.
+        return new Image(width, height, rgba).EncodeToPng();
     }
 }

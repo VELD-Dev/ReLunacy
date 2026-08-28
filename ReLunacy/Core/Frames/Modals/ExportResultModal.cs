@@ -4,7 +4,7 @@ using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.Modals;
 
-/// <summary>Shown once a background model export (see AssetViewer's export buttons) finishes —
+/// <summary>Shown once a background model export (see AssetViewer's export buttons) finishes -
 /// on success, offers to open the OS file explorer at the output folder.</summary>
 public class ExportResultModal : Modal
 {

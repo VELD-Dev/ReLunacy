@@ -18,7 +18,7 @@ public class Shader
 
     public Texture? Albedo;
     public Texture? Normal;
-    // Insomniac's "expensive" map — four unrelated masks packed into one texture. Channel roles
+    // Insomniac's "expensive" map - four unrelated masks packed into one texture. Channel roles
     // read off the captured shaders, which agree across all six programs dumped so far (one UFrag
     // program in dev/, five tie programs in dev/ties/):
     //   R = gloss / specular mask   multiplies the specular term
@@ -33,7 +33,7 @@ public class Shader
     // NOTE: GltfExporter.ApplyExpensiveChannels still uses the older R=spec / G=metallic /
     // B=emissive split. R and B survive that revision; G does not.
     public Texture? Expensive;
-    // Old engine only so far (ShaderMetadataOld.detailMap, offset 0x0C) — ShaderMetadataNew
+    // Old engine only so far (ShaderMetadataOld.detailMap, offset 0x0C) - ShaderMetadataNew
     // hasn't had its equivalent identified yet.
     //
     // Channel layout, stated outright in Insomniac's own post-mortem for this game
@@ -46,7 +46,7 @@ public class Shader
     //   B = COLOUR offset      added to albedo, scaled by fc[5].z (detailAlbedoStrength)
     //   A = GLOSS offset       added to the tex2 gloss term, scaled by fc[5].w (detailSpecStrength,
     //                          a misnomer kept only because the name is threaded through IMaterial)
-    // Both offsets are SIGNED, -1..+1 — the game gets that via the RSX texture remap, so anything
+    // Both offsets are SIGNED, -1..+1 - the game gets that via the RSX texture remap, so anything
     // decoding this map itself has to apply the same bias rather than read it as unorm.
     // This supersedes the earlier "B = roughness, R/G = a second normal map" reading: R/G were
     // right, but B is a colour offset and the gloss offset in A was missed entirely.

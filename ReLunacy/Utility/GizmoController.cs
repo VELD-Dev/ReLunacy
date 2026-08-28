@@ -1,6 +1,5 @@
 using System.Numerics;
-using Bliss.CSharp.Camera.Dim3;
-using Bliss.CSharp.Transformations;
+using ReLunacy.Engine.Rendering.Resources;
 using Hexa.NET.ImGuizmo;
 using ReLunacy.Engine.Scene;
 
@@ -16,7 +15,7 @@ public class GizmoController
     /// <summary>
     /// True while the cursor is over a gizmo handle. IsUsingAny() lags a frame behind an initial
     /// click (it wants a drag delta first), so on the very first click-down on a handle it would
-    /// still read false — checking IsOver too catches that frame so the click isn't mistaken for
+    /// still read false - checking IsOver too catches that frame so the click isn't mistaken for
     /// a pick request. Gated on _manipulatedThisFrame since IsOver() reflects stale state from
     /// whatever the last Manipulate() call drew when there's no selection to manipulate now.
     /// </summary>
@@ -34,7 +33,7 @@ public class GizmoController
         ImGuizmo.SetOrthographic(false);
     }
 
-    public void Render(Cam3D camera, Entity? entity, Vector2 viewportPos, Vector2 viewportSize)
+    public void Render(Engine.Rendering.EditorCamera camera, Entity? entity, Vector2 viewportPos, Vector2 viewportSize)
     {
         EnsureInitialized();
         ImGuizmo.BeginFrame();

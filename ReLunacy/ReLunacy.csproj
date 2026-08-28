@@ -42,12 +42,21 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Bliss" Version="1.6.15" />
+    <!-- Window creation and input. Came in transitively through Bliss until its host layer was
+         replaced (see Utility/Host); referenced directly now. -->
+    <PackageReference Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
+    <PackageReference Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <PackageReference Include="Hexa.NET.ImGui" Version="2.2.10-prerelease" />
     <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.2.10-prerelease" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
     <PackageReference Include="NativeFileDialogSharp" Version="0.6.0-alpha" />
+    <!-- PNG/JPEG/etc decode and encode. Same two libraries Bliss used underneath its own Image type,
+         referenced directly now. -->
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
+    <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
     <PackageReference Include="Veldrith" Version="1.2.19" />
+    <!-- GLSL to SPIR-V, for the ImGui shaders and the fullscreen blit. Came in through Bliss. -->
+    <PackageReference Include="Veldrith.SPIRV" Version="1.2.19" />
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 
@@ -55,7 +64,7 @@
     <ProjectReference Include="..\ReLunacy.Engine\ReLunacy.Engine.csproj" />
   </ItemGroup>
 
-  <!-- Depends on the deleted UpdateChecker (GitHub-release auto-update check) — deferred,
+  <!-- Depends on the deleted UpdateChecker (GitHub-release auto-update check) - deferred,
        not core viewer functionality. -->
   <ItemGroup>
   </ItemGroup>

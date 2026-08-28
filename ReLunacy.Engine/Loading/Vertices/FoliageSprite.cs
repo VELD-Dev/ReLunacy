@@ -57,10 +57,10 @@ public readonly record struct FoliageSpriteCorner
 /// <summary>The per-QUAD record behind a foliage card: three big-endian half floats of anchor
 /// position plus two trailing bytes, 8 bytes total, one per sprite rather than per vertex.
 ///
-/// This is attributes location 1 and location 2 of the same 8-byte record — the capture shows loc2
+/// This is attributes location 1 and location 2 of the same 8-byte record - the capture shows loc2
 /// starting exactly 4 bytes after loc1, both at stride 8 with frequency 4. loc1 is SFLOAT16 x3, so
 /// it occupies bytes +0..+5; the vertex program then reads only <c>in_normal.zw</c> out of loc2's
-/// four raw bytes, which is bytes +6 and +7. Nothing reads +4/+5 twice — the halves and the two
+/// four raw bytes, which is bytes +6 and +7. Nothing reads +4/+5 twice - the halves and the two
 /// used bytes tile the record exactly.
 ///
 /// The anchor is transformed by vertex constants 32..35 (an object-to-world matrix) before the

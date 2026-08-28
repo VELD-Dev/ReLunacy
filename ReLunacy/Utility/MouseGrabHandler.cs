@@ -1,6 +1,4 @@
 using System.Numerics;
-using Bliss.CSharp.Interact;
-using Bliss.CSharp.Interact.Mice;
 
 namespace ReLunacy.Utility;
 

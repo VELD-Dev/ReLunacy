@@ -43,7 +43,7 @@ public record struct VertexFormat1
     public readonly override string ToString() => $"Pos: ({position.Item1}; {position.Item2}; {position.Item3}) UVs: ({UVs.Item1}; {UVs.Item2})";
 
     // For the Shader/Mesh raw-vertex inspector. Unlike VertexFormat0's boneIndex, bones/weights
-    // here are already meaningfully used for skinning — Unk1 (int16, right after position) is
+    // here are already meaningfully used for skinning - Unk1 (int16, right after position) is
     // this format's own unidentified spare field, and the closest candidate to a vertex color/
     // alpha value if one exists on skinned meshes.
     public readonly string Dump() =>

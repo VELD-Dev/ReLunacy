@@ -2,6 +2,7 @@ namespace ReLunacy.Engine.Games;
 
 public enum GameId
 {
+    RFallOfMan,
     ToolsOfDestruction,
     QuestForBooty,
     ACrackInTime,
@@ -24,5 +25,6 @@ public static class GameDefinitions
         new(GameId.FullFrontalAssault, "Ratchet & Clank: Full Frontal Assault", IsOldEngine: false, KnownLevels: []),
         new(GameId.All4One, "Ratchet & Clank: All 4 One", IsOldEngine: false, KnownLevels: []),
         new(GameId.IntoTheNexus, "Ratchet & Clank: Into the Nexus", IsOldEngine: false, KnownLevels: []),
+        new(GameId.RFallOfMan, "Resistance Fall Of Man", IsOldEngine: true, KnownLevels: ["level20", "level21", "level22", "level30", "level31", "level32", "level40", "level41", "level42", "level50", "level51", "level52"])
     ];
 }

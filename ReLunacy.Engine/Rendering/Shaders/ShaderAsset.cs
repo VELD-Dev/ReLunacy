@@ -2,7 +2,7 @@ namespace ReLunacy.Engine.Rendering.Shaders;
 
 /// <summary>Loads GLSL shader assets shipped alongside the executable, from the output <c>Shaders/</c>
 /// directory. That folder is the FUSION of the app's own shaders (ReLunacy/Shaders, e.g. the ImGui
-/// and picking shaders) and the engine's model shaders (ReLunacy.Engine/Shaders) — both projects
+/// and picking shaders) and the engine's model shaders (ReLunacy.Engine/Shaders) - both projects
 /// copy their Shaders tree to the same output location, so a flat name resolves regardless of which
 /// project shipped it.
 ///
@@ -13,7 +13,7 @@ namespace ReLunacy.Engine.Rendering.Shaders;
 /// ASCII ONLY inside these .glsl files, comments included: a single non-ASCII byte makes the runtime
 /// shaderc compile fail with a MISLEADING "unexpected end of file" error (see LitModelShaderSource).
 ///
-/// Contents are cached after first read — shader sources don't change at runtime, and every Effect
+/// Contents are cached after first read - shader sources don't change at runtime, and every Effect
 /// rebuild (e.g. toggling lighting) would otherwise re-hit the disk.</summary>
 public static class ShaderAsset
 {

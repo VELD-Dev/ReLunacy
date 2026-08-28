@@ -12,7 +12,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// of the live cubemap:
 ///   - 6 faces, order +X,-X,+Y,-Y,+Z,-Z (GL/RSX), face-major with the full mip chain per face
 ///     (largest first), each face padded to a 128-byte STRIDE (5460 mip bytes -> 5504).
-///   - Faces are Morton/GCM-SWIZZLED, despite the metadata's linear bit reading set — the bit does
+///   - Faces are Morton/GCM-SWIZZLED, despite the metadata's linear bit reading set - the bit does
 ///     not describe this texture correctly, so faces are always un-swizzled here.
 ///   - A small all-zero-alpha HEADER precedes the first face (0x380 on metropolis). Rather than
 ///     hard-code it, the first face is located by a short alignment search (see FindFaceBase):
@@ -21,7 +21,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 ///
 /// Only A8R8G8B8 is handled (the only format seen). Records with offset 0 are stubs (e.g. kerchu
 /// city, which ships a placeholder and no cubemap pixels) and are skipped. New engine is not
-/// handled — its cubemaps are an assetlookup resource (InsomniaToolset ResourceCubemap 0x1d200),
+/// handled - its cubemaps are an assetlookup resource (InsomniaToolset ResourceCubemap 0x1d200),
 /// a different path entirely.</summary>
 public sealed class CubemapReader
 {
@@ -50,7 +50,7 @@ public sealed class CubemapReader
         if (section.id != ID) return [];
 
         // The section's `count` field carries the unreliable flag the rest of the loader already
-        // works around (kerchu city reports count=4 for a single stub record) — length / record
+        // works around (kerchu city reports count=4 for a single stub record) - length / record
         // size is the real count.
         int recordCount = (int)(section.length / TextureMetadataOld.Size);
         var result = new List<Assets.Cubemaps.Cubemap>();
@@ -155,7 +155,7 @@ public sealed class CubemapReader
     }
 
     /// <summary>Standard deviation and mean absolute neighbour-difference of a face's ALPHA channel
-    /// (byte 0 of each ARGB texel) — the channel that carries the cubemap's signal.</summary>
+    /// (byte 0 of each ARGB texel) - the channel that carries the cubemap's signal.</summary>
     private static (double Std, double Gradient) AlphaStats(byte[] argbFace, int size)
     {
         int n = size * size;
