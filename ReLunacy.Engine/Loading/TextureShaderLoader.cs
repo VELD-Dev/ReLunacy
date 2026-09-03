@@ -320,7 +320,7 @@ public sealed class TextureShaderLoader
 
             var metadataSection = igshader.QuerySection(ShaderMetadataOld.ID); // Old and new section IDs are the same
             shadstream.Seek(metadataSection.offset);
-            var shader = new Shader(shadstream);
+            var shader = new Shader(shadstream, tuidOverride: ptr.TUID);
 
             var sref = shader.reference!.Value;
 
@@ -345,7 +345,11 @@ public sealed class TextureShaderLoader
             // ShaderReference's own embedded TUID field (offset 0x00) reads as a genuine 0 for
             // every shader in this format - Legacy never relies on it either, keying its shader
             // dictionary by the assetlookup pointer-table TUID (shaderPtrs[i].tuid) instead, same
-            // as this codebase's Moby/Zone/Tie readers already do for their own asset tables.
+            // as this codebase's Moby/Zone/Tie readers already do for their own asset tables. The
+            // Shader constructor's tuidOverride above (ptr.TUID, same value) keeps the object's own
+            // TUID property in sync with this dictionary key - previously it didn't, which broke
+            // every direct TUID comparison downstream (ShaderBrowser.SelectShader jumping here from
+            // the Asset Viewer, its used-shader filter, its Find Usages button) for new-engine shaders.
             Shaders.Add(ptr.TUID, shader);
         }
     }

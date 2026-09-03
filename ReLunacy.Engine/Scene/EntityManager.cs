@@ -97,6 +97,32 @@ public class EntityManager : IDisposable
         }
     }
 
+    /// <summary>Same traversal as AllEntities, but skips any region/zone whose allowRender is
+    /// false - use this for actually building what gets drawn (AssetManager.BuildVkScene).
+    /// AllEntities stays unfiltered on purpose: it also backs non-rendering consumers (the Entity
+    /// Explorer tree, Asset Viewer's "used by"/usage-count lookups, texture/shader usage search) -
+    /// a zone toggled off for display should stop being DRAWN, not disappear from the level's
+    /// inventory or usage counts, which need to reflect what the level actually contains regardless
+    /// of what the user currently has visible in the viewport.</summary>
+    public IEnumerable<Entity> AllRenderableEntities()
+    {
+        foreach (var e in Foliage) yield return e;
+
+        foreach (var region in Regions)
+        {
+            if (!region.allowRender) continue;
+            foreach (var e in region.MobyInstances.Entities) yield return e;
+            foreach (var e in region.Volumes.Entities) yield return e;
+
+            foreach (var zone in region.Zones)
+            {
+                if (!zone.allowRender) continue;
+                foreach (var e in zone.TieInstances.Entities) yield return e;
+                foreach (var e in zone.UFrags.Entities) yield return e;
+            }
+        }
+    }
+
     public bool TryGetEntity(int id, out Entity? entity)
     {
         entity = null;

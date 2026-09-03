@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Assets.Interfaces;
 
@@ -22,10 +23,13 @@ public interface IUFrag : IAsset
 
     float[]? GetNormals();
     float[]? GetTangents();
-    /// <summary>Per-vertex alpha decoded from UFragVertex.unk (see its VertexAlphaCandidate - same
-    /// field role and decode as Ties' VertexFormat0.boneIndex; UFrags have no skeleton either, so
-    /// there's no competing bone-index use of the field the way there is on Mobys). Null for a
-    /// UFrag whose material has no use for it - see Material.UsesVertexAlphaCandidate.</summary>
+    /// <summary>Per-vertex alpha decoded from UFragVertex.unk (see its VertexAlpha - same field
+    /// role and decode as Ties' VertexFormat0.boneIndex; UFrags have no skeleton either, so there's
+    /// no competing bone-index use of the field the way there is on Mobys). Null for a UFrag whose
+    /// material has no use for it - see Material.UsesVertexAlphaCandidate. Despite the plural name
+    /// (kept for symmetry with IGeometry.GetVertexAlphaCandidates - see that method's own note on
+    /// why the array as a whole stays "Candidate"), the old-engine values within it are settled;
+    /// only new-engine ones may still come from an unconfirmed range formula.</summary>
     float[]? GetVertexAlphaCandidates();
     uint[] GetIndices();
     IMaterial Material { get; }
@@ -40,4 +44,13 @@ public interface IUFrag : IAsset
     /// file actually says, not what we decided it means" role that Shader.metadataOld plays for the
     /// Shader Browser. Nothing in the render path reads this.</summary>
     Loading.Objects.UFragMetadata? Metadata { get; }
+
+    /// <summary>The raw per-vertex records exactly as read off disk (see UFragVertex.Dump), for the
+    /// Asset Viewer's raw-vertex inspector - same role as IMesh.VertexDumper for Moby/Tie meshes,
+    /// but UFrags don't go through IMesh/GeometryData for their own asset representation (see this
+    /// interface's own summary), so there's nowhere else to hang it. A permanent copy, decoupled
+    /// from the ArrayPool-rented buffer the loader read into (see ZoneReader.ConvertUFrag) - that
+    /// buffer is returned to the pool right after conversion (UFrag.Dispose), long before the Asset
+    /// Viewer runs. Length always equals GetVertexPositions().Length / 3.</summary>
+    UFragVertex[] GetRawVertices();
 }

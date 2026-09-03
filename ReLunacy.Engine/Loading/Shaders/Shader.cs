@@ -56,7 +56,7 @@ public class Shader
     public Texture? DetailMap;
     public RenderingMode RenderingMode => (RenderingMode)(isOld ? metadataOld!.Value.renderingMode : metadataNew!.Value.renderingMode);
 
-    public Shader(StreamHelper sh, bool isOld = false, uint index = 0)
+    public Shader(StreamHelper sh, bool isOld = false, uint index = 0, ulong? tuidOverride = null)
     {
         this.isOld = isOld;
         shaderStream = sh;
@@ -73,7 +73,15 @@ public class Shader
             var refSec = ig.QuerySection(ShaderReference.ID);
             sh.Seek(refSec.offset);
             reference = ShaderReference.Read(sh);
-            TUID = reference.Value.TUID;
+            // reference.Value.TUID reads as a genuine 0 for every shader in this format (see
+            // TextureShaderLoader.LoadShadersNew, which already works around this for its own
+            // Shaders dictionary key) - tuidOverride carries the real identity instead: the
+            // assetlookup pointer-table TUID, the same value Tie.ShaderTUIDs/MaterialReader resolve
+            // materials against. Without this, every new-engine Shader object's own TUID property
+            // read back as 0, so anything comparing against it directly (ShaderBrowser.SelectShader,
+            // its used-shader filter, its Find Usages button) silently failed for every new-engine
+            // shader even though the dictionary lookup and material resolution were already correct.
+            TUID = tuidOverride ?? reference.Value.TUID;
         }
     }
 }

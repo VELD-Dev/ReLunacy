@@ -220,13 +220,23 @@ public class AssetViewer : DockedFrame, ILevelListener
         {
             selectedUFragAsset = value;
             if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; }
-            selectedMesh = null;
+            // A UFrag is one single mesh (see ForEachPreviewMesh's pick id 0 for it) - unlike
+            // Moby/Tie, which need a viewport click to pick which submesh, there's nothing to
+            // disambiguate, so this jumps straight to it instead of leaving the raw-vertex panel
+            // on its "click a mesh" hint until the user clicks the one thing there is to click.
+            selectedMesh = value != null ? (0, 0) : null;
+            _selectedUFragMesh = value != null ? BuildUFragMesh(value.Value) : null;
             exportNameOverride = "";
             IsDirty = true;
             RebuildSelectedAssetMaterials();
             if (value != null) FrameUFragInPreview(value.Value);
         }
     }
+
+    // IMesh adapter for whichever UFrag is currently selected - see BuildUFragMesh. Rebuilt only on
+    // selection change (SelectedUFragAsset's setter), not per-frame: ResolveSelectedMesh/
+    // RenderSelectedMeshPanel read this every frame the raw-vertex panel is visible.
+    private IMesh? _selectedUFragMesh;
 
     // Lets the user rename an asset for export (textures/.bin/.gltf all take this name too - see
     // ExportModel/GetExportName) instead of being stuck with the asset's raw internal name, which
@@ -283,6 +293,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         selectedTieAsset = null;
         selectedUFragAsset = null;
         selectedMesh = null;
+        _selectedUFragMesh = null;
         RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
@@ -529,11 +540,19 @@ public class AssetViewer : DockedFrame, ILevelListener
         return true;
     }
 
-    public bool SelectUFragById(ulong ufragId)
+    /// <summary>Selects the given UFrag instance, e.g. when jumping here from the Property
+    /// Inspector's "Open in Asset Viewer" button. Matched by reference, not by IUFrag.Id: Id is
+    /// only unique within its own zone (ZoneReader assigns it as a local per-zone loop index), so
+    /// two UFrags from different zones routinely share an Id - matching on it, as this used to,
+    /// jumped to whichever zone's UFrag happened to be first in ufragAssets with that same local
+    /// index, not the one actually requested. See TexturesExplorer.SelectUFragInView3D, which hit
+    /// and documented the same Id collision for its own "used by" lookup. Returns false if this
+    /// exact instance isn't in the currently transmitted set.</summary>
+    public bool SelectUFrag(IUFrag ufrag)
     {
-        var match = ufragAssets.FirstOrDefault(a => a.UFrag.Id == ufragId);
+        var match = ufragAssets.FirstOrDefault(a => ReferenceEquals(a.UFrag, ufrag));
         if (match.UFrag == null) return false;
-        
+
         SelectedUFragAsset = match;
         return true;
     }
@@ -1275,7 +1294,10 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowPos(DefaultPosition, DockingConditions, new Vector2(0.5f));
+        // No SetNextWindowPos here (see ShaderBrowser's comment) - it cancelled the dockspace
+        // preset's placement for this frame ("Asset") on first appearance. SetNextWindowSizeConstraints
+        // is unaffected - it just bounds size, it doesn't request a floating position - and applies
+        // whether or not this ends up docked.
         ImGui.SetNextWindowSizeConstraints(new(400, 300), ImGui.GetMainViewport().Size);
         base.RenderAsWindow(deltaTime);
     }
@@ -1300,12 +1322,14 @@ public class AssetViewer : DockedFrame, ILevelListener
     /// class View3D uses for whole-entity picking, but the id here is packed straight from local
     /// (bangleIndex, meshIndex) instead of a globally-unique per-mesh id - this viewport only ever
     /// shows one asset at a time, so there's no cross-asset collision risk to design around.
-    /// bangleIndex is always 0 for Ties.
+    /// bangleIndex is always 0 for Ties and UFrags (a UFrag is always pick id 0 too - see
+    /// ForEachPreviewMesh - so clicking it here just re-confirms the (0,0) SelectedUFragAsset's
+    /// setter already jumped to; clicking off it deselects, same as Moby/Tie).
     /// </summary>
     private void PickMeshUnderCursor()
     {
         if (!_viewport.HasArea) return;
-        if (_vkPreview == null || selectedUFragAsset != null) return;
+        if (_vkPreview == null) return;
 
         uint hitId;
         try
@@ -1353,7 +1377,91 @@ public class AssetViewer : DockedFrame, ILevelListener
             var meshes = selectedTieAsset.Value.Tie.Meshes;
             return meshIndex >= 0 && meshIndex < meshes.Count ? meshes[meshIndex] : null;
         }
+        if (selectedUFragAsset != null) return _selectedUFragMesh;
         return null;
+    }
+
+    /// <summary>Wraps a UFrag's already-decoded per-vertex arrays (IUFrag.GetVertexPositions/
+    /// GetTextureCoordinates/etc.) as an IMesh, the same GeometryData+Mesh composition every other
+    /// reader builds - so the raw-vertex inspector, vertex-edit-mode picking and its overlay all
+    /// work for UFrags exactly the way they already do for Moby/Tie meshes, without either format
+    /// needing its own separate panel code.
+    ///
+    /// Positions are rescaled to world space (raw/256, re-centred on localCentre) to match
+    /// EXACTLY what ForEachPreviewMesh's world matrix does for the rendered preview - unlike
+    /// Moby/Tie (always Matrix4x4.Identity), a UFrag's preview isn't drawn at its raw vertex scale,
+    /// and PickVertexUnderCursor/AppendVertexOverlay both treat Geometry.GetVertexPositions() as
+    /// already being in world space with no model matrix of their own to apply. Feeding them the
+    /// raw x256 positions instead would put every pick/overlay coordinate ~256x too far from the
+    /// camera and off by localCentre, i.e. picking would never hit and the overlay would never be
+    /// visible on screen. Bounding sphere is left for GeometryData to compute from these same
+    /// (already world-space) positions, rather than reusing IUFrag.GetBoundingCenter/Radius, which
+    /// are in a separately-sourced (and not always x256-consistent - see UFragAsset's own
+    /// from-vertices fallback) space; nothing here reads it anyway.
+    ///
+    /// Deliberately NOT built from the raw UFragVertex[] the loader read off disk (ZoneReader's
+    /// legacyUFrag.vertices) - that array is ArrayPool-rented and returned to the pool right after
+    /// conversion (see UFrag.Dispose), long before the Asset Viewer runs, so holding a reference to
+    /// it here would eventually read another tenant's data. Every value the inspector needs
+    /// (including vertex alpha) is already decoded and permanently owned by IUFrag, which is what
+    /// DumpUFragVertex below reads instead.</summary>
+    private static IMesh BuildUFragMesh(UFragAsset asset)
+    {
+        var ufrag = asset.UFrag;
+        float[] rawPositions = ufrag.GetVertexPositions();
+        var positions = new float[rawPositions.Length];
+        for (int i = 0; i + 2 < rawPositions.Length; i += 3)
+        {
+            positions[i + 0] = rawPositions[i + 0] / 256f - asset.localCentre.X / 256f;
+            positions[i + 1] = rawPositions[i + 1] / 256f - asset.localCentre.Y / 256f;
+            positions[i + 2] = rawPositions[i + 2] / 256f - asset.localCentre.Z / 256f;
+        }
+
+        // GeometryData's own `tangents` parameter expects a RAW 3-per-vertex direction (xyz only) -
+        // it feeds that straight back into GeometryMath.ComputeTangents itself to derive the final
+        // 4-per-vertex (xyz + w handedness) result GetTangents() returns. IUFrag.GetTangents() is
+        // already that FINAL 4-per-vertex output (ZoneReader.ConvertUFrag ran it through
+        // ComputeTangents once already) - passing it straight through here duplicates that recompute
+        // AND hands it 4-per-vertex data where 3-per-vertex is required, which is what crashed
+        // ("Tangents must be in groups of 3"). Strip the w back off so ComputeTangents gets the
+        // real decoded xyz direction as input, same as every other reader does, and derives its own
+        // (necessarily identical, since bitangent/handedness only depends on xyz + UVs) w again.
+        float[]? ufragTangents = ufrag.GetTangents();
+        float[]? tangentsXyz = null;
+        if (ufragTangents != null)
+        {
+            tangentsXyz = new float[ufragTangents.Length / 4 * 3];
+            for (int i = 0; i * 4 + 2 < ufragTangents.Length; i++)
+            {
+                tangentsXyz[i * 3 + 0] = ufragTangents[i * 4 + 0];
+                tangentsXyz[i * 3 + 1] = ufragTangents[i * 4 + 1];
+                tangentsXyz[i * 3 + 2] = ufragTangents[i * 4 + 2];
+            }
+        }
+
+        var geometry = new Engine.Assets.Geometry.GeometryData(
+            id: ufrag.Id,
+            positions: positions,
+            uvs: ufrag.GetTextureCoordinates(),
+            indices: ufrag.GetIndices(),
+            normals: ufrag.GetNormals(),
+            tangents: tangentsXyz,
+            lightmapUVs: ufrag.GetLightmapUVs(),
+            vertexAlphaCandidates: ufrag.GetVertexAlphaCandidates());
+
+        return new Engine.Assets.Geometry.Mesh(geometry, ufrag.Material, "UFragMesh", "UFragVertex", i => DumpUFragVertex(ufrag, i));
+    }
+
+    /// <summary>The full raw UFragVertex record, one 4-byte-aligned line per RSX attribute word -
+    /// see UFragVertex.Dump for the actual field breakdown. Matches VertexFormat0.Dump()/
+    /// TieMesh.DumpVertex's "raw bytes plus decoded value next to them" role for Moby/Tie meshes,
+    /// now that IUFrag.GetRawVertices() keeps a permanent copy of the real per-vertex records
+    /// (see ZoneReader.ConvertUFrag) instead of only the already-decoded float arrays this used to
+    /// be built from.</summary>
+    private static string? DumpUFragVertex(IUFrag ufrag, int index)
+    {
+        var rawVertices = ufrag.GetRawVertices();
+        return index >= 0 && index < rawVertices.Length ? rawVertices[index].Dump() : null;
     }
 
     /// <summary>CPU screen-space nearest-vertex picking against the selected mesh's raw vertex

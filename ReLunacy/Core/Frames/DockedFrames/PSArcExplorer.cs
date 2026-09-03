@@ -474,7 +474,8 @@ public class PSArcExplorer : DockedFrame
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Appearing, new Vector2(0.5f));
+        // No SetNextWindowPos (see ShaderBrowser's comment) - "PSArc Explorer" can match the
+        // dockspace preset's "Explorer" fallback. SetNextWindowSizeConstraints is unaffected.
         ImGui.SetNextWindowSizeConstraints(new Vector2(800, 600), ImGui.GetMainViewport().Size);
         base.RenderAsWindow(deltaTime);
     }

@@ -800,7 +800,7 @@ public sealed class AssetManager : IDisposable
         var geoRemap = new Dictionary<int, int>();
         var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
 
-        foreach (var entity in EntityManager.Singleton.AllEntities())
+        foreach (var entity in EntityManager.Singleton.AllRenderableEntities())
         {
             foreach (var (mesh, material, world, sphere) in entity.GetRenderablesForVk())
             {

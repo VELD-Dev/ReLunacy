@@ -99,7 +99,10 @@ public record struct TieMesh : ILunaSerializable, IMesh
 
         for (int k = 0; k < verticesCount; k++)
         {
-            vertexAlphaCandidates[k] = vertices[k].VertexAlphaCandidate;
+            // isOld is per-mesh (set in Tie's constructor) - see VertexFormat0.VertexAlphaCandidateNewEngineAuto
+            // for why new-engine ties need a different (and value-range-dispatched) decode of the
+            // same raw field.
+            vertexAlphaCandidates[k] = isOld ? vertices[k].VertexAlpha : vertices[k].VertexAlphaCandidateNewEngineAuto;
             vpos[k * 3 + 0] = vertices[k].position.Item1 * scale.X;
             vpos[k * 3 + 1] = vertices[k].position.Item2 * scale.Y;
             vpos[k * 3 + 2] = vertices[k].position.Item3 * scale.Z;

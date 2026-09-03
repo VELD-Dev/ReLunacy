@@ -59,6 +59,17 @@ public class ImGuiController : IDisposable
         io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset | ImGuiBackendFlags.RendererHasTextures;
         io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard | ImGuiConfigFlags.DockingEnable;
         io.Fonts.Flags |= ImFontAtlasFlags.NoBakedLines;
+        // ImGui auto-loads/auto-saves this file on its own (the load happens inside the very first
+        // NewFrame() call below, before DockspaceLayoutManager ever runs) - a second, independent
+        // persistence mechanism running underneath the one this app already has explicitly
+        // (EditorSettings.SavedLayouts, via SaveIniSettingsToMemoryS/LoadIniSettingsFromMemory in
+        // DockspaceLayoutManager). Across many runs with differently-shaped dock trees, imgui.ini
+        // accumulates stale per-window DockId entries pointing at nodes that no longer exist in the
+        // freshly-built tree - DockBuilderDockWindow doesn't reliably reclaim a window from one of
+        // these orphaned nodes, so windows ended up parked wherever the stale ini last left them
+        // instead of the intended preset. Disabling it here means ImGui never touches disk on its
+        // own; the explicit EditorSettings-based system is the only thing that persists layout now.
+        unsafe { io.IniFilename = null; }
 
         unsafe
         {

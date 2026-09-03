@@ -10,12 +10,45 @@ public record struct UFragVertex
     public (short, short, short) position;
     public short unk;
 
-    // Same field role, same decode, as VertexFormat0.boneIndex/VertexAlphaCandidate: a SINT16
-    // immediately after position (confirmed by the RSX attribute descriptor below - attr0 is a
-    // genuine 4-component SINT16 attribute, not two unrelated reads), on a mesh type with no
-    // skeleton at all - UFrags have no bones, so there is nothing else this field could be doing
-    // its nominal job as here, same reasoning that applies on Ties.
-    public readonly float VertexAlphaCandidate => Math.Clamp((0xC000 - (ushort)unk) / 127f, 0f, 1f);
+    // Same field role, same decode, as VertexFormat0.boneIndex/VertexAlpha: a SINT16 immediately
+    // after position (confirmed by the RSX attribute descriptor below - attr0 is a genuine
+    // 4-component SINT16 attribute, not two unrelated reads), on a mesh type with no skeleton at
+    // all - UFrags have no bones, so there is nothing else this field could be doing its nominal
+    // job as here, same reasoning that applies on Ties. Confirmed by the user against real UFrag
+    // data via the Asset Viewer's raw-vertex inspector (see UFragVertex.Dump) - the two bytes right
+    // after position.z are indeed where the vertex alpha lives, same offset this formula already
+    // read. This is the OLD-engine decode specifically - see VertexAlphaCandidateNewEngineAuto for
+    // new engine, also user-confirmed to follow the exact same three-range split as VertexFormat0's
+    // own new-engine decode (same field, same hardware format, so the same encoding scheme carrying
+    // over is unsurprising in hindsight).
+    //
+    // Named without "Candidate" (unlike the NewEngine* decodes below) - settled, not provisional,
+    // per the same user confirmation.
+    public readonly float VertexAlpha => Math.Clamp((0xC000 - (ushort)unk) / 127f, 0f, 1f);
+
+    // New-engine counterparts, identical formulas/ranges to VertexFormat0's A/B/C/Auto (see that
+    // struct for the full reverse-engineering history behind these three specific ranges) - the
+    // user confirmed against real UFrag data that this field follows the exact same split here.
+    public readonly float VertexAlphaCandidateNewEngineA => Math.Clamp(((ushort)unk - 0x7F80) / 127f, 0f, 1f);
+    public readonly float VertexAlphaCandidateNewEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
+    public readonly float VertexAlphaCandidateNewEngineC => Math.Clamp((0x9080 - (ushort)unk) / 127f, 0f, 1f);
+
+    // A fourth range (0x9980-0x99FF) exists on this same field, but was found on TIE data
+    // (VertexFormat0.VertexAlphaCandidateNewEngineD) - not (yet) independently confirmed on UFrag
+    // data, so it's deliberately NOT mirrored here. See that struct's comment on the risk of
+    // extrapolating a range from spacing/format-similarity alone rather than a real sample from
+    // this specific format.
+    public readonly float VertexAlphaCandidateNewEngineAuto
+    {
+        get
+        {
+            ushort raw = (ushort)unk;
+            if (raw is >= 0x7F80 and <= 0x7FFF) return VertexAlphaCandidateNewEngineA;
+            if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaCandidateNewEngineB;
+            if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaCandidateNewEngineC;
+            return 1f;
+        }
+    }
 
     public (Half, Half) UVs;
 
@@ -96,4 +129,19 @@ public record struct UFragVertex
         normal = sh.ReadUInt32(recordBase + 0x10);
         tangent = sh.ReadUInt32(recordBase + 0x14);
     }
+
+    // For the Asset Viewer's raw-vertex inspector, one 4-byte-aligned line per RSX attribute word -
+    // see the class comment's attribute table (attr0-attr4), which this mirrors exactly: attr0's
+    // SINT16x4 spans two words (position.xyz + unk don't split evenly into one), attr1-attr4 are
+    // each exactly one word. UVs2's raw half bits are reconstructed via a lossless float->Half cast
+    // (the field is stored as float - see UVs2's own comment - but every value in it came from
+    // ReadHalf() with no arithmetic in between, so casting back reproduces the original bits
+    // exactly) rather than being available directly, unlike UVs which still holds the original Half.
+    public readonly string Dump() =>
+        $"[0x00] attr0 (SINT16x4, word 1/2): pos.x={position.Item1} (0x{(ushort)position.Item1:X4})  pos.y={position.Item2} (0x{(ushort)position.Item2:X4})\n" +
+        $"[0x04] attr0 (SINT16x4, word 2/2): pos.z={position.Item3} (0x{(ushort)position.Item3:X4})  unk={unk} (0x{(ushort)unk:X4})  (as vertex alpha - old engine: {VertexAlpha:0.###}, new engine (auto A/B/C, still unconfirmed): {VertexAlphaCandidateNewEngineAuto:0.###})\n" +
+        $"[0x08] attr1 (SFLOAT16x2): UVs raw=(0x{BitConverter.HalfToUInt16Bits(UVs.Item1):X4}, 0x{BitConverter.HalfToUInt16Bits(UVs.Item2):X4})  decoded=({(float)UVs.Item1:0.######}, {(float)UVs.Item2:0.######})\n" +
+        $"[0x0C] attr2 (SFLOAT16x2): Lightmap UVs (UVs2) raw=(0x{BitConverter.HalfToUInt16Bits((Half)UVs2.Item1):X4}, 0x{BitConverter.HalfToUInt16Bits((Half)UVs2.Item2):X4})  decoded=({UVs2.Item1:0.######}, {UVs2.Item2:0.######})\n" +
+        $"[0x10] attr3 (CMP 11:11:10): normal raw=0x{normal:X8}  decoded={PackedNormal.Decode(normal)}\n" +
+        $"[0x14] attr4 (CMP 11:11:10): tangent raw=0x{tangent:X8}  decoded={PackedNormal.Decode(tangent)}";
 }

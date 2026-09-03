@@ -102,12 +102,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         ImGui.EndGroup();
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowSize(new Vector2(200, 600), ImGuiCond.Once);
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new Vector2(0.5f));
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowSize/Pos on first
+    // appearance cancelled the dockspace preset's placement, which this frame is a target of
+    // ("Entity"/"Hierarchy"/"Explorer") and is one of the three frames open by default.
 
     public void ShowEntities(Entity[] entities)
     {

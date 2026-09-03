@@ -24,10 +24,15 @@ public sealed class EditorWindow : IDisposable
         Exists = true;
     }
 
-    /// <summary>Opens the window and creates a graphics device with a swapchain onto it.</summary>
+    /// <summary>Opens the window and creates a graphics device with a swapchain onto it.
+    /// <paramref name="width"/>/<paramref name="height"/> are only the fallback windowed size -
+    /// with <paramref name="startMaximized"/> set, the window opens maximized directly (the
+    /// WindowFlags.Maximized flag is honored by SDL_CreateWindow itself, so there's no visible
+    /// windowed-then-maximized flash the way calling MaximizeWindow() right after creation would
+    /// have).</summary>
     /// <exception cref="PlatformNotSupportedException">The requested backend is not available here.</exception>
     public static EditorWindow Create(
-        int width, int height, string title, GraphicsDeviceOptions options,
+        int width, int height, bool startMaximized, string title, GraphicsDeviceOptions options,
         GraphicsBackend preferredBackend, out GraphicsDevice graphicsDevice)
     {
         if (!GraphicsDevice.IsBackendSupported(preferredBackend))
@@ -50,7 +55,7 @@ public sealed class EditorWindow : IDisposable
         {
             GraphicsBackend.Vulkan => SDL.WindowFlags.Vulkan,
             _ => 0,
-        };
+        } | (startMaximized ? SDL.WindowFlags.Maximized : 0);
 
         nint handle = SDL.CreateWindow(title, width, height, flags);
         if (handle == nint.Zero)
@@ -124,6 +129,22 @@ public sealed class EditorWindow : IDisposable
 
     public int GetWidth() => GetSizeInPixels().Width;
     public int GetHeight() => GetSizeInPixels().Height;
+
+    /// <summary>Size of the window in desktop coordinates (not pixels - see GetSizeInPixels above),
+    /// the same units SDL_CreateWindow's own width/height parameters take, so a size read here can
+    /// be fed straight back into a later Create call to restore it. Not meaningful while maximized -
+    /// see IsMaximized/EditorSettings.WindowWidth/Height's own callers for why only the windowed
+    /// size gets persisted.</summary>
+    public (int Width, int Height) GetWindowSize()
+    {
+        SDL.GetWindowSize(_handle, out int w, out int h);
+        return (w, h);
+    }
+
+    /// <summary>Live maximized state - reflects the window as it actually is right now, including
+    /// the user manually maximizing/restoring it mid-session, not just whatever Create was asked
+    /// for at startup.</summary>
+    public bool IsMaximized => (SDL.GetWindowFlags(_handle) & SDL.WindowFlags.Maximized) != 0;
 
     public void SetTitle(string title) => SDL.SetWindowTitle(_handle, title);
 

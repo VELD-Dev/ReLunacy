@@ -3,7 +3,20 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
-## [v0.05.1](https://github.com/VELD-Dev/releases/0.05.1) - 28-08-2026
+## [v0.06](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-09-2026
+
+- Added Moby Assets names reading for the Asset Explorer.
+- Added the raw-vertex inspector in Asset Viewer for reverse-engineering purposes.
+- Added a layout system. You can create custom layouts and save them. The layout is automatically saved on exit and is reused directly when reopening ReLunacy.
+- ReLunacy now starts with a default docked layout.
+- Every panel now starts docked, and spawns/appears docked on first opening.
+- Game Browser now remembers the last USRDIR path you scanned, both when reopening the frame AND relaunching ReLunacy.
+- Fixed "Open in Asset Viewer" (from the Property Inspector) jumping to the wrong UFrag, or the wrong zone's UFrag entirely, whenever a level had more than one zone in New Engine.
+- Found and decoded vertex alpha offset and vertex alpha ranges in New Engine for UFragVertex, VertexFormat0 and VertexFormat1. Ranges: (1.0-0.0) 0xFF80-0xFFFF, 0x7F80-0x7FFF, 0x9080-0x9001, 0x8080-0x8001; Some are ascending, other descending, annoying shit I won't detail.
+- The editor window now opens maximized by default and remembers last size and maximization state between sessions.
+- Added per-zone render toggles (`Render menu > Zones`)
+
+## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026
 
 [View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.05..0.05.1)
 

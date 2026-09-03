@@ -195,9 +195,16 @@ public sealed class ZoneReader
         var lightmapUVs = legacyUFrag.metadata.HasLightmap && legacyUFrag.uvs2.Length > 0 ? legacyUFrag.uvs2 : null;
         var vertexAlphaCandidates = legacyUFrag.vertexAlphaCandidates;
 
+        // A real copy, not the pooled buffer itself - legacyUFrag.vertices is ArrayPool-rented and
+        // returned to the pool right after this method returns (UFrag.Dispose, called by ReadUFrags'
+        // caller once every UFrag in the zone has been converted), long before the Asset Viewer's
+        // raw-vertex inspector runs. Trimmed to the real vertex count for the same reason indices
+        // above is: Length is only guaranteed >= vertexCount (rounds up to the pool's bucket size).
+        var rawVertices = legacyUFrag.vertices.AsSpan(0, (int)legacyUFrag.metadata.vertexCount).ToArray();
+
         return legacyUFrag.isOld
-            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlphaCandidates: vertexAlphaCandidates, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata)
-            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlphaCandidates: vertexAlphaCandidates, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata);
+            ? new OldUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlphaCandidates: vertexAlphaCandidates, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata, rawVertices: rawVertices)
+            : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlphaCandidates: vertexAlphaCandidates, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata, rawVertices: rawVertices);
     }
 
     private List<IPlacedInstance<ITie>> ReadTieInstances(Objects.Zone legacyZone)

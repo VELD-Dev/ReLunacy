@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Rendering;
@@ -48,7 +49,7 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.EndGroup();
         ImGui.SameLine();
         ImGui.BeginGroup();
-        ImGui.Text(SelectedEntity.Name.Split('/')[^1]);
+        ImGui.TextWrapped(SelectedEntity.Name);
         ImGui.SameLine();
         ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice"));
         ImGui.Text(SelectedEntity.GetType().Name);
@@ -126,7 +127,7 @@ public class PropertyInspectorFrame : DockedFrame
         else if (SelectedEntity is EntityUFrag ufrag)
         {
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
-                OpenUFragInAssetViewer(ufrag.UFrag.Id);
+                OpenUFragInAssetViewer(ufrag.UFrag);
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
@@ -158,11 +159,8 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.EndGroup();
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new Vector2(0.5f));
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowPos on first appearance
+    // cancels the dockspace preset's placement, which this frame is a target of ("Inspector").
 
     private static void OpenMobyInAssetViewer(ulong mobyId)
     {
@@ -184,12 +182,15 @@ public class PropertyInspectorFrame : DockedFrame
         }
     }
 
-    private static void OpenUFragInAssetViewer(ulong ufragId)
+    // Takes the IUFrag instance itself, not an id - IUFrag.Id is only unique within its own zone
+    // (ZoneReader assigns it as a local per-zone loop index), so a level with more than one zone
+    // routinely has several UFrags sharing the same Id. See AssetViewer.SelectUFrag.
+    private static void OpenUFragInAssetViewer(IUFrag ufrag)
     {
         var viewer = OpenAssetViewer();
         if (viewer != null)
         {
-            viewer.SelectUFragById(ufragId);
+            viewer.SelectUFrag(ufrag);
             viewer.Focus();
         }
     }

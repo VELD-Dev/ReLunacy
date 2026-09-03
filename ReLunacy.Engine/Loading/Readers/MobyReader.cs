@@ -95,7 +95,11 @@ public sealed class MobyReader
         var boundingCenter = new System.Numerics.Vector3(boundingSphere.X, boundingSphere.Y, boundingSphere.Z);
         float boundingRadius = boundingSphere.W;
 
-        var name = _debugReader.GetMobyPrototypeName(tuid) ?? $"Moby_{tuid:X}";
+        // debug.dat's prototype table is old-engine only (see DebugReader) and always wins when it
+        // has an entry - legacyMoby.Name (section 0xD200, new engine only) is the fallback for
+        // everything debug.dat doesn't cover, same priority order Tie.cs/TieReader use for ties.
+        var debugName = _debugReader.GetMobyPrototypeName(tuid);
+        var name = debugName ?? (!string.IsNullOrEmpty(legacyMoby.Name) ? legacyMoby.Name : $"Moby_{tuid:X}");
 
         return new Assets.Mobys.Moby(
             id: tuid,
@@ -178,13 +182,14 @@ public sealed class MobyReader
     {
         // Positions are fixed-point int16 in bangle-local space; the moby's own scale must be
         // applied here, matching what MobyMesh.GetBuffers already does for the legacy renderer.
-        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents);
+        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
 
         var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh, (int)(moby.Skeleton?.NumBones ?? 0));
-        // No vertexAlphaCandidates here: VertexFormat0.boneIndex is genuinely a bone index on Mobys
-        // (confirmed - it's the very field ExtractSkinData resolves above), not vertex alpha. That
-        // decode is only valid on Ties, which have no skeleton for the field to mean anything else.
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights);
+        // vertexAlphaCandidates is only ever non-null for verticesType==1 (VertexFormat1) meshes -
+        // see MobyMesh.GetBuffers's own comment for why verticesType==0's VertexFormat0.boneIndex
+        // can't be read as alpha (it's genuinely a bone index there, the very field ExtractSkinData
+        // resolves above).
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
 
         IMaterial material = moby.IsOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.shaderIndex)

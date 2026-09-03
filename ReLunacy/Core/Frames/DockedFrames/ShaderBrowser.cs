@@ -520,9 +520,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (v3d != null) v3d.SelectedEntity = entity;
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Appearing);
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override: SetNextWindowPos on first appearance used to live here, but Dear
+    // ImGui treats it as a request to float at that position, which cancels the DockBuilderDockWindow
+    // placement DockspaceLayoutManager sets up on the very same first appearance - confirmed by
+    // instrumented runs where every DockedFrame subclass with such a call failed to dock while the
+    // ones without it (View3D, ProfilerFrame) docked correctly regardless of target node or call
+    // order. The base Frame.RenderAsWindow is enough.
 }

@@ -29,6 +29,15 @@ public class Moby : IDisposable
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
     public MobyBangle[] Bangles => MobyObj.bangles;
     public ulong[]? ShaderTUIDs;
+    /// <summary>New-engine only. Empty for old engine (which has no per-file name section at all -
+    /// see MobyReader, which falls back to debug.dat for those). NOT read from NewMoby.namePointer
+    /// (0xB8) - that field is parsed but, per both LibLunacy's Legacy/Moby.cs and its ReLunacy-Ymir
+    /// fork (independently, both predating this project and both actually working), is never what
+    /// the name comes from. The real name is a plain null-terminated string starting at the offset
+    /// of THIS moby's own per-file section 0xD200 - the same "one dedicated section per string"
+    /// shape as the vertex/index sections this class already reads (0xE200/0xE100), not a pointer
+    /// field inside the 0xD100 metadata struct the way Ties' nameOffset is.</summary>
+    public string Name { get; private set; } = string.Empty;
 
     /// <summary>Null if this moby has no skeleton (static props etc.) or if reading one failed -
     /// see the catch below. Read defensively: this is new, unverified-against-every-real-asset
@@ -59,6 +68,14 @@ public class Moby : IDisposable
 
         if (!IsOld)
         {
+            // Section 0xD200 holds exactly one string - this moby's own name - starting right at
+            // the section's offset. id is checked (not just offset != 0) since QuerySection returns
+            // a zeroed SectionHeader, id included, when a section doesn't exist - offset 0 could in
+            // principle be a real (if very unlikely) location for a found section to point at.
+            var nameSection = igFile.QuerySection(0xD200);
+            if (nameSection.id == 0xD200)
+                Name = mobyStream.ReadString(nameSection.offset);
+
             var shaderReferencesSec = igFile.QuerySection(Shader.NewInternalTUIDSecID);
 
             ShaderTUIDs = ArrayPool<ulong>.Shared.Rent((int)shaderReferencesSec.count);

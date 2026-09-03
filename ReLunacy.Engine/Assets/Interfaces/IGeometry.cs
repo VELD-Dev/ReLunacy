@@ -21,9 +21,16 @@ public interface IGeometry : IAsset
     /// GeometryData.</summary>
     float[]? GetLightmapUVs();
 
-    /// <summary>Per-vertex decode of VertexFormat0's boneIndex-as-alpha candidate (see
+    /// <summary>Per-vertex decode of VertexFormat0's boneIndex-as-alpha field (see
     /// Material.UsesVertexAlphaCandidate) - null for geometry that doesn't carry it. Not
-    /// necessarily meaningful data even when non-null; callers gate use on the material flag.</summary>
+    /// necessarily meaningful data even when non-null; callers gate use on the material flag.
+    ///
+    /// Kept as "Candidate" (unlike VertexFormat0.VertexAlpha/UFragVertex.VertexAlpha, the specific
+    /// old-engine decode formulas, which ARE settled) because this array can be populated by either
+    /// that confirmed formula OR one of the new-engine A/B/C/D range formulas depending on which
+    /// engine/vertex it came from - and those remain an explicitly unconfirmed reverse-engineering
+    /// hypothesis (see VertexFormat0's own comments). The array as a whole is only as certain as its
+    /// least certain member.</summary>
     float[]? GetVertexAlphaCandidates();
 
     uint[] GetIndices();

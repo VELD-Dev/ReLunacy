@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Assets.Terrain;
 
@@ -24,6 +25,7 @@ public sealed class OldUFrag : IUFrag
     private readonly Vector3 _anchor;
     private readonly Vector3 _boundingCenter;
     private readonly float _boundingRadius;
+    private readonly UFragVertex[] _rawVertices;
 
     public OldUFrag(
         ulong id,
@@ -40,7 +42,8 @@ public sealed class OldUFrag : IUFrag
         float[]? vertexAlphaCandidates = null,
         ushort lightmapIndex = Loading.Objects.UFragMetadata.NoLightmap,
         Loading.Objects.UFragMetadata? metadata = null,
-        string? name = null)
+        string? name = null,
+        UFragVertex[]? rawVertices = null)
     {
         Id = id;
         Name = name;
@@ -55,6 +58,7 @@ public sealed class OldUFrag : IUFrag
         LightmapIndex = lightmapIndex;
         Metadata = metadata;
         _anchor = anchor;
+        _rawVertices = rawVertices ?? [];
         IsLoaded = true;
 
         if (boundingCenter.HasValue && boundingRadius.HasValue)
@@ -97,6 +101,7 @@ public sealed class OldUFrag : IUFrag
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
     public float[]? GetVertexAlphaCandidates() => _vertexAlphaCandidates;
+    public UFragVertex[] GetRawVertices() => _rawVertices;
     public uint[] GetIndices() => _indices;
     public Vector3 GetAnchor() => _anchor;
     public Vector3 GetBoundingCenter() => _boundingCenter;

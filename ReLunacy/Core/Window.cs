@@ -35,6 +35,20 @@ public class LunaWindow : IDisposable
 
     public List<Frame> openFrames = [];
 
+    /// <summary>The real dockspace node's ID, cached from RenderDockSpace (the only place
+    /// ImGui.GetID("dockspace") is valid to call - see its comment there). Callers that need to
+    /// target the dockspace from elsewhere (e.g. ViewMenuDraw's Force Apply/Save/Load buttons)
+    /// should read this instead of recomputing GetID("dockspace") themselves.</summary>
+    public uint DockspaceId { get; private set; }
+
+    /// <summary>Session memory of where each DockedFrame TYPE last sat (Frame.GetType().Name ->
+    /// ImGuiWindowPtr.DockId), captured the moment a frame closes (see the RemoveAll(FrameMustClose)
+    /// call in Update) and consulted by AddFrame the next time that type opens. This is what makes
+    /// closing and reopening a panel mid-session put it back where it was instead of leaving it
+    /// floating - independent of, and in addition to, the cross-session SavedLayout.FrameDockIds
+    /// mechanism, which only kicks in via an explicit named-layout save/load.</summary>
+    private readonly Dictionary<string, uint> _lastFrameDockIds = [];
+
     public FileManager? fileManager { get; private set; }
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
@@ -96,7 +110,8 @@ public class LunaWindow : IDisposable
         };
 
         MainWindow = EditorWindow.Create(
-            1280, 720, ProgramInfo.DisplayName, options,
+            EditorSettings.WindowWidth, EditorSettings.WindowHeight, EditorSettings.WindowMaximized,
+            ProgramInfo.DisplayName, options,
             EditorSettings.GraphicsBackend, out GraphicsDevice graphicsDevice);
         MainWindow.Resized += () => OnResize(MainWindow.GetWidth(), MainWindow.GetHeight());
         GraphicsDevice = graphicsDevice;
@@ -193,9 +208,42 @@ public class LunaWindow : IDisposable
 
         LM.Initialize();
 
-        AddFrame(new View3D(GraphicsDevice));
-        AddFrame(new PropertyInspectorFrame());
-        AddFrame(new BasicEntityExplorer());
+        // Restore last session's Render menu choices (see EditorSettings.RenderMobys and friends'
+        // own doc comment) before anything ever renders, so the very first frame already reflects
+        // them instead of a brief flash of the engine's own hardcoded defaults.
+        var em = EntityManager.Singleton;
+        em.renderMobys = EditorSettings.RenderMobys;
+        em.renderTies = EditorSettings.RenderTies;
+        em.renderUFrags = EditorSettings.RenderUFrags;
+        em.renderFoliage = EditorSettings.RenderFoliage;
+        em.renderVolumes = EditorSettings.RenderVolumes;
+        em.renderBoundingSpheres = EditorSettings.RenderBoundingSpheres;
+        em.MobyDistanceCullingEnabled = EditorSettings.MobyDistanceCullingEnabled;
+
+        // Restore whichever layout the user last had active (see EditorSettings.ActiveLayoutName).
+        // Loading it here, before any frame exists, marks DockspaceLayoutManager's default-preset
+        // guard as already satisfied, so RenderDockSpace's TryApplyLayout call won't overwrite it
+        // with the hardcoded DockspacePreset.Default later. openFrames is empty at this point (no
+        // frame has been added yet), so every frame type the saved layout had docked gets reopened
+        // here via ViewMenuDraw.EnsureFrameTypeOpen - this is what actually reconstructs "the editor
+        // as last left it" instead of only repositioning whichever 3 frames Init() happened to add
+        // by default. Only fall back to that hardcoded default set if there was nothing to restore
+        // (fresh install, or the active layout had none of these frames docked at all).
+        bool restoredLayout = DockspaceLayoutManager.TryLoadLayout(EditorSettings, EditorSettings.ActiveLayoutName, 0, openFrames, ViewMenuDraw.EnsureFrameTypeOpen);
+
+        // ActiveLayoutName can be unset (fresh install, or a session that never explicitly saved a
+        // named layout) even though the previous session's exact panel arrangement was still
+        // captured into the LatestLayoutName auto-save slot on exit (see SaveActiveLayout) - fall
+        // back to that before giving up and building the hardcoded 3-frame default.
+        if (!restoredLayout)
+            restoredLayout = DockspaceLayoutManager.TryLoadLayout(EditorSettings, DockspaceLayoutManager.LatestLayoutName, 0, openFrames, ViewMenuDraw.EnsureFrameTypeOpen);
+
+        if (!restoredLayout)
+        {
+            AddFrame(new View3D(GraphicsDevice));
+            AddFrame(new PropertyInspectorFrame());
+            AddFrame(new BasicEntityExplorer());
+        }
 
         PeriodicalSave();
     }
@@ -405,6 +453,12 @@ public class LunaWindow : IDisposable
     private void RenderUI(double deltaTime)
     {
         RenderMenuBar();
+        // Unconditional, every frame - NOT called from inside RenderMenuBar's "View" BeginMenu block
+        // (where the popup used to be drawn from). See its own doc comment for why: a modal popup
+        // has to be drawn regardless of whether the menu that triggered it is still open, or it can
+        // never actually appear once that menu closes (which happens the instant its MenuItem is
+        // clicked).
+        ViewMenuDraw.RenderSaveLayoutPopup();
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
@@ -444,10 +498,17 @@ public class LunaWindow : IDisposable
         var dockspaceOpen = ImGui.Begin("dockspace", windowFlags);
         ImGui.PopStyleVar(2);
 
+        // Cached rather than recomputed elsewhere: ImGui.GetID(str) hashes against the CURRENT
+        // window's ID stack, so calling ImGui.GetID("dockspace") from anywhere other than right here
+        // (inside this "dockspace" window's own Begin/End scope) produces a completely different
+        // number - which is exactly what ViewMenuDraw.LayoutPresets used to do from inside the menu
+        // bar's own ID scope, silently operating DockBuilder on an unrelated, nonexistent node every
+        // time a preset button was clicked. See DockspaceId below.
         uint dockspaceId = ImGui.GetID("dockspace");
+        DockspaceId = dockspaceId;
         ImGui.DockSpace(dockspaceId, Vector2.Zero, dockspaceFlags);
 
-        var frameNames = openFrames.Select(f => f.FrameName).ToList();
+        var frameNames = openFrames.Select(f => f.WindowId).ToList();
         DockspaceLayoutManager.TryApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
 
         return dockspaceOpen;
@@ -511,6 +572,8 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowVolumes();
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
+            RenderMenuDraw.ZoneVisibility();
+            ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
             ImGui.Separator();
             RenderMenuDraw.ReflectionControls();
@@ -532,7 +595,42 @@ public class LunaWindow : IDisposable
     public void AddFrame(Frame frame)
     {
         openFrames.Add(frame);
+        // Only DockedFrame subclasses - Modal-derived frames (LoadingModal, ExportResultModal, the
+        // file/level-export dialogs...) are deliberately floating popups, not workspace panels, and
+        // forcing them into the dockspace would just be wrong.
+        if (frame is DockedFrame)
+            DockNewlyOpenedFrame(frame);
         OnFrameAdded?.Invoke(frame);
+    }
+
+    /// <summary>Places a freshly-opened panel somewhere sane instead of leaving it floating at
+    /// whatever position ImGui defaults an undocked window to - either back where this frame TYPE
+    /// was the last time one of it was open this session (_lastFrameDockIds), or failing that, into
+    /// the dockspace's central node (the same "main content" area View3D/AssetViewer/etc. already
+    /// tab into by default - see DockspaceLayoutManager.ApplyDefaultLayout). The central node is
+    /// looked up live via DockBuilderGetNode rather than cached, since PassthruCentralNode keeps
+    /// exactly one node flagged central even as the user resizes/splits things further, so this
+    /// stays correct without this class needing to track split ratios itself.
+    ///
+    /// A no-op before any dockspace exists yet (DockspaceId == 0, e.g. the AddFrame calls Init()
+    /// makes before RenderDockSpace has ever run) - those frames are handled by
+    /// DockspaceLayoutManager's own startup path (TryApplyLayout/TryLoadLayout) instead.</summary>
+    private unsafe void DockNewlyOpenedFrame(Frame frame)
+    {
+        uint targetId = 0;
+        if (_lastFrameDockIds.TryGetValue(frame.GetType().Name, out uint lastId) && ImGuiP.DockBuilderGetNode(lastId).Handle != null)
+        {
+            targetId = lastId;
+        }
+        else if (DockspaceId != 0)
+        {
+            var root = ImGuiP.DockBuilderGetNode(DockspaceId);
+            if (root.Handle != null && root.CentralNode.Handle != null)
+                targetId = root.CentralNode.ID;
+        }
+
+        if (targetId != 0)
+            ImGuiP.DockBuilderDockWindow(frame.WindowId, targetId);
     }
 
     public bool IsAnyFrameOpened<T>() where T : Frame => openFrames.Any(f => f.GetType() == typeof(T));
@@ -548,6 +646,23 @@ public class LunaWindow : IDisposable
     public T? GetFirstFrame<T>() where T : Frame => IsAnyFrameOpened<T>() ? openFrames.First(f => f.GetType() == typeof(T)) as T : null;
 
     private static bool FrameMustClose(Frame frame) => !frame.isOpen;
+
+    /// <summary>Populates _lastFrameDockIds for every frame about to be removed by RemoveAll
+    /// (FrameMustClose) right after this, so DockNewlyOpenedFrame can put the next one of that type
+    /// back where this one was. Only records an actually-docked DockId (0 means floating - nothing
+    /// worth remembering there).</summary>
+    private unsafe void RememberDockIdsBeforeClosing()
+    {
+        foreach (var frame in openFrames)
+        {
+            if (frame.isOpen || frame is not DockedFrame) continue;
+            var win = ImGuiP.FindWindowByName(frame.WindowId);
+            if (win.Handle == null) continue;
+            uint dockId = win.DockId;
+            if (dockId == 0) continue;
+            _lastFrameDockIds[frame.GetType().Name] = dockId;
+        }
+    }
 
     protected virtual void Update(double deltaTime)
     {
@@ -565,6 +680,13 @@ public class LunaWindow : IDisposable
         // the renderer's pipelines, so neither goes through the asset manager any more.
         AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
 
+        // Captured here rather than at the point isOpen flips false (TryCloseFirstFrame, or the
+        // window's own tab close button mutating it directly via Begin's ref isOpen) so this covers
+        // BOTH close paths uniformly - they both just set the flag and let removal happen here.
+        // One frame later than the close itself, but the window's settings entry (and DockId) is
+        // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
+        // called for it.
+        RememberDockIdsBeforeClosing();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)
@@ -636,7 +758,26 @@ public class LunaWindow : IDisposable
             view.SubmitScene();
     }
 
-    protected virtual void OnClose() { }
+    protected virtual void OnClose()
+    {
+        // Captured before the layout save below so both land in the same file write. Only
+        // overwrites the stored windowed size while NOT maximized - SDL reports the maximized
+        // (screen-filling) size while maximized, not a size worth restoring to, so saving that
+        // would make "un-maximize" always land at the screen size instead of whatever windowed
+        // size the user actually had before maximizing (or the default, if they never un-maximized
+        // this session at all).
+        EditorSettings.WindowMaximized = MainWindow.IsMaximized;
+        if (!EditorSettings.WindowMaximized)
+        {
+            var (w, h) = MainWindow.GetWindowSize();
+            EditorSettings.WindowWidth = w;
+            EditorSettings.WindowHeight = h;
+        }
+
+        // Persist whatever the user ended the session with, so tweaks made without an explicit
+        // "Save Layout As..." (dragging/resizing a panel) aren't lost on the next launch.
+        DockspaceLayoutManager.SaveActiveLayout(EditorSettings, openFrames);
+    }
 
     private void OnResize(int width, int height)
     {

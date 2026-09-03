@@ -722,9 +722,6 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         }
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Appearing);
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowPos on first appearance
+    // cancels the dockspace preset's placement, which this frame is a target of ("Texture").
 }
