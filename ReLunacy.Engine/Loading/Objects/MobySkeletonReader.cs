@@ -4,31 +4,16 @@ using ReLunacy.Engine.Loading.IO;
 
 namespace ReLunacy.Engine.Loading.Objects;
 
-/// <summary>
-/// Resolves a Moby's `skeletonPointer` field into a fully-read MobySkeleton (bone hierarchy +
-/// bind-pose matrices). Pulled out as its own static reader (rather than inlined into Moby's
-/// constructor) so it's independently testable against a synthetic stream, without needing to
-/// fabricate an entire fake IGFile/moby record.
-///
-/// Pointer convention: `skeletonPointer` and the nested `tms0Pointer`/`tms1Pointer`/bone-array
-/// pointer are all absolute offsets from the start of the moby's own stream - the exact same
-/// convention already proven correct by the (working) bangle/mesh [Reference] chain on
-/// NewMoby/OldMoby, so no per-engine adjustment is needed here.
-/// </summary>
+/// <summary>Resolves a Moby skeleton header, hierarchy, bind matrices and optional animation reference translations.</summary>
 public static class MobySkeletonReader
 {
-    /// <param name="expectedBoneCount">
-    /// The Moby record's own bonesCount/bonesCount1 field, if known - the skeleton header carries
-    /// its own redundant numBones copy, and the two disagreeing is the single strongest signal
-    /// available (without ground-truth data) that skeletonPointer landed somewhere other than real
-    /// skeleton data, e.g. a wrong pointer-base assumption for one engine. Surfaces as a loud,
-    /// visible failure (exception -> caught by Moby's constructor -> Skeleton stays null and a
-    /// warning is logged) instead of silently exposing plausible-looking garbage bones.
-    /// </param>
-    public static MobySkeleton? Read(StreamHelper sh, uint skeletonPointer, uint? expectedBoneCount = null)
+    public static MobySkeleton? Read(
+        StreamHelper sh,
+        uint skeletonPointer,
+        uint? expectedBoneCount = null,
+        bool readAnimationReferencePose = false)
     {
-        if (skeletonPointer == 0)
-            return null;
+        if (skeletonPointer == 0) return null;
 
         long savedPosition = sh.BaseStream.Position;
         try
@@ -37,17 +22,27 @@ public static class MobySkeletonReader
             var skeleton = FileUtils.ReadStructure<MobySkeleton>(sh);
 
             if (expectedBoneCount is { } expected && skeleton.numBones != expected)
-                throw new InvalidDataException($"Skeleton header reports {skeleton.numBones} bones, but the Moby record's own bonesCount field says {expected}.");
+                throw new InvalidDataException($"Skeleton header reports {skeleton.numBones} bones, but the Moby record says {expected}.");
 
             if (skeleton.numBones == 0)
             {
                 skeleton.tms0 = [];
                 skeleton.tms1 = [];
+                skeleton.referenceTranslationsQuantized = [];
                 return skeleton;
             }
 
             skeleton.tms0 = ReadMatrices(sh, skeleton.tms0Pointer, skeleton.numBones);
             skeleton.tms1 = ReadMatrices(sh, skeleton.tms1Pointer, skeleton.numBones);
+            skeleton.referenceTranslationsQuantized = [];
+
+            if (readAnimationReferencePose && skeleton.referenceTranslationBufferPointer != 0)
+            {
+                sh.Seek(skeleton.referenceTranslationBufferPointer);
+                skeleton.referenceTranslationsQuantized = new short[skeleton.numBones * 3];
+                for (int i = 0; i < skeleton.referenceTranslationsQuantized.Length; i++)
+                    skeleton.referenceTranslationsQuantized[i] = sh.ReadInt16();
+            }
 
             Validate(skeleton);
             return skeleton;
@@ -62,7 +57,6 @@ public static class MobySkeletonReader
     {
         var matrices = new Matrix4x4[count];
         sh.Seek(pointer);
-
         for (int i = 0; i < count; i++)
         {
             matrices[i] = new Matrix4x4(
@@ -71,32 +65,20 @@ public static class MobySkeletonReader
                 sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(),
                 sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
         }
-
         return matrices;
     }
 
-    /// <summary>
-    /// Sanity gate against a wrong pointer convention or byte-offset misalignment silently
-    /// producing "plausible-looking but wrong" bone data instead of an obvious failure: exactly
-    /// one root bone, every other parent index in range, and no cycles walking up to the root.
-    /// </summary>
     private static void Validate(MobySkeleton skeleton)
     {
         int rootCount = 0;
         for (int i = 0; i < skeleton.numBones; i++)
         {
             short parent = skeleton.bones[i].parentIndex;
-            if (parent < 0)
-            {
-                rootCount++;
-                continue;
-            }
+            if (parent < 0) { rootCount++; continue; }
             if (parent >= skeleton.numBones)
                 throw new InvalidDataException($"Bone {i} has an out-of-range parent index {parent} (numBones={skeleton.numBones}).");
         }
-
-        if (rootCount != 1)
-            throw new InvalidDataException($"Expected exactly 1 root bone, found {rootCount}.");
+        if (rootCount != 1) throw new InvalidDataException($"Expected exactly 1 root bone, found {rootCount}.");
 
         for (int i = 0; i < skeleton.numBones; i++)
         {

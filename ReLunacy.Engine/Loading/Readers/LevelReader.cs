@@ -17,6 +17,7 @@ public sealed class LevelReader
     private TieReader _tieReader = null!;
     private ZoneReader _zoneReader = null!;
     private FoliageReader _foliageReader = null!;
+    private AnimationReader _animationReader = null!;
     private RegionReader _regionReader = null!;
 
     private Dictionary<ulong, Assets.Mobys.Moby>? _mobys;
@@ -24,6 +25,7 @@ public sealed class LevelReader
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
+    private IReadOnlyList<Assets.Animations.AnimationClip>? _animations;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
 
@@ -40,7 +42,14 @@ public sealed class LevelReader
         progressCallback?.Invoke("Loading Textures & Shaders...", 0.0f);
         _textureShaderLoader.LoadAll();
 
-        _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader);
+        // Old-engine animation metadata is independent of geometry and must exist before mobys are
+        // converted so each D100 record can resolve its own +0x16/+0x24 clip list. New engine
+        // intentionally receives an empty list from AnimationReader.
+        progressCallback?.Invoke("Loading Animations...", 0.02f);
+        _animationReader = new AnimationReader(_fileManager);
+        _animations = _animationReader.ReadAll();
+
+        _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader, _animationReader);
         _tieReader = new TieReader(_fileManager, _materialReader, _debugReader);
 
         progressCallback?.Invoke("Loading Debug Data...", 0.05f);
@@ -123,6 +132,7 @@ public sealed class LevelReader
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
+    public IReadOnlyList<Assets.Animations.AnimationClip> Animations => _animations ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
     public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
     public Assets.Levels.Region? Region => _region;
