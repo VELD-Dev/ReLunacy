@@ -3,6 +3,7 @@ using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Assets.Animations;
 using ReLunacy.Engine.Assets.Mobys;
 using ReLunacy.Engine.Assets.Ties;
 using ReLunacy.Engine.Export;
@@ -133,6 +134,17 @@ public class AssetViewer : DockedFrame, ILevelListener
     private readonly List<(Vector3 a, Vector3 b, Vector4 color)> _debugLines = new();
     private bool showSkeleton = true;
 
+    // Old-engine animation preview state. Animation affects only the Asset Viewer copy of the mesh;
+    // scene instances and source GeometryData stay untouched.
+    private readonly AnimationPlayer _animationPlayer = new();
+    private int _selectedAnimationIndex = -1;
+    private string _animationSearch = "";
+    private string? _animationError;
+    private Matrix4x4[]? _animationSkinMatrices;
+    private int _lastPreviewAnimationFrame = -1;
+    private bool _animationAutoplay = true;
+    private IMaterial? _selectedInlineMaterial;
+
     // Picking granularity for this viewport only (never fed into the shared scene-picking used
     // by View3D) - reuses local (bangleIndex, meshIndex) as the picking ID directly instead of
     // minting a globally-unique ID per mesh, since only one asset is ever previewed here at a
@@ -190,6 +202,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         {
             selectedMobyAsset = value;
             if (value != null) selectedTieAsset = null;
+            ResetAnimationPreview();
             selectedMesh = null;
             exportNameOverride = "";
             IsDirty = true;
@@ -204,7 +217,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedTieAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; }
+            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; ResetAnimationPreview(); }
             selectedMesh = null;
             exportNameOverride = "";
             IsDirty = true;
@@ -219,7 +232,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedUFragAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; }
+            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; ResetAnimationPreview(); }
             // A UFrag is one single mesh (see ForEachPreviewMesh's pick id 0 for it) - unlike
             // Moby/Tie, which need a viewport click to pick which submesh, there's nothing to
             // disambiguate, so this jumps straight to it instead of leaving the raw-vertex panel
@@ -357,6 +370,7 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     private void RebuildSelectedAssetMaterials()
     {
+        _selectedInlineMaterial = null;
         selectedMobyMaterialsByBangle.Clear();
         selectedTieMaterials.Clear();
         mobyUsageResults = null;
@@ -612,22 +626,52 @@ public class AssetViewer : DockedFrame, ILevelListener
     // own texture-reference thumbnails - since a shader has no rendering of its own worth showing.
     private void RenderShaderGrid(IReadOnlyList<IMaterial> materials, string columnsId)
     {
-        int columns = Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 72);
+        int columns = Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 92);
         ImGui.Columns(columns, columnsId, false);
         foreach (var mat in materials)
         {
+            bool selected = _selectedInlineMaterial?.Id == mat.Id;
             if (mat.AlbedoTexture != null && assetManager != null && assetManager.BuiltTextures.TryGetValue(mat.AlbedoTexture.Id, out var tex2D))
             {
                 var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, tex2D.DeviceTexture);
-                ImGui.Image(ptr, new Vector2(64, 64), Vector2.UnitY, Vector2.UnitX);
+                ImGui.Image(ptr, new Vector2(72, 72), Vector2.UnitY, Vector2.UnitX);
                 if (ImGui.IsItemClicked())
-                    OpenShaderInBrowser(mat.Id);
+                    _selectedInlineMaterial = mat;
             }
-            if (ImGui.Selectable($"{mat.Name ?? mat.Id.ToString("X")}##shader_grid_{mat.Id:X}"))
-                OpenShaderInBrowser(mat.Id);
+            else
+            {
+                ImGui.Dummy(new Vector2(72, 72));
+            }
+
+            if (ImGui.Selectable($"{mat.Name ?? mat.Id.ToString("X")}##shader_grid_{mat.Id:X}", selected))
+                _selectedInlineMaterial = mat;
             ImGui.NextColumn();
         }
         ImGui.Columns(1);
+    }
+
+    private void RenderInlineMaterialDetails()
+    {
+        if (_selectedInlineMaterial is not { } mat)
+        {
+            ImGui.TextDisabled("Select a shader/material above to inspect it here.");
+            return;
+        }
+
+        ImGui.SeparatorText("Selected shader");
+        ImGui.TextUnformatted(mat.Name ?? $"Shader_{mat.Id:X}");
+        ImGui.TextDisabled($"0x{mat.Id:X}");
+        ImGui.Text($"Render mode: {mat.RenderMode}   Game mode: {mat.GameRenderMode}");
+        ImGui.Text($"Alpha clip: {mat.AlphaClipThreshold:0.###}");
+        ImGui.Text($"Parallax: scale {mat.ParallaxScale:0.###}, bias {mat.ParallaxBias:0.###}");
+        ImGui.Text($"Detail tiling: {mat.DetailTiling:0.###}   Uses detail map: {mat.UsesDetailMap}");
+        ImGui.Text($"Albedo: {(mat.AlbedoTexture != null ? $"0x{mat.AlbedoTexture.Id:X}" : "-")}");
+        ImGui.Text($"Normal: {(mat.NormalTexture != null ? $"0x{mat.NormalTexture.Id:X}" : "-")}");
+        ImGui.Text($"Properties: {(mat.PropertiesTexture != null ? $"0x{mat.PropertiesTexture.Id:X}" : "-")}");
+        ImGui.Text($"Detail: {(mat.DetailTexture != null ? $"0x{mat.DetailTexture.Id:X}" : "-")}");
+
+        if (ImGui.Button("Open full Shader Browser"))
+            OpenShaderInBrowser(mat.Id);
     }
 
     protected override void Render(double deltaTime)
@@ -811,59 +855,94 @@ public class AssetViewer : DockedFrame, ILevelListener
         ImGui.Text($"{_viewport.PixelWidth}x{_viewport.PixelHeight} - Distance to target: {Vector3.Distance(Camera.Position, Camera.Target)}m");
         ImGui.Separator();
 
-        // Lower part split vertically: asset info/shaders/export on the left (unchanged content),
-        // selected-mesh inspector (from GPU picking in the preview above) on the right.
-        Vector2 lowerAvail = ImGui.GetContentRegionAvail();
-        assetInfoWidth = Math.Clamp(assetInfoWidth, 150f, Math.Max(150f, lowerAvail.X - 150f));
-        if (ImGui.BeginChild("asset_lower_left", new Vector2(assetInfoWidth, lowerAvail.Y), ImGuiChildFlags.None))
-        {
-        ImGui.Text("Asset");
+        // Full-width tabbed inspector. Raw mesh diagnostics remain available, but no longer consume
+        // half of the normal Asset Viewer workspace when the user is browsing/exporting/animating.
+        if (ImGui.BeginChild("asset_details", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
+            RenderAssetDetailsTabs();
+        ImGui.EndChild();
 
-        if (selectedMobyAsset != null)
-        {
-            var moby = selectedMobyAsset.Value.Moby;
-            string mobyDefaultName = moby.Name ?? $"Moby_{moby.Id:X}";
+        ImGui.EndGroup();
+    }
 
-            ImGui.Separator();
-            ImGui.SetNextItemWidth(200);
-            ImGui.InputTextWithHint("##export_name_moby", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", mobyDefaultName), ref exportNameOverride, 128);
+    private void RenderAssetDetailsTabs()
+    {
+        if (selectedMobyAsset is { } mobyAsset)
+        {
+            RenderMobyDetailsTabs(mobyAsset);
+            return;
+        }
+        if (selectedTieAsset is { } tieAsset)
+        {
+            RenderTieDetailsTabs(tieAsset);
+            return;
+        }
+        if (selectedUFragAsset is { } ufragAsset)
+        {
+            if (ImGui.BeginTabBar("asset_details_tabs_ufrag"))
+            {
+                if (ImGui.BeginTabItem("Overview"))
+                {
+                    RenderUFragPanel(ufragAsset);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Mesh Debug"))
+                {
+                    RenderSelectedMeshPanel();
+                    ImGui.EndTabItem();
+                }
+                ImGui.EndTabBar();
+            }
+            return;
+        }
+
+        ImGui.TextDisabled("Select an asset to inspect it.");
+    }
+
+    private void RenderMobyDetailsTabs(MobyAsset asset)
+    {
+        var moby = asset.Moby;
+        if (!ImGui.BeginTabBar("asset_details_tabs_moby")) return;
+
+        if (ImGui.BeginTabItem("Overview"))
+        {
+            string defaultName = moby.Name ?? $"Moby_{moby.Id:X}";
+            ImGui.SetNextItemWidth(260f);
+            ImGui.InputTextWithHint("##export_name_moby", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", defaultName), ref exportNameOverride, 128);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
+
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(defaultName), GetMobyGroups(moby), moby.Skeleton);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
-                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(defaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
-            
-            ImGui.BeginGroup();
-            ImGui.Text("Id");
-            ImGui.Text("Name");
-            ImGui.Text("Scale");
-            ImGui.Text("Bangles");
-            ImGui.Text("Vertices");
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Skeleton"));
-            ImGui.EndGroup();
-            ImGui.SameLine();
-            ImGui.BeginGroup();
-            ImGui.Text(moby.Id.ToString("X"));
-            ImGui.Text(moby.Name ?? "-");
-            ImGui.Text(moby.Scale.ToString("0.###"));
-            ImGui.Text(moby.Bangles.Count.ToString());
-            ImGui.Text(selectedMobyAsset.Value.verticesCount.ToString());
+                ExportModel(ObjExporter.Export, "obj", GetExportName(defaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
+
+            ImGui.SeparatorText("Asset information");
+            ImGui.Text($"Id: 0x{moby.Id:X}");
+            ImGui.Text($"Name: {moby.Name ?? "-"}");
+            ImGui.Text($"Scale: {moby.Scale:0.###}");
+            ImGui.Text($"Bangles: {moby.Bangles.Count}");
+            ImGui.Text($"Vertices: {asset.verticesCount}");
             ImGui.Text(moby.Skeleton != null
                 ? LM.Get("GUI_Frame_AssetViewer_SkeletonBones", moby.Skeleton.Bones.Count)
                 : LM.Get("GUI_Frame_AssetViewer_SkeletonNone"));
-            ImGui.EndGroup();
+            ImGui.EndTabItem();
+        }
 
-            if (moby.Skeleton != null)
-                ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_ShowSkeleton"), ref showSkeleton);
+        if (ImGui.BeginTabItem($"Animations ({moby.Animations.Count})"))
+        {
+            RenderAnimationPanel(moby);
+            ImGui.EndTabItem();
+        }
 
-            if (ImGui.BeginChild("moby_bangles_switches", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y / 2), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        if (ImGui.BeginTabItem($"Bangles ({moby.Bangles.Count})"))
+        {
+            if (ImGui.BeginChild("moby_bangles_switches_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
-                var renderMap = selectedMobyAsset.Value.RenderModelMap;
+                var renderMap = asset.RenderModelMap;
                 for (int i = 0; i < renderMap.Length; i++)
                 {
                     if (ImGui.Checkbox($"Bangle_{i}", ref renderMap[i]))
@@ -871,85 +950,93 @@ public class AssetViewer : DockedFrame, ILevelListener
                 }
             }
             ImGui.EndChild();
+            ImGui.EndTabItem();
+        }
 
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
-            if (ImGui.BeginChild("moby_shaders", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        if (ImGui.BeginTabItem("Shaders"))
+        {
+            foreach (var (bangleIndex, materials) in selectedMobyMaterialsByBangle)
             {
-                foreach (var (bangleIndex, materials) in selectedMobyMaterialsByBangle)
+                if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_shader_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
                 {
-                    if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_shader_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
-                    {
-                        RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}");
-                        ImGui.TreePop();
-                    }
+                    RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}");
+                    ImGui.TreePop();
                 }
             }
-            ImGui.EndChild();
+            RenderInlineMaterialDetails();
+            ImGui.EndTabItem();
+        }
 
-            ImGui.Separator();
+        if (ImGui.BeginTabItem("Instances"))
+        {
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
                 mobyUsageResults = FindMobyInstances(moby.Id);
             RenderUsageResults(mobyUsageResults, "moby_usage");
+            ImGui.EndTabItem();
         }
-        else if (selectedTieAsset != null)
+
+        if (ImGui.BeginTabItem("Mesh Debug"))
         {
-            var tie = selectedTieAsset.Value.Tie;
-            ImGui.Separator();
-            string tieAssetName = tie.Name ?? $"Tie_{tie.Id:X}";
-            var tieGroups = new List<MeshGroup> { new(tieAssetName, tie.Meshes) };
-            ImGui.SetNextItemWidth(200);
-            ImGui.InputTextWithHint("##export_name_tie", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", tieAssetName), ref exportNameOverride, 128);
+            RenderSelectedMeshPanel();
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
+    }
+
+    private void RenderTieDetailsTabs(TieAsset asset)
+    {
+        var tie = asset.Tie;
+        if (!ImGui.BeginTabBar("asset_details_tabs_tie")) return;
+
+        if (ImGui.BeginTabItem("Overview"))
+        {
+            string defaultName = tie.Name ?? $"Tie_{tie.Id:X}";
+            var groups = new List<MeshGroup> { new(defaultName, tie.Meshes) };
+            ImGui.SetNextItemWidth(260f);
+            ImGui.InputTextWithHint("##export_name_tie", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", defaultName), ref exportNameOverride, 128);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
+
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", GetExportName(tieAssetName), tieGroups);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(defaultName), groups);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
-                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(tieAssetName), tieGroups, ownFolder: true);
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(defaultName), groups, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", GetExportName(tieAssetName), tieGroups, ownFolder: true);
-            
-            ImGui.BeginGroup();
-            ImGui.Text("Id");
-            ImGui.Text("Name");
-            ImGui.Text("Scale");
-            ImGui.Text("Vertices");
-            ImGui.EndGroup();
-            ImGui.SameLine();
-            ImGui.BeginGroup();
-            ImGui.Text(tie.Id.ToString("X"));
-            ImGui.Text(tie.Name ?? "-");
-            ImGui.Text(tie.Scale.ToString("0.###"));
-            ImGui.Text(selectedTieAsset.Value.verticesCount.ToString());
-            ImGui.EndGroup();
+                ExportModel(ObjExporter.Export, "obj", GetExportName(defaultName), groups, ownFolder: true);
 
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
-            if (ImGui.BeginChild("tie_shaders", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-            {
-                RenderShaderGrid(selectedTieMaterials, "tie_shader_grid");
-            }
-            ImGui.EndChild();
+            ImGui.SeparatorText("Asset information");
+            ImGui.Text($"Id: 0x{tie.Id:X}");
+            ImGui.Text($"Name: {tie.Name ?? "-"}");
+            ImGui.Text($"Scale: {tie.Scale:0.###}");
+            ImGui.Text($"Vertices: {asset.verticesCount}");
+            ImGui.EndTabItem();
+        }
 
-            ImGui.Separator();
+        if (ImGui.BeginTabItem("Shaders"))
+        {
+            RenderShaderGrid(selectedTieMaterials, "tie_shader_grid_tab");
+            RenderInlineMaterialDetails();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Instances"))
+        {
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
                 tieUsageResults = FindTieInstances(tie.Id);
             RenderUsageResults(tieUsageResults, "tie_usage");
+            ImGui.EndTabItem();
         }
-        else if (selectedUFragAsset != null)
+
+        if (ImGui.BeginTabItem("Mesh Debug"))
         {
-            RenderUFragPanel(selectedUFragAsset.Value);
-        }
-        }
-        ImGui.EndChild();
-
-        VerticalSplitter("##split_lower", ref assetInfoWidth, lowerAvail.Y);
-
-        if (ImGui.BeginChild("asset_lower_right", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
             RenderSelectedMeshPanel();
-        ImGui.EndChild();
+            ImGui.EndTabItem();
+        }
 
-        ImGui.EndGroup();
+        ImGui.EndTabBar();
     }
 
     /// <summary>Blank exportNameOverride falls back to the asset's own default name; otherwise the
@@ -1304,6 +1391,14 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     private void Tick(double deltaTime)
     {
+        if (_animationPlayer.IsPlaying)
+        {
+            _animationPlayer.Update((float)deltaTime);
+            int frame = _animationPlayer.CurrentFrame;
+            if (frame != _lastPreviewAnimationFrame)
+                RefreshAnimationPose();
+        }
+
         // The viewport measured the region and sampled the mouse in Begin, and it latched the left
         // click for TryConsumeClick to hand over once the toolbar has had its turn.
         CheckCameraDragInput(_viewport.AllowCameraInput);
@@ -1792,7 +1887,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             if (!geoRemap.TryGetValue(gi, out int geoSlot))
             {
                 geoSlot = verts.Count;
-                verts.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]);
+                verts.Add(BuildPreviewVertexData(mesh, pickId, Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]));
                 idx.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.Indices[gi]);
                 geoRemap[gi] = geoSlot;
             }
@@ -1874,14 +1969,333 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
+    private void ResetAnimationPreview()
+    {
+        _animationPlayer.SetClip(null);
+        _selectedAnimationIndex = -1;
+        _animationSearch = "";
+        _animationError = null;
+        _animationSkinMatrices = null;
+        _lastPreviewAnimationFrame = -1;
+    }
+
+    private static readonly float[] AnimationSpeedSteps =
+    [
+        0.25f, 0.50f, 0.75f, 1.00f,
+        1.10f, 1.20f, 1.30f, 1.40f, 1.50f,
+        1.60f, 1.70f, 1.80f, 1.90f, 2.00f,
+    ];
+
+    private void SelectAnimation(Moby moby, int index)
+    {
+        if (index < 0 || index >= moby.Animations.Count)
+        {
+            ResetAnimationPreview();
+            previewDirty = true;
+            return;
+        }
+
+        _selectedAnimationIndex = index;
+        _animationPlayer.SetClip(moby.Animations[index]);
+        _animationError = null;
+        _animationSkinMatrices = null;
+        _lastPreviewAnimationFrame = -1;
+        RefreshAnimationPose();
+
+        if (_animationAutoplay && _animationPlayer.CanSamplePose && moby.Skeleton != null)
+            _animationPlayer.Play();
+    }
+
+    private void SelectRelativeAnimation(Moby moby, int delta)
+    {
+        if (moby.Animations.Count == 0) return;
+        int current = _selectedAnimationIndex >= 0 ? _selectedAnimationIndex : 0;
+        int next = ((current + delta) % moby.Animations.Count + moby.Animations.Count) % moby.Animations.Count;
+        SelectAnimation(moby, next);
+    }
+
+    /// <summary>Media-player previous semantics: when the current clip has actually progressed,
+    /// restart it. When it is already at its beginning, jump to the previous animation instead.</summary>
+    private void PreviousAnimationOrRestart(Moby moby)
+    {
+        if (_animationPlayer.Clip is not { } clip)
+        {
+            if (moby.Animations.Count > 0) SelectAnimation(moby, 0);
+            return;
+        }
+
+        float restartThreshold = MathF.Min(0.25f, MathF.Max(0.05f, clip.DurationSeconds * 0.20f));
+        if (_animationPlayer.Time > restartThreshold)
+        {
+            bool wasPlaying = _animationPlayer.IsPlaying;
+            _animationPlayer.SeekToFrame(0);
+            RefreshAnimationPose();
+            if (wasPlaying && _animationPlayer.CanSamplePose)
+                _animationPlayer.Play();
+            return;
+        }
+
+        SelectRelativeAnimation(moby, -1);
+    }
+
+    private void CycleAnimationSpeed()
+    {
+        float current = _animationPlayer.Speed;
+        for (int i = 0; i < AnimationSpeedSteps.Length; i++)
+        {
+            if (AnimationSpeedSteps[i] > current + 0.001f)
+            {
+                _animationPlayer.Speed = AnimationSpeedSteps[i];
+                return;
+            }
+        }
+        _animationPlayer.Speed = AnimationSpeedSteps[0];
+    }
+
+    private void RefreshAnimationPose()
+    {
+        _animationError = null;
+        _animationSkinMatrices = null;
+        var moby = selectedMobyAsset?.Moby;
+        if (moby?.Skeleton == null || _animationPlayer.Clip == null)
+        {
+            previewDirty = true;
+            return;
+        }
+
+        if (!_animationPlayer.CanSamplePose)
+        {
+            _animationError = _animationPlayer.UnsupportedReason;
+            _lastPreviewAnimationFrame = _animationPlayer.CurrentFrame;
+            previewDirty = true;
+            return;
+        }
+
+        try
+        {
+            _animationSkinMatrices = _animationPlayer.SamplePose(moby.Skeleton);
+            _lastPreviewAnimationFrame = _animationPlayer.CurrentFrame;
+        }
+        catch (Exception ex)
+        {
+            _animationError = ex.Message;
+            _animationPlayer.Pause();
+            _animationSkinMatrices = null;
+        }
+        previewDirty = true;
+    }
+
+    private void RenderAnimationPanel(Moby moby)
+    {
+        // Skeleton visualization is animation-oriented tooling, so it lives here rather than in
+        // Overview. It remains available even when this particular Moby has no playable clips.
+        if (moby.Skeleton != null)
+        {
+            ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_ShowSkeleton"), ref showSkeleton);
+            ImGui.SameLine();
+            ImGui.TextDisabled($"{moby.Skeleton.Bones.Count} bones");
+            ImGui.Separator();
+        }
+
+        if (moby.Animations.Count == 0)
+        {
+            ImGui.TextDisabled("No animations for this Moby.");
+            return;
+        }
+
+        ImGui.SetNextItemWidth(-1f);
+        ImGui.InputTextWithHint("##animation_search", "Filter animations...", ref _animationSearch, 128);
+        if (ImGui.BeginChild("moby_animation_list", new Vector2(ImGui.GetContentRegionAvail().X, 150f), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        {
+            for (int i = 0; i < moby.Animations.Count; i++)
+            {
+                var clip = moby.Animations[i];
+                if (!string.IsNullOrWhiteSpace(_animationSearch) && !clip.Name.Contains(_animationSearch, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string tags = (clip.Looping ? " [Loop authored]" : "") + (clip.Additive ? " [Partial]" : "");
+                if (ImGui.Selectable($"{i:D2}  {clip.Name}{tags}##anim_{i}", _selectedAnimationIndex == i))
+                    SelectAnimation(moby, i);
+            }
+        }
+        ImGui.EndChild();
+
+        var selected = _animationPlayer.Clip;
+        if (selected == null) return;
+
+        bool canSample = _animationPlayer.CanSamplePose && moby.Skeleton != null;
+
+        // Outer buttons navigate animation slots and are ALWAYS available, including on partial
+        // clips whose pose composition is still under reverse. Inner buttons only navigate frames.
+        if (ImGui.Button("<< Anim")) PreviousAnimationOrRestart(moby);
+        ImGui.SameLine();
+        if (ImGui.Button("< Frame"))
+        {
+            _animationPlayer.SeekToFrame(_animationPlayer.CurrentFrame - 1);
+            RefreshAnimationPose();
+        }
+        ImGui.SameLine();
+
+        if (!canSample) ImGui.BeginDisabled();
+        if (ImGui.Button(_animationPlayer.IsPlaying ? "Pause" : "Play"))
+        {
+            if (_animationPlayer.IsPlaying) _animationPlayer.Pause(); else _animationPlayer.Play();
+        }
+        if (!canSample) ImGui.EndDisabled();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Frame >"))
+        {
+            _animationPlayer.SeekToFrame(_animationPlayer.CurrentFrame + 1);
+            RefreshAnimationPose();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Anim >>")) SelectRelativeAnimation(moby, +1);
+        ImGui.SameLine();
+        if (ImGui.Button("Stop"))
+        {
+            _animationPlayer.Stop();
+            RefreshAnimationPose();
+        }
+
+        int frame = _animationPlayer.CurrentFrame;
+        int maxFrame = Math.Max(0, selected.NumFrames - 1);
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.SliderInt("##animation_frame", ref frame, 0, maxFrame, $"Frame %d / {maxFrame}"))
+        {
+            _animationPlayer.SeekToFrame(frame);
+            RefreshAnimationPose();
+        }
+
+        bool loop = _animationPlayer.Loop;
+        if (ImGui.Checkbox("Loop", ref loop))
+            _animationPlayer.Loop = loop;
+        ImGui.SameLine();
+        if (ImGui.Checkbox("Autoplay", ref _animationAutoplay))
+        {
+            if (_animationAutoplay && canSample && !_animationPlayer.IsPlaying)
+                _animationPlayer.Play();
+        }
+        ImGui.SameLine();
+        ImGui.TextUnformatted("Speed");
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"x{_animationPlayer.Speed:0.##}"))
+            CycleAnimationSpeed();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Click to cycle 0.25x, 0.50x, 0.75x, 1.00x, then +0.10x up to 2.00x.");
+
+        ImGui.TextDisabled($"{_animationPlayer.Time:0.000}s / {selected.DurationSeconds:0.000}s  •  {selected.FrameRate:0.###} fps  •  animation {_selectedAnimationIndex + 1}/{moby.Animations.Count}");
+
+        if (_animationError != null)
+            ImGui.TextWrapped(_animationError);
+
+        if (selected.Additive)
+            ImGui.TextDisabled("Partial/additive pose composition is still under native EBOOT reverse. Animation navigation and raw frame inspection remain available.");
+
+        if (ImGui.TreeNode("Animation Debug"))
+        {
+            ImGui.TextUnformatted($"Local slot: {_selectedAnimationIndex}");
+            ImGui.TextUnformatted($"Storage: {selected.StorageKind}   Local index: {selected.LocalIndex}");
+            ImGui.TextUnformatted($"Frames: {selected.NumFrames}   Active/declared bones: {selected.NumBones}");
+            ImGui.TextUnformatted($"Tracks: 16-bit={selected.Num16BitTracks}, 8-bit={selected.Num8BitTracks}, refs={selected.NumReferenceValues}");
+            ImGui.TextUnformatted($"Control bytes: 0x{selected.ControlByteSize:X}   Packed: {selected.Packed}");
+            ImGui.TextUnformatted($"Linear speed: {selected.LinearSpeed:0.######}");
+            ImGui.TextUnformatted($"Root transform block: {(selected.HasRootTransforms ? "yes (parsed, not yet composed)" : "no")}");
+            try
+            {
+                if (moby.Skeleton != null)
+                {
+                    var control = selected.GetControl(moby.Skeleton.Bones.Count);
+                    ImGui.TextUnformatted($"Control size verified: {control.SizeMatchesHeader}");
+                    if (selected.Additive)
+                        ImGui.TextUnformatted($"Blend values: non-zero={control.ActiveBlendBoneCount} / {control.BoneBlendValues.Length}");
+                }
+                if (selected.TryReadFramePrefix(_animationPlayer.CurrentFrame, out uint[] prefix))
+                    ImGui.TextUnformatted($"Frame prefix: {prefix[0]:X8} {prefix[1]:X8} {prefix[2]:X8} {prefix[3]:X8}");
+                if (selected.HasFrameRemap)
+                    ImGui.TextUnformatted($"Stored frame: {selected.MapLogicalToStoredFrame(_animationPlayer.CurrentFrame)}");
+                if (selected.HasRootTransforms)
+                {
+                    var rt = selected.ReadRootTransform(_animationPlayer.CurrentFrame);
+                    ImGui.TextUnformatted($"Root flags=0x{rt.Flags:X} mode={rt.Mode:0.###} scale=({rt.Scale.X:0.###},{rt.Scale.Y:0.###},{rt.Scale.Z:0.###})");
+                    ImGui.TextUnformatted($"Root translation=({rt.Translation.X:0.###},{rt.Translation.Y:0.###},{rt.Translation.Z:0.###})");
+                }
+            }
+            catch (Exception ex)
+            {
+                ImGui.TextWrapped($"Decoder diagnostic: {ex.Message}");
+            }
+            ImGui.TreePop();
+        }
+    }
+
+    private float[] BuildPreviewVertexData(RenderMesh renderMesh, uint pickId, float[] captured)
+    {
+        if (_animationSkinMatrices == null || selectedMobyAsset == null)
+            return captured;
+
+        int bangleIndex = (int)(pickId >> 16);
+        int meshIndex = (int)(pickId & 0xFFFF);
+        var moby = selectedMobyAsset.Value.Moby;
+        if ((uint)bangleIndex >= (uint)moby.Bangles.Count || (uint)meshIndex >= (uint)moby.Bangles[bangleIndex].Meshes.Count)
+            return captured;
+
+        var geometry = moby.Bangles[bangleIndex].Meshes[meshIndex].Geometry;
+        int[]? joints = geometry.GetJointIndices();
+        float[]? weights = geometry.GetJointWeights();
+        if (joints == null || weights == null) return captured;
+
+        const int stride = 18;
+        int vertexCount = Math.Min(captured.Length / stride, Math.Min(joints.Length, weights.Length) / 4);
+        var result = (float[])captured.Clone();
+
+        for (int v = 0; v < vertexCount; v++)
+        {
+            int o = v * stride;
+            Vector3 sourcePosition = new(captured[o + 0], captured[o + 1], captured[o + 2]);
+            Vector3 sourceNormal = new(captured[o + 5], captured[o + 6], captured[o + 7]);
+            Vector3 sourceTangent = new(captured[o + 8], captured[o + 9], captured[o + 10]);
+            Vector3 position = Vector3.Zero, normal = Vector3.Zero, tangent = Vector3.Zero;
+            float totalWeight = 0f;
+
+            for (int slot = 0; slot < 4; slot++)
+            {
+                int binding = v * 4 + slot;
+                int joint = joints[binding];
+                float weight = weights[binding];
+                if (joint < 0 || joint >= _animationSkinMatrices.Length || weight <= 0f) continue;
+                Matrix4x4 skin = _animationSkinMatrices[joint];
+                position += Vector3.Transform(sourcePosition, skin) * weight;
+                normal += Vector3.TransformNormal(sourceNormal, skin) * weight;
+                tangent += Vector3.TransformNormal(sourceTangent, skin) * weight;
+                totalWeight += weight;
+            }
+
+            if (totalWeight <= 1e-6f) continue;
+            position /= totalWeight;
+            normal /= totalWeight;
+            tangent /= totalWeight;
+            if (normal.LengthSquared() > 1e-12f) normal = Vector3.Normalize(normal);
+            if (tangent.LengthSquared() > 1e-12f) tangent = Vector3.Normalize(tangent);
+
+            result[o + 0] = position.X; result[o + 1] = position.Y; result[o + 2] = position.Z;
+            result[o + 5] = normal.X; result[o + 6] = normal.Y; result[o + 7] = normal.Z;
+            result[o + 8] = tangent.X; result[o + 9] = tangent.Y; result[o + 10] = tangent.Z;
+        }
+        return result;
+    }
+
     private void AppendSkeleton(ISkeleton skeleton)
     {
         var red = new Vector4(1f, 0f, 0f, 1f);
-        foreach (var bone in skeleton.Bones)
+        var animated = _animationPlayer.LastAnimatedWorld;
+        bool useAnimated = animated != null && animated.Length == skeleton.Bones.Count;
+        for (int i = 0; i < skeleton.Bones.Count; i++)
         {
-            if (bone.ParentIndex < 0) continue;
-            var parent = skeleton.Bones[bone.ParentIndex];
-            _debugLines.Add((parent.WorldBindPose.Translation, bone.WorldBindPose.Translation, red));
+            var bone = skeleton.Bones[i];
+            if (bone.ParentIndex < 0 || bone.ParentIndex >= skeleton.Bones.Count) continue;
+            Vector3 childPos = useAnimated ? animated![i].Translation : bone.WorldBindPose.Translation;
+            Vector3 parentPos = useAnimated ? animated![bone.ParentIndex].Translation : skeleton.Bones[bone.ParentIndex].WorldBindPose.Translation;
+            _debugLines.Add((parentPos, childPos, red));
         }
     }
 
