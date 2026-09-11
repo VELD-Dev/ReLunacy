@@ -22,13 +22,9 @@ public struct UFragMetadata : ILunaSerializable
     public ushort shaderIndex;
     public byte[] Unk3;
 
-    /// <summary>This UFrag's entry in the zone's baked light colour (0x5400) and light direction
-    /// (0x5410) lists - a shared ATLAS, not a private bake: 1377 of metropolis's 1987 UFrags are
-    /// lightmapped across just 23 atlases, each UFrag occupying its own island via UFragVertex.UVs2.
-    /// 0xFFFF = none (610 UFrags). Read from old-engine offset 0x4E; see the constructor.
-    /// Supersedes an earlier reading at 0x52, which was 0xFFFF for every UFrag in the level and so
-    /// made terrain look unlit - it was taken from ReLunacy-Ymir on trust and never held up here.
-    /// </summary>
+    /// <summary>Index into the zone's baked light colour (0x5400) and light direction (0x5410)
+    /// atlas lists; each UFrag occupies its own island via UFragVertex.UVs2. 0xFFFF = none. Read
+    /// from old-engine offset 0x4E.</summary>
     public ushort lightmapIndex;
 
     public const ushort NoLightmap = 0xFFFF;
@@ -40,13 +36,9 @@ public struct UFragMetadata : ILunaSerializable
 
     public UFragMetadata(StreamHelper sh, bool oldEngine, int index = 0)
     {
-        // Every literal offset below (0x00, 0x40, 0x60, ...) is relative to THIS record's own
-        // start, not the file's. Unlike FileUtils.ReadStructure<T> (which captures this
-        // automatically via [FileOffset]), this constructor is hand-written and reads through
-        // StreamHelper's ReadXxx(offset)/Seek(offset) overloads, which all seek absolutely from
-        // the start of the stream - so every literal offset here must be based off where this
-        // record actually begins, or every UFrag past the first in a zone reads from the wrong
-        // place in the file entirely (previously missing, causing garbage/absent geometry).
+        // Literal offsets below are relative to this record's own start, not the file's -
+        // StreamHelper's ReadXxx(offset)/Seek(offset) overloads seek absolutely from the stream
+        // start, so every offset here must be added to recordBase.
         uint recordBase = (uint)sh.Offset;
 
         if (oldEngine)
@@ -55,30 +47,11 @@ public struct UFragMetadata : ILunaSerializable
             // Old-engine indexOffset is a vertex count, not a byte offset.
             indexOffset = sh.ReadUInt32(recordBase + 0x40) * sizeof(ushort);
             Unk3 = sh.ReadFromOffset(0x0E, recordBase + 0x52);
-            // 0x4E, not 0x52. Terrain shares ATLASES rather than taking one bake each, so this
-            // index has low cardinality - which is why earlier scans looking for a dense per-UFrag
-            // index missed it entirely.
-            // Verified on metropolis: 23 distinct values across 1987 UFrags (610 are 0xFFFF), and
-            // every one of the 23 resolves to a 256x256 or 128x128 A8R8G8B8 entry in BOTH 0x5400
-            // and 0x5410, in three contiguous runs. A field that wasn't this index would land on
-            // one of the 85 large entries about 5% of the time; this lands 23/23.
-            // Those atlases being A8R8G8B8 also matters: unlike the DXT1 per-tie bakes they carry a
-            // real alpha channel, so the "alpha = monochrome specular light" reading is genuinely
-            // populated for terrain.
             lightmapIndex = sh.ReadUInt16(recordBase + 0x4E);
-            // Placement anchor, fixed-point x256 - ZoneReader divides. (0x6C, the float that would
-            // follow it, is NaN on every UFrag in metropolis, so this is a Vector3 field and not a
-            // sphere; reading a radius there is what forced the old 2.5f fallback.)
+            // Placement anchor, fixed-point x256 - ZoneReader divides.
             sh.Seek(recordBase + 0x60);
             position = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
-            // REAL bounding sphere: centre at 0x30 and radius at 0x3C, both plain world-space
-            // floats needing no x256 decode. Verified against each UFrag's own decoded vertices on
-            // metropolis (all 1987): the radius at 0x3C matches the sphere those vertices actually
-            // describe to a median relative error of 0.0001, with 99.7% inside 10%, it is never
-            // negative, and it spans 0.303..89.194 - so the 2.5f constant this replaces was wrong
-            // for essentially every UFrag and made frustum culling drop large terrain chunks early.
-            // The centre agrees with the anchor above to a median of 0.0025 world units (the two
-            // describe the same point; 0x30 just carries full float precision instead of 1/256).
+            // Bounding sphere: centre at 0x30, radius at 0x3C, plain world-space floats.
             sh.Seek(recordBase + 0x30);
             boundingSphere = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
             Unk4 = sh.ReadFromOffset(0x14, recordBase + 0x6C);
@@ -94,9 +67,8 @@ public struct UFragMetadata : ILunaSerializable
             boundingSphere = new Vector4(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
             indexOffset = sh.ReadUInt32(recordBase + 0x40);
             Unk3 = sh.ReadFromOffset(0x1E, recordBase + 0x52);
-            // New engine keeps its lightmap/directional indices in zone section 0x6400 (one 0x10
-            // entry per UFrag, lightmapindex at 0x06 and directionalindex at 0x08 - see Ymir), not
-            // in this record. Not parsed yet, so no baked lighting is claimed for these.
+            // New engine keeps lightmap/directional indices in zone section 0x6400, not this
+            // record. Not parsed yet.
             lightmapIndex = NoLightmap;
             sh.Seek(recordBase + 0x70);
             newEnginePos = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());

@@ -41,16 +41,9 @@ public sealed class EditorWindow : IDisposable
         if (!SDL.Init(SDL.InitFlags.Video | SDL.InitFlags.Events))
             throw new InvalidOperationException($"SDL_Init failed: {SDL.GetError()}");
 
-        // The backend flag has to be on the window at CREATION time: SDL picks the surface type then,
-        // and a window made without it cannot be handed to Vulkan afterwards.
-        // Deliberately NOT HighPixelDensity. With it, the drawable is larger than the window in desktop
-        // coordinates, while SDL keeps reporting the cursor in the smaller one: every framebuffer here
-        // is sized in pixels and every hit test compares against ImGui's display size, so the two spaces
-        // have to stay the same one. Supporting a scaled display means converting at the input boundary,
-        // not just asking for the bigger surface.
-        // Metal is gone as of the NeoVeldrid migration (see ReLunacy.Engine.csproj's comment) - macOS
-        // now goes through Vulkan via MoltenVK like every other platform, so the Vulkan case already
-        // covers it and there is no longer a separate flag to request here.
+        // The backend flag must be set at window creation time; SDL picks the surface type then.
+        // Deliberately NOT HighPixelDensity: keeps the drawable and cursor coordinate spaces the same.
+        // macOS goes through Vulkan via MoltenVK, so no separate Metal flag is needed.
         var flags = SDL.WindowFlags.Resizable | preferredBackend switch
         {
             GraphicsBackend.Vulkan => SDL.WindowFlags.Vulkan,
@@ -82,10 +75,7 @@ public sealed class EditorWindow : IDisposable
     }
 
     /// <summary>The platform-native handles behind this window, in the shape NeoVeldrid wants.
-    ///
-    /// SDL exposes them as window "properties" rather than as typed accessors, which is why this reads
-    /// like a lookup table. Wayland is checked before X11 because a session running XWayland reports
-    /// both, and the native one is the right answer.</summary>
+    /// Wayland is checked before X11 since an XWayland session reports both.</summary>
     private SwapchainSource CreateSwapchainSource()
     {
         uint props = SDL.GetWindowProperties(_handle);
@@ -176,15 +166,12 @@ public sealed class EditorWindow : IDisposable
                     Exists = false;
                     break;
 
-                // Pixel size, not window size: on a scaled display only this one tracks the framebuffer,
-                // and a WindowResized alone would leave every target sized for the wrong surface.
+                // Pixel size, not window size: tracks the framebuffer on a scaled display.
                 case SDL.EventType.WindowPixelSizeChanged:
                     Resized?.Invoke();
                     break;
 
-                // Focus loss has to clear the key state. The OS stops delivering key-up events to an
-                // unfocused window, so a key held while alt-tabbing away would otherwise stay down
-                // forever.
+                // OS stops delivering key-up events to an unfocused window; clear held keys explicitly.
                 case SDL.EventType.WindowFocusLost:
                     Input.ClearState();
                     break;

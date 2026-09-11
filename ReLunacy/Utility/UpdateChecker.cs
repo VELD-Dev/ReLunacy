@@ -11,19 +11,10 @@ namespace ReLunacy.Utility;
 /// links to the full commit at <see cref="Url"/>.</summary>
 public readonly record struct CommitInfo(string ShortSha, string Message, string Url);
 
-// Recreated after the LibLunacy/Bliss merge deleted the old implementation (see git history for
-// the pre-rewrite version this is loosely based on) - now channel-aware per EditorSettings.
-//
-// Stable checks GitHub's normal "latest release" and compares its tag as a Version against
-// ProgramInfo.Version, same as before.
-//
-// Nightly is a different shape entirely: .github/workflows/nightly.yml keeps a single rolling
-// release under the "nightly" tag, and (per its allowUpdates/replacesArtifacts settings)
-// accumulates every nightly build's artifacts there rather than replacing them - so a nightly tag
-// has no single meaningful version number, just a growing list of dated, commit-stamped assets.
-// Comparison instead extracts the commit hash baked into the newest asset's filename for this
-// platform and compares it against NightlyBuildInfo.CommitHash (this build's own identity, which
-// is null unless this binary is itself a nightly build the workflow stamped).
+// Channel-aware per EditorSettings. Stable compares GitHub's "latest release" tag as a Version
+// against ProgramInfo.Version. Nightly has no single version number (the "nightly" tag
+// accumulates every build's dated, commit-stamped assets), so comparison extracts the commit
+// hash from the newest asset's filename and compares it against NightlyBuildInfo.CommitHash.
 public static class UpdateChecker
 {
     private const string RepoApiBase = "https://api.github.com/repos/VELD-Dev/ReLunacy";
@@ -73,9 +64,7 @@ public static class UpdateChecker
         if (newVersion > currentVersion)
         {
             LunaLog.LogInfo($"A stable update is available: v{tag}");
-            // Commits between the running release's tag and the new one. If the current tag can't
-            // be found on the remote (never happens for a real published build), this comes back
-            // empty and the frame just omits the section.
+            // Commits between the running release's tag and the new one.
             var commits = await FetchCommitsAsync(client, ProgramInfo.Version, tag);
             LunaWindow.Instance.AddFrame(new UpdateInfoFrame(url, tag, DateTime.Parse(publishedAt, CultureInfo.InvariantCulture), changelog: body, commits: commits));
         }
@@ -102,9 +91,8 @@ public static class UpdateChecker
         var assets = data["assets"] as JArray;
         if (url == null || assets == null || assets.Count == 0) return;
 
-        // Filenames are "ReLunacy-nightly-{yyyy-MM-dd}.{shortCommit}.{platformRid}.{ext}" (see the
-        // nightly workflow) - pick this platform's newest by filename, which sorts lexicographically
-        // the same as chronologically thanks to the leading yyyy-MM-dd.
+        // Filenames are "ReLunacy-nightly-{yyyy-MM-dd}.{shortCommit}.{platformRid}.{ext}"; sorting
+        // lexicographically also sorts chronologically thanks to the leading yyyy-MM-dd.
         string platformRid = OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
         var latestForPlatform = assets
             .Where(a => ((string?)a["name"])?.Contains(platformRid) == true)
@@ -128,10 +116,8 @@ public static class UpdateChecker
         }
 
         LunaLog.LogInfo($"A nightly update is available: {assetName}");
-        // Nightly builds have no changelog body, so the commit list IS the "what's new". Compare
-        // from this build's own commit when it knows it (a real nightly binary - stamped by the
-        // workflow), otherwise from the latest stable tag so a stable user checking the nightly
-        // channel still gets a meaningful range.
+        // Nightly builds have no changelog body, so the commit list is the "what's new". Compare
+        // from this build's own commit when known, otherwise from the latest stable tag.
         string baseRef = NightlyBuildInfo.CommitHash ?? ProgramInfo.Version;
         var commits = await FetchCommitsAsync(client, baseRef, remoteCommit);
         LunaWindow.Instance.AddFrame(new UpdateInfoFrame(
@@ -140,10 +126,8 @@ public static class UpdateChecker
             isNightly: true, changelog: body, commits: commits));
     }
 
-    /// <summary>Lists the commits in (baseRef, headRef] via GitHub's compare API. baseRef/headRef
-    /// may be tags or commit SHAs. Returns newest-first; any failure (unknown ref, offline, rate
-    /// limit) is logged and yields an empty list so the update frame simply hides the section
-    /// rather than failing the whole update check.</summary>
+    /// <summary>Lists the commits in (baseRef, headRef] via GitHub's compare API, newest-first.
+    /// Any failure is logged and yields an empty list.</summary>
     private static async Task<List<CommitInfo>> FetchCommitsAsync(HttpClient client, string baseRef, string headRef)
     {
         var result = new List<CommitInfo>();

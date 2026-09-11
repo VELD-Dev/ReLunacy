@@ -8,35 +8,32 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// <summary>The from-scratch raw-Vulkan scene renderer (Docs/NewRenderer.md).
 ///
 /// One command buffer, re-recorded per frame with only the frustum- and distance-visible draws, then
-/// one submit. Draws are per-instance INDEXED draws (never hardware instancing) the way the original
-/// engine did them; the performance comes from recording once per frame instead of per entity, not
-/// from batching them away.
+/// one submit. Draws are per-instance indexed draws (no hardware instancing), matching the original
+/// engine.
 ///
 /// Frame structure, three render passes over a shared depth-stencil buffer:
-///   1. OPAQUE    Opaque + Cutout, then Soft-Edge's alpha-tested depth-only prepass, then Additive,
-///                then foliage billboards, then the editor's volume wireframes. Colour + depth.
-///   2. ACCUMULATE  Overlay/Scunge/Blended and Soft-Edge's colour pass, blended commutatively into an
-///                RGBA16F accum and an R16F reveal target (McGuire/Bavoil weighted-blended OIT), depth-
-///                tested but not depth-writing - so translucency needs no sorting and no re-record.
-///   3. RESOLVE   A fullscreen triangle composites accum/reveal over the opaque colour, then the
-///                selection outline draws on top of the finished image.
+///   1. OPAQUE      Opaque + Cutout, then Soft-Edge's alpha-tested depth-only prepass, then Additive,
+///                  then foliage billboards, then the editor's volume wireframes. Colour + depth.
+///   2. ACCUMULATE  Overlay/Scunge/Blended and Soft-Edge's colour pass, blended into an RGBA16F accum
+///                  and an R16F reveal target (weighted-blended OIT), depth-tested but not
+///                  depth-writing, so translucency needs no sorting.
+///   3. RESOLVE     A fullscreen triangle composites accum/reveal over the opaque colour, then the
+///                  selection outline draws on top.
 ///
-/// Every non-opaque draw carries the game's polygon offset (see NonOpaqueDepthBias). Bliss's own lit
-/// shader is untouched: this renderer compiles its own SPIR-V.</summary>
+/// Every non-opaque draw carries the game's polygon offset (see NonOpaqueDepthBias). This renderer
+/// compiles its own SPIR-V rather than using Bliss's lit shader.</summary>
 public sealed unsafe class VulkanRenderer : IDisposable
 {
     private const VkFormat ColorFormat = VkFormat.R8G8B8A8Unorm;
-    // D32_SFLOAT_S8_UINT rather than plain D32_SFLOAT: the selection outline is a stencil
-    // mask-and-inflate technique (a plain inflated hull does not work on these assets: neither
-    // their winding nor their vertex normals are reliable), so the depth buffer carries stencil.
+    // Depth carries stencil for the selection outline's stencil mask-and-inflate technique.
     private const VkFormat DepthFormat = VkFormat.D32SfloatS8Uint;
     private const VkFormat AccumFormat = VkFormat.R16G16B16A16Sfloat;
     private const VkFormat RevealFormat = VkFormat.R16Sfloat;
     private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 56
     private const int TexPerMaterial = 5;
 
-    // Polygon offset for the non-opaque pass, measured from a RenderDoc capture of the real game
-    // (identical values in AssetManager, which applies them on the Bliss path).
+    // Polygon offset for the non-opaque pass, matching the real game (same values in AssetManager,
+    // which applies them on the Bliss path).
     private const float NonOpaqueDepthBias = -87f;
     private const float NonOpaqueSlopeScaledDepthBias = -0.33972f;
 
@@ -71,8 +68,8 @@ void main() {
     gl_Position = uMvp * world;
 }";
 
-    // Shared lit shading: everything except the final output. Both the opaque and the accumulate
-    // fragment shaders append their own main() and output declarations to this.
+    // Shared lit shading, everything except the final output. The opaque and accumulate fragment
+    // shaders each append their own main() and output declarations to this.
     private const string LitFragCommon = @"#version 450
 layout(set = 0, binding = 2, std140) uniform LightBuffer {
     vec3 uLightDirection; float uAmbient;
@@ -112,8 +109,8 @@ void shade(out vec3 litColor, out float litAlpha) {
     float height = texture(uProps, fUV).g * uMat0.y + uMat0.z;
     vec2 uv = fUV + viewDirTS.xy * height;
     vec4 albedoTex = texture(uAlbedo, uv);
-    // Alpha test, GEQUAL against the mode's hardcoded reference (uMat0.w; 0 = no test). Cutout uses
-    // 128/255, the blended paths 4/255 - see dev/chatgpt-eboot-{2,3,5}.txt. Sourced like litAlpha below.
+    // Alpha test, GEQUAL against the mode's hardcoded reference (uMat0.w; 0 = no test). Sourced like
+    // litAlpha below.
     float testAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? albedoTex.a * fColor.a : fColor.a) : albedoTex.a;
     if (uMat0.w > 0.0 && testAlpha < uMat0.w) discard;
     vec4 nrmSample = texture(uNormal, uv);
@@ -122,7 +119,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     vec4 props = texture(uProps, uv);
     float specIntensity = props.r;
     float emissive = props.b;
-    vec3 albedo = pow(albedoTex.rgb, vec3(2.2)); // (Color.rgb is always white in this engine - no vertex tint)
+    vec3 albedo = pow(albedoTex.rgb, vec3(2.2)); // Color.rgb is always white in this engine (no vertex tint)
     vec3 envDiffuse = uEnvAmbient
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0)
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
@@ -142,10 +139,8 @@ void shade(out vec3 litColor, out float litAlpha) {
     float bakedDiffuse = bakedLightDirTS.z > 0.0 ? bakedNdotL / bakedLightDirTS.z : bakedNdotL;
     vec3 bakedDiffuseLight = bakedColour.rgb * bakedDiffuse * uBakedLightScale;
     float hasBaked = uMat0.x;
-    // A bake REPLACES the ambient fill rather than adding to it, because the bake already carries the
-    // bounce. But its N.L clamps to zero, so a parallax-perturbed normal that tilts past the baked
-    // light direction lands on exactly black. uBakedAmbient keeps a fraction of the fill underneath as
-    // a floor - the bake's own shadows still read, they just stop bottoming out.
+    // A bake replaces the ambient fill rather than adding to it. Its N.L clamps to zero, so
+    // uBakedAmbient keeps a fraction of the fill as a floor to stop it bottoming out to black.
     vec3 bakedFloor = undecodedFill * uBakedAmbient;
     vec3 lighting = mix(undecodedFill, max(bakedDiffuseLight, bakedFloor), hasBaked) + emissive;
     float bakedSpecLight = mix(1.0, bakedColour.a, hasBaked);
@@ -157,27 +152,19 @@ void shade(out vec3 litColor, out float litAlpha) {
     float fresnel = uReflectionBase + (1.0 - uReflectionBase) * pow(1.0 - NdotV, 5.0);
     float reflectivity = clamp(specIntensity + fresnel, 0.0, 1.0);
     vec3 envFill = envColour * albedo * uEnvironmentIntensity * reflectivity * bakedSpecLight;
-    // UNLIT (uMat1.z == 0): the albedo straight through, still parallax-offset and alpha-tested so the
-    // surface keeps its real silhouette and texel. Everything above still runs - the compiler drops it,
-    // and branching around it would need the texture fetches hoisted out anyway (they feed the test).
+    // UNLIT (uMat1.z == 0): the albedo straight through, still parallax-offset and alpha-tested.
     litColor = uMat1.z > 0.5
         ? pow(albedo * lighting + envFill, vec3(1.0 / 2.2))
         : albedoTex.rgb;
-    // Opacity combines vertex alpha and the albedo's own alpha for any material with decoded vertex
-    // alpha to contribute (uMat1.y - any non-Opaque mode). MULTIPLY, not select: vertex alpha (a
-    // decal fade, LOD dither, etc.) and the texture's own alpha are independent sources, not
-    // mutually exclusive ones - a glass pane with edge falloff baked into vertex colour can still
-    // have its own alpha-cut leaf pattern. The albedo's alpha only enters that product when it is
-    // real (uMat1.w, AlbedoHasAlphaChannel) - a format with no alpha channel decodes to garbage
-    // there, so a no-alpha albedo contributes nothing and vertex alpha alone stands in for it.
-    // Materials with nothing to contribute (Opaque, uMat1.y == 0) read straight from the albedo.
+    // Opacity multiplies vertex alpha and the albedo's own alpha (when real, uMat1.w) for any
+    // material with vertex alpha to contribute (uMat1.y). Opaque materials read straight from albedo.
     litAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? albedoTex.a * fColor.a : fColor.a) : albedoTex.a;
 }";
     private const string FragmentOpaqueGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 o;
 void main() { vec3 c; float a; shade(c, a); o = vec4(c, 1.0); }";
     // Weighted-blended OIT accumulation. accum sums premultiplied colour * weight; reveal multiplies
-    // down by (1 - alpha). Weight favours nearer, more-opaque fragments (McGuire's depth+alpha form).
+    // down by (1 - alpha). Weight favours nearer, more-opaque fragments.
     private const string FragmentAccumGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 accum;
 layout(location = 1) out float reveal;
@@ -187,8 +174,8 @@ void main() {
     accum = vec4(c * a, a) * w;
     reveal = a;
 }";
-    // Additive (mode 2): the pipeline blends SrcAlpha/One, so the shader just outputs the lit colour and
-    // its alpha (which scales the contribution). No OIT needed - addition is order-independent already.
+    // Additive (mode 2): the pipeline blends SrcAlpha/One, so the shader just outputs the lit colour
+    // and its alpha. No OIT needed since addition is order-independent.
     private const string FragmentAdditiveGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 o;
 void main() { vec3 c; float a; shade(c, a); o = vec4(c, a); }";
@@ -211,13 +198,10 @@ void main() {
     o = vec4(avg, reveal);
 }";
 
-    // Volumes: a unit-cube wireframe drawn per volume, depth-tested against the opaque scene (so they
-    // occlude correctly), coloured by a per-volume push constant (box matrix + colour). Provided fresh
-    // each frame by View3D, so selection colour / edits / culling just work.
-    // Debug lines: world-space segments with a per-vertex colour, drawn LAST and with the depth test
-    // off so they always read on top. This is what the ImmediateRenderer overlays used to do - skeleton
-    // bones, vertex markers, bounding spheres - none of which have any depth relationship to the mesh
-    // worth preserving (a bone inside a model must still be visible).
+    // Volumes: a unit-cube wireframe drawn per volume, depth-tested against the opaque scene, coloured
+    // by a per-volume push constant (box matrix + colour). Provided fresh each frame by View3D.
+    // Debug lines: world-space segments with a per-vertex colour, drawn last with depth test off so
+    // they always read on top (skeleton bones, vertex markers, bounding spheres, etc).
     private const string DebugLineVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; };
 layout(location = 0) in vec3 inPos;
@@ -230,10 +214,9 @@ layout(location = 0) in vec4 fColor;
 layout(location = 0) out vec4 outColor;
 void main() { outColor = fColor; }";
 
-    // GPU colour-ID picking. Instead of rasterizing the whole level to resolve a few pixels under the
-    // cursor, uPick is the view-projection post-multiplied by a clip-space window that blows just those
-    // pixels up to fill NDC - so the target is a few pixels square, and the same matrix's frustum planes
-    // reject everything that cannot be under the cursor before a single draw is issued.
+    // GPU colour-ID picking. uPick is the view-projection matrix post-multiplied by a clip-space
+    // window around the cursor, so the render target is only a few pixels square and the frustum
+    // planes reject everything that can't be under the cursor.
     private const string PickVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; };
 layout(set = 0, binding = 1) readonly buffer Transforms { mat4 uT[]; };
@@ -245,20 +228,18 @@ layout(location = 4) in vec2 inUV2;
 layout(location = 5) in vec4 inColor;
 void main() { gl_Position = uPick * (uT[gl_InstanceIndex] * vec4(inPos, 1.0)); }";
 
-    // Volume edges use their own per-draw world matrix rather than the transform SSBO, exactly like
-    // the visible wireframe pass, so that volumes stay selectable.
+    // Volume edges use their own per-draw world matrix rather than the transform SSBO, like the
+    // visible wireframe pass.
     private const string PickVolumeVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; };
 layout(push_constant) uniform Push { mat4 uWorld; uvec4 uId; };
 layout(location = 0) in vec3 inPos;
 void main() { gl_Position = uPick * (uWorld * vec4(inPos, 1.0)); }";
 
-    // Foliage billboards need the same view-space corner offset BillboardVertexGlsl applies - without
-    // it every corner of a card projects to its shared anchor point, a zero-area triangle the
-    // rasterizer drops, so foliage would never appear in the pick target. uPickProj is the projection
-    // half of the windowed pick matrix (projection * window, see Pick()): the offset has to be added
-    // in view space, same as the main billboard pass, so the windowing can only be folded into the
-    // projection step rather than the combined view+projection uPick above.
+    // Foliage billboards need the same view-space corner offset as BillboardVertexGlsl, or every
+    // corner projects to the shared anchor point and the card never appears in the pick target.
+    // uPickProj is the projection half of the windowed pick matrix (see Pick()), since the offset
+    // must be added in view space before the windowing is applied.
     private const string PickBillboardVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; mat4 uPickProj; };
 layout(set = 0, binding = 1) readonly buffer Transforms { mat4 uT[]; };
@@ -276,8 +257,8 @@ void main() {
     gl_Position = uPickProj * anchorView;
 }";
 
-    // The id is written as four bytes of an RGBA8 target (little-endian on readback), which keeps the
-    // whole path to plain colour attachments and needs no integer-format support.
+    // The id is written as four bytes of an RGBA8 target (little-endian on readback), keeping the
+    // whole path to plain colour attachments with no integer-format support needed.
     private const string PickFragmentGlsl = @"#version 450
 layout(push_constant) uniform Push { mat4 uWorld; uvec4 uId; };
 layout(location = 0) out vec4 outColor;
@@ -290,12 +271,11 @@ void main() {
         float((id >> 24) & 0xFFu) / 255.0);
 }";
 
-    // Foliage. Every vertex stores the sprite card's ANCHOR as its position and its own 2D corner
-    // offset in the lightmap UV slot; the card is turned to face the camera by adding that offset
-    // AFTER the view transform, so the vertex buffer is static and nothing is billboarded on the CPU.
-    // The offset is applied after the model matrix, so it would otherwise miss the placement's scale
-    // entirely - recovered here from the model matrix's own X/Y basis lengths. This mirrors
-    // billboardv.glsl; the only change is reading the world matrix from the transform SSBO.
+    // Foliage. Every vertex stores the sprite card's anchor as its position and its 2D corner offset
+    // in the lightmap UV slot; the card faces the camera by adding that offset after the view
+    // transform, so nothing is billboarded on the CPU. Instance scale is recovered from the model
+    // matrix's X/Y basis lengths. Mirrors billboardv.glsl, but reads the world matrix from the
+    // transform SSBO.
     private const string BillboardVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; };
 layout(set = 0, binding = 1) readonly buffer Transforms { mat4 uT[]; };
@@ -334,9 +314,8 @@ void main() {
     // Selection outline: a two-pass stencil "mask and inflate".
     // Pass 1 (uParams.x == 0) redraws the real geometry with colour writes off, stamping stencil 1 over
     // the selected object's visible footprint. Pass 2 (uParams.x > 0) redraws it inflated in clip space
-    // with the stencil test set to NotEqual 1, so only the part of the hull sticking out past that
-    // footprint survives - the rim. The inflate-along-normals hull alone does not work on these assets
-    // (winding and vertex normals are both unreliable); the mask is what makes that failure impossible.
+    // with the stencil test set to NotEqual 1, so only the part sticking out past that footprint (the
+    // rim) survives.
     private const string OutlineVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; };
 layout(set = 0, binding = 1) readonly buffer Transforms { mat4 uT[]; };
@@ -397,8 +376,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     // [_billStart,_instanceCount) foliage billboards.
     private readonly int _overStart, _addStart, _softStart, _billStart;
 
-    // Frustum culling: static per-instance world bounding spheres, plus per-frame scratch. The visible
-    // lists hold indices into the sorted static arrays, ordered (so material-run batching still holds);
+    // Frustum culling: static per-instance world bounding spheres, plus per-frame scratch. Visible
+    // lists hold indices into the sorted static arrays, ordered so material-run batching still holds;
     // culling is threaded over chunks that compact into disjoint regions of _cullScratch, then merged.
     private readonly Vector3[] _instCenter;
     private readonly float[] _instRadius;
@@ -408,8 +387,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private TextureFiltering _filtering = TextureFiltering.Bilinear;
     private byte _kindMask = (byte)SceneEntityKind.All;
     private bool _frustumCulling = true;
-    /// <summary>Per-instance in-game display distance (units); negative = unlimited. The game's own
-    /// per-placement cull radius, read straight out of the level's gameplay data.</summary>
+    /// <summary>Per-instance in-game display distance (units); negative = unlimited. The game's
+    /// per-placement cull radius, read from the level's gameplay data.</summary>
     private readonly float[] _instDisplayDist;
     private Vector3 _cameraPosition;
     private bool _mobyDistanceCulling;
@@ -427,18 +406,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly Texture _envCube;
     private readonly bool _ownsEnvCube;
 
-    /// <summary>Frames the scene pass keeps in flight.
-    ///
-    /// Two, so the GPU can be executing the previous frame while this one is being culled and recorded.
-    /// The wait moved to AFTER the record and the SUBMIT moved to after the swapchain present, which is
-    /// what actually creates the overlap: everything between those two points runs while the GPU works.
-    /// A frame's worth of state has to be per-slot for that to be safe - the command buffer, the two
-    /// uniform buffers it reads, the descriptor set pointing at them, and the colour target, since ImGui
-    /// samples the PREVIOUS frame's while the GPU writes this one's.
-    ///
-    /// Depth, accum and reveal stay shared: only one recorded command buffer is ever SUBMITTED at a
-    /// time (this frame's record waits for the last one to finish before the next submit), so only one
-    /// pass ever executes against them.</summary>
+    /// <summary>Frames the scene pass keeps in flight. Two, so the GPU can execute the previous frame
+    /// while this one is culled and recorded; the fence wait happens after recording and the submit
+    /// after swapchain present, creating the overlap. Per-slot state (command buffer, uniform buffers,
+    /// descriptor set, colour target) is what makes this safe, since ImGui samples the previous frame's
+    /// colour target while the GPU writes this one's. Depth, accum and reveal stay shared since only
+    /// one command buffer is ever submitted at a time.</summary>
     private const int Frames = 2;
 
     private VkCommandPool _pool;
@@ -480,7 +453,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private VkPipeline _pipelineOutlineMask, _pipelineOutlineRim, _pipelineBillboard;
 
     // GPU picking: a PickTargetSize-square colour+depth target, its own one-shot command buffer and
-    // fence, and a host-visible buffer the result is copied into. Sized once, never resized - the pick
+    // fence, and a host-visible buffer the result is copied into. Sized once, never resized: the pick
     // window is a fixed number of screen pixels regardless of viewport size.
     private const uint PickTargetSize = 8;
     /// <summary>Side, in screen pixels, of the square window around the cursor a pick can resolve to.
@@ -503,8 +476,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly uint[] _instPickId;
     private readonly Vector4[] _pickPlanes = new Vector4[6];
 
-    // Debug line list, refilled every frame. The buffer grows to the high-water mark and is never
-    // shrunk; a few thousand segments is nothing next to the scene.
+    // Debug line list, refilled every frame. The buffer grows to the high-water mark and is never shrunk.
     private const int DebugLineFloats = 7; // pos xyz + rgba
     private VkPipeline _pipelineDebugLines;
     private VkShaderModule _debugLineVs, _debugLineFs;
@@ -516,8 +488,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     public Vector4 ClearColour = new(0.05f, 0.06f, 0.09f, 1f);
     private VkShaderModule _billboardVs, _billboardFs;
 
-    // Which scene instances belong to which entity, so the selection outline (and live transform
-    // edits) can address one entity's draws without rescanning the whole instance list every frame.
+    // Which scene instances belong to which entity, so the selection outline and live transform edits
+    // can address one entity's draws without rescanning the instance list every frame.
     private readonly Dictionary<object, int[]> _ownerInstances = new(ReferenceEqualityComparer.Instance);
     private object? _selected;
     /// <summary>Lit shading on/off. Unlit still parallax-offsets and alpha-tests, so silhouettes and
@@ -526,9 +498,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private Vector4 _outlineColor = new(1f, 0.6f, 0.1f, 1f);
     private float _outlineThickness = 0.004f;
 
-    // Thin-box edge geometry (a unit-length cross of two thin quads:
-    // 8 verts, 12 tri indices; thickness-dependent, host-mapped so it rebuilds when the setting changes)
-    // + the per-frame volume-edge list (one (worldMatrix, colour) per edge, 12 per volume).
+    // Thin-box edge geometry (8 verts, 12 tri indices; thickness-dependent, host-mapped so it rebuilds
+    // when the setting changes) + the per-frame volume-edge list (one (worldMatrix, colour) per edge,
+    // 12 per volume).
     private VkBuffer _edgeVertexBuffer; private VkDeviceMemory _edgeVbMemory; private void* _edgeVbMapped;
     private VkBuffer _edgeIndexBuffer; private VkDeviceMemory _edgeIbMemory; private uint _edgeIndexCount;
     private float _edgeThickness = -1f;
@@ -552,9 +524,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     /// <summary>Draws that survived this frame's culling, across every bucket.</summary>
     public int VisibleDrawCount => _visOpaqueCount + _visTransCount + _visAddCount + _visSoftCount + _visBillCount;
 
-    /// <summary>The NeoVeldrid texture the scene is rendered into - display this in ImGui.</summary>
-    /// <summary>The scene image for ImGui to display. This is the LAST COMPLETED frame, not the one
-    /// being recorded, so the viewport runs one frame behind the camera - the cost of the overlap.</summary>
+    /// <summary>The scene image for ImGui to display: the last completed frame, not the one being
+    /// recorded, so the viewport runs one frame behind the camera.</summary>
     public Texture ColorTexture => _colorTex[_displaySlot];
 
     public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, Texture? envCube, uint width, uint height)
@@ -564,10 +535,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _instanceCount = instances.Count;
         _width = Math.Max(width, 1u);
         _height = Math.Max(height, 1u);
-        // A scene without an environment cubemap is legitimate - the asset preview shows a placeholder
-        // before any level is loaded, and AssetManager (the usual source) does not exist yet. Fall back
-        // to a 1x1 mid-grey cube: reflections are gated on EnvironmentIntensity, which is 0 without a
-        // level, so it contributes nothing and merely keeps the descriptor bound.
+        // A scene without an environment cubemap is legitimate (e.g. the asset preview before any
+        // level is loaded). Falls back to a 1x1 mid-grey cube; reflections are gated on
+        // EnvironmentIntensity, which is 0 without a level, so it just keeps the descriptor bound.
         _ownsEnvCube = envCube == null;
         _envCube = envCube ?? CreateFallbackCubemap(graphicsDevice);
 
@@ -579,16 +549,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         for (int i = 0; i < materials.Count; i++)
         {
             var mode = (GameRenderMode)(byte)materials[i].GameRenderMode;
-            // Alpha-test references are HARDCODED per mode by the engine, not per material - the old
-            // ShaderMetadata 0x20 "alphaClip" turned out to be an RGB parameter, not a threshold
-            // (dev/chatgpt-eboot-{4,5}.txt). Cutout clips at 128/255; the blended paths clip at 4/255
-            // purely to skip fully-transparent texels.
+            // Alpha-test references are hardcoded per mode by the engine, not per material. Cutout
+            // clips at 128/255; the blended paths clip at 4/255 to skip fully-transparent texels.
             float alphaRef = mode switch
             {
-                // Foliage: the source shaders classify as Blended, but that classification exists to
-                // route foliage into the game's second (polygon-offset) pass, not because a sprite card
-                // needs real blending. The cards are alpha-cut leaves, so they clip like Cutout and
-                // write depth; blending them order-independently instead just makes them look ghosted.
+                // Foliage source shaders classify as Blended (to route into the game's polygon-offset
+                // pass), but the cards are alpha-cut leaves, so they clip like Cutout and write depth.
                 _ when materials[i].IsBillboard > 0.5f => 128f / 255f,
                 GameRenderMode.Cutout => 128f / 255f,
                 GameRenderMode.SoftEdge => 4f / 255f,   // pass 2 (the depth prepass uses 128/255, below)
@@ -631,7 +597,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         //   0 OPAQUE     modes Opaque + Cutout (+ Soft-Edge's depth prepass, drawn from bucket 3)
         //   1 OVER       modes Overlay/Scunge/Blended + Soft-Edge colour pass -> WBOIT accumulate
         //   2 ADDITIVE   mode Additive (SrcAlpha/One) -> its own additive pass
-        //   3 SOFTEDGE   mode Soft-Edge: drawn TWICE (depth prepass in the opaque pass, then WBOIT)
+        //   3 SOFTEDGE   mode Soft-Edge: drawn twice (depth prepass in the opaque pass, then WBOIT)
         //   4 BILLBOARD  foliage sprite cards -> the billboard vertex shader, alpha-tested, opaque pass
         var matBucket = new int[materials.Count];
         for (int i = 0; i < materials.Count; i++)
@@ -731,9 +697,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreateUniformBuffers();
         CreateSampler();
         long tSamplers = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
-        // One vkAllocateDescriptorSets + up to 5 vkCreateImageView + one vkUpdateDescriptorSets PER
-        // material, all synchronous driver calls - isolated because it is the one phase here that
-        // scales with the LEVEL (material count), not with a fixed viewport/shader cost like the rest.
+        // The one phase here that scales with the level's material count rather than a fixed
+        // viewport/shader cost.
         CreateDescriptors(materials);
         long tDescriptors = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateRenderPasses();
@@ -745,8 +710,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         long buildMs = vsw.ElapsedMilliseconds;
         // Command buffer is recorded per-frame in Frame() (only the visible, frustum-culled draws).
 
-        // Per-mode material census: shows whether each game render mode actually reaches the renderer,
-        // and how many of its materials take opacity from the vertex alpha rather than the albedo.
+        // Per-mode material census, logged below.
         var modeCensus = new int[7];
         var modeVertexAlpha = new int[7];
         foreach (var m in materials)
@@ -825,12 +789,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private void CreateUniformBuffers()
     {
         // 5 * mat4: viewProj, view, proj, the pick window's view-projection, and the pick window's
-        // projection-only (for billboards, which need the windowing folded into just the projection
-        // step - see PickBillboardVertexGlsl). The lit and outline shaders only declare the first, the
-        // billboard shader three, the generic pick shaders four, the billboard pick shader all five -
-        // a shader may declare a prefix of a UBO's contents.
-        // One set per in-flight frame: these are written while the PREVIOUS frame is still reading its
-        // own copy on the GPU.
+        // projection-only (for billboards, see PickBillboardVertexGlsl). A shader may declare only a
+        // prefix of the UBO's contents.
+        // One set per in-flight frame, since these are written while the previous frame still reads
+        // its own copy on the GPU.
         ulong lightSize = (ulong)sizeof(LightData);
         for (int f = 0; f < Frames; f++)
         {
@@ -935,9 +897,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // transform SSBO and the cubemap are shared (see UpdateEntityTransforms for why the SSBO can be).
         var ssboInfo = new VkDescriptorBufferInfo { buffer = _transformBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var cubeInfo = new VkDescriptorImageInfo { sampler = _sampler, imageView = _envCubeView, imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
-        // Every stackalloc below sits OUTSIDE its loop on purpose: stack memory taken by a
-        // stackalloc lives until the whole method returns, not until the iteration ends, so one
-        // inside a loop grows the frame by its size on every pass.
+        // stackalloc lives until the method returns, not the iteration, so these sit outside the loop.
         VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[4];
         for (int f = 0; f < Frames; f++)
         {
@@ -980,9 +940,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // Kept so the sets can be rewritten when the filtering setting changes without re-resolving
         // every texture back to its view.
         _matViews = new VkImageView[nMat * TexPerMaterial];
-        // Hoisted out of the loop, and reused by every iteration: a stackalloc inside this loop
-        // leaked its bytes for the rest of the method, so a level with a couple of thousand
-        // materials blew the 1 MB main-thread stack partway through building their sets.
+        // Hoisted out of the loop and reused by every iteration (stackalloc lives until the method
+        // returns, so one inside the loop would blow the stack on a level with many materials).
         VkImageView* v = stackalloc VkImageView[TexPerMaterial];
         VkDescriptorImageInfo* imgs = stackalloc VkDescriptorImageInfo[TexPerMaterial];
         VkWriteDescriptorSet* w = stackalloc VkWriteDescriptorSet[TexPerMaterial];
@@ -1065,11 +1024,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         VkRenderPass rpP; Check(_api.vkCreateRenderPass(&infoP, &rpP), "vkCreateRenderPass(pick)"); _rpPick = rpP;
     }
 
-    // Compiled SPIR-V, cached across renderer instances. Every shader here is a compile-time constant,
-    // so the same handful of sources are compiled over and over: the asset preview builds a whole
-    // renderer each time the selection changes, and running all 17 shaders back through glslang for
-    // that was the bulk of the freeze it caused. Keyed by source + stage, so it stays correct if a
-    // source is ever built at runtime.
+    // Compiled SPIR-V, cached across renderer instances (the asset preview builds a whole renderer
+    // each time the selection changes). Keyed by source + stage.
     private static readonly Dictionary<(string, ShaderStages), byte[]> SpirvCache = new();
 
     /// <summary>Every shader this renderer compiles, as (source, stage). The sources are compile-time
@@ -1095,11 +1051,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         (VolumeFragmentGlsl, ShaderStages.Fragment),
     ];
 
-    /// <summary>Compiles every shader into the shared SPIR-V cache. Nothing here touches the graphics
-    /// device, so it can run on any thread, at any time - the point being to run it at startup, while
-    /// the user is still choosing a level, instead of paying ~2.7s of glslang in the middle of a load.
-    /// Safe to call more than once and safe to race with a real load: Module takes the same lock and
-    /// simply finds the entry already there.</summary>
+    /// <summary>Compiles every shader into the shared SPIR-V cache. Touches nothing on the graphics
+    /// device, so it can run on any thread at startup instead of blocking a level load. Safe to call
+    /// more than once or race with a real load.</summary>
     public static void WarmUpShaderCache()
     {
         foreach (var (source, stage) in AllShaders)
@@ -1115,9 +1069,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         }
     }
 
-    // Driver-side pipeline cache, shared for the same reason: without it the driver recompiles every
-    // pipeline's SPIR-V to machine code on each rebuild. Tied to the device it was made on so a device
-    // change rebuilds it; never destroyed, since it outlives every renderer that uses it.
+    // Driver-side pipeline cache, shared across renderer instances so the driver doesn't recompile
+    // every pipeline's SPIR-V on each rebuild. Tied to the device it was made on; never destroyed.
     private static VkPipelineCache _sharedPipelineCache;
     private static nint _sharedPipelineCacheDevice;
 
@@ -1192,12 +1145,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var litVertexInput = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbinding, vertexAttributeDescriptionCount = 6, pVertexAttributeDescriptions = attrs };
         var rasterCullNone = new VkPipelineRasterizationStateCreateInfo { polygonMode = VkPolygonMode.Fill, cullMode = VkCullModeFlags.None, frontFace = VkFrontFace.CounterClockwise, lineWidth = 1f };
 
-        // Polygon offset for every NON-opaque draw. This is the decal/overlay offset the game applies,
-        // and it is engine-global state over the whole non-opaque pass rather than a per-material value:
-        // the constants are the ones read straight out of a RenderDoc capture of the real game (see
-        // AssetManager.OverlayDepthBias). Without it, Overlay-mode surfaces - decals, posters, grime -
-        // z-fight with the wall they are painted on. Applied to the WBOIT accumulate, the additive and
-        // the Soft-Edge depth-prepass pipelines; Opaque and Cutout draw unbiased.
+        // Polygon offset for every non-opaque draw, matching the game's decal/overlay offset (see
+        // AssetManager.OverlayDepthBias). Without it, Overlay-mode surfaces (decals, posters, grime)
+        // z-fight with the wall they're painted on. Applied to the WBOIT accumulate, additive and
+        // Soft-Edge depth-prepass pipelines; Opaque and Cutout draw unbiased.
         var rasterBiased = new VkPipelineRasterizationStateCreateInfo { polygonMode = VkPolygonMode.Fill, cullMode = VkCullModeFlags.None, frontFace = VkFrontFace.CounterClockwise, lineWidth = 1f, depthBiasEnable = true, depthBiasConstantFactor = NonOpaqueDepthBias, depthBiasSlopeFactor = NonOpaqueSlopeScaledDepthBias, depthBiasClamp = 0f };
 
         // Opaque: depth write, no blend, into _rpOpaque.
@@ -1241,9 +1192,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             VkPipeline p; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &info, &p), "vkCreateGraphicsPipelines(resolve)"); _pipelineResolve = p;
         }
 
-        // Soft-Edge depth prepass (mode 5, pass 1): alpha-tested depth-only draw into the opaque pass -
-        // colour writes OFF, depth write ON. This is what makes soft-edge geometry occlude correctly
-        // before its blended colour pass; a plain alpha blend (what we did before) looks wrong.
+        // Soft-Edge depth prepass (mode 5, pass 1): alpha-tested depth-only draw into the opaque pass,
+        // colour writes off, depth write on, so soft-edge geometry occludes correctly before its
+        // blended colour pass.
         {
             VkPipelineShaderStageCreateInfo* stages = stackalloc VkPipelineShaderStageCreateInfo[2];
             stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _vs, pName = entry };
@@ -1315,9 +1266,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         }
 
         // Shared by the debug-line and selection-outline pipelines: set0 (camera UBO + transform SSBO)
-        // plus a Vertex|Fragment push constant. Created BEFORE any pipeline that references it - a
-        // VkGraphicsPipelineCreateInfo with a null layout handle is undefined behaviour, and in
-        // practice segfaults inside the driver at renderer construction.
+        // plus a Vertex|Fragment push constant. Must be created before any pipeline that references it.
         VkDescriptorSetLayout ol = _descLayout;
         var outlinePush = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = 32 };
         var outlineLayoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 1, pSetLayouts = &ol, pushConstantRangeCount = 1, pPushConstantRanges = &outlinePush };
@@ -1538,8 +1487,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     // Re-recorded every frame (implicit reset via the pool's ResetCommandBuffer flag) with only the
     // frustum-visible draws. Safe because Frame() waits the fence before the next record.
-    // Per-frame call counts, surfaced as profiler counters: they are what says whether "Vk Record" is
-    // dominated by draws or by material switches, which decide entirely different fixes.
+    // Per-frame draw/material-bind counts, surfaced as profiler counters.
     private int _statBinds, _statDraws;
 
     private void RecordCommands()
@@ -1649,9 +1597,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     }
 
     // Stencil mask-and-inflate rim around the selected entity's own instances, drawn last in the
-    // resolve pass (so it is never tinted by glass in front of it) using the scene's own vertex/index
-    // buffers and transform SSBO - the selected entity is already in the retained scene, so this costs
-    // two extra draws per instance and no extra upload.
+    // resolve pass using the scene's own vertex/index buffers and transform SSBO.
     private void DrawSelectionOutline()
     {
         if (_selected is null || !_ownerInstances.TryGetValue(_selected, out var owned) || owned.Length == 0) return;
@@ -1677,10 +1623,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     }
 
     // Binds everything the lit draws share: the scene descriptor set (camera UBO + transform SSBO +
-    // light UBO + cubemap) and the merged scene vertex/index buffers. Called at the start of EVERY pass
-    // that issues lit draws rather than once per command buffer, because DrawVolumes and the outline
-    // bind through their own pipeline layouts - whose push-constant ranges differ from the lit layout's,
-    // which under Vulkan's layout-compatibility rules invalidates the lit descriptor set bindings too.
+    // light UBO + cubemap) and the merged scene vertex/index buffers. Called at the start of every pass
+    // that issues lit draws, since DrawVolumes and the outline bind through pipeline layouts with
+    // different push-constant ranges, which invalidates the lit descriptor set bindings under Vulkan's
+    // layout-compatibility rules.
     private void BindLitState()
     {
         VkDescriptorSet set0 = _descSet;
@@ -1784,13 +1730,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             RecordCommands();
         _recorded = true;
 
-        // The frame is now RECORDED but not submitted - SubmitFrame does that, after the swapchain
-        // present. Everything between that submit and the wait below runs while the GPU works: the
-        // event pump, ImGui's own frame, this view's culling, and this record. That overlap is the
-        // whole point, and it is why the wait is here rather than straight after a submit.
-        //
-        // "Vk GPU Wait" is what is left over: how much longer the GPU needed than the CPU took to get
-        // back here. At a balanced split it should fall towards zero.
+        // The frame is now recorded but not submitted - SubmitFrame does that, after the swapchain
+        // present, so the GPU works through the previous frame while the CPU does the event pump,
+        // ImGui's frame, culling and recording. "Vk GPU Wait" is the leftover: how much longer the GPU
+        // needed than the CPU took to get back here.
         int previous = _slot ^ 1;
         if (_pending[previous])
         {
@@ -1828,12 +1771,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         Diagnostics.FrameProfiler.SetCounter("Vk total draws", _instanceCount);
     }
 
-    /// <summary>Submits the frame <see cref="Frame"/> recorded, and moves to the other slot.
-    ///
-    /// Called AFTER the swapchain present, deliberately. The host does a full device wait before
-    /// presenting (see Window.Draw), so a scene submitted before it would simply be drained there and
-    /// nothing would overlap. Submitting after means the GPU works through the scene while the CPU
-    /// starts the next frame.</summary>
+    /// <summary>Submits the frame <see cref="Frame"/> recorded, and moves to the other slot. Called
+    /// after the swapchain present (which does a full device wait, see Window.Draw), so the GPU works
+    /// through the scene while the CPU starts the next frame.</summary>
     public void SubmitFrame()
     {
         // Nothing recorded since the last submit: the view did not draw this frame (collapsed, closed,
@@ -1865,15 +1805,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     }
 
     /// <summary>GPU colour-ID pick at a viewport pixel. Returns the id of the entity under the cursor,
-    /// or <see cref="NoHit"/>.
-    ///
-    /// Rather than rasterizing the level to resolve a handful of pixels, the view-projection is
-    /// post-multiplied by a clip-space window that expands just the pick window to fill NDC. That both
-    /// shrinks the target to a few pixels square AND gives a narrow frustum whose planes reject
-    /// everything that cannot be under the cursor, so only a handful of draws are ever issued.
-    ///
-    /// Synchronous: it submits its own command buffer and waits. That is fine on a click, and the GPU
-    /// is idle at this point anyway because Frame already waited on its fence.</summary>
+    /// or <see cref="NoHit"/>. The view-projection is post-multiplied by a clip-space window that
+    /// expands the pick region to fill NDC, shrinking the target and the frustum to just the cursor
+    /// area. Synchronous: submits its own command buffer and waits.</summary>
     public uint Pick(Matrix4x4 view, Matrix4x4 projection, int mouseX, int mouseY, float viewportWidth, float viewportHeight)
     {
         if (viewportWidth <= 0f || viewportHeight <= 0f) return NoHit;
@@ -1961,8 +1895,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             }
         }
 
-        // Volume edges, so trigger volumes stay selectable - same thin-box geometry the wireframe uses,
-        // which is what makes the pick target match what the user sees exactly.
+        // Volume edges, so trigger volumes stay selectable - same thin-box geometry the wireframe uses.
         if (_volumeCount > 0)
         {
             _api.vkCmdBindPipeline(_pickCmd, VkPipelineBindPoint.Graphics, _pipelinePickVolume);
@@ -2039,13 +1972,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     {
         if (!_ownerInstances.TryGetValue(owner, out var owned) || owned.Length != worlds.Count) return false;
 
-        // Written straight into the transform SSBO, which is SHARED across frames in flight, so a write
-        // here can land while the GPU is reading it for the previous frame. Deliberately not guarded by
-        // a fence wait, because this is called every frame for the selection and waiting would undo the
-        // whole overlap. It is safe in practice because of the equality check below: the value only
-        // actually changes while the gizmo is being dragged, and the worst case then is one frame in
-        // which the dragged entity reads a half-updated matrix - invisible mid-drag, and gone the next
-        // frame. Every other frame writes nothing at all.
+        // Written straight into the transform SSBO, which is shared across frames in flight, without a
+        // fence wait (waiting every frame would defeat the overlap). The equality check below means
+        // this only actually writes while the gizmo is being dragged; worst case is one frame reading a
+        // half-updated matrix.
         var dst = (Matrix4x4*)_tbMapped;
         for (int k = 0; k < owned.Length; k++)
         {
@@ -2116,8 +2046,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         if ((_instKind[i] & _kindMask) == 0) return false;
 
         Vector3 c = _instCenter[i]; float r = _instRadius[i];
-        // The game's own per-moby display distance, checked before the frustum planes: it rejects far
-        // more instances than the frustum does on a dense level, and it is a single squared compare.
+        // The game's own per-moby display distance, checked before the frustum planes (a single
+        // squared compare).
         if (_mobyDistanceCulling)
         {
             float d = _instDisplayDist[i];

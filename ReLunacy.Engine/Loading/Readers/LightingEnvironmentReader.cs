@@ -6,8 +6,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// <summary>Reads the old-engine analytic lighting environment (main.dat section 0x8b00). One 0x80
 /// record per level: three colour vectors at 0x20/0x30/0x40 and two unit light directions at
 /// 0x50/0x60 (0x00 is a small int header, 0x10 and 0x70 are unused). See
-/// <see cref="Assets.Lighting.LightingEnvironment"/> for the field roles and the capture that pins
-/// them. New engine is not handled.</summary>
+/// <see cref="Assets.Lighting.LightingEnvironment"/> for field roles. New engine is not handled.</summary>
 public sealed class LightingEnvironmentReader
 {
     public const uint ID = 0x8b00;
@@ -34,14 +33,12 @@ public sealed class LightingEnvironmentReader
         }
 
         uint b = (uint)section.offset;
-        uint headerCount = main.sh.ReadUInt32(b);   // first word = light count (2 on both levels seen)
+        uint headerCount = main.sh.ReadUInt32(b);   // first word = light count
 
         var env = new Assets.Lighting.LightingEnvironment { Ambient = ReadVec3(b + 0x20) };
 
-        // Ambient is colour[0] at 0x20; each directional light is colour[i] at 0x30/0x40 paired with
-        // direction[i] at 0x50/0x60. Build from whichever direction slots are actually populated
-        // rather than assuming two, so a level with fewer is handled (MaxLights is the record's
-        // physical capacity, not an assumption that every level fills it).
+        // Ambient is colour[0] at 0x20; light i is colour[i] at 0x30/0x40 paired with direction[i]
+        // at 0x50/0x60. Only populated direction slots become lights.
         for (int i = 0; i < MaxLights; i++)
         {
             Vector3 dir = ReadVec3(b + 0x50 + (uint)i * 0x10);

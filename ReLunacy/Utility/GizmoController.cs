@@ -13,11 +13,8 @@ public class GizmoController
     public bool IsUsing => ImGuizmo.IsUsingAny();
 
     /// <summary>
-    /// True while the cursor is over a gizmo handle. IsUsingAny() lags a frame behind an initial
-    /// click (it wants a drag delta first), so on the very first click-down on a handle it would
-    /// still read false - checking IsOver too catches that frame so the click isn't mistaken for
-    /// a pick request. Gated on _manipulatedThisFrame since IsOver() reflects stale state from
-    /// whatever the last Manipulate() call drew when there's no selection to manipulate now.
+    /// True while the cursor is over a gizmo handle. Gated on _manipulatedThisFrame since
+    /// ImGuizmo.IsOver() reflects stale state from the last Manipulate() call otherwise.
     /// </summary>
     public bool IsOver => _manipulatedThisFrame && ImGuizmo.IsOver();
 

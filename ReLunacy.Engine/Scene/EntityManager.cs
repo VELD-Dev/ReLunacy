@@ -18,33 +18,19 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderFoliage = true;
     public bool renderVolumes = true;
-    /// <summary>NOT CURRENTLY DRAWN. The wireframe spheres were an ImmediateRenderer overlay inside
-    /// each entity's Bliss Draw, which no longer exists - the raw-Vulkan renderer owns the view and has
-    /// no debug-shape pass yet. The flag and its menu item are kept so re-adding one is a local change.</summary>
+    /// <summary>Not currently drawn; the raw-Vulkan renderer has no debug-shape pass yet. Kept for when one is added.</summary>
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
-    /// <summary>Skip drawing Mobys past their in-game display distance (the per-instance display_dist
-    /// read from the level's own gameplay data - see MobyInstanceOld/New, normalized so <=0 = unlimited
-    /// in RegionReader). Defaults ON: it matches what the game actually renders and is the single
-    /// biggest lever on Moby draw-call count, which dominates the CPU-bound scene-record cost on dense
-    /// levels. The trade-off is the editor's free-fly camera - the game keeps display distances short
-    /// because its camera hugs the player, so flying far from / high above the level culls Mobys that
-    /// would be visible in-game only from up close. Toggle off from the Render menu for a full-level
-    /// overview.</summary>
+    /// <summary>Skip drawing Mobys past their in-game display distance. Defaults on to match the game's
+    /// own rendering and reduce draw-call count; toggle off from the Render menu for a full-level
+    /// overview regardless of distance.</summary>
     public bool MobyDistanceCullingEnabled = true;
-    /// <summary>Absolute world-unit thickness of the edge geometry EntityVolume builds (see
-    /// EntityVolume.RecomputeEdgeTransforms): the same for every volume regardless of its own size. This
-    /// same geometry is both the visible wireframe box and its own GPU pick target - a solid pick
-    /// hitbox would make clicking anywhere inside a (often large) volume select it instead of
-    /// whatever's actually behind the click, so picking is scoped to near the edges, same as what's
-    /// actually drawn. Kept on EntityManager rather than read directly from EditorSettings because
-    /// ReLunacy.Engine has no reference to the app project - View3D syncs this from
-    /// Program.Settings.VolumeWireThickness every frame, same pattern as Camera.FarPlane.</summary>
+    /// <summary>World-unit thickness of the wireframe edge geometry EntityVolume builds; also scopes
+    /// GPU pick hitboxes to near the edges rather than the volume's interior. Synced from
+    /// EditorSettings by View3D each frame.</summary>
     public float VolumeWireThickness = 0.1f;
-    /// <summary>RGBA (0-1 per channel, matching ImGui's ColorEdit4) tint for a Volume's wireframe
-    /// box, unselected/selected. Synced from Program.Settings by View3D every frame, same reason
-    /// and pattern as <see cref="VolumeWireThickness"/> - EntityVolume converts these to Bliss's
-    /// byte-channel Color when (re)building its shared tint materials.</summary>
+    /// <summary>RGBA tint for a Volume's wireframe box, unselected/selected. Synced from
+    /// EditorSettings by View3D each frame.</summary>
     public Vector4 VolumeColor = new(1f, 1f, 0f, 1f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
 
@@ -54,9 +40,8 @@ public class EntityManager : IDisposable
     public int UFragsCount => Regions.Sum(r => r.UFragsCount);
     public int ZonesCount => Regions.Sum(r => r.ZonesCount);
 
-    /// <summary>Foliage placements, flat rather than under a region: foliage lives in its own
-    /// asset/instance sections with no zone or region membership recorded anywhere in the file, so
-    /// inventing a parent would be a guess. See Loading.Readers.FoliageReader.</summary>
+    /// <summary>Foliage placements, flat rather than under a region: foliage has no zone/region
+    /// membership recorded in the file.</summary>
     public List<EntityFoliage> Foliage { get; } = [];
 
     public void LoadRegion(Region? region, AssetManager am, GraphicsDevice gd)
@@ -69,9 +54,8 @@ public class EntityManager : IDisposable
     {
         foreach (var foliage in foliages)
         {
-            // foliage.Material is resolved from the asset's direct texture index (A200+0x08 →
-            // 0x5200 table, see FoliageMetadata.TextureIndex). Null (0xFFFFFFFF sentinel / new
-            // engine) falls back to the default billboard texture inside GetOrBuildBillboardMaterial.
+            // foliage.Material is resolved from the asset's own texture index; null falls back to the
+            // default billboard texture inside GetOrBuildBillboardMaterial.
             foreach (var placement in foliage.Placements)
                 Foliage.Add(new EntityFoliage(foliage, placement, foliage.Material, am));
         }

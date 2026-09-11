@@ -2,18 +2,12 @@ using System.Numerics;
 
 namespace ReLunacy.Engine.Assets.Geometry;
 
-/// <summary>Per-vertex normal/tangent derivation shared by GeometryData (the normal path, for
-/// readers that decode real vertex attributes) and export-only adapters that don't go through
-/// GeometryData at all (LevelExporter's UFrag adapter, which has no baked normal/tangent data to
-/// hand over).</summary>
+/// <summary>Per-vertex normal/tangent derivation, used by GeometryData and export-only adapters
+/// that need normals/tangents computed from raw geometry.</summary>
 internal static class GeometryMath
 {
-    // Standard area-weighted vertex normal generation: accumulate each triangle's (unnormalized,
-    // so larger triangles contribute more) face normal onto its three vertices, then normalize.
-    // Triangle winding (and therefore which way "outward" ends up pointing) isn't independently
-    // confirmed against these files - if a Decal offset ends up pushing into the surface instead
-    // of away from it, that's the first thing to flip (negate the result here), not the offset
-    // magnitude in EditorSettings.
+    // Area-weighted vertex normals: accumulate each triangle's face normal onto its vertices, then normalize.
+    // Triangle winding isn't independently confirmed; if normals point inward, flip the sign here.
     public static float[] ComputeNormals(float[] positions, uint[] indices)
     {
         int vertexCount = positions.Length / 3;
@@ -43,17 +37,10 @@ internal static class GeometryMath
         return result;
     }
 
-    /// <summary>Builds a per-vertex glTF-style tangent (Vector4: xyz direction, w = the +-1
-    /// bitangent handedness sign), 4 floats per vertex. Uses `realTangents` (3 floats/vertex,
-    /// decoded straight from VertexFormat0/1's packed tangent word - see PackedNormal) when
-    /// supplied, since that's the game's actual tangent-space basis rather than an approximation;
-    /// falls back to the standard UV-gradient method (Lengyel) when the source format doesn't
-    /// carry tangent data at all (currently only UFrag terrain). Either way `w` is derived here
-    /// from UV winding relative to the (real or derived) tangent - the source files don't carry a
-    /// stored bitangent/handedness bit at all (confirmed: the raw normal/tangent words are
-    /// fully-consumed pure 11:11:10 direction data, zero spare bits - see PackedNormal), so this
-    /// isn't a shortcut taken only in the fallback case, it's the only way to get `w` regardless
-    /// of where the tangent itself came from.</summary>
+    /// <summary>Builds a per-vertex glTF-style tangent (Vector4: xyz direction, w = handedness
+    /// sign), 4 floats per vertex. Uses `realTangents` when supplied, otherwise derives one from
+    /// UV gradients (Lengyel method). The handedness sign is always derived from UV winding since
+    /// the source data never carries one.</summary>
     public static float[] ComputeTangents(float[] positions, float[] uvs, float[] normals, uint[] indices, float[]? realTangents)
     {
         int vertexCount = positions.Length / 3;
@@ -84,8 +71,7 @@ internal static class GeometryMath
             var bitangent = (duv1.X * edge2 - duv2.X * edge1) * r;
             bitangentAccum[i0] += bitangent; bitangentAccum[i1] += bitangent; bitangentAccum[i2] += bitangent;
 
-            // Accumulated even when hasReal, purely for TangentDecodeSanityCheck below - the real
-            // per-vertex path never reads tangentAccum for its own output in that case.
+            // Accumulated even when hasReal, used only for the diagnostic check below.
             var tangent = (duv2.Y * edge1 - duv1.Y * edge2) * r;
             tangentAccum[i0] += tangent; tangentAccum[i1] += tangent; tangentAccum[i2] += tangent;
         }
@@ -125,15 +111,7 @@ internal static class GeometryMath
         return result;
     }
 
-    // Fires once, on the first mesh loaded with real decoded tangent data - the meaning of
-    // VertexFormat0/1's second packed word as specifically a *tangent* (not e.g. a bitangent, and
-    // with the assumed handedness) was never independently verified. InsomniaToolset's own
-    // extract_gltf.cpp only decodes the adjacent word as Normal and never touches this one at all,
-    // so there's no second source in this ecosystem to cross-check against; the only real
-    // confirmation of "packed 11:11:10 unit direction" (see PackedNormal) covers the bit layout,
-    // not which of tangent/bitangent this specific word is. Compares it against a tangent derived
-    // independently from this same triangle's UV gradients (the standard Lengyel method) to close
-    // that gap empirically the first time real level data is available.
+    // Set once a diagnostic comparing decoded vs UV-derived tangents has been logged.
     private static bool _tangentDiagnosticLogged;
 
     private static void LogTangentDiagnostic(float meanCos, float meanOrtho, int sampleCount)

@@ -22,23 +22,15 @@ public record struct TextureMetadataOld : ILunaSerializable, ITextureMetadata
     public readonly TextureFormat Format => (TextureFormat)((formatBitfield >> 8) & 0x0F);
     public readonly ushort MipmapCount => mipmapCount;
 
-    // Bit 2 of formatBitfield, per ReLunacy-Ymir's CTexture (OldTextureReference doc comment:
-    // "shift 2 | bits 1 | if 1 then unswizzled (linear), ignored on DXT formats"). DXT/BC formats
-    // are always linear regardless of this bit, same as new engine.
+    // Bit 2 of formatBitfield: 1 = unswizzled (linear). DXT/BC formats are always linear
+    // regardless of this bit, same as new engine.
     public readonly bool IsLinear =>
         Format is TextureFormat.DXT1 or TextureFormat.DXT3 or TextureFormat.DXT5 or TextureFormat.BC4 or TextureFormat.BC5
         || ((formatBitfield >> 2) & 1) != 0;
 
-    // Unk1 (0x08-0x18) has never been decoded - it's raw, unexamined bytes. This struct's ID
-    // (0x5200) and total size (0x20) match InsomniaToolset's PS3 "NV4097_SET_*TEXTURE_*
-    // registry dump" Texture struct field-for-field where it's been verified (offset/numMips at
-    // the same spots, width/height at the same 0x18/0x1A), which is a strong (but NOT yet
-    // confirmed against our own real data) signal this is the same underlying struct.
+    // Unk1 (0x08-0x18) is unexamined raw bytes.
 
-    // One-shot diagnostic: which old-engine formatBitfield values actually appear in real level
-    // data, and whether the per-instance linear bit (bit 2) is ever set. Neither the format-code
-    // range nor that bit has been confirmed against real data before now - this settles both from
-    // the next level load instead of assuming the ReLunacy-Ymir port's decode is exhaustive.
+    // One-shot diagnostic: logs which old-engine formatBitfield values appear in real level data.
     private static readonly HashSet<ushort> _loggedFormatBitfields = [];
 
     public static TextureMetadataOld Read(StreamHelper sh)

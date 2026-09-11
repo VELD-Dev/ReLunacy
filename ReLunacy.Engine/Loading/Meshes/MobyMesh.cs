@@ -13,8 +13,8 @@ public record struct MobyMesh : ILunaSerializable, IMesh
     public const uint ID = 0xDD00;
     public const uint Size = 0x40;
 
-    // New engine only: unlike ties/ufrags, moby vertex/index buffers aren't a raw-file offset
-    // field on NewMoby - they're their own sections inside the moby's own per-record IGFile.
+    // New engine only: moby vertex/index buffers are their own sections inside the moby's
+    // per-record IGFile, unlike ties/ufrags which use a raw-file offset field.
     public const uint VerticesSecID = 0xE200, IndicesSecID = 0xE100;
 
     [FileOffset(0x00)] public uint indicesOffset;
@@ -44,13 +44,9 @@ public record struct MobyMesh : ILunaSerializable, IMesh
 
     public ushort[] indices;
 
-    /// <summary>
-    /// This primitive's local joint palette - vertex bone indices (VertexFormat1.bones,
-    /// VertexFormat0.boneIndex) are local indices into THIS array, not skeleton-global bone
-    /// indices directly (confirmed against InsomniaToolset's PrimitiveV2.joints / the
-    /// AttributeBoneIndex(indices) codecs in its glTF exporter). Empty for meshes with no skin
-    /// data (boneMapIndicesCount == 0) or if reading failed.
-    /// </summary>
+    /// <summary>This primitive's local joint palette - vertex bone indices (VertexFormat1.bones,
+    /// VertexFormat0.boneIndex) index into this array, not skeleton-global bone indices directly.
+    /// Empty when boneMapIndicesCount == 0 or if reading failed.</summary>
     public ushort[] boneMap;
 
     public readonly float[] vpos
@@ -157,14 +153,8 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         }
     }
 
-    /// <summary>
-    /// Reads this primitive's joint palette (boneMapIndicesCount uint16 entries at boneMapOffset)
-    /// - same absolute-from-mobyStream-start pointer convention already proven by the bangle/mesh
-    /// [Reference] chain and by MobySkeletonReader, so no per-engine adjustment is needed. `sh`
-    /// must be the moby's own mobyStream, not verticesStream/indicesStream (boneMapOffset is a
-    /// header field resolved the same way skeletonPointer/banglesPointer are, not a bulk-buffer
-    /// offset).
-    /// </summary>
+    /// <summary>Reads this primitive's joint palette (boneMapIndicesCount uint16 entries at
+    /// boneMapOffset). `sh` must be the moby's own mobyStream, not verticesStream/indicesStream.</summary>
     public void ReadBoneMap(StreamHelper sh)
     {
         if (boneMapIndicesCount == 0)
@@ -181,13 +171,9 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         sh.Seek(savedPosition);
     }
 
-    // vertexAlphaCandidates is null for verticesType==0 (VertexFormat0) meshes - on Mobys that
-    // field is genuinely a bone index (confirmed - ExtractSkinData resolves real skin data through
-    // it), not vertex alpha, unlike on Ties/UFrags where there's no skeleton to compete with it.
-    // Only verticesType==1 (VertexFormat1) meshes have a field free for this: their bones/weights
-    // are dedicated bytes, leaving Unk1 spare - see VertexFormat1.VertexAlphaCandidateAuto, still
-    // unconfirmed (two working ranges so far, A/B), hence "Candidate" rather than a settled decode.
-    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[]? vertexAlphaCandidates)
+    // vertexAlpha is null for verticesType==0 (VertexFormat0) meshes - on Mobys that field is a
+    // real bone index, not vertex alpha. Only verticesType==1 (VertexFormat1) has a spare field.
+    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[]? vertexAlpha)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
@@ -196,14 +182,11 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         uvcoords = new float[verticesCount * 2];
         normals = new float[verticesCount * 3];
         tangents = new float[verticesCount * 3];
-        vertexAlphaCandidates = verticesType == 1 ? new float[verticesCount] : null;
+        vertexAlpha = verticesType == 1 ? new float[verticesCount] : null;
 
         for (int k = 0; k < verticesCount; k++)
         {
-            // Mobys scale uniformly (single scalar, unlike Ties' per-axis Vector3), so neither a
-            // decoded normal nor tangent needs any axis-dependent correction - direction is
-            // unaffected by uniform scale, only renormalized since the packed decode isn't exactly
-            // unit length.
+            // Mobys scale uniformly, so normals/tangents only need renormalizing, not correcting.
             Vector3 n, t;
             if (verticesType == 0)
             {
@@ -224,7 +207,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                 uvcoords[k * 2 + 1] = (float)vertices1[k].UVs.Item2;
                 n = vertices1[k].Normal;
                 t = vertices1[k].Tangent;
-                vertexAlphaCandidates![k] = vertices1[k].VertexAlphaCandidateAuto;
+                vertexAlpha![k] = vertices1[k].VertexAlphaAuto;
             }
 
             n = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitY;

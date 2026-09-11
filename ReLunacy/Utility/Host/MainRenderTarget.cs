@@ -2,13 +2,9 @@ using NeoVeldrid;
 
 namespace ReLunacy.Utility;
 
-/// <summary>The offscreen surface the whole UI is drawn into, plus the single-sampled copy of it that
-/// gets presented.
-///
-/// Two textures because of MSAA: a multisampled image cannot be sampled by a shader, so each frame
-/// resolves into <see cref="ResolveTexture"/> and the blit reads that. With MSAA off the resolve
-/// becomes a straight copy, and the pair stays because the alternative is two code paths for the sake
-/// of one texture.</summary>
+/// <summary>The offscreen surface the whole UI is drawn into, plus the single-sampled copy of it
+/// that gets presented. Two textures because a multisampled image can't be sampled by a shader;
+/// each frame resolves into <see cref="ResolveTexture"/>, which the blit reads.</summary>
 public sealed class MainRenderTarget : IDisposable
 {
     private readonly GraphicsDevice _graphicsDevice;
@@ -54,8 +50,7 @@ public sealed class MainRenderTarget : IDisposable
 
         Framebuffer = factory.CreateFramebuffer(new FramebufferDescription(DepthTexture, ColorTexture));
 
-        // Never multisampled, whatever the target is: this is the resolve destination and the only one
-        // of the two a shader can read.
+        // Never multisampled: this is the resolve destination, the only one of the two a shader can read.
         ResolveTexture = factory.CreateTexture(TextureDescription.Texture2D(
             Width, Height, 1, 1, _colorFormat, TextureUsage.Sampled));
         ResolveTextureView = factory.CreateTextureView(ResolveTexture);
