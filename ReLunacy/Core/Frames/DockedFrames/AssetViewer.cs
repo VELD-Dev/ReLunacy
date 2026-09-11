@@ -121,6 +121,10 @@ public class AssetViewer : DockedFrame, ILevelListener
     // Render-target size for the preview, distinct from previewHeight (the splitter position).
     private uint previewTexWidth = 300, previewTexHeight = 300;
     private bool previewDirty = true;
+    // A level unload can be requested after this preview image was already queued into the current
+    // ImGui frame. Keep the render target alive until the Asset Viewer is entered again so that
+    // RenderImDrawData never replays a draw command against a disposed TextureView.
+    private bool disposePreviewOnNextRender;
     public readonly EditorCamera Camera;
     private readonly List<(Vector3 a, Vector3 b, Vector4 color)> _debugLines = new();
     private bool showSkeleton = true;
@@ -273,10 +277,11 @@ public class AssetViewer : DockedFrame, ILevelListener
         usedMobyIds.Clear();
         usedTieIds.Clear();
         assetManager = null;
-        // The preview renderer holds image views onto AssetManager's textures and GPU buffers built
-        // from meshes that are about to be destroyed, so it has to go with them - a preview left alive
-        // across a level unload would be sampling freed images on its next frame.
-        DisposePreview();
+        // Do not dispose the preview synchronously here. OnLevelUnloading can run while ImGui is
+        // still building the current frame, after the preview image has already been queued. The
+        // level's own GPU teardown is deferred for the same reason in LunaWindow.TryWipeLevel.
+        // Dispose before the Asset Viewer renders again instead, after the queued frame has flushed.
+        disposePreviewOnNextRender = true;
         IsDirty = true;
     }
 
@@ -602,6 +607,12 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     protected override void Render(double deltaTime)
     {
+        if (disposePreviewOnNextRender)
+        {
+            disposePreviewOnNextRender = false;
+            DisposePreview();
+        }
+
         Vector2 totalAvail = ImGui.GetContentRegionAvail();
         treeListWidth = Math.Clamp(treeListWidth, 150f, Math.Max(150f, totalAvail.X - 200f));
 
