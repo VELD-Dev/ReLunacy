@@ -13,6 +13,10 @@ public sealed class Moby : IMoby
     public IReadOnlyList<IBangle> Bangles { get; init; }
     public float Scale { get; init; }
     public ISkeleton? Skeleton { get; init; }
+    public Animations.AnimationSet? AnimationSet { get; init; }
+
+    /// <summary>Convenience view used by existing UI/export code.</summary>
+    public IReadOnlyList<Animations.AnimationClip> Animations => AnimationSet?.Clips ?? [];
 
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;
 
@@ -22,19 +26,19 @@ public sealed class Moby : IMoby
         float scale = 1.0f,
         string? name = null,
         Func<(Vector3, float)>? boundingSphereCalculator = null,
-        ISkeleton? skeleton = null)
+        ISkeleton? skeleton = null,
+        Animations.AnimationSet? animationSet = null)
     {
         Id = id;
         Name = name;
         Bangles = bangles ?? throw new ArgumentNullException(nameof(bangles));
         Scale = scale;
         Skeleton = skeleton;
+        AnimationSet = animationSet;
         IsLoaded = true;
 
         if (boundingSphereCalculator != null)
-        {
-            _boundingSphere = new Lazy<(Vector3, float)>(boundingSphereCalculator);
-        }
+            _boundingSphere = new Lazy<(Vector3 center, float radius)>(boundingSphereCalculator);
     }
 
     public (Vector3 center, float radius) GetBoundingSphere()
@@ -43,16 +47,13 @@ public sealed class Moby : IMoby
             return _boundingSphere.Value;
 
         var allPoints = new List<Vector3>();
-
         foreach (var bangle in Bangles)
         {
             foreach (var mesh in bangle.Meshes)
             {
                 var positions = mesh.Geometry.GetVertexPositions();
                 for (int i = 0; i < positions.Length; i += 3)
-                {
                     allPoints.Add(new Vector3(positions[i] * Scale, positions[i + 1] * Scale, positions[i + 2] * Scale));
-                }
             }
         }
 

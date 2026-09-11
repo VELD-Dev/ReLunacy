@@ -75,9 +75,9 @@ public class FileManager : IDisposable
             LoadFile("gameplay.dat", false);
             LoadFile("assetlookup.dat", false);
 
-            // Several of these raw files themselves contain a bunch of IGFiles, however the
-            // files themselves are not IGFiles.
+            // These are concatenated asset containers rather than one top-level IGHW file.
             LoadFile("mobys.dat", true);
+            LoadFile("animsets.dat", true);
             LoadFile("ties.dat", true);
             LoadFile("textures.dat", true);
             LoadFile("highmips.dat", true);
@@ -117,9 +117,7 @@ public class FileManager : IDisposable
     {
         string path = Path.Combine(folderPath, name);
         if (File.Exists(path))
-        {
             return File.Open(path, FileMode.Open, FileAccess.Read);
-        }
 
         Console.WriteLine($"File '{path}' doesn't exist !");
         return null;
@@ -151,7 +149,6 @@ public class FileManager : IDisposable
         return archive.Paths.FirstOrDefault(p => p.EndsWith("/" + name, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Closes every open handle this FileManager holds.</summary>
     public void Dispose()
     {
         foreach (var file in igfiles.Values)
