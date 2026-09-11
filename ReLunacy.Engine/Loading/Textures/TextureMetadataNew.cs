@@ -17,17 +17,12 @@ public record struct TextureMetadataNew : ILunaSerializable, ITextureMetadata
     public readonly uint Width => (uint)1 << widthPow;
     public readonly uint Height => (uint)1 << heightPow;
 
-    // New engine's raw format byte is NOT the same numbering as old engine's 4-bit code - it's
-    // prefixed 0x8X (Morton-swizzled) or 0xAX (linear), plus a couple of bare/special values
-    // (0x01-0x0B, 0x9A). The previous `(TextureFormat)format` cast skipped this normalization
-    // entirely, so every new-engine texture whose format byte didn't happen to equal one of
-    // TextureFormat's raw old-engine values (3/5/6/7/8) decoded to a garbage enum value instead -
-    // ported from ReLunacy-Ymir's CTexture.NormalizeNewEngineFormat, which is confirmed working.
+    // New engine's raw format byte is prefixed 0x8X (Morton-swizzled) or 0xAX (linear), plus a
+    // few bare/special values (0x01-0x0B, 0x9A) - not the same numbering as old engine's 4-bit code.
     public readonly TextureFormat Format => NormalizeFormat(format);
 
     // 0xAX prefix and 0x9A (RGBA16F) are always linear; DXT/BC are always linear regardless of
-    // prefix; everything else (0x8X prefix, or a bare unprefixed byte) is swizzled. Ported from
-    // CTexture.NewEngineFormatIsLinear.
+    // prefix; everything else (0x8X prefix, or a bare unprefixed byte) is swizzled.
     public readonly bool IsLinear => FormatIsLinear(format);
 
     public readonly ushort MipmapCount => mipmapCount;

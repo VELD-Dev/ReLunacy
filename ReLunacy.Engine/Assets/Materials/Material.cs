@@ -22,16 +22,12 @@ public sealed class Material : IMaterial
     public float DetailTiling { get; init; }
     public bool UsesDetailMap { get; init; }
 
-    // True when this material's render mode is anything but Opaque (the game's RenderingMode, not
-    // this simplified RenderMode) - see MaterialReader.UsesVertexAlphaCandidate for the reasoning.
-    // AssetManager only writes decoded vertex alpha into the vColor attribute for materials with
-    // this flag set; every other material's vertices get a synthetic fully-opaque alpha instead.
-    public bool UsesVertexAlphaCandidate { get; init; }
+    // True when this material's render mode is anything but Opaque. AssetManager only writes
+    // decoded vertex alpha into the vColor attribute for materials with this set; other materials
+    // get a synthetic fully-opaque alpha instead.
+    public bool UsesVertexAlpha { get; init; }
 
-    // Whether the albedo texture's own format carries real alpha bits (see MaterialReader's
-    // HasAlphaChannel). The shader uses this to decide whether the albedo's alpha is meaningful
-    // enough to fold into the final opacity alongside vertex alpha, or whether it would just be
-    // multiplying in garbage from a format that has no alpha channel to begin with.
+    // Whether the albedo texture's own format carries real alpha bits.
     public bool AlbedoHasAlphaChannel { get; init; }
 
     public Material(ulong id)
@@ -41,7 +37,7 @@ public sealed class Material : IMaterial
         AlphaClipThreshold = 0.5f;
     }
 
-    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, ITexture? detail = null, RenderMode renderMode = RenderMode.Opaque, byte gameRenderMode = 0, float alphaClipThreshold = 0.01f, bool usesVertexAlphaCandidate = false, bool albedoHasAlphaChannel = false, float parallaxScale = 0f, float parallaxBias = 0f, float detailTiling = 0f, bool usesDetailMap = false)
+    public static Material Create(ulong id, ITexture? albedo = null, ITexture? normal = null, ITexture? properties = null, ITexture? detail = null, RenderMode renderMode = RenderMode.Opaque, byte gameRenderMode = 0, float alphaClipThreshold = 0.01f, bool usesVertexAlpha = false, bool albedoHasAlphaChannel = false, float parallaxScale = 0f, float parallaxBias = 0f, float detailTiling = 0f, bool usesDetailMap = false)
     {
         return new Material(id)
         {
@@ -52,7 +48,7 @@ public sealed class Material : IMaterial
             RenderMode = renderMode,
             GameRenderMode = gameRenderMode,
             AlphaClipThreshold = alphaClipThreshold,
-            UsesVertexAlphaCandidate = usesVertexAlphaCandidate,
+            UsesVertexAlpha = usesVertexAlpha,
             AlbedoHasAlphaChannel = albedoHasAlphaChannel,
             ParallaxScale = parallaxScale,
             ParallaxBias = parallaxBias,

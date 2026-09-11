@@ -21,10 +21,8 @@ public record struct NewMoby : IMoby
     [FileOffset(0x1C)] public ushort bonesCount1;
     [FileOffset(0x1E)] public ushort bonesCount2;
     [FileOffset(0x20)] public uint Unk3;
-    // banglesPointer only captures the raw pointer value for ToBytes round-tripping - the
-    // actual bangle records are read via the [Reference]-decorated newMobyBangles field below,
-    // which independently seeks to this same offset and follows the pointer (see OldMoby's
-    // identical mobyBangles/bangles split for the established pattern).
+    // banglesPointer captures the raw pointer for ToBytes round-tripping; the actual bangle
+    // records are read via the [Reference]-decorated newMobyBangles field below.
     [FileOffset(0x24)] public uint banglesPointer;
     [FileOffset(0x24), Reference(nameof(BangleCount))] public MobyBangle[] newMobyBangles;
     [FileOffset(0x28)] public uint skeletonPointer; // new engine only

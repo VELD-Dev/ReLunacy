@@ -123,10 +123,7 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
-    // Cubemap reflection controls (lit renderer only). The reflection term is faithfully gated by
-    // the material's specular map and a low intensity, so it's near-invisible by default - the debug
-    // view shows it raw on everything (also an axis-orientation check), and the slider makes the
-    // normal-shading contribution tunable. Reached through View3D, which owns the renderer.
+    // Cubemap reflection controls (lit renderer only), reached through View3D.
     internal static void ReflectionControls()
     {
         var view = LunaWindow.Instance.GetFirstFrame<Core.Frames.DockedFrames.View3D>();
@@ -140,16 +137,13 @@ internal static class RenderMenuDraw
         if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.2f"))
             view.ReflectionIntensity = intensity;
 
-        // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a
-        // near-mirror everywhere. The game reads as reflective almost everywhere, so raise this.
+        // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a near-mirror everywhere.
         float reflBase = view.ReflectionBase;
         ImGui.SetNextItemWidth(120);
         if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionBase"), ref reflBase, 0f, 1f, "%.2f"))
             view.ReflectionBase = reflBase;
 
-        // Floor under a baked surface, as a fraction of the ambient fill. 0 is the game-faithful
-        // reconstruction and bottoms out to pure black wherever the parallax normal tilts past the
-        // baked light direction; raise it until the crevices read without flattening the bake.
+        // Floor under a baked surface, as a fraction of the ambient fill.
         float bakedAmbient = view.BakedAmbient;
         ImGui.SetNextItemWidth(120);
         if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_BakedAmbient"), ref bakedAmbient, 0f, 1f, "%.2f"))

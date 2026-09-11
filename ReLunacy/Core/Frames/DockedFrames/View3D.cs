@@ -36,9 +36,7 @@ public class View3D : DockedFrame
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
     public float LightmapUVRotation { get => lighting.LightmapUVRotation; set => lighting.LightmapUVRotation = value; }
     public EditorCamera Camera { get; private set; }
-    // Panel size in pixels, tracked directly instead of through a Bliss render texture: the scene is
-    // rendered by the raw-Vulkan renderer into its own display texture, so there is no Bliss target
-    // left for this view to own.
+    // Panel size in pixels, tracked directly since the scene is rendered into its own display texture.
     private uint viewWidth = 300, viewHeight = 300;
 
     // The viewport image, its toolbar, the gizmo, and the rules for which of them gets a click.
@@ -69,23 +67,19 @@ public class View3D : DockedFrame
             Vector3.UnitZ,
             Vector3.UnitY,
             Program.Settings.CamFOV,
-            0.01f,
+            0.1f,
             Program.Settings.RenderDistance);
 
         graphicsDevice = gd;
     }
 
-    // The scene renderer now lives on AssetManager (see its SceneRenderer property) so closing and
-    // reopening this panel does not force re-uploading the whole level's geometry/textures - only this
-    // panel's own state (camera, gizmo, viewport size) was ever View3D-specific. This view still owns
-    // DRIVING it every frame (Frame/SubmitFrame/Pick/Resize below), so the renderer is never touched
-    // while the panel is closed - only its GPU-resident state outlives the panel now, not its activity.
+    // The scene renderer lives on AssetManager (see its SceneRenderer property), so closing and
+    // reopening this panel does not force re-uploading the level's geometry/textures. This view still
+    // drives it every frame (Frame/SubmitFrame/Pick/Resize below).
     private Engine.Rendering.Vulkan.VulkanRenderer? VkStage => Core.LunaWindow.Instance.AssetManager?.SceneRenderer;
 
-    /// <summary>Hands the recorded scene to the GPU. Called by the host AFTER the swapchain present, so
-    /// the GPU works through it while the next frame is being pumped, updated and recorded. Submitting
-    /// it inside Render would put it before the host's device-wide wait, which would drain it again
-    /// immediately and leave nothing overlapping.</summary>
+    /// <summary>Hands the recorded scene to the GPU. Called by the host after the swapchain present, so
+    /// the GPU works through it while the next frame is being pumped, updated and recorded.</summary>
     public void SubmitScene()
     {
         var vkStage = VkStage;
@@ -107,9 +101,8 @@ public class View3D : DockedFrame
         return kinds;
     }
 
-    // Bounding-sphere debug overlay. The line set is STATIC (the spheres do not move with the camera),
-    // so it is built once when the toggle flips rather than every frame: metropolis is ~10k entities,
-    // which at three rings apiece is a third of a million line segments to write out.
+    // Bounding-sphere debug overlay. The line set is static (spheres don't move with the camera), so
+    // it is built once when the toggle flips rather than every frame.
     private bool _appliedBoundingSpheres;
     private readonly List<(Vector3 a, Vector3 b, Vector4 color)> _sphereLines = new();
 
@@ -177,14 +170,9 @@ public class View3D : DockedFrame
         }
     }
 
-    // BuildVkScene moved to AssetManager (see AssetManager.TryCaptureScene) - everything it read
-    // (VulkanSceneCapture, EntityManager.Singleton, AssetManager itself) was already level-scoped, not
-    // View3D-specific, which is what let the captured scene's lifetime move with it.
-
     // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
-    // per volume), handed to the VK renderer to draw as depth-tested thin-box edges - same geometry the
-    // pick target uses. Rebuilt every frame so selection colour, edits and the Render>Volumes toggle all
-    // take effect immediately without touching the static scene capture.
+    // per volume), handed to the VK renderer to draw as depth-tested thin-box edges. Rebuilt every
+    // frame so selection colour, edits and the Render>Volumes toggle take effect immediately.
     private readonly List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> _vkVolumes = new();
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
@@ -205,10 +193,8 @@ public class View3D : DockedFrame
 
     protected override void Render(double deltaTime)
     {
-        // Fov/FarPlane are public fields set at construction, so a change made afterwards (the
-        // settings frame, or the viewport overlay's clip slider) would never reach the already-built
-        // camera without this. Camera.Update recomputes the projection from them every frame, so
-        // keeping them in sync here is enough - no separate recompute needed.
+        // Fov/FarPlane are public fields set at construction; resync them every frame so later
+        // changes (settings frame, viewport clip slider) reach the camera via Camera.Update.
         Camera.Fov = Program.Settings.CamFOV;
         Camera.FarPlane = Program.Settings.RenderDistance;
         // EntityManager (ReLunacy.Engine) has no reference to Program.Settings (app-layer) - see
@@ -217,19 +203,14 @@ public class View3D : DockedFrame
         EntityManager.Singleton.VolumeColor = Program.Settings.VolumeColor;
         EntityManager.Singleton.VolumeSelectedColor = Program.Settings.VolumeSelectedColor;
         // Flat stand-in for the level's environment cubemap (see LevelData.EnvironmentAverage).
-        // The game's cubemap reflection is additive and independent of the lightmap, which is what
-        // keeps its baked shadows off pure black; without it ours fall to exactly albedo * 0.
-        // Intensity stays 0 when the level has no cubemap, so nothing changes for those.
-        // Intensity is deliberately far below 1: the cubemap decode can produce HDR values, and at
-        // full strength the additive term washes the scene out quickly. This is the remaining knob
-        // for matching the game's final exposure/specular scale.
+        // Intensity stays 0 when the level has no cubemap. Kept well below 1 since the cubemap decode
+        // can produce HDR values that wash the scene out at full strength.
         var env = Core.LunaWindow.Instance.Level?.EnvironmentAverage;
         lighting.EnvironmentColour = env ?? Vector3.One;
         lighting.EnvironmentIntensity = env.HasValue ? ReflectionIntensity : 0f;
-        // The real cubemap the lit shader samples for reflections, in place of the flat average
-        // above. AssetManager always provides one (a 1x1 fallback when the level has none), so the
-        // lit effect's set 10 is always bound; EnvironmentIntensity being 0 above is what keeps a
-        // fallback from contributing. See AssetManager.BuildEnvironmentCubemap.
+        // The real cubemap the lit shader samples for reflections, in place of the flat average above.
+        // AssetManager always provides one (a 1x1 fallback when the level has none), so the lit
+        // effect's set 10 is always bound. See AssetManager.BuildEnvironmentCubemap.
         lighting.EnvironmentCubemap = Core.LunaWindow.Instance.AssetManager?.EnvironmentCubemapView;
 
         // The game's own analytic lighting (section 0x8b00) for non-baked surfaces, in place of the
@@ -255,17 +236,10 @@ public class View3D : DockedFrame
         UpdateWindowSize();
         Tick(deltaTime);
 
-        // New-renderer Stage 12 (Docs/NewRenderer.md): once the scene has drawn at least once (so its
-        // instances are known), assemble the WHOLE scene from the geometry registry + EntityManager's
-        // live per-instance world transforms and hand it to the raw-Vulkan renderer, which records one
-        // indexed draw per instance ONCE and replays it into a display texture with the LIVE camera.
-        //
-        // AssetManager owns capturing/building the scene (see TryCaptureScene's remarks) - this call is
-        // a no-op once it has already been captured, including across this panel being closed and
-        // reopened, which is the whole point: the captured scene's lifetime is the LEVEL's, not this
-        // panel's. It also stays a no-op while textures are still uploading (see AssetManager's queued-
-        // upload drain, spread across frames by Window.DoLoadEntitiesCheck instead of blocking one),
-        // so the very first capture never samples a texture before its pixel data has actually landed.
+        // Assembles the whole scene from the geometry registry + EntityManager's live per-instance
+        // world transforms and hands it to the raw-Vulkan renderer. AssetManager owns capturing/
+        // building the scene (see TryCaptureScene's remarks); this call is a no-op once it has already
+        // been captured, and stays a no-op while textures are still uploading.
         bool hadStage = VkStage != null;
         Core.LunaWindow.Instance.AssetManager?.TryCaptureScene(graphicsDevice, viewWidth, viewHeight);
         var vkStage = VkStage;
@@ -273,17 +247,14 @@ public class View3D : DockedFrame
         // to be re-pushed rather than assuming the flag still matches what the previous one was given.
         if (!hadStage && vkStage != null) _appliedBoundingSpheres = false;
 
-        // "3D Record" is now the whole CPU cost of the view: refreshing the camera, pushing the
-        // selection's transforms, and the renderer's own cull + re-record + submit. The old
-        // Record/Submit split measured a Bliss command list that no longer exists; the renderer's
+        // "3D Record" is the whole CPU cost of the view: refreshing the camera, pushing the
+        // selection's transforms, and the renderer's own cull + re-record + submit. The renderer's
         // internal "Vk Cull" / "Vk Record" samples are the finer breakdown.
         var record = FrameProfiler.Sample("3D Record");
         Camera.Update();
 
-        // Replay the raw-Vulkan scene AFTER Camera.Update: Tick moves the camera, Update rebuilds the
-        // matrices from that, and only then is the view handed over. Sampling earlier gave a view one
-        // frame behind the position, which made reflections and parallax (both driven by
-        // uCameraPosition) run visibly "ahead" of the geometry.
+        // Replay the raw-Vulkan scene AFTER Camera.Update, so the view uses the current frame's
+        // camera position (reflections/parallax are driven by uCameraPosition).
         if (vkStage != null)
         {
             try
@@ -308,21 +279,16 @@ public class View3D : DockedFrame
                     Program.Settings.SelectionOutlineColor, 0.006f,
                     // True world-space position, same convention as lighting.BuildLightData(Camera.Position)
                     // just above and as Entity.WorldBoundingSphere (what _instCenter/Visible() compares
-                    // this against) - negating it here used to feed the distance-cull test a mirrored
-                    // camera position, so a moby could cross its display-distance threshold in the wrong
-                    // direction as the real camera moved closer, making it disappear when it should not.
+                    // this against).
                     Camera.Position, EntityManager.Singleton.MobyDistanceCullingEnabled,
-                    // Lit/unlit is a live switch in the shader now, not a rebuild: the setting used to
-                    // pick a different Bliss Effect per material, which meant every material had to be
-                    // rebuilt to change it.
+                    // Lit/unlit is a live switch in the shader, not a rebuild.
                     Program.Settings.EnableLighting,
                     EntityManager.Singleton.FrustumCullingEnabled,
                     VisibleEntityKinds(),
                     Program.Settings.TextureFiltering);
 
-                // The overlay's "entities rendered" readout used to be incremented by each entity's
-                // Bliss Draw. That path is gone, so it comes from the renderer's own post-cull visible
-                // count instead - which is the same quantity, measured where the culling now happens.
+                // The overlay's "entities rendered" readout comes from the renderer's own post-cull
+                // visible count.
                 Engine.Scene.Entity.EntitiesRenderedThisFrame = vkStage.VisibleDrawCount;
             }
             catch (Exception e) { LunaLog.LogError($"[VkRenderer] frame failed: {e.Message}"); Core.LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer(); }
@@ -331,13 +297,8 @@ public class View3D : DockedFrame
         record.Dispose();
 
         // No UV flip needed: the render texture already comes out right-side up and correctly
-        // oriented left/right. A prior commit added a horizontal flip here that mirrored the
-        // whole 3D view (reported as "ties/world mirrored on X and Z"), removed along with the
-        // matching compensations it forced into PickEntityUnderCursor, GizmoController and
-        // AxisGizmoRenderer.
-        // The raw-Vulkan renderer renders the scene into its own display texture; before a level is
-        // captured there is simply nothing to show, so the panel stays empty rather than falling back
-        // to a Bliss target.
+        // oriented left/right. Before a level is captured there is nothing to show, so the panel
+        // stays empty.
         if (vkStage != null)
             _viewport.DrawImage(Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, vkStage.ColorTexture));
         else

@@ -13,11 +13,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
     public bool isOld;
 
     [FileOffset(0x00)] public uint indicesIndex;
-    // Matches the legacy reference (CTie.TieMesh) and this project's own old-engine manual
-    // override in Tie.cs - both read verticesIndex/verticesCount/indicesCount at 0x04/0x08/0x12
-    // for BOTH engines. The previous 0x34/0x38/0x42 offsets here were wrong: 0x42+2 exceeds this
-    // struct's own declared Size (0x40), so indicesCount was reading 2 bytes into the *next*
-    // record - explains the wildly-oversized indicesCount / vertexCount==0 seen on new-engine ties.
+    // verticesIndex/verticesCount/indicesCount at 0x04/0x08/0x12 apply to both engines.
     [FileOffset(0x04)] public ushort verticesIndex;
     [FileOffset(0x06)] public ushort Unk1;
     [FileOffset(0x08)] public ushort verticesCount;
@@ -86,7 +82,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
         }
     }
 
-    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[] vertexAlphaCandidates)
+    public readonly void GetBuffers(Vector3 scale, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[] vertexAlpha)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
@@ -95,24 +91,18 @@ public record struct TieMesh : ILunaSerializable, IMesh
         uvcoords = new float[verticesCount * 2];
         normals = new float[verticesCount * 3];
         tangents = new float[verticesCount * 3];
-        vertexAlphaCandidates = new float[verticesCount];
+        vertexAlpha = new float[verticesCount];
 
         for (int k = 0; k < verticesCount; k++)
         {
-            // isOld is per-mesh (set in Tie's constructor) - see VertexFormat0.VertexAlphaCandidateNewEngineAuto
-            // for why new-engine ties need a different (and value-range-dispatched) decode of the
-            // same raw field.
-            vertexAlphaCandidates[k] = isOld ? vertices[k].VertexAlpha : vertices[k].VertexAlphaCandidateNewEngineAuto;
+            vertexAlpha[k] = isOld ? vertices[k].VertexAlpha : vertices[k].VertexAlphaNewEngineAuto;
             vpos[k * 3 + 0] = vertices[k].position.Item1 * scale.X;
             vpos[k * 3 + 1] = vertices[k].position.Item2 * scale.Y;
             vpos[k * 3 + 2] = vertices[k].position.Item3 * scale.Z;
             uvcoords[k * 2 + 0] = (float)vertices[k].UVs.Item1;
             uvcoords[k * 2 + 1] = (float)vertices[k].UVs.Item2;
 
-            // Ties can have non-uniform per-axis scale (unlike Mobys' single scalar) - a normal
-            // under non-uniform scale must use the inverse-transpose (divide by the same per-axis
-            // scale applied to positions, then renormalize), not be scaled like a position, or
-            // lighting skews on any Tie that isn't scaled equally on all three axes.
+            // Non-uniform scale: normals use the inverse-transpose (divide by axis scale, renormalize).
             Vector3 n = vertices[k].Normal;
             Vector3 scaledN = new(n.X / scale.X, n.Y / scale.Y, n.Z / scale.Z);
             scaledN = scaledN.LengthSquared() > 1e-12f ? Vector3.Normalize(scaledN) : Vector3.UnitY;
@@ -120,9 +110,7 @@ public record struct TieMesh : ILunaSerializable, IMesh
             normals[k * 3 + 1] = scaledN.Y;
             normals[k * 3 + 2] = scaledN.Z;
 
-            // Unlike the normal, a tangent lies IN the surface (it's an edge/gradient direction,
-            // not a perpendicular) - under non-uniform scale it transforms with the scale
-            // directly, the same as a position, not with the inverse-transpose.
+            // Tangents lie in the surface, so they scale directly (not inverse-transpose).
             Vector3 t = vertices[k].Tangent;
             Vector3 scaledT = new(t.X * scale.X, t.Y * scale.Y, t.Z * scale.Z);
             scaledT = scaledT.LengthSquared() > 1e-12f ? Vector3.Normalize(scaledT) : Vector3.UnitX;

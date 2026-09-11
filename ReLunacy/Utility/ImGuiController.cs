@@ -82,12 +82,10 @@ public class ImGuiController : IDisposable
                 config.PixelSnapH = true;
                 config.GlyphMinAdvanceX = 13f;  // uniform advance so icons align in a column
 
-                // Font Awesome 6 icons live in the Private Use Area (0xE000-0xF8FF in this build).
-                // TWO reasons the old attempt silently failed: this ImGui is compiled with 32-bit
-                // ImWchar so ranges are uint (not ushort), AND the pinned array was never actually
-                // passed to AddFontFromFileTTF. The ranges pointer must OUTLIVE this call - ImGui
-                // keeps it and reads it lazily at atlas-build time - so it's allocated unmanaged and
-                // intentionally never freed (a one-time 12-byte leak, not per-frame). See Utility.Icons.
+                // Font Awesome 6 icons live in the Private Use Area (0xE000-0xF8FF). This ImGui is
+                // compiled with 32-bit ImWchar, so ranges are uint. The ranges pointer must outlive
+                // this call (ImGui reads it lazily at atlas-build time), so it's allocated unmanaged
+                // and intentionally never freed. See Utility.Icons.
                 uint* iconRanges = (uint*)NativeMemory.Alloc((nuint)(3 * sizeof(uint)));
                 iconRanges[0] = 0xE000u;
                 iconRanges[1] = 0xF8FFu;
@@ -159,15 +157,9 @@ public class ImGuiController : IDisposable
 
         _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
 
-        // Point-sampled for ALL ImGui drawing, deliberately: texture-inspection previews
-        // (TexturesExplorer etc.) must show raw texels, and the 3D viewport image is blitted 1:1
-        // (its render texture is sized to the viewport), so filtering it would be a no-op anyway.
-        // Scene texture filtering lives entirely on the 3D side - see
-        // AssetManager.SetTextureFiltering. A previous attempt to make this per-binding (rebinding
-        // resource set 0 inside the per-command loop below) was suspected during a GPUVM-fault
-        // investigation and reverted, but never confirmed as the cause - the fault was in fact the
-        // lit effect's descriptor set numbering, see AssetManager.BuildLitModelEffect. Restoring
-        // the per-binding sampler here is probably safe; it just hasn't been retried since.
+        // Point-sampled for all ImGui drawing: texture-inspection previews need raw texels, and the
+        // 3D viewport image is blitted 1:1. Scene texture filtering lives on the 3D side instead,
+        // see AssetManager.SetTextureFiltering.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
     }
 

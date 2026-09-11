@@ -4,10 +4,8 @@ namespace ReLunacy.Engine.Rendering.Resources;
 
 /// <summary>A decoded texture and its full mip chain, in main memory, ready to be uploaded.
 ///
-/// Split out from <see cref="GpuTexture"/> so the expensive half can be done off the main thread.
-/// Generating the chain for a level's worth of textures was measured at ~4.5s on metropolis, all of it
-/// plain arithmetic over byte arrays with nothing graphics-related in it, so it parallelises across
-/// cores and leaves only the upload itself on the thread that owns the device.</summary>
+/// Split out from <see cref="GpuTexture"/> so the expensive half (plain arithmetic over byte arrays)
+/// can be parallelised off the main thread, leaving only the upload itself on the device thread.</summary>
 public sealed class TextureLevels
 {
     public uint Width { get; }
@@ -117,12 +115,9 @@ public sealed class GpuTexture : IDisposable
     }
 
     /// <summary>Allocates the device texture only - no pixel data yet, so DeviceTexture's content is
-    /// undefined until <see cref="UploadAll"/>/<see cref="UploadMip"/> runs. CreateTexture is a plain
-    /// image+memory allocation (no queue submission), so this is cheap and does not need staging: the
-    /// point is to let a caller hand out a valid Texture reference immediately, then perform however
-    /// many mips' worth of actual GraphicsDevice.UpdateTexture calls later, spread across as many
-    /// frames as it wants instead of paying for all of them in one blocking call - see
-    /// AssetManager.UploadOnePendingTexture, which is what this exists for.</summary>
+    /// undefined until <see cref="UploadAll"/>/<see cref="UploadMip"/> runs. Lets a caller hand out a
+    /// valid Texture reference immediately and upload mips later, spread across frames - see
+    /// AssetManager.UploadOnePendingTexture.</summary>
     public GpuTexture(GraphicsDevice graphicsDevice, uint width, uint height, uint mipLevels)
     {
         Width = width;
@@ -145,9 +140,8 @@ public sealed class GpuTexture : IDisposable
         }
     }
 
-    /// <summary>Uploads exactly one mip level - the same GraphicsDevice.UpdateTexture call UploadAll
-    /// makes in its loop, exposed so a caller can spread a texture's mips (or many textures) across
-    /// multiple frames instead of blocking through all of them at once.</summary>
+    /// <summary>Uploads exactly one mip level, so a caller can spread a texture's mips (or many
+    /// textures) across multiple frames instead of blocking through all of them at once.</summary>
     public void UploadMip(GraphicsDevice graphicsDevice, uint mip, byte[] data, uint mipWidth, uint mipHeight) =>
         graphicsDevice.UpdateTexture(DeviceTexture, data, 0, 0, 0, mipWidth, mipHeight, 1, mip, 0);
 

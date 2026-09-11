@@ -68,8 +68,7 @@ public sealed class TieReader
 
             var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false);
             // Keyed by the assetlookup pointer-table TUID, not the tie's own embedded TUID field
-            // (0x68) - matches MobyReader/ZoneReader's pattern and the legacy AssetLoader, since
-            // the embedded field isn't reliably unique (observed colliding at 0 across records).
+            // (0x68) - the embedded field isn't reliably unique.
             ties.Add(tiePtrs[i].TUID, ConvertTie(legacyTie, tiePtrs[i].TUID));
 
             tiems.Dispose();
@@ -87,10 +86,8 @@ public sealed class TieReader
         var meshes = new List<IMesh>();
 
         // Validate the lightmap UVs mesh by mesh (see SliceLightmapUVs) and rebuild the tie-wide
-        // array from only the windows that pass, so ITie.GetLightmapUVs stays consistent with what
-        // the meshes actually got. Meshes without a usable window keep zeros there - the same thing
-        // an unshaded mesh's slot holds in the file - and null means no mesh had one at all, which
-        // is what EntityTie tests before binding a bake.
+        // array from only the windows that pass. Meshes without a usable window keep zeros; null
+        // means no mesh had one at all (what EntityTie checks before binding a bake).
         float[]? tieLightmapUVs = null;
         for (int i = 0; i < legacyTie.MeshesCount; i++)
         {
@@ -131,32 +128,18 @@ public sealed class TieReader
         }
     }
 
-    /// <summary>Rejected below this: a mesh's UV window has to actually behave like an unwrap of
-    /// THIS mesh, not merely decode in range. Measured over metropolis's 494 testable tie meshes the
-    /// score's median is 0.874, so 0.5 sits far below the real population and cuts 16% - the windows
-    /// that pass the range check by luck and would otherwise repeat the bake across the surface.</summary>
+    /// <summary>Minimum correlation for a UV window to be accepted as a real unwrap of its mesh.</summary>
     private const double MinUnwrapCorrelation = 0.5;
 
     /// <summary>Below this many usable triangles the correlation is noise, so the mesh is accepted
-    /// untested rather than discarded. That covers 1329 small meshes on metropolis (34,764 vertices
-    /// total) - the remaining blind spot, and the first place to look if stray ties still show a
-    /// doubled bake.</summary>
+    /// untested rather than discarded.</summary>
     private const int MinTrianglesToTest = 40;
 
-    /// <summary>Does this UV window unwrap this mesh? A lightmap packer allocates texels roughly in
-    /// proportion to world-space surface area, so per triangle log(UV area) tracks log(3D area).
-    /// Real windows score ~0.87 here; a random in-range window from elsewhere in the vertex blob
-    /// scores ~0.0, so this is the test that separates them - the [0,1] range check alone does not
-    /// (see Loading.Vertices.TieLightmapUV, which documents why several other natural metrics here
-    /// are vacuous).
-    ///
-    /// Note what this canNOT do: it does not distinguish a lightmap unwrap from an ALBEDO unwrap.
-    /// Base UVs score ~0.64 by themselves, because artists unwrap those with roughly uniform texel
-    /// density too. It only separates real-for-this-mesh from unrelated bytes, which is exactly the
-    /// failure being screened out here.
-    ///
-    /// Uses raw int16 positions: any per-axis scale is a constant factor inside the logarithm and
-    /// shifts the intercept, not the correlation.</summary>
+    /// <summary>Tests whether a UV window is a real unwrap of this mesh: a lightmap packer allocates
+    /// texels roughly in proportion to world-space surface area, so per-triangle log(UV area) should
+    /// correlate with log(3D area) for a genuine unwrap but not for unrelated bytes. Does not
+    /// distinguish a lightmap unwrap from an albedo unwrap - only real-for-this-mesh from
+    /// not-for-this-mesh. Uses raw int16 positions; any per-axis scale only shifts the intercept.</summary>
     private static bool LooksLikeUnwrap(in TieMesh mesh, float[] uvs)
     {
         var verts = mesh.vertices;
@@ -207,14 +190,14 @@ public sealed class TieReader
 
     private IMesh ConvertTieMesh(TieMesh legacyMesh, System.Numerics.Vector3 scale, Objects.Tie tie, float[]? tieLightmapUVs)
     {
-        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
+        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlpha);
 
         // The tie's lightmap UV array is indexed over its WHOLE vertex buffer, so each mesh takes
         // the window starting at its own verticesIndex (see ITie.GetLightmapUVs). tieLightmapUVs is
         // already the validated array, so this slice can't fail the range check a second time.
         var lightmapUVs = SliceLightmapUVs(tieLightmapUVs, legacyMesh.verticesIndex, legacyMesh.verticesCount);
 
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, vertexAlphaCandidates: vertexAlphaCandidates, lightmapUVs: lightmapUVs);
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, vertexAlpha: vertexAlpha, lightmapUVs: lightmapUVs);
 
         IMaterial material = legacyMesh.isOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.oldShaderIndex)
@@ -224,20 +207,10 @@ public sealed class TieReader
     }
 
     /// <summary>Copies out one mesh's window of the tie-wide lightmap UV array, or null if this mesh
-    /// has no usable one - in which case the mesh renders unlit while its siblings still light.
-    ///
-    /// THE VALIDITY CHECK IS PER MESH, and that is the whole point. Objects.Tie hands back the raw
-    /// bytes at metadata 0x18 without judging them; a mesh's window starts at verticesIndex * 4
-    /// inside that. On metropolis 2082 of 3771 tie meshes hold real UV data there but only 61 of 193
-    /// ties hold it for ALL of their meshes, so validating tie-wide discards 112 partly-baked ties -
-    /// including every tie carrying one of the level's 256x256 lightmaps. See
-    /// Loading.Vertices.TieLightmapUV.
-    ///
-    /// The test is just "every half decodes inside [0,1]". At an unknown offset that is nearly
-    /// vacuous, but at this fixed one it does the job: the windows that pass score a median 0.870 on
-    /// the area-preservation test that actually proves the decode, versus ~0.0 for matched random
-    /// windows. A short or out-of-bounds window returns null rather than a partial copy, since that
-    /// would silently shift every subsequent vertex's UV.</summary>
+    /// has no usable one (renders unlit while siblings still light). Validity is checked per mesh,
+    /// not tie-wide, since not every mesh in a tie carries real UV data at this offset. The check is
+    /// "every value decodes inside [0,1]"; a short or out-of-bounds window returns null rather than a
+    /// partial copy.</summary>
     private static float[]? SliceLightmapUVs(float[]? tieLightmapUVs, ushort verticesIndex, ushort verticesCount)
     {
         if (tieLightmapUVs is null || verticesCount == 0) return null;
