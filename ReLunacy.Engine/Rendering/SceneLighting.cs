@@ -3,15 +3,8 @@ using NeoVeldrid;
 
 namespace ReLunacy.Engine.Rendering;
 
-/// <summary>The scene's lighting state, and the <see cref="LightData"/> the shaders consume.
-///
-/// This used to live on DecalAwareForwardRenderer, which meant the raw-Vulkan renderer could only get
-/// at the level's lighting by going through a Bliss renderer it otherwise no longer uses. It is plain
-/// state with one pure builder, so it belongs on its own: only <see cref="EnvironmentCubemap"/> touches
-/// the graphics API at all, and that is a NeoVeldrid type, not a Bliss one.
-///
-/// Values default to a plain downward light; the view pushes the real EditorSettings values every
-/// frame, same pattern as Camera.FarPlane / VolumeWireThickness.</summary>
+/// <summary>The scene's lighting state, and the <see cref="LightData"/> the shaders consume. Values
+/// default to a plain downward light; the view pushes the real EditorSettings values every frame.</summary>
 public sealed class SceneLighting
 {
     public Vector3 LightDirection = new(-0.4f, -0.8f, 0.3f);
@@ -19,8 +12,8 @@ public sealed class SceneLighting
     public float Ambient = 0.15f;
     public float SpecularPower = 32f;
 
-    /// <summary>Averaged from the level's own cubemap at load; see LightData.EnvironmentColour.
-    /// Intensity defaults to 0 so nothing changes until a level actually supplies one.</summary>
+    /// <summary>Averaged from the level's own cubemap at load. Intensity defaults to 0 so nothing
+    /// changes until a level actually supplies one.</summary>
     public Vector3 EnvironmentColour = Vector3.One;
     public float EnvironmentIntensity;
 
@@ -30,9 +23,9 @@ public sealed class SceneLighting
     /// <summary>Fresnel F0 for the cubemap reflection (see LightData.ReflectionBase). 0 = specular-map-gated.</summary>
     public float ReflectionBase;
 
-    /// <summary>The level's analytic lighting environment (section 0x8b00), pushed from
-    /// LevelData.LightingEnvironment. Lights undecoded (non-baked) surfaces with the game's own
-    /// sun/ambient. <see cref="HasLightingEnvironment"/> stays false for levels without one.</summary>
+    /// <summary>The level's analytic lighting environment, pushed from LevelData.LightingEnvironment.
+    /// Lights undecoded (non-baked) surfaces with the game's own sun/ambient.
+    /// <see cref="HasLightingEnvironment"/> stays false for levels without one.</summary>
     public bool HasLightingEnvironment;
     public Vector3 EnvDirection0 = Vector3.UnitY;
     public Vector3 EnvDirection1 = Vector3.UnitY;
@@ -44,7 +37,7 @@ public sealed class SceneLighting
     /// reflections. Scene-wide; the view pushes it each frame like EnvironmentColour.</summary>
     public TextureView? EnvironmentCubemap;
 
-    // Live lightmap research controls - see LightData for what each one stands in for.
+    // Live lightmap research controls - see LightData.
     public Vector2 LightmapUVScale = Vector2.One;
     public Vector2 LightmapUVOffset = Vector2.Zero;
     public float BakedLightScale = 4f;

@@ -5,17 +5,10 @@ using ReLunacy.Engine.Loading.Objects;
 namespace ReLunacy.Engine.Assets.Foliage;
 
 /// <summary>One sprite card of a foliage asset: a quad that faces the camera at runtime.
-///
-/// <paramref name="Anchor"/> is the card's position in the asset's local space and
-/// <paramref name="CornerOffsets"/> are 2D offsets in the card's own plane - the game builds the
-/// final vertex as <c>transform(anchor) + offset * scale</c>, so the offsets are what gives the
-/// card its size and the anchor is what places it. <paramref name="Uvs"/> address one QUADRANT of
-/// the foliage atlas (components are always multiples of 0.5), already V-corrected.
-///
-/// <paramref name="Packed"/> is the two undecoded bytes that drive the game's per-sprite rotation
-/// through an indexed vertex-constant lookup - carried through so a future billboard shader can
-/// use them, meaningless until those constants are recovered. See
-/// Loading.Vertices.FoliageSpriteAnchor.</summary>
+/// <paramref name="Anchor"/> is the card's position in the asset's local space;
+/// <paramref name="CornerOffsets"/> are 2D offsets in the card's own plane giving it its size.
+/// <paramref name="Uvs"/> address one quadrant of the foliage atlas. <paramref name="Packed"/> is
+/// two undecoded bytes driving the game's per-sprite rotation; not yet used here.</summary>
 public readonly record struct FoliageSpriteCard(
     Vector3 Anchor,
     Vector2[] CornerOffsets,
@@ -45,12 +38,8 @@ public sealed class Foliage : IAsset
     public IReadOnlyList<FoliagePlacement> Placements { get; private set; }
 
     /// <summary>The material this foliage draws with, resolved from <see cref="Metadata"/>'s
-    /// TextureIndex through the old-engine 0x5200 table (see
-    /// Loading.Objects.FoliageMetadata.TextureIndex and MaterialReader.GetFoliageMaterial — the
-    /// game indexes that table directly, it is not a shader lookup). Null when the index is the
-    /// 0xFFFFFFFF sentinel, out of range, or the level was read without a MaterialReader (e.g. new
-    /// engine); the renderer then falls back to the default billboard texture. The resolved atlas
-    /// itself is reachable as <c>Material.AlbedoTexture</c>.</summary>
+    /// TextureIndex. Null when the index is the 0xFFFFFFFF sentinel, out of range, or unavailable;
+    /// the renderer then falls back to the default billboard texture.</summary>
     public IMaterial? Material { get; }
 
     public Foliage(ulong id, FoliageMetadata metadata, IReadOnlyList<FoliageSpriteCard> sprites,

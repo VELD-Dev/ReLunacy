@@ -121,24 +121,18 @@ public class EditorSettings
     // culling can be flipped on live, per-session, to see how bad it actually is on real data rather
     // than assuming - not a confirmed-safe rendering mode.
     public bool BackfaceCulling;
-    // See UpdateChecker: Stable checks GitHub's normal "latest release"; Nightly checks the
-    // rolling "nightly" tag release .github/workflows/nightly.yml keeps updated on every push to
-    // the nightly branch. Independent of which build the user is actually running - someone on a
-    // stable build can still opt into nightly update notifications and vice versa.
+    // Stable checks GitHub's "latest release"; Nightly checks the rolling "nightly" tag (see
+    // UpdateChecker). Independent of which build is actually running.
     public UpdateChannel UpdateChannel;
-    // First real lighting pass for the live renderer (see LitModelShaderSource) - everything else
-    // is unlit. Opt-in default off, same "experimental until proven" reasoning as BackfaceCulling
-    // above, since this is genuinely new/unverified rendering code, not a rebuild of something
-    // already trusted.
+    // First real lighting pass for the live renderer (see LitModelShaderSource); everything else
+    // is unlit. Opt-in, off by default as experimental.
     public bool EnableLighting;
     // Scene-wide default texture filtering for the 3D view (AssetManager also supports per-texture
-    // overrides for future use - see AssetManager.SetTextureFiltering(textureId, filtering)).
+    // overrides, see AssetManager.SetTextureFiltering).
     public ReLunacy.Engine.Rendering.TextureFiltering TextureFiltering;
 
-    // Far clip for the ASSET VIEWER's preview camera only (the 3D view has its own, RenderDistance).
-    // Assets are previewed at wildly different scales - a UFrag is drawn at 1/256 while a moby is
-    // unit-ish - so one hardcoded far plane clipped some of them; this is adjustable from the overlay
-    // toolbar over the preview itself.
+    // Far clip for the asset viewer's preview camera only (the 3D view uses RenderDistance instead).
+    // Adjustable from the overlay toolbar over the preview.
     public float AssetViewerFarPlane;
 
     [JsonIgnore]
@@ -196,8 +190,7 @@ public class EditorSettings
         UpdateChannel = UpdateChannel.Stable;
         EnableLighting = false;
         AssetViewerFarPlane = 100f;
-        // Bilinear by default: it's what the game itself does on PS3, and the reason this
-        // setting exists at all - Point remains selectable for pixel-peeping raw texel data.
+        // Bilinear by default, matching the game's own PS3 behavior; Point is selectable for raw texel data.
         TextureFiltering = ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;
 #if DEBUG
         LogLevel = LunaLog.LogLevel.Debug;

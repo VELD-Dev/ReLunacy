@@ -56,16 +56,10 @@ public record struct TieAsset
 }
 
 /// <summary>Terrain fragment, listed alongside Mobys and Ties even though it is not an "asset" in
-/// the same sense - UFrags are not instanced, so each one IS its own single placement.
-///
-/// That is exactly why they belong here: a UFrag's bake is unambiguous. A Tie's lightmap depends on
-/// which instance you are looking at (one Tie asset, many placements, a different bake index each),
-/// so there is no context-free answer to "what does this asset's lightmap look like"; for a UFrag
-/// there is. It is currently the only asset type whose baked lighting can be inspected on its own.
-///
-/// Holds no Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
-/// (see ResolveUFragMesh), so what is previewed is byte-identical to what the 3D view draws,
-/// lightmap material and all, with no second copy to keep in sync or dispose.</summary>
+/// the same sense - UFrags are not instanced, so each one IS its own single placement, and its bake
+/// is therefore unambiguous (unlike a Tie, whose lightmap depends on which instance you're looking
+/// at). Holds no Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
+/// (see ResolveUFragMesh).</summary>
 public record struct UFragAsset
 {
     public UFragAsset(ulong zoneId, int index, IUFrag ufrag)
@@ -78,10 +72,8 @@ public record struct UFragAsset
         triangleCount = (uint)(ufrag.GetIndices().Length / 3);
 
         // Measured off the geometry, NOT from GetBoundingRadius(): old-engine UFrags don't have a
-        // decodable radius in their record (boundingSphere.W at 0x6C reads NaN for all 1987 UFrags in
-        // metropolis, which is why ZoneReader substitutes a flat 2.5f). A constant is useless for
-        // framing a preview, and these are raw fixed-point x256 units, so both values stay in that
-        // space and get descaled with the rest of the transform.
+        // decodable radius in their record. Raw fixed-point x256 units, descaled with the rest of
+        // the transform.
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         for (int i = 0; i + 2 < positions.Length; i += 3)
         {
@@ -133,25 +125,14 @@ public class AssetViewer : DockedFrame, ILevelListener
     private readonly List<(Vector3 a, Vector3 b, Vector4 color)> _debugLines = new();
     private bool showSkeleton = true;
 
-    // Picking granularity for this viewport only (never fed into the shared scene-picking used
-    // by View3D) - reuses local (bangleIndex, meshIndex) as the picking ID directly instead of
-    // minting a globally-unique ID per mesh, since only one asset is ever previewed here at a
-    // time. bangleIndex is always 0 for Ties (no bangle concept).
     private (int bangleIndex, int meshIndex)? selectedMesh;
     private int selectedVertexIndex;
     private bool vertexEditMode;
 
-    // Screen-space pixel radii for the vertex-edit-mode overlay/picking - kept generous on the
-    // pick radius specifically per the ask that vertex selection be tolerant, since a raw vertex
-    // dot is a much smaller target than a mesh triangle.
+    // Screen-space pixel radii for the vertex-edit-mode overlay/picking.
     private const float VertexPointPixelRadius = 4f;
     private const float SelectedVertexPixelRadius = 7f;
     private const float VertexPickPixelRadius = 10f;
-
-    // ImmediateRenderer's DrawBillboard always uses white-source * this to produce, for any
-    // background pixel color C, a final color of (1,1,1) - C - i.e. the dot always reads as the
-    // inverse of whatever's behind it, so it stays visible regardless of the underlying texture
-    // (this is the whole reason for this blend state instead of a fixed dot color). Alpha is left
 
     // Persisted, user-draggable pane sizes (pixels) - each tracks the pane immediately BEFORE its
     // splitter; the trailing pane on the other side of a splitter always just takes whatever
@@ -165,10 +146,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     public List<TieAsset> tieAssets = [];
     public List<UFragAsset> ufragAssets = [];
 
-    // UFrag-tab state. The lightmapped/not split is the first question worth asking of any UFrag and
-    // eyeballing "lm -" across ~2000 rows doesn't scale, so it gets its own filter rather than
-    // reusing the Used/Unused one above - that one is meaningless here, since a UFrag is its own
-    // single placement and is therefore always "used".
+    // UFrag-tab state. Lightmapped/not gets its own filter rather than reusing the Used/Unused one
+    // above, which is meaningless here since a UFrag is always its own single, "used" placement.
     private bool? ufragLightmapFilter;
     private bool ufragShowUVOverlay = true;
     private bool ufragShowUVWireframe = true;
@@ -220,10 +199,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         {
             selectedUFragAsset = value;
             if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; }
-            // A UFrag is one single mesh (see ForEachPreviewMesh's pick id 0 for it) - unlike
-            // Moby/Tie, which need a viewport click to pick which submesh, there's nothing to
-            // disambiguate, so this jumps straight to it instead of leaving the raw-vertex panel
-            // on its "click a mesh" hint until the user clicks the one thing there is to click.
+            // A UFrag is one single mesh, so there's nothing to pick - select it directly.
             selectedMesh = value != null ? (0, 0) : null;
             _selectedUFragMesh = value != null ? BuildUFragMesh(value.Value) : null;
             exportNameOverride = "";
@@ -233,16 +209,10 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    // IMesh adapter for whichever UFrag is currently selected - see BuildUFragMesh. Rebuilt only on
-    // selection change (SelectedUFragAsset's setter), not per-frame: ResolveSelectedMesh/
-    // RenderSelectedMeshPanel read this every frame the raw-vertex panel is visible.
+    // IMesh adapter for the currently selected UFrag - see BuildUFragMesh.
     private IMesh? _selectedUFragMesh;
 
-    // Lets the user rename an asset for export (textures/.bin/.gltf all take this name too - see
-    // ExportModel/GetExportName) instead of being stuck with the asset's raw internal name, which
-    // is routinely something like a full "levels/.../foo.entity.irb" path - not exactly what you
-    // want a Models Resource submission's files named after. Reset to blank (falls back to the
-    // asset's own default name) whenever the selection changes, above.
+    // Lets the user rename an asset for export instead of using its raw internal name.
     private string exportNameOverride = "";
 
     private AssetManager? assetManager;
@@ -786,9 +756,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                 _viewport.DrawEmpty();
 
             // Overlay, then picking. Same priority order as the level view (there is no gizmo in this
-            // one), and the order the calls are made in IS the order: TryConsumeClick answers true only
-            // for a click the toolbar did not want. Picking used to run before the image was even
-            // submitted, which is why a click on a toolbar button also moved the mesh selection.
+            // one): TryConsumeClick answers true only for a click the toolbar did not want.
             DrawPreviewOverlay();
 
             if (_viewport.TryConsumeClick())
@@ -805,9 +773,7 @@ public class AssetViewer : DockedFrame, ILevelListener
 
         HorizontalSplitter("##split_preview", ref previewHeight, rightWidth);
 
-        // Distance to Target (the orbit pivot), not Camera.Position.Length() (distance to world
-        // zero) - those were the same thing before middle-click pan could move Target away from
-        // Vector3.Zero, but "distance to origin" now means "distance to wherever the pivot is."
+        // Distance to Target (the orbit pivot), not Camera.Position.Length() (distance to world zero).
         ImGui.Text($"{_viewport.PixelWidth}x{_viewport.PixelHeight} - Distance to target: {Vector3.Distance(Camera.Position, Camera.Target)}m");
         ImGui.Separator();
 
@@ -953,22 +919,18 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Blank exportNameOverride falls back to the asset's own default name; otherwise the
-    /// user's typed name is used verbatim (still gets sanitized for filesystem-illegal characters
-    /// by ExportModel below either way) - this is the one place that decides what name every
-    /// exported file (model, .bin, and every texture) ultimately gets built from.</summary>
+    /// user's typed name is used verbatim. The one place that decides what name every exported
+    /// file (model, .bin, and every texture) is built from.</summary>
     private string GetExportName(string defaultName) => string.IsNullOrWhiteSpace(exportNameOverride) ? defaultName : exportNameOverride;
 
     /// <summary>
-    /// Shared by every Moby/Tie export button - builds a sanitized output path under
-    /// EditorPath/Exported/Models (asset names routinely contain path-like characters, e.g.
-    /// "levels/great_clock_a/entities/.../foo.entity.irb", which would otherwise be interpreted
-    /// as subdirectories) and hands off to ExportRunner for the actual background export + progress
-    /// modal + result modal (shared with the whole-level export in GameBrowserFrame/FileMenuDraw).
+    /// Shared by every Moby/Tie/UFrag export button - builds a sanitized output path under
+    /// EditorPath/Exported/Models and hands off to ExportRunner for the background export +
+    /// progress modal + result modal.
     /// </summary>
-    /// <param name="ownFolder">True for exporters that write more than one file alongside the
-    /// main one (e.g. GltfExporter.ExportGltfSeparate's .bin + texture PNGs) - puts the asset in
-    /// its own Exported/Models/&lt;name&gt;/ folder instead of dropping several loose files
-    /// directly into Exported/Models next to every other asset's exports.</param>
+    /// <param name="ownFolder">True for exporters that write more than one file alongside the main
+    /// one (e.g. GltfExporter.ExportGltfSeparate's .bin + texture PNGs) - puts the asset in its own
+    /// Exported/Models/&lt;name&gt;/ folder instead.</param>
     private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, bool ownFolder = false)
     {
         string safeName = ExportPaths.SanitizeFileName(assetName);
@@ -981,22 +943,16 @@ public class AssetViewer : DockedFrame, ILevelListener
             progress => exporter(path, safeName, groups, skeleton, progress));
     }
 
-    /// <summary>One MeshGroup per bangle (indexed name fallback for unnamed bangles) - keeps
-    /// bangles as distinct submeshes/nodes on export instead of flattening the whole Moby into a
-    /// single mesh, since bangles are independently toggleable parts (see RenderModelMap above),
-    /// not interchangeable LOD/skin variants.</summary>
     /// <summary>The scene entity's own already-built GPU mesh for this UFrag, or null if the level
-    /// produced no entity for it. Borrowed, never owned: building a second Mesh here would duplicate
-    /// the vertex buffer AND detach the preview from the material the 3D view actually renders with -
-    /// including its bound lightmap atlases, which is the whole point of previewing a UFrag.</summary>
+    /// produced no entity for it. Borrowed, never owned, so the preview stays byte-identical to what
+    /// the 3D view renders (lightmap material included).</summary>
     private static RenderMesh? ResolveUFragMesh(UFragAsset asset) =>
         EntityManager.Singleton.AllEntities().OfType<EntityUFrag>()
             .FirstOrDefault(e => ReferenceEquals(e.UFrag, asset.UFrag))?.UFragMesh;
 
-    /// <summary>Pulls the camera back far enough to frame the selected UFrag. Necessary because the
-    /// mesh keeps its true 1/256 scale (see the renderable build) and UFrags vary from a few world
-    /// units across to tens - a fixed camera distance shows either a speck or the inside of a wall.
-    /// Clamped under the camera's 100f far plane so a large chunk can't land entirely beyond it.</summary>
+    /// <summary>Pulls the camera back far enough to frame the selected UFrag. UFrags vary widely in
+    /// size, so a fixed distance would show either a speck or the inside of a wall. Clamped under
+    /// the camera's 100f far plane.</summary>
     private void FrameUFragInPreview(UFragAsset asset)
     {
         float radius = MathF.Max(asset.localRadius / 256f, 0.01f);
@@ -1006,10 +962,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Export payload for a UFrag: one mesh, one shader. Positions are descaled by 256 to
-    /// world units, and the placement ANCHOR is deliberately not applied - the export is asset-local,
-    /// matching Moby/Tie export, so a UFrag lands at the origin rather than wherever it sits in the
-    /// level. Real normals/tangents are passed through so GeometryData doesn't recompute them from
-    /// triangles when the file already told us (its tangent handedness is still derived, as always).</summary>
+    /// world units; the placement ANCHOR is deliberately not applied, so the export is asset-local
+    /// like Moby/Tie export (UFrag lands at the origin, not wherever it sits in the level).</summary>
     private static List<MeshGroup> GetUFragGroups(UFragAsset asset, string name)
     {
         var ufrag = asset.UFrag;
@@ -1096,12 +1050,9 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>The baked-lighting readout: which atlas entry this UFrag resolves to, the UV rectangle
-    /// its vertices occupy, and the atlases themselves with the UV island drawn on top.
-    ///
-    /// The rect and the overlay separate the two failure modes that look identical on screen - a UFrag
-    /// rendering black because its atlas region genuinely IS black, versus because it is addressing the
-    /// wrong region. That distinction is what caught the UVs2 decode bug (islands were landing about
-    /// two texels wide, see UFragVertex.UVs2), so it stays even though that particular bug is fixed.</summary>
+    /// its vertices occupy, and the atlases themselves with the UV island drawn on top. The rect and
+    /// the overlay separate two failure modes that look identical on screen - a UFrag rendering black
+    /// because its atlas region genuinely IS black, versus because it's addressing the wrong region.</summary>
     private void RenderUFragBakedSection(UFragAsset asset)
     {
         var ufrag = asset.UFrag;
@@ -1133,9 +1084,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (!asset.HasLightmap) return;
 
         // Preview-local, so these can be swept while looking at one UFrag without disturbing the 3D
-        // view. They drive THIS frame's own renderer instance, which is also why the UV overlay below
-        // reads its transform from the same place: the overlay has to describe the shader that drew
-        // the image next to it, or it lies.
+        // view. Drive THIS frame's own renderer instance; the UV overlay below reads its transform
+        // from the same place so it describes the shader that drew the image next to it.
         {
             var lit = _lighting;
             ImGui.SeparatorText(LM.Get("GUI_Frame_AssetViewer_UFragPreviewSection"));
@@ -1289,6 +1239,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         ImGui.TextUnformatted(floatSb.ToString());
     }
 
+    /// <summary>One MeshGroup per bangle (indexed name fallback for unnamed bangles), since bangles
+    /// are independently toggleable parts, not interchangeable LOD/skin variants.</summary>
     private static List<MeshGroup> GetMobyGroups(IMoby moby) =>
         moby.Bangles.Select((bangle, i) => new MeshGroup(string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name, bangle.Meshes)).ToList();
 
@@ -1318,13 +1270,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>
-    /// GPU colour-ID picking scoped to this viewport's own preview model (the same renderer
-    /// class View3D uses for whole-entity picking, but the id here is packed straight from local
-    /// (bangleIndex, meshIndex) instead of a globally-unique per-mesh id - this viewport only ever
-    /// shows one asset at a time, so there's no cross-asset collision risk to design around.
-    /// bangleIndex is always 0 for Ties and UFrags (a UFrag is always pick id 0 too - see
-    /// ForEachPreviewMesh - so clicking it here just re-confirms the (0,0) SelectedUFragAsset's
-    /// setter already jumped to; clicking off it deselects, same as Moby/Tie).
+    /// GPU colour-ID picking scoped to this viewport's own preview model. Pick id is packed from
+    /// local (bangleIndex, meshIndex). bangleIndex is always 0 for Ties and UFrags.
     /// </summary>
     private void PickMeshUnderCursor()
     {
@@ -1381,30 +1328,10 @@ public class AssetViewer : DockedFrame, ILevelListener
         return null;
     }
 
-    /// <summary>Wraps a UFrag's already-decoded per-vertex arrays (IUFrag.GetVertexPositions/
-    /// GetTextureCoordinates/etc.) as an IMesh, the same GeometryData+Mesh composition every other
-    /// reader builds - so the raw-vertex inspector, vertex-edit-mode picking and its overlay all
-    /// work for UFrags exactly the way they already do for Moby/Tie meshes, without either format
-    /// needing its own separate panel code.
-    ///
-    /// Positions are rescaled to world space (raw/256, re-centred on localCentre) to match
-    /// EXACTLY what ForEachPreviewMesh's world matrix does for the rendered preview - unlike
-    /// Moby/Tie (always Matrix4x4.Identity), a UFrag's preview isn't drawn at its raw vertex scale,
-    /// and PickVertexUnderCursor/AppendVertexOverlay both treat Geometry.GetVertexPositions() as
-    /// already being in world space with no model matrix of their own to apply. Feeding them the
-    /// raw x256 positions instead would put every pick/overlay coordinate ~256x too far from the
-    /// camera and off by localCentre, i.e. picking would never hit and the overlay would never be
-    /// visible on screen. Bounding sphere is left for GeometryData to compute from these same
-    /// (already world-space) positions, rather than reusing IUFrag.GetBoundingCenter/Radius, which
-    /// are in a separately-sourced (and not always x256-consistent - see UFragAsset's own
-    /// from-vertices fallback) space; nothing here reads it anyway.
-    ///
-    /// Deliberately NOT built from the raw UFragVertex[] the loader read off disk (ZoneReader's
-    /// legacyUFrag.vertices) - that array is ArrayPool-rented and returned to the pool right after
-    /// conversion (see UFrag.Dispose), long before the Asset Viewer runs, so holding a reference to
-    /// it here would eventually read another tenant's data. Every value the inspector needs
-    /// (including vertex alpha) is already decoded and permanently owned by IUFrag, which is what
-    /// DumpUFragVertex below reads instead.</summary>
+    /// <summary>Wraps a UFrag's decoded per-vertex arrays as an IMesh (same GeometryData+Mesh
+    /// composition every other reader builds), so the raw-vertex inspector and vertex-edit-mode
+    /// picking/overlay work for UFrags too. Positions are rescaled to world space (raw/256,
+    /// re-centred on localCentre) to match the preview's own world matrix.</summary>
     private static IMesh BuildUFragMesh(UFragAsset asset)
     {
         var ufrag = asset.UFrag;
@@ -1417,15 +1344,8 @@ public class AssetViewer : DockedFrame, ILevelListener
             positions[i + 2] = rawPositions[i + 2] / 256f - asset.localCentre.Z / 256f;
         }
 
-        // GeometryData's own `tangents` parameter expects a RAW 3-per-vertex direction (xyz only) -
-        // it feeds that straight back into GeometryMath.ComputeTangents itself to derive the final
-        // 4-per-vertex (xyz + w handedness) result GetTangents() returns. IUFrag.GetTangents() is
-        // already that FINAL 4-per-vertex output (ZoneReader.ConvertUFrag ran it through
-        // ComputeTangents once already) - passing it straight through here duplicates that recompute
-        // AND hands it 4-per-vertex data where 3-per-vertex is required, which is what crashed
-        // ("Tangents must be in groups of 3"). Strip the w back off so ComputeTangents gets the
-        // real decoded xyz direction as input, same as every other reader does, and derives its own
-        // (necessarily identical, since bitangent/handedness only depends on xyz + UVs) w again.
+        // GeometryData's tangents parameter takes raw xyz (3 per vertex); GetTangents() already
+        // includes the derived w handedness (4 per vertex), so strip it back off here.
         float[]? ufragTangents = ufrag.GetTangents();
         float[]? tangentsXyz = null;
         if (ufragTangents != null)
@@ -1447,17 +1367,12 @@ public class AssetViewer : DockedFrame, ILevelListener
             normals: ufrag.GetNormals(),
             tangents: tangentsXyz,
             lightmapUVs: ufrag.GetLightmapUVs(),
-            vertexAlphaCandidates: ufrag.GetVertexAlphaCandidates());
+            vertexAlpha: ufrag.GetVertexAlpha());
 
         return new Engine.Assets.Geometry.Mesh(geometry, ufrag.Material, "UFragMesh", "UFragVertex", i => DumpUFragVertex(ufrag, i));
     }
 
-    /// <summary>The full raw UFragVertex record, one 4-byte-aligned line per RSX attribute word -
-    /// see UFragVertex.Dump for the actual field breakdown. Matches VertexFormat0.Dump()/
-    /// TieMesh.DumpVertex's "raw bytes plus decoded value next to them" role for Moby/Tie meshes,
-    /// now that IUFrag.GetRawVertices() keeps a permanent copy of the real per-vertex records
-    /// (see ZoneReader.ConvertUFrag) instead of only the already-decoded float arrays this used to
-    /// be built from.</summary>
+    /// <summary>Raw-vertex inspector dump for a UFrag vertex - see UFragVertex.Dump.</summary>
     private static string? DumpUFragVertex(IUFrag ufrag, int index)
     {
         var rawVertices = ufrag.GetRawVertices();
@@ -1466,9 +1381,7 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     /// <summary>CPU screen-space nearest-vertex picking against the selected mesh's raw vertex
     /// positions, rather than a second GPU picking pass - these preview meshes are small enough
-    /// (single asset, not a whole level) that projecting every vertex per click is cheap, and it
-    /// sidesteps rasterizing sub-pixel point primitives with a click-tolerant hit radius, which a
-    /// GPU ID buffer can't easily give without inflating actual triangle geometry.</summary>
+    /// that projecting every vertex per click is cheap.</summary>
     private void PickVertexUnderCursor()
     {
         if (!_viewport.HasArea) return;
@@ -1596,11 +1509,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>RMB drags orbit (rotates Position around the fixed Target); MMB drags pan (moves
-    /// Position and Target together, so the orbit origin itself relocates instead of just
-    /// spinning around it). Both share one method rather than two independent ones because they
-    /// also share relative-mouse-mode: two separate methods each reporting their own drag state
-    /// would have the second one cancel whatever the first just started whenever only one of the
-    /// two buttons is actually held.</summary>
+    /// Position and Target together, relocating the orbit origin). Both share one method since they
+    /// also share relative-mouse-mode.</summary>
     private void CheckCameraDragInput(bool allowGrab)
     {
         bool rotating = rmbghandler.TryGrabMouse(allowGrab);
@@ -1608,8 +1518,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         bool isDragging = rotating || panning;
 
         // The viewport owns relative mouse mode. It is one global flag shared with the level view, so
-        // only whichever viewport turned it on turns it off again; this used to be hand-rolled here
-        // with an edge tracker precisely because the other view kept clobbering it.
+        // only whichever viewport turned it on turns it off again.
         _viewport.SetMouseCaptured(isDragging);
 
         if (!isDragging) return;
@@ -1621,35 +1530,27 @@ public class AssetViewer : DockedFrame, ILevelListener
             Vector2 rot = delta * Program.Settings.CamSensivity;
 
             // rotateAroundTarget: true swings Position around the fixed Target (real orbit).
-            // false - what this used to pass - keeps Position fixed and swings Target instead,
-            // which is FPS-style look, not an orbit; that's why this never actually orbited.
             Camera.SetPitch(Camera.GetPitch() - rot.Y, true);
             Camera.SetYaw(Camera.GetYaw() - rot.X, true);
         }
 
         if (panning)
         {
-            // Screen-pixel delta -> world-space delta at the orbit target's own depth (same
-            // perspective back-solve as WorldScaleForPixelRadius, without that method's
-            // billboard-specific 0.005 constant), so the point under the cursor at drag-start
-            // stays roughly under the cursor while dragging, matching typical middle-click-pan
-            // tools.
+            // Screen-pixel delta -> world-space delta at the orbit target's own depth, so the point
+            // under the cursor at drag-start stays roughly under the cursor while dragging.
             float distance = Vector3.Distance(Camera.Position, Camera.Target);
             float fovYRad = Camera.Fov * (MathF.PI / 180f);
             float worldUnitsPerPixel = 2f * distance * MathF.Tan(fovYRad * 0.5f) / Math.Max(1, _viewport.PixelHeight);
 
-            // Built by hand instead of Cam3D.MoveRight/MoveUp: those use GetRight() = Cross(Forward,
-            // Up) and the raw Up field directly, neither of which is normalized - Up drifts and
-            // isn't guaranteed orthogonal to Forward after SetPitch/SetRoll, so pan speed would
-            // vary with pitch (shrinking toward zero looking straight up/down) and drift over time.
-            // right/up here are a proper orthonormal basis for the current view.
+            // Built by hand instead of Cam3D.MoveRight/MoveUp: those rely on the raw Up field, which
+            // isn't guaranteed normalized/orthogonal to Forward. right/up here are a proper
+            // orthonormal basis for the current view.
             Vector3 forward = Camera.GetForward();
             Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Camera.Up));
             Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
 
-            // Signs make the dragged point track the cursor (drag right -> content follows right,
-            // i.e. camera moves left; drag down -> content follows down, i.e. camera moves up) -
-            // not runtime-verified; if the pan feels inverted, flip both signs here.
+            // Signs make the dragged point track the cursor. Not runtime-verified; flip both signs
+            // here if the pan feels inverted.
             Vector3 shift = right * (-delta.X * worldUnitsPerPixel) + up * (delta.Y * worldUnitsPerPixel);
             Camera.Position += shift;
             Camera.Target += shift;
@@ -1672,8 +1573,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     private readonly SceneLighting _lighting = new();
 
     // Placeholder shown when nothing is selected, so the viewport is never just an empty rectangle.
-    // Registered with the capture registry once, under its own key, exactly like real asset geometry -
-    // that is what lets the normal preview path draw it with no special case beyond this.
+    // Registered with the capture registry once, under its own key, exactly like real asset geometry.
     private RenderMesh? _placeholderMesh;
     private float[]? _placeholderVertexData;
     private uint[]? _placeholderIndices;
@@ -1723,10 +1623,8 @@ public class AssetViewer : DockedFrame, ILevelListener
             indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3]);
         }
 
-        // A real 1x1 white albedo, not an empty material. The renderer substitutes SOME texture for an
-        // unbound slot, but it picks that fallback from the scene's own materials, and when nothing is
-        // selected this cube is the whole scene: leaving it textureless makes the renderer refuse to
-        // build at all, which shows up as an empty viewport exactly when the placeholder is the point.
+        // A real 1x1 white albedo, not an empty material: when nothing is selected this cube is the
+        // whole scene, and a textureless material makes the renderer refuse to build at all.
         _placeholderTexture ??= GpuTexture.Solid(graphicsDevice, 255, 255, 255, 255);
         _placeholderMaterial = new RenderMaterial();
         _placeholderMaterial.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(_placeholderTexture));
@@ -1834,8 +1732,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Walks the selected asset's drawable meshes, handing each one its world transform and
-    /// its pick id. One place, so rendering and picking can never disagree about what is on screen -
-    /// they used to build that list separately.</summary>
+    /// its pick id. One place, so rendering and picking can never disagree about what is on screen.</summary>
     private void ForEachPreviewMesh(Action<RenderMesh, Matrix4x4, uint> add)
     {
         if (selectedMobyAsset != null)
@@ -1863,11 +1760,9 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
         else if (ResolveUFragMesh(selectedUFragAsset.Value) is { } ufragMesh)
         {
-            // Scale matches EntityUFrag exactly (raw positions are fixed-point x256 on both engines)
-            // rather than being normalised per UFrag to fit the viewport. A per-selection scale would
-            // silently change the apparent lighting from one UFrag to the next - specular and the
-            // normal-map derivatives are not scale-invariant - and comparing bakes across UFrags is
-            // what this tab is for. The camera moves instead; see FrameUFragInPreview.
+            // Scale matches EntityUFrag exactly rather than being normalised per UFrag to fit the
+            // viewport, since specular/normal-map lighting is not scale-invariant and comparing
+            // bakes across UFrags is what this tab is for. The camera moves instead; see FrameUFragInPreview.
             var world = Matrix4x4.CreateScale(1f / 256f)
                 * Matrix4x4.CreateTranslation(-selectedUFragAsset.Value.localCentre / 256f);
             add(ufragMesh, world, 0u);
@@ -1885,9 +1780,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    /// <summary>Vertex markers as small screen-scaled crosses. These were billboarded quads before;
-    /// a cross is what the debug-line overlay can draw, and it marks a point at least as precisely.
-    /// The screen-space sizing is unchanged, so a dot stays the same size at any zoom or mesh scale.</summary>
+    /// <summary>Vertex markers as small screen-scaled crosses, sized so a marker stays the same
+    /// on-screen size at any zoom or mesh scale.</summary>
     private void AppendVertexOverlay(IMesh mesh)
     {
         float[] positions = mesh.Geometry.GetVertexPositions();
@@ -1928,10 +1822,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         catch (Exception e) { LunaLog.LogError($"[AssetViewer] preview resize failed: {e.Message}"); DisposePreview(); }
     }
 
-    /// <summary>Foliage inspector. Read-only and deliberately raw: every number here is either
-    /// straight out of the file or one step from it, because foliage is still being reverse
-    /// engineered and a prettied-up view would hide the two things worth watching - whether the UVs
-    /// really land on quadrant boundaries, and whether the LOD ranges partition the card set.</summary>
+    /// <summary>Foliage inspector. Read-only and deliberately raw: every number is either straight
+    /// out of the file or one step from it, since foliage is still being reverse engineered.</summary>
     private void RenderFoliageList()
     {
         var level = LunaWindow.Instance.Level;

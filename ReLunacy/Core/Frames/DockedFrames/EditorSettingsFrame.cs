@@ -50,10 +50,7 @@ internal class EditorSettingsFrame : Frame
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_RestartRequiredHelp"));
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_FarClipDist"), ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.InputInt(LM.Get("GUI_Frame_EditorSettings_MaxFramerate"), ref Program.Settings.TargetFPS);
-                // currentMsaa used to be a local int with no connection to Program.Settings.MSAA_Level
-                // at all (never initialized from it, never written back to it) - the combo was
-                // purely cosmetic and always showed "Disabled" regardless of the real, persisted
-                // setting. Resync from the real value every frame (so external changes, e.g. the
+                // Resync from Program.Settings.MSAA_Level every frame (so external changes, e.g. the
                 // Cancel button's ReloadSettings, are reflected too) and write straight back on edit.
                 currentMsaa = (int)Program.Settings.MSAA_Level;
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1))
@@ -74,9 +71,8 @@ internal class EditorSettingsFrame : Frame
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_EnableLighting"), ref Program.Settings.EnableLighting);
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
-                // Light direction/colour/ambient controls moved to the Level Data frame, which edits
-                // the level's OWN lighting environment (section 0x8b00) - kept in one place rather
-                // than split between here and there.
+                // Light direction/colour/ambient controls live in the Level Data frame instead,
+                // which edits the level's own lighting environment.
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     currLanguage = selectedLanguage;

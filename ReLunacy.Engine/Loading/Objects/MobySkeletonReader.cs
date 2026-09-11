@@ -4,27 +4,14 @@ using ReLunacy.Engine.Loading.IO;
 
 namespace ReLunacy.Engine.Loading.Objects;
 
-/// <summary>
-/// Resolves a Moby's `skeletonPointer` field into a fully-read MobySkeleton (bone hierarchy +
-/// bind-pose matrices). Pulled out as its own static reader (rather than inlined into Moby's
-/// constructor) so it's independently testable against a synthetic stream, without needing to
-/// fabricate an entire fake IGFile/moby record.
-///
-/// Pointer convention: `skeletonPointer` and the nested `tms0Pointer`/`tms1Pointer`/bone-array
-/// pointer are all absolute offsets from the start of the moby's own stream - the exact same
-/// convention already proven correct by the (working) bangle/mesh [Reference] chain on
-/// NewMoby/OldMoby, so no per-engine adjustment is needed here.
-/// </summary>
+/// <summary>Resolves a Moby's `skeletonPointer` field into a fully-read MobySkeleton (bone
+/// hierarchy + bind-pose matrices). `skeletonPointer` and the nested tms0Pointer/tms1Pointer/
+/// bone-array pointer are all absolute offsets from the start of the moby's own stream.</summary>
 public static class MobySkeletonReader
 {
-    /// <param name="expectedBoneCount">
-    /// The Moby record's own bonesCount/bonesCount1 field, if known - the skeleton header carries
-    /// its own redundant numBones copy, and the two disagreeing is the single strongest signal
-    /// available (without ground-truth data) that skeletonPointer landed somewhere other than real
-    /// skeleton data, e.g. a wrong pointer-base assumption for one engine. Surfaces as a loud,
-    /// visible failure (exception -> caught by Moby's constructor -> Skeleton stays null and a
-    /// warning is logged) instead of silently exposing plausible-looking garbage bones.
-    /// </param>
+    /// <param name="expectedBoneCount">The Moby record's own bonesCount/bonesCount1 field, if
+    /// known. A mismatch against the skeleton header's own numBones throws, instead of silently
+    /// exposing garbage bones.</param>
     public static MobySkeleton? Read(StreamHelper sh, uint skeletonPointer, uint? expectedBoneCount = null)
     {
         if (skeletonPointer == 0)
@@ -75,11 +62,8 @@ public static class MobySkeletonReader
         return matrices;
     }
 
-    /// <summary>
-    /// Sanity gate against a wrong pointer convention or byte-offset misalignment silently
-    /// producing "plausible-looking but wrong" bone data instead of an obvious failure: exactly
-    /// one root bone, every other parent index in range, and no cycles walking up to the root.
-    /// </summary>
+    /// <summary>Validates the skeleton: exactly one root bone, every other parent index in
+    /// range, and no cycles walking up to the root.</summary>
     private static void Validate(MobySkeleton skeleton)
     {
         int rootCount = 0;

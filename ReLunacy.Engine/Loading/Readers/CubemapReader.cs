@@ -8,28 +8,19 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// <summary>Reads old-engine environment cubemaps: section 0x5920, one <see cref="TextureMetadataOld"/>
 /// record per cubemap, with pixel data in MAIN.DAT (not textures.dat) at the record's own offset.
 ///
-/// On-disk layout, established byte-for-byte against metropolis and matched to a RenderDoc capture
-/// of the live cubemap:
-///   - 6 faces, order +X,-X,+Y,-Y,+Z,-Z (GL/RSX), face-major with the full mip chain per face
-///     (largest first), each face padded to a 128-byte STRIDE (5460 mip bytes -> 5504).
-///   - Faces are Morton/GCM-SWIZZLED, despite the metadata's linear bit reading set - the bit does
-///     not describe this texture correctly, so faces are always un-swizzled here.
-///   - A small all-zero-alpha HEADER precedes the first face (0x380 on metropolis). Rather than
-///     hard-code it, the first face is located by a short alignment search (see FindFaceBase):
-///     the real faces are the smoothest coherent 32x32 images in the region, which pins the header
-///     size without assuming it.
+/// Layout: 6 faces in order +X,-X,+Y,-Y,+Z,-Z, face-major with the full mip chain per face
+/// (largest first), each face padded to a 128-byte stride. Faces are Morton/GCM-swizzled
+/// regardless of the metadata's linear bit. A small all-zero-alpha header precedes the first
+/// face; its size is located by alignment search (see FindFaceBase) rather than hard-coded.
 ///
-/// Only A8R8G8B8 is handled (the only format seen). Records with offset 0 are stubs (e.g. kerchu
-/// city, which ships a placeholder and no cubemap pixels) and are skipped. New engine is not
-/// handled - its cubemaps are an assetlookup resource (InsomniaToolset ResourceCubemap 0x1d200),
-/// a different path entirely.</summary>
+/// Only A8R8G8B8 is handled. Records with offset 0 are stubs and are skipped. New engine is
+/// not handled - its cubemaps are a different resource type (InsomniaToolset ResourceCubemap
+/// 0x1d200).</summary>
 public sealed class CubemapReader
 {
     public const uint ID = 0x5920;
 
-    // Faces are aligned to 128 bytes; the leading header on the one confirmed sample is 0x380. The
-    // search below walks 128-byte candidate offsets up to this cap and never depends on the exact
-    // value.
+    // Faces are 128-byte aligned; header size is found by search (FindFaceBase), not assumed.
     private const int FaceAlignment = 128;
     private const int MaxHeaderSearch = 0x1000;
     private const int FaceCount = 6;
@@ -49,9 +40,7 @@ public sealed class CubemapReader
         var section = main.QuerySection(ID);
         if (section.id != ID) return [];
 
-        // The section's `count` field carries the unreliable flag the rest of the loader already
-        // works around (kerchu city reports count=4 for a single stub record) - length / record
-        // size is the real count.
+        // section.count is unreliable - use length / record size for the real count.
         int recordCount = (int)(section.length / TextureMetadataOld.Size);
         var result = new List<Assets.Cubemaps.Cubemap>();
 
@@ -103,9 +92,7 @@ public sealed class CubemapReader
         for (int f = 0; f < FaceCount; f++)
         {
             int faceOffset = header + f * stride;
-            // Un-swizzle mip0 into row-major ARGB, then hand it to the asset-facing Texture as
-            // A8R8G8B8 so the shared DecodeToRgba8888 path (ARGB->RGBA) previews/exports it exactly
-            // like any other texture.
+            // Un-swizzle mip0 to row-major ARGB for the shared Texture decode path.
             byte[] argb = Textures.Texture.Deswizzle(region.AsSpan(faceOffset, faceBytes), size, size, 4);
             faces[f] = AssetTexture.FromData(
                 MakeFaceId(recordBase, f), (uint)size, (uint)size,
@@ -140,9 +127,7 @@ public sealed class CubemapReader
                 totalGradient += grad;
             }
 
-            // Near-constant faces (the all-zero-alpha header, or padding) are not real faces even
-            // though they are perfectly "smooth"; require every face to carry signal first, then
-            // pick the alignment whose faces are the most image-like.
+            // Skip near-constant candidates (header/padding); pick the most image-like alignment.
             if (worstStd < 5.0) continue;
             if (totalGradient < bestGradient)
             {
@@ -196,7 +181,6 @@ public sealed class CubemapReader
 
     private static int AlignUp(int value, int alignment) => (value + alignment - 1) / alignment * alignment;
 
-    // A stable, unique id per face for the texture table / caches: the cubemap record's own offset
-    // in the high bits, the face index in the low bits.
+    // Unique face id: record offset in the high bits, face index in the low bits.
     private static ulong MakeFaceId(uint recordBase, int face) => ((ulong)recordBase << 8) | (uint)face;
 }

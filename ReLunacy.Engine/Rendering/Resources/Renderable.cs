@@ -3,11 +3,7 @@ namespace ReLunacy.Engine.Rendering.Resources;
 /// <summary>One mesh placed in the world, with an optional per-placement material override.
 ///
 /// The override is what lit ties need: one tie model is shared across many placements, but each
-/// placement has its own baked lightmap textures, so the material cannot live on the shared mesh.
-///
-/// Like <see cref="RenderMesh"/>, this is pure data now. The Bliss Renderable it replaced allocated a
-/// transform uniform buffer, an instance vertex buffer, a bone buffer and a material uniform buffer per
-/// placement, all of which existed to feed a renderer that no longer runs.</summary>
+/// placement has its own baked lightmap textures, so the material cannot live on the shared mesh.</summary>
 public sealed class Renderable
 {
     public RenderMesh Mesh { get; }

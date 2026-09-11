@@ -19,8 +19,6 @@ public static class TextureEncoding
 
     public static byte[] EncodeRgbaToPng(byte[] rgba, int width, int height)
     {
-        // This used to write a temp file and read it straight back, because the encoder behind the
-        // old Image type was only reachable through a path.
         return new Image(width, height, rgba).EncodeToPng();
     }
 }

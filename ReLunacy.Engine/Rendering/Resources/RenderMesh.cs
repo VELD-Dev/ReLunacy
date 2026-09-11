@@ -3,10 +3,8 @@ namespace ReLunacy.Engine.Rendering.Resources;
 /// <summary>One drawable piece of geometry and the material it is drawn with.
 ///
 /// It holds no GPU buffers. The raw-Vulkan renderer uploads geometry itself, out of
-/// <see cref="Vulkan.VulkanSceneCapture"/>, which is keyed by the mesh INSTANCE: every placement of a
-/// model shares one RenderMesh and therefore one uploaded copy. The Bliss mesh this replaced also
-/// created a vertex and an index buffer of its own, so the whole level used to be resident on the GPU
-/// twice over.</summary>
+/// <see cref="Vulkan.VulkanSceneCapture"/>, which is keyed by the mesh instance: every placement of a
+/// model shares one RenderMesh and therefore one uploaded copy.</summary>
 public sealed class RenderMesh(Vertex3D[] vertices, uint[] indices, RenderMaterial material)
 {
     public Vertex3D[] Vertices { get; } = vertices;

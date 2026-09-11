@@ -95,9 +95,8 @@ public sealed class MobyReader
         var boundingCenter = new System.Numerics.Vector3(boundingSphere.X, boundingSphere.Y, boundingSphere.Z);
         float boundingRadius = boundingSphere.W;
 
-        // debug.dat's prototype table is old-engine only (see DebugReader) and always wins when it
-        // has an entry - legacyMoby.Name (section 0xD200, new engine only) is the fallback for
-        // everything debug.dat doesn't cover, same priority order Tie.cs/TieReader use for ties.
+        // debug.dat's prototype table (old engine) wins when it has an entry; legacyMoby.Name
+        // (section 0xD200, new engine) is the fallback.
         var debugName = _debugReader.GetMobyPrototypeName(tuid);
         var name = debugName ?? (!string.IsNullOrEmpty(legacyMoby.Name) ? legacyMoby.Name : $"Moby_{tuid:X}");
 
@@ -110,9 +109,9 @@ public sealed class MobyReader
             skeleton: ConvertSkeleton(legacyMoby.Skeleton));
     }
 
-    /// <summary>Raw MobySkeleton (bone hierarchy + tms0/tms1 bind matrices, both engines share the
-    /// same layout - see MobySkeletonReader) into the clean IMoby-facing ISkeleton/IBone shape.
-    /// Bones carry no name in this format, so they're indexed as "Bone_{i}".</summary>
+    /// <summary>Converts a raw MobySkeleton (bone hierarchy + tms0/tms1 bind matrices) into the
+    /// IMoby-facing ISkeleton/IBone shape. Bones carry no name in this format, so they're indexed
+    /// as "Bone_{i}".</summary>
     private static Assets.Interfaces.ISkeleton? ConvertSkeleton(MobySkeleton? raw)
     {
         if (raw is not { } skeleton || skeleton.numBones == 0)
@@ -156,11 +155,8 @@ public sealed class MobyReader
             }
         }
 
-        // boneMapOffset is a header field on the mesh's own record, resolved via mobyStream (the
-        // same absolute-from-stream-start convention as skeletonPointer/banglesPointer) - NOT
-        // verticesStream/indicesStream, which only hold the bulk vertex/index buffer data. Read
-        // defensively: new, unverified-against-every-real-asset code shouldn't be able to break
-        // mesh loading for mobys that don't even have a skeleton to skin against.
+        // boneMapOffset is resolved via mobyStream, not verticesStream/indicesStream (which only
+        // hold buffer data). Read defensively so a failure here can't break mesh loading.
         for (uint i = 0; i < moby.BanglesCount; i++)
         {
             for (int j = 0; j < moby.Bangles[i].meshesCount; j++)
@@ -182,14 +178,11 @@ public sealed class MobyReader
     {
         // Positions are fixed-point int16 in bangle-local space; the moby's own scale must be
         // applied here, matching what MobyMesh.GetBuffers already does for the legacy renderer.
-        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
+        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlpha);
 
         var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh, (int)(moby.Skeleton?.NumBones ?? 0));
-        // vertexAlphaCandidates is only ever non-null for verticesType==1 (VertexFormat1) meshes -
-        // see MobyMesh.GetBuffers's own comment for why verticesType==0's VertexFormat0.boneIndex
-        // can't be read as alpha (it's genuinely a bone index there, the very field ExtractSkinData
-        // resolves above).
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
+        // vertexAlpha is only ever non-null for verticesType==1 (VertexFormat1) meshes.
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlpha: vertexAlpha);
 
         IMaterial material = moby.IsOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.shaderIndex)
@@ -200,15 +193,10 @@ public sealed class MobyReader
 
     /// <summary>
     /// Resolves each vertex's raw bone reference(s) through this primitive's local joint palette
-    /// (mesh.boneMap) into skeleton-global bone indices + normalized weights - algorithm
-    /// transliterated from InsomniaToolset's extract_gltf.cpp (AttributeBoneIndex/
-    /// AttributeBoneIndices codecs), not independently derived:
+    /// (mesh.boneMap) into skeleton-global bone indices + normalized weights.
     /// - VertexFormat1 (verticesType 1): 4 explicit (localIndex byte, weight byte) pairs.
     /// - VertexFormat0 (verticesType 0): a single implied full-weight binding, whose local palette
-    ///   index is packed into the "purpose"/boneIndex int16 field as abs((purpose+1)/3) - the
-    ///   toolset itself names that field "purpose", not "boneIndex", suggesting even its author
-    ///   wasn't fully certain of the encoding; flagged here as the least-confident piece of this
-    ///   feature.
+    ///   index is packed into the boneIndex int16 field as abs((purpose+1)/3).
     /// Returns (null, null) if this mesh has no joint palette (no skin data).
     /// </summary>
     private static (int[]? jointIndices, float[]? jointWeights) ExtractSkinData(MobyMesh mesh, int skeletonBoneCount)
@@ -244,12 +232,9 @@ public sealed class MobyReader
         return (jointIndices, jointWeights);
     }
 
-    // skeletonBoneCount bounds-checks boneMap's resolved value too, not just the local palette
-    // index into boneMap itself - boneMap[localIndex] is a skeleton-global bone index, and nothing
-    // previously verified it was actually within the skeleton before it reached GltfExporter's
-    // joint-node array (built with exactly skeleton.Bones.Count entries), where an out-of-range
-    // value would throw. Treated the same as an unweighted slot (skipped) rather than clamped, so
-    // a corrupt/misread binding silently drops that influence instead of binding to a wrong bone.
+    // skeletonBoneCount bounds-checks boneMap's resolved value, not just the local palette index -
+    // boneMap[localIndex] is a skeleton-global bone index and must be within the skeleton. An
+    // out-of-range binding is skipped (treated as unweighted) rather than clamped.
     private static void SetBinding(int[] jointIndices, float[] jointWeights, ushort[] boneMap, int skeletonBoneCount, int vertex, int slot, int localIndex, byte weightByte)
     {
         if (weightByte == 0 || localIndex < 0 || localIndex >= boneMap.Length)
