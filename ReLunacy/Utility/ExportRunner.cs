@@ -4,15 +4,10 @@ using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Utility;
 
-/// <summary>Shared background-export plumbing behind every export button in the app (single-asset
-/// and whole-level): runs `action` off the main thread behind a LoadingModal progress bar so a big
-/// export doesn't freeze the UI, then reports success/failure via an ExportResultModal.
-///
-/// `action` only ever touches the progress modal through UpdateProgress (which locks internally)
-/// and otherwise reports back through LunaWindow.QueueExportCompletion - a ConcurrentQueue drained
-/// on the main thread - rather than mutating openFrames itself, same rule LoadLevelDataAsync
-/// follows for the same reason (openFrames is a plain List&lt;Frame&gt;, not thread-safe against
-/// concurrent enumeration during ImGui rendering).</summary>
+/// <summary>Shared background-export plumbing behind every export button in the app: runs `action`
+/// off the main thread behind a LoadingModal progress bar, then reports success/failure via an
+/// ExportResultModal. `action` must report completion through LunaWindow.QueueExportCompletion
+/// rather than touching openFrames directly (not thread-safe against concurrent ImGui rendering).</summary>
 public static class ExportRunner
 {
     public static void Run(string progressTitle, string outputPath, string outputDirectory, Action<Action<float>> action)

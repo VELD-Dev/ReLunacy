@@ -79,8 +79,7 @@ public sealed class Image
 
     public Image Clone() => new(Width, Height, (byte[])Data.Clone());
 
-    /// <summary>PNG bytes, in memory. This used to be reachable only by writing a temp file and
-    /// reading it back, because the encoder was behind a path-only API.</summary>
+    /// <summary>PNG bytes, in memory.</summary>
     public byte[] EncodeToPng()
     {
         using var stream = new MemoryStream();

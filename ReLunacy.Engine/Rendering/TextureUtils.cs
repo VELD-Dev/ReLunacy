@@ -45,19 +45,15 @@ public static class TextureUtils
     private static readonly BlockDecoder Bc1Decoder = BlockDecoder.Create(BlockFormat.BC1);
     private static readonly BlockDecoder Bc2Decoder = BlockDecoder.Create(BlockFormat.BC2);
     private static readonly BlockDecoder Bc3Decoder = BlockDecoder.Create(BlockFormat.BC3);
-    // Unsigned variants: no confirmed case in this game's assets needs signed BC4/BC5 data, and
-    // ReconstructZ (which derives a normal map's Z from X/Y) isn't used here since this decode
-    // path is generic - it's shared by plain texture export too, where injecting a normal-map
-    // assumption into every BC5 texture would be wrong.
+    // Unsigned variants; this decode path is generic and shared by plain texture export, so it
+    // makes no normal-map assumptions about BC4/BC5 data.
     private static readonly BlockDecoder Bc4Decoder = BlockDecoder.Create(BlockFormat.BC4U);
     private static readonly BlockDecoder Bc5Decoder = BlockDecoder.Create(BlockFormat.BC5U);
 
     /// <summary>
-    /// Decodes an ITexture's raw (possibly block-compressed) pixel data to a plain RGBA8888
-    /// buffer - the one decode path shared by AssetManager (GPU texture upload) and the model
-    /// exporters (PNG encoding for glTF/OBJ), so the format-conversion switch isn't duplicated.
-    /// Returns null if the texture has no data (some slots legitimately have none - see
-    /// AssetManager.GetOrBuildTexture) or an unrecognized format.
+    /// Decodes an ITexture's raw (possibly block-compressed) pixel data to a plain RGBA8888 buffer,
+    /// shared by AssetManager and the model exporters. Returns null if the texture has no data or
+    /// an unrecognized format.
     /// </summary>
     public static byte[]? DecodeToRgba8888(ITexture texture, out int width, out int height)
     {
@@ -86,28 +82,16 @@ public static class TextureUtils
     }
 
     /// <summary>
-    /// This game's normal maps are NOT a standard tangent-space (nx,ny,nz) encoding - they store
-    /// partial derivatives instead: dx = -nx/nz, dy = -ny/nz. The game reconstructs the real
-    /// normal on the GPU in just two instructions: n = normalize(vec3(-dx, -dy, 1)) - storing the
-    /// slope directly (rather than a normalized direction) is what makes that cheap reconstruction
-    /// possible, and it also means multiple normal contributions can be combined by plain addition
-    /// in derivative space, unlike standard tangent-space normals which need a full reoriented-
-    /// normal blend to combine correctly.
+    /// This game's normal maps store partial derivatives (dx = -nx/nz, dy = -ny/nz) rather than a
+    /// standard tangent-space (nx,ny,nz) encoding; the game reconstructs the real normal on the GPU
+    /// as n = normalize(vec3(-dx, -dy, 1)).
     ///
-    /// Modern engines/DCC tools (and glTF's own normalTexture) expect the conventional (nx,ny,nz)
-    /// encoding, so this reconstructs the real normal from the stored derivatives and repacks it
-    /// that way - for export only. ReLunacy's own live renderer (see AssetManager) still uploads
-    /// the raw, unconverted derivative bytes to the GPU untouched by this function, so a future lit
-    /// shader can do the exact same 2-instruction reconstruction the game itself does, for
-    /// fidelity, rather than trusting this repacked copy as ground truth.
+    /// This reconstructs the real normal from the stored derivatives and repacks it in the
+    /// conventional (nx,ny,nz) encoding, for export only - the live renderer uploads the raw
+    /// derivative bytes untouched.
     ///
-    /// Confirmed layout: the two derivatives live in the decoded G and A channels - B is always
-    /// constant (255/100%), R unused, regardless of the source compression format (this matches
-    /// the common "DXT5nm"-style trick of putting normal-map data in Green and Alpha specifically,
-    /// since those are the two channels DXT5 compresses with the most independent precision).
-    /// dx=Alpha, dy=Green - confirmed against Negotiator/TextureEditor, a separate working
-    /// reverse-engineering tool for this exact game's formats (TextureHelper.BitmapFromDDS's DXT5
-    /// normal-map path reads p.A for dx and p.G for dy), not G=dx/A=dy as originally guessed here.
+    /// Layout: the derivatives live in the decoded G and A channels (dx=Alpha, dy=Green); B is
+    /// always constant, R unused.
     /// </summary>
     public static byte[]? ReconstructNormalMap(ITexture texture, out int width, out int height)
     {
@@ -123,11 +107,7 @@ public static class TextureUtils
             float dx = rgba[i + 3] / 255f * 2f - 1f; // A
             float dy = rgba[i + 1] / 255f * 2f - 1f; // G
 
-            // No sign flip - see LitModelShaderSource's normal section. The game's own captured
-            // fragment shader uses the sampled derivatives directly as (dx, dy, 1); negating them
-            // here (as this did) double-negates an already-negated ratio and inverts the relief on
-            // every exported normal map. Kept identical to the live shader's reconstruction on
-            // purpose: an export that disagrees with the viewport is worse than either convention.
+            // No sign flip: the derivatives are used directly as (dx, dy, 1), matching the live shader.
             var n = Vector3.Normalize(new Vector3(dx, dy, 1f));
 
             result[i + 0] = (byte)((n.X * 0.5f + 0.5f) * 255f);
@@ -210,22 +190,13 @@ public static class TextureUtils
         return img;
     }
 
-    /// <summary>Reassembles a big-endian (disk-order) 16-bit pixel from a 2-byte source. All the
-    /// 16-bit format decoders below read from data already loaded as-is off disk (StreamHelper's
-    /// stream is big-endian, and Texture.Unswizzle/ReadTexture don't reorder bytes - see those for
-    /// why), so byte0 is always the high byte.</summary>
+    /// <summary>Reassembles a big-endian (disk-order) 16-bit pixel from a 2-byte source.</summary>
     private static ushort ReadPixel16(byte[] rawData, int i) => (ushort)((rawData[i * 2] << 8) | rawData[i * 2 + 1]);
 
     /// <summary>Expands an N-bit channel value to 8 bits by replicating its high bits into the low
-    /// bits (e.g. 5-bit 11111 -> 11111111, not 11111000) - the standard bit-replication expansion,
-    /// avoids the low end of the range never reaching full brightness/darkness.</summary>
+    /// bits (e.g. 5-bit 11111 -> 11111111, not 11111000).</summary>
     private static byte Expand(int value, int bits) => (byte)((value << (8 - bits)) | (value >> (2 * bits - 8)));
 
-    // Previously computed R/B by right-shifting a 5-bit field into the top of an 8-bit channel
-    // with no expansion (max output ~0x1F, i.e. red/blue could never exceed ~12% brightness), and
-    // G by OR-ing an unshifted byte1 high-bits term against a shifted byte0 low-bits term - the
-    // two write to overlapping bit positions instead of adjacent ones, corrupting green on every
-    // pixel. Fixed by unpacking the full 16-bit word first, then expanding each channel properly.
     public static byte[] RGB565ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int Rgb565Ps = 2;
@@ -248,8 +219,7 @@ public static class TextureUtils
         return result;
     }
 
-    /// <summary>Bit layout (MSB->LSB) A1 R5 G5 B5 - matches the format name and the equivalent
-    /// bare-Vulkan/D3D "A1R5G5B5" convention, not independently confirmed against real data.</summary>
+    /// <summary>Bit layout (MSB->LSB) A1 R5 G5 B5. Not independently confirmed against real data.</summary>
     public static byte[] A1RGB555ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
@@ -268,9 +238,7 @@ public static class TextureUtils
         return result;
     }
 
-    /// <summary>Bit layout (MSB->LSB) R4 G4 B4 A4, following the format name's channel order -
-    /// unconfirmed against real data; if colors look swapped/tinted on a real RGBA4 texture, this
-    /// is the first thing to try reordering (e.g. to A4R4G4B4).</summary>
+    /// <summary>Bit layout (MSB->LSB) R4 G4 B4 A4. Unconfirmed against real data.</summary>
     public static byte[] RGBA4444ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
@@ -289,8 +257,7 @@ public static class TextureUtils
         return result;
     }
 
-    /// <summary>Single 8-bit channel, replicated across R/G/B for a legible grayscale view (same
-    /// convention as ColourAsMain below) rather than left only in the red channel.</summary>
+    /// <summary>Single 8-bit channel, replicated across R/G/B for a legible grayscale view.</summary>
     public static byte[] R8ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
@@ -309,9 +276,7 @@ public static class TextureUtils
         return result;
     }
 
-    /// <summary>byte0=G, byte1=B per the format name's order (commonly a 2-channel tangent-space
-    /// normal map XY pair in other engines, but that's not confirmed for this game) - unconfirmed
-    /// against real data, same caveat as RGBA4444ToRGBA8888.</summary>
+    /// <summary>byte0=G, byte1=B per the format name's order. Unconfirmed against real data.</summary>
     public static byte[] G8B8ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int SrcPs = 2, DstPs = 4;
@@ -329,10 +294,8 @@ public static class TextureUtils
         return result;
     }
 
-    /// <summary>4x 16-bit half-float channels (RGBA), clamped to [0,1] and scaled to 8-bit since
-    /// the output target here is always an LDR buffer (GPU upload or PNG export) - HDR values
-    /// above 1.0 just clip rather than tone-map. Byte order matches ReadPixel16 (big-endian
-    /// disk-order halves).</summary>
+    /// <summary>4x 16-bit half-float channels (RGBA), clamped to [0,1] and scaled to 8-bit since the
+    /// output target here is always an LDR buffer. HDR values above 1.0 clip rather than tone-map.</summary>
     public static byte[] RGBA16FToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;

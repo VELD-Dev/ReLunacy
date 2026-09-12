@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Rendering;
@@ -48,7 +49,7 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.EndGroup();
         ImGui.SameLine();
         ImGui.BeginGroup();
-        ImGui.Text(SelectedEntity.Name.Split('/')[^1]);
+        ImGui.TextWrapped(SelectedEntity.Name);
         ImGui.SameLine();
         ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice"));
         ImGui.Text(SelectedEntity.GetType().Name);
@@ -70,9 +71,7 @@ public class PropertyInspectorFrame : DockedFrame
         }
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
         {
-            // EntityVolume keeps its real box size in its own `scale` field rather than
-            // Transform.Scale (which it always leaves at 1,1,1 - see EntityVolume's constructor
-            // comment) - writing to Transform.Scale here for a Volume would silently do nothing.
+            // EntityVolume keeps its real box size in its own `scale` field, not Transform.Scale.
             if (SelectedEntity is EntityVolume volume)
             {
                 volume.SetScale(selectedScale);
@@ -117,6 +116,9 @@ public class PropertyInspectorFrame : DockedFrame
 
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenMobyInAssetViewer(moby.BaseMoby.Id);
+
+            ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_AnimationCategory"));
+            RenderAnimationSection(moby);
         }
         else if (SelectedEntity is EntityTie tie)
         {
@@ -126,14 +128,11 @@ public class PropertyInspectorFrame : DockedFrame
         else if (SelectedEntity is EntityUFrag ufrag)
         {
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
-                OpenUFragInAssetViewer(ufrag.UFrag.Id);
+                OpenUFragInAssetViewer(ufrag.UFrag);
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
-            // Volumes carry nothing beyond a transform in the level format itself - old engine has
-            // no ID/group at all (BaseVolume.Id is just its load-order index there), new engine adds
-            // a TUID + zone group from gp_prius's instance metadata section. This is genuinely all
-            // there is to show; see RegionReader.ReadVolumesOld/New.
+            // Volumes carry nothing beyond a transform in the level format itself - this is all there is to show.
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeId", volumeEntity.BaseVolume.Id));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeGroup", volumeEntity.BaseVolume.group));
         }
@@ -142,11 +141,7 @@ public class PropertyInspectorFrame : DockedFrame
 
         if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_ViewToEntity")) && v3d != null)
         {
-            // Only the entity's position needs negating to match Camera.Position's convention
-            // (see the distance readout below, which negates Camera.Position the same way to
-            // compare it against a normal entity-space position) - negating the whole sum,
-            // as this used to, also flipped the pull-back offset, pushing the camera away from
-            // the entity along its forward vector instead of placing it just short of it.
+            // Only the entity's position needs negating to match Camera.Position's convention.
             v3d.Camera.Position = SelectedEntity.Transform.Translation - v3d.Camera.GetForward() * 10;
         }
         ImGui.SameLine();
@@ -158,10 +153,76 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.EndGroup();
     }
 
-    public override void RenderAsWindow(double deltaTime)
+    // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowPos on first appearance
+    // cancels the dockspace preset's placement, which this frame is a target of ("Inspector").
+
+    /// <summary>Off-by-default GPU playback in the 3D View itself, distinct from the Asset Viewer's
+    /// own CPU-preview animation panel. Membership in EntityManager.PlayingMobyAnimations (what
+    /// actually drives per-frame sampling - see View3D.UpdateAnimatedMobys) is owned entirely by the
+    /// Play/Stop buttons here.</summary>
+    private static void RenderAnimationSection(EntityMoby moby)
     {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new Vector2(0.5f));
-        base.RenderAsWindow(deltaTime);
+        var skeleton = moby.BaseMoby.Skeleton;
+        var clips = moby.BaseMoby.Animations;
+        if (skeleton == null || clips.Count == 0)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_Animation_None"));
+            return;
+        }
+
+        var player = moby.AnimationPlayer;
+        string preview = player.Clip?.Name ?? LM.Get("GUI_Frame_InstanceInspector_Animation_NoneSelected");
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("##anim_clip", preview))
+        {
+            for (int i = 0; i < clips.Count; i++)
+            {
+                // ##anim_{i} disambiguates the ImGui ID from the label text: some mobys have several
+                // clips sharing the same name, and Selectable's ID is derived from the label alone -
+                // without a unique suffix, duplicate names collide and corrupt the ID stack (visible
+                // as PopID errors in the dropdown).
+                if (ImGui.Selectable($"{clips[i].Name}##anim_{i}", ReferenceEquals(player.Clip, clips[i])))
+                {
+                    bool wasPlaying = player.IsPlaying;
+                    player.SetClip(clips[i]);
+                    if (wasPlaying) player.Play();
+                }
+            }
+            ImGui.EndCombo();
+        }
+
+        if (player.Clip == null) return;
+
+        if (!player.CanSamplePose)
+        {
+            ImGui.TextColored(new Vector4(1f, 0.5f, 0.3f, 1f), player.UnsupportedReason ?? LM.Get("GUI_Frame_InstanceInspector_Animation_Unsupported"));
+            return;
+        }
+
+        if (!player.IsPlaying)
+        {
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_Animation_Play")))
+            {
+                player.Play();
+                if (!EntityManager.Singleton.PlayingMobyAnimations.Contains(moby))
+                    EntityManager.Singleton.PlayingMobyAnimations.Add(moby);
+            }
+        }
+        else if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_Animation_Pause")))
+        {
+            player.Pause();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_Animation_Stop")))
+        {
+            player.Stop();
+            EntityManager.Singleton.PlayingMobyAnimations.Remove(moby);
+            Core.LunaWindow.Instance.AssetManager?.SceneRenderer?.ClearAnimatedInstance(moby);
+        }
+        ImGui.SameLine();
+        bool loop = player.Loop;
+        if (ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_Animation_Loop"), ref loop))
+            player.Loop = loop;
     }
 
     private static void OpenMobyInAssetViewer(ulong mobyId)
@@ -184,12 +245,15 @@ public class PropertyInspectorFrame : DockedFrame
         }
     }
 
-    private static void OpenUFragInAssetViewer(ulong ufragId)
+    // Takes the IUFrag instance itself, not an id - IUFrag.Id is only unique within its own zone
+    // (ZoneReader assigns it as a local per-zone loop index), so a level with more than one zone
+    // routinely has several UFrags sharing the same Id. See AssetViewer.SelectUFrag.
+    private static void OpenUFragInAssetViewer(IUFrag ufrag)
     {
         var viewer = OpenAssetViewer();
         if (viewer != null)
         {
-            viewer.SelectUFragById(ufragId);
+            viewer.SelectUFrag(ufrag);
             viewer.Focus();
         }
     }

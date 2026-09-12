@@ -4,10 +4,8 @@ using NeoVeldrid;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>Turns a built material into the raw-Vulkan renderer's <see cref="VkMaterialDesc"/>.
-///
-/// Shared by every view that feeds the renderer a scene (the level view and the asset preview), so the
-/// two cannot drift into shading the same material differently - which is exactly the sort of thing
-/// that makes a preview a bad reference for the real thing.</summary>
+/// Shared by every view that feeds the renderer a scene (the level view and the asset preview), so
+/// they shade materials identically.</summary>
 public static class VkMaterialBuilder
 {
     public static VkMaterialDesc Build(RenderMaterial material, AssetManager? assetManager)
@@ -29,20 +27,19 @@ public static class VkMaterialBuilder
             ParallaxScale = ValueOf(material, "fParallaxScale"),
             ParallaxBias = ValueOf(material, "fParallaxBias"),
             AlphaThreshold = ValueOf(material, MaterialMapType.Albedo),
-            // The game's own 0-6 mode + vertex-alpha flags come from AssetManager's side table rather
-            // than a map slot: none of them is a texture, and the renderer wants all three in one lookup.
+            // The game's 0-6 render mode and vertex-alpha flags come from AssetManager's side table,
+            // not a map slot.
             GameRenderMode = gameRenderMode,
             UsesVertexAlpha = usesVertexAlpha ? 1f : 0f,
             AlbedoHasAlphaChannel = albedoHasAlphaChannel ? 1f : 0f,
-            // Foliage sprite cards are billboarded in the vertex shader from data packed into the
-            // geometry, so they need the billboard pipeline rather than the lit one.
+            // Foliage sprite cards are billboarded in the vertex shader, so they need the billboard
+            // pipeline rather than the lit one.
             IsBillboard = assetManager != null && assetManager.IsBillboardMaterial(material) ? 1f : 0f,
         };
     }
 
-    /// <summary>A material map's texture as a NeoVeldrid texture. Every material has
-    /// albedo/normal/properties/fLightColour/fLightDir maps (AssetManager provides defaults), so these
-    /// are normally non-null; null is handled by the renderer.</summary>
+    /// <summary>A material map's texture as a NeoVeldrid texture. Normally non-null (AssetManager
+    /// provides defaults); null is handled by the renderer.</summary>
     private static Texture? TextureOf(RenderMaterial material, MaterialMapKey key) =>
         material.GetMaterialMap(key)?.Texture?.DeviceTexture;
 

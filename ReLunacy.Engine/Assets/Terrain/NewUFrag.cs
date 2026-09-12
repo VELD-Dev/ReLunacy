@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Assets.Terrain;
 
@@ -16,14 +17,13 @@ public sealed class NewUFrag : IUFrag
     private readonly float[] _uvs;
     private readonly float[]? _normals;
     private readonly float[]? _tangents;
-    // Second UV set = lightmap UVs, and the per-instance index selecting this UFrag's entry in the
-    // zone's baked light colour (0x5400) / light direction (0x5410) lists. See IUFrag.
     private readonly float[]? _lightmapUVs;
-    private readonly float[]? _vertexAlphaCandidates;
+    private readonly float[]? _vertexAlpha;
     private readonly uint[] _indices;
     private readonly Vector3 _anchor;
     private readonly Vector3 _boundingCenter;
     private readonly float _boundingRadius;
+    private readonly UFragVertex[] _rawVertices;
 
     public NewUFrag(
         ulong id,
@@ -37,10 +37,11 @@ public sealed class NewUFrag : IUFrag
         float[]? normals = null,
         float[]? tangents = null,
         float[]? lightmapUVs = null,
-        float[]? vertexAlphaCandidates = null,
+        float[]? vertexAlpha = null,
         ushort lightmapIndex = Loading.Objects.UFragMetadata.NoLightmap,
         Loading.Objects.UFragMetadata? metadata = null,
-        string? name = null)
+        string? name = null,
+        UFragVertex[]? rawVertices = null)
     {
         Id = id;
         Name = name;
@@ -51,10 +52,11 @@ public sealed class NewUFrag : IUFrag
         _normals = normals;
         _tangents = tangents;
         _lightmapUVs = lightmapUVs;
-        _vertexAlphaCandidates = vertexAlphaCandidates;
+        _vertexAlpha = vertexAlpha;
         LightmapIndex = lightmapIndex;
         Metadata = metadata;
         _anchor = anchor;
+        _rawVertices = rawVertices ?? [];
         IsLoaded = true;
 
         if (boundingCenter.HasValue && boundingRadius.HasValue)
@@ -69,8 +71,7 @@ public sealed class NewUFrag : IUFrag
         }
         else
         {
-            // The exact bounding-sphere source for new UFrags in the format isn't known yet,
-            // so it's calculated from vertices here as a fallback.
+            // Fallback: computed from vertices.
             var center = Vector3.Zero;
             int vertexCount = positions.Length / 3;
 
@@ -98,7 +99,8 @@ public sealed class NewUFrag : IUFrag
     public Loading.Objects.UFragMetadata? Metadata { get; init; }
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
-    public float[]? GetVertexAlphaCandidates() => _vertexAlphaCandidates;
+    public float[]? GetVertexAlpha() => _vertexAlpha;
+    public UFragVertex[] GetRawVertices() => _rawVertices;
     public uint[] GetIndices() => _indices;
     public Vector3 GetAnchor() => _anchor;
     public Vector3 GetBoundingCenter() => _boundingCenter;

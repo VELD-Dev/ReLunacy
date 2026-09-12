@@ -35,15 +35,27 @@ public class LunaWindow : IDisposable
 
     public List<Frame> openFrames = [];
 
+    /// <summary>The real dockspace node's ID, cached from RenderDockSpace (the only place
+    /// ImGui.GetID("dockspace") is valid to call - see its comment there). Callers that need to
+    /// target the dockspace from elsewhere (e.g. ViewMenuDraw's Force Apply/Save/Load buttons)
+    /// should read this instead of recomputing GetID("dockspace") themselves.</summary>
+    public uint DockspaceId { get; private set; }
+
+    /// <summary>Session memory of where each DockedFrame TYPE last sat (Frame.GetType().Name ->
+    /// ImGuiWindowPtr.DockId), captured the moment a frame closes (see the RemoveAll(FrameMustClose)
+    /// call in Update) and consulted by AddFrame the next time that type opens. This is what makes
+    /// closing and reopening a panel mid-session put it back where it was instead of leaving it
+    /// floating - independent of, and in addition to, the cross-session SavedLayout.FrameDockIds
+    /// mechanism, which only kicks in via an explicit named-layout save/load.</summary>
+    private readonly Dictionary<string, uint> _lastFrameDockIds = [];
+
     public FileManager? fileManager { get; private set; }
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
 
     /// <summary>The level and its background-decoded textures, handed from LoadLevelDataAsync's
-    /// background task to <see cref="DoLoadEntitiesCheck"/> on the main thread - queued rather than
-    /// signalled through a bare flag (the previous doLoadEntities/pendingTextures pair), same pattern
-    /// as <see cref="pendingExportCompletions"/>, so the level and its textures arrive as one atomic
-    /// message instead of two fields a reader could observe half-set.</summary>
+    /// background task to <see cref="DoLoadEntitiesCheck"/> on the main thread - queued (same pattern
+    /// as <see cref="pendingExportCompletions"/>) so both arrive as one atomic message.</summary>
     private readonly ConcurrentQueue<LevelReady> pendingLevelReady = new();
 
     private readonly record struct LevelReady(LevelData Level, Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?> PreparedTextures);
@@ -96,7 +108,8 @@ public class LunaWindow : IDisposable
         };
 
         MainWindow = EditorWindow.Create(
-            1280, 720, ProgramInfo.DisplayName, options,
+            EditorSettings.WindowWidth, EditorSettings.WindowHeight, EditorSettings.WindowMaximized,
+            ProgramInfo.DisplayName, options,
             EditorSettings.GraphicsBackend, out GraphicsDevice graphicsDevice);
         MainWindow.Resized += () => OnResize(MainWindow.GetWidth(), MainWindow.GetHeight());
         GraphicsDevice = graphicsDevice;
@@ -105,9 +118,8 @@ public class LunaWindow : IDisposable
         if (wndIcon != null) MainWindow.SetIcon(wndIcon);
 
         // The renderer's shaders are compile-time constants, so their SPIR-V can be built before any
-        // level exists. Doing it here on a worker takes ~2.7s of glslang off the middle of the first
-        // level load, where it was pure freeze, and puts it under the file browser where nothing waits
-        // on it. Fire-and-forget on purpose: a level load that beats it simply compiles what it needs.
+        // level exists. Warmed up here on a worker so it's off the critical path of the first level
+        // load. Fire-and-forget: a level load that beats it simply compiles what it needs.
         Task.Run(() =>
         {
             try { Engine.Rendering.Vulkan.VulkanRenderer.WarmUpShaderCache(); }
@@ -130,10 +142,7 @@ public class LunaWindow : IDisposable
 
             Time.Update();
 
-            // Only instrument when something is actually displaying the breakdown - the scopes are
-            // cheap (a Stopwatch read each) but there is no reason to pay even that when nothing
-            // reads it. Read one frame ahead of BeginFrame is fine: toggling the frame on simply
-            // starts collecting on the next frame.
+            // Only instrument when something is actually displaying the breakdown.
             FrameProfiler.Enabled =
                 IsAnyFrameOpened<ProfilerFrame>() || (Overlay.showOverlay && Overlay.ShowProfiler);
             FrameProfiler.BeginFrame();
@@ -142,10 +151,7 @@ public class LunaWindow : IDisposable
             {
                 // Must snapshot the previous frame's state before this frame's SDL events land: Begin()
                 // copies _mouseDown/_keysDown into the "last" arrays that edge-triggered queries
-                // (IsMouseButtonPressed, IsKeyPressed) compare against. Pumping first would let a
-                // button-down event this frame land in _mouseDown before Begin() copies it into
-                // _mouseDownLast too, making the press-edge unobservable for as long as the button
-                // stays held.
+                // (IsMouseButtonPressed, IsKeyPressed) compare against.
                 Input.Begin();
                 MainWindow.PumpEvents();
             }
@@ -193,9 +199,42 @@ public class LunaWindow : IDisposable
 
         LM.Initialize();
 
-        AddFrame(new View3D(GraphicsDevice));
-        AddFrame(new PropertyInspectorFrame());
-        AddFrame(new BasicEntityExplorer());
+        // Restore last session's Render menu choices (see EditorSettings.RenderMobys and friends'
+        // own doc comment) before anything ever renders, so the very first frame already reflects
+        // them instead of a brief flash of the engine's own hardcoded defaults.
+        var em = EntityManager.Singleton;
+        em.renderMobys = EditorSettings.RenderMobys;
+        em.renderTies = EditorSettings.RenderTies;
+        em.renderUFrags = EditorSettings.RenderUFrags;
+        em.renderFoliage = EditorSettings.RenderFoliage;
+        em.renderVolumes = EditorSettings.RenderVolumes;
+        em.renderBoundingSpheres = EditorSettings.RenderBoundingSpheres;
+        em.MobyDistanceCullingEnabled = EditorSettings.MobyDistanceCullingEnabled;
+
+        // Restore whichever layout the user last had active (see EditorSettings.ActiveLayoutName).
+        // Loading it here, before any frame exists, marks DockspaceLayoutManager's default-preset
+        // guard as already satisfied, so RenderDockSpace's TryApplyLayout call won't overwrite it
+        // with the hardcoded DockspacePreset.Default later. openFrames is empty at this point (no
+        // frame has been added yet), so every frame type the saved layout had docked gets reopened
+        // here via ViewMenuDraw.EnsureFrameTypeOpen - this is what actually reconstructs "the editor
+        // as last left it" instead of only repositioning whichever 3 frames Init() happened to add
+        // by default. Only fall back to that hardcoded default set if there was nothing to restore
+        // (fresh install, or the active layout had none of these frames docked at all).
+        bool restoredLayout = DockspaceLayoutManager.TryLoadLayout(EditorSettings, EditorSettings.ActiveLayoutName, 0, openFrames, ViewMenuDraw.EnsureFrameTypeOpen);
+
+        // ActiveLayoutName can be unset (fresh install, or a session that never explicitly saved a
+        // named layout) even though the previous session's exact panel arrangement was still
+        // captured into the LatestLayoutName auto-save slot on exit (see SaveActiveLayout) - fall
+        // back to that before giving up and building the hardcoded 3-frame default.
+        if (!restoredLayout)
+            restoredLayout = DockspaceLayoutManager.TryLoadLayout(EditorSettings, DockspaceLayoutManager.LatestLayoutName, 0, openFrames, ViewMenuDraw.EnsureFrameTypeOpen);
+
+        if (!restoredLayout)
+        {
+            AddFrame(new View3D(GraphicsDevice));
+            AddFrame(new PropertyInspectorFrame());
+            AddFrame(new BasicEntityExplorer());
+        }
 
         PeriodicalSave();
     }
@@ -221,11 +260,9 @@ public class LunaWindow : IDisposable
             else
                 fileManager.LoadFolder(path);
 
-            // Old engine only: debug.dat almost never ships alongside main.dat/the level's own
-            // .psarc - try, in priority order, whatever the user explicitly picked, then whatever
-            // the caller already resolved (GameBrowserFrame via GameLibraryScanner), then fall
-            // back to deriving it from the path directly (for callers, like the manual "Open
-            // level" dialog, that never went through the scanner at all).
+            // Old engine only: debug.dat almost never ships alongside main.dat/the level's own .psarc -
+            // try, in priority order, whatever the user explicitly picked, then whatever the caller
+            // already resolved, then fall back to deriving it from the path directly.
             if (fileManager.isOld && fileManager.igfiles.GetValueOrDefault("debug.dat") is null)
             {
                 string? resolvedDebugDat = PendingExternalDebugDatPath ?? debugDatPath ?? Engine.Games.GameLibraryScanner.TryResolveDebugDatPath(path);
@@ -238,8 +275,7 @@ public class LunaWindow : IDisposable
                 loadingFrame?.UpdateProgress(0, new LoadingProgress(status, 100, true) { current = (uint)(progress * 100) }));
 
             // Decode every texture and build its mip chain HERE, still on the loading task and in
-            // parallel across cores. It is the single largest piece of what used to be a main-thread
-            // freeze after the files had finished reading, and none of it needs the graphics device.
+            // parallel across cores - none of it needs the graphics device.
             var swPrep = System.Diagnostics.Stopwatch.StartNew();
             var prepared = AssetManager.PrepareTextures(Level);
             LunaLog.LogDebug($"Decoded {prepared.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
@@ -264,10 +300,9 @@ public class LunaWindow : IDisposable
     /// Clears the currently loaded level (EntityManager's GPU meshes, AssetManager's built
     /// models/textures, FileManager's open file handles) and notifies every open frame that
     /// implements <see cref="ILevelListener"/> beforehand, so nothing is left holding a reference
-    /// to an object that's about to be destroyed - most importantly the current selection, which
-    /// otherwise leaves View3D pointing a disposed mesh at the GPU the very next frame. The GPU-side
-    /// disposal itself happens slightly later - see FlushPendingLevelWipe - but every field this
-    /// class exposes (Level, AssetManager, fileManager) already reads as cleared once this returns.
+    /// to an object that's about to be destroyed. The GPU-side disposal itself happens slightly
+    /// later (see FlushPendingLevelWipe), but every field this class exposes already reads as
+    /// cleared once this returns.
     /// </summary>
     public void TryWipeLevel()
     {
@@ -280,15 +315,10 @@ public class LunaWindow : IDisposable
         SelectionManager.Singleton.Deselect();
 
         // The actual GPU-resource disposal (scene renderer, entity meshes, asset textures) is deferred
-        // to FlushPendingLevelWipe, run from AfterUpdate - after this frame's Draw has submitted,
-        // presented and WaitForIdle'd. Disposing them here instead, synchronously, frees resources
-        // ImGui may already have queued a draw command against earlier THIS SAME frame (any panel that
-        // rendered before whichever one triggered this wipe - View3D's scene image is the common case,
-        // since it's opened by default and registered first in openFrames, so it renders before a
-        // File > Open dialog opened later gets to call this): the command survives in this frame's
-        // already-built ImDrawData and blows up as a NeoVeldridDisposedResourceException when Draw
-        // replays it. fileManager.Dispose() just closes file handles, not GPU state, so it stays
-        // synchronous.
+        // to FlushPendingLevelWipe, run from AfterUpdate after this frame's Draw has submitted,
+        // presented and WaitForIdle'd - disposing them here synchronously would free resources ImGui
+        // may already have queued a draw command against earlier this same frame. fileManager.Dispose()
+        // just closes file handles, not GPU state, so it stays synchronous.
         _pendingWipeAssetManager = AssetManager;
         fileManager.Dispose();
 
@@ -297,21 +327,17 @@ public class LunaWindow : IDisposable
         AssetManager = null;
         Program.ProvidedPath = string.Empty;
         // In case this level was wiped mid-load, while DoLoadEntitiesCheck was still draining its
-        // queued texture uploads - without this the next AfterUpdate would see _finalizingLevelLoad
-        // still true against an AssetManager that's gone, and just no-op until whatever level loads
-        // next resets both anyway. Harmless either way, but this makes the state honest immediately.
+        // queued texture uploads.
         _finalizingLevelLoad = false;
         _uploadProgress = null;
     }
 
     private AssetManager? _pendingWipeAssetManager;
 
-    /// <summary>Actually frees the GPU resources a wipe queued up in TryWipeLevel - see its comment
-    /// for why this can't happen synchronously there. Order matches what TryWipeLevel used to do
-    /// inline: DisposeSceneRenderer before EntityManager.Dispose(), since the captured scene
-    /// references live entity meshes/geometry and the VulkanSceneCapture registry that EntityManager's
-    /// own disposal invalidates - otherwise the next level captures on top of a stale geometry
-    /// registry and the renderer keeps buffers for meshes that no longer exist.</summary>
+    /// <summary>Actually frees the GPU resources a wipe queued up in TryWipeLevel (see its comment
+    /// for why this can't happen synchronously there). DisposeSceneRenderer must run before
+    /// EntityManager.Dispose(): the captured scene references live entity meshes/geometry and the
+    /// VulkanSceneCapture registry that EntityManager's own disposal invalidates.</summary>
     private void FlushPendingLevelWipe()
     {
         if (_pendingWipeAssetManager is null) return;
@@ -322,19 +348,16 @@ public class LunaWindow : IDisposable
     }
 
     // True from the moment a level's AssetManager/entities are built until its queued texture uploads
-    // have fully drained - see DoLoadEntitiesCheck. Distinct from doLoadEntities-style polling: this
-    // spans MANY frames for one level, not just the one frame the transition happens on.
+    // have fully drained - see DoLoadEntitiesCheck. Spans many frames for one level.
     private bool _finalizingLevelLoad;
     // The upload phase's own progress bar slot on the loading modal - kept as a direct reference so
     // each frame can just mutate .current instead of reconstructing/relocking through UpdateProgress.
     private LoadingProgress? _uploadProgress;
 
     // Per-frame time budget for draining queued texture uploads (see AssetManager.UploadOnePendingTexture).
-    // Not a count, because texture sizes vary hugely (a 4K atlas vs a 32x32 icon) - a fixed count either
-    // stalls badly on the big ones or wastes frames doing nothing on the small ones. This runs inside
-    // AfterUpdate, after this frame's Draw, so spending a bit extra here delays next frame's Present
-    // rather than corrupting this one - the goal is only to keep it short enough that the loop still
-    // pumps events and redraws the loading modal every frame instead of one multi-second blocking call.
+    // A time budget rather than a count, since texture sizes vary hugely (a 4K atlas vs a 32x32 icon).
+    // Runs inside AfterUpdate, after this frame's Draw, so overrunning slightly delays next frame's
+    // Present rather than corrupting this one.
     private const double UploadBudgetMs = 20.0;
 
     private void DoLoadEntitiesCheck()
@@ -358,8 +381,7 @@ public class LunaWindow : IDisposable
 
         if (AssetManager.HasPendingUploads)
         {
-            // The same GraphicsDevice.UpdateTexture work AssetManager's constructor always did
-            // synchronously in one pass - just spread across as many AfterUpdate calls as it takes,
+            // GraphicsDevice.UpdateTexture work, spread across as many AfterUpdate calls as it takes,
             // bounded per call so the window keeps pumping events instead of appearing to hang.
             var uploadSw = System.Diagnostics.Stopwatch.StartNew();
             while (AssetManager.HasPendingUploads && uploadSw.Elapsed.TotalMilliseconds < UploadBudgetMs)
@@ -405,6 +427,12 @@ public class LunaWindow : IDisposable
     private void RenderUI(double deltaTime)
     {
         RenderMenuBar();
+        // Unconditional, every frame - NOT called from inside RenderMenuBar's "View" BeginMenu block
+        // (where the popup used to be drawn from). See its own doc comment for why: a modal popup
+        // has to be drawn regardless of whether the menu that triggered it is still open, or it can
+        // never actually appear once that menu closes (which happens the instant its MenuItem is
+        // clicked).
+        ViewMenuDraw.RenderSaveLayoutPopup();
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
@@ -444,10 +472,17 @@ public class LunaWindow : IDisposable
         var dockspaceOpen = ImGui.Begin("dockspace", windowFlags);
         ImGui.PopStyleVar(2);
 
+        // Cached rather than recomputed elsewhere: ImGui.GetID(str) hashes against the CURRENT
+        // window's ID stack, so calling ImGui.GetID("dockspace") from anywhere other than right here
+        // (inside this "dockspace" window's own Begin/End scope) produces a completely different
+        // number - which is exactly what ViewMenuDraw.LayoutPresets used to do from inside the menu
+        // bar's own ID scope, silently operating DockBuilder on an unrelated, nonexistent node every
+        // time a preset button was clicked. See DockspaceId below.
         uint dockspaceId = ImGui.GetID("dockspace");
+        DockspaceId = dockspaceId;
         ImGui.DockSpace(dockspaceId, Vector2.Zero, dockspaceFlags);
 
-        var frameNames = openFrames.Select(f => f.FrameName).ToList();
+        var frameNames = openFrames.Select(f => f.WindowId).ToList();
         DockspaceLayoutManager.TryApplyLayout(dockspaceId, DockspacePreset.Default, frameNames);
 
         return dockspaceOpen;
@@ -511,6 +546,8 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowVolumes();
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
+            RenderMenuDraw.ZoneVisibility();
+            ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
             ImGui.Separator();
             RenderMenuDraw.ReflectionControls();
@@ -532,7 +569,42 @@ public class LunaWindow : IDisposable
     public void AddFrame(Frame frame)
     {
         openFrames.Add(frame);
+        // Only DockedFrame subclasses - Modal-derived frames (LoadingModal, ExportResultModal, the
+        // file/level-export dialogs...) are deliberately floating popups, not workspace panels, and
+        // forcing them into the dockspace would just be wrong.
+        if (frame is DockedFrame)
+            DockNewlyOpenedFrame(frame);
         OnFrameAdded?.Invoke(frame);
+    }
+
+    /// <summary>Places a freshly-opened panel somewhere sane instead of leaving it floating at
+    /// whatever position ImGui defaults an undocked window to - either back where this frame TYPE
+    /// was the last time one of it was open this session (_lastFrameDockIds), or failing that, into
+    /// the dockspace's central node (the same "main content" area View3D/AssetViewer/etc. already
+    /// tab into by default - see DockspaceLayoutManager.ApplyDefaultLayout). The central node is
+    /// looked up live via DockBuilderGetNode rather than cached, since PassthruCentralNode keeps
+    /// exactly one node flagged central even as the user resizes/splits things further, so this
+    /// stays correct without this class needing to track split ratios itself.
+    ///
+    /// A no-op before any dockspace exists yet (DockspaceId == 0, e.g. the AddFrame calls Init()
+    /// makes before RenderDockSpace has ever run) - those frames are handled by
+    /// DockspaceLayoutManager's own startup path (TryApplyLayout/TryLoadLayout) instead.</summary>
+    private unsafe void DockNewlyOpenedFrame(Frame frame)
+    {
+        uint targetId = 0;
+        if (_lastFrameDockIds.TryGetValue(frame.GetType().Name, out uint lastId) && ImGuiP.DockBuilderGetNode(lastId).Handle != null)
+        {
+            targetId = lastId;
+        }
+        else if (DockspaceId != 0)
+        {
+            var root = ImGuiP.DockBuilderGetNode(DockspaceId);
+            if (root.Handle != null && root.CentralNode.Handle != null)
+                targetId = root.CentralNode.ID;
+        }
+
+        if (targetId != 0)
+            ImGuiP.DockBuilderDockWindow(frame.WindowId, targetId);
     }
 
     public bool IsAnyFrameOpened<T>() where T : Frame => openFrames.Any(f => f.GetType() == typeof(T));
@@ -549,22 +621,42 @@ public class LunaWindow : IDisposable
 
     private static bool FrameMustClose(Frame frame) => !frame.isOpen;
 
+    /// <summary>Populates _lastFrameDockIds for every frame about to be removed by RemoveAll
+    /// (FrameMustClose) right after this, so DockNewlyOpenedFrame can put the next one of that type
+    /// back where this one was. Only records an actually-docked DockId (0 means floating - nothing
+    /// worth remembering there).</summary>
+    private unsafe void RememberDockIdsBeforeClosing()
+    {
+        foreach (var frame in openFrames)
+        {
+            if (frame.isOpen || frame is not DockedFrame) continue;
+            var win = ImGuiP.FindWindowByName(frame.WindowId);
+            if (win.Handle == null) continue;
+            uint dockId = win.DockId;
+            if (dockId == 0) continue;
+            _lastFrameDockIds[frame.GetType().Name] = dockId;
+        }
+    }
+
     protected virtual void Update(double deltaTime)
     {
         Entity.EntitiesRenderedThisFrame = 0;
 
-        // EntityManager is engine-layer and deliberately doesn't read Program.Settings (see
-        // AssetManager's decalOffset for the same convention) - so the persisted setting is
-        // pushed in here every frame instead of being read where it's consumed. Cheap enough
-        // (one bool) to just always do, rather than only on Settings-frame Apply, so a value
-        // loaded from disk at startup takes effect immediately without the user having to open
-        // the Settings frame and toggle the checkbox once first.
+        // EntityManager is engine-layer and deliberately doesn't read Program.Settings, so the
+        // persisted setting is pushed in here every frame instead of being read where it's consumed.
         EntityManager.Singleton.FrustumCullingEnabled = EditorSettings.FrustrumCulling;
-        // Lighting is pushed straight to the renderer every frame instead (View3D passes
+        // Lighting is pushed straight to the renderer every frame (View3D passes
         // EditorSettings.EnableLighting to VulkanRenderer.Frame), and backface culling is baked into
-        // the renderer's pipelines, so neither goes through the asset manager any more.
+        // the renderer's pipelines, so neither goes through the asset manager.
         AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
 
+        // Captured here rather than at the point isOpen flips false (TryCloseFirstFrame, or the
+        // window's own tab close button mutating it directly via Begin's ref isOpen) so this covers
+        // BOTH close paths uniformly - they both just set the flag and let removal happen here.
+        // One frame later than the close itself, but the window's settings entry (and DockId) is
+        // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
+        // called for it.
+        RememberDockIdsBeforeClosing();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)
@@ -614,16 +706,12 @@ public class LunaWindow : IDisposable
         // NeoVeldrid's Vulkan backend only signals a render-finished semaphore before presenting
         // when the present queue differs from the graphics queue - on a shared queue (the common
         // case on desktop GPUs), SwapBuffers's vkQueuePresentKHR call waits on nothing at all, so
-        // without this the presentation engine can read the swapchain image before the GPU has
-        // finished writing it, showing stale/previous-frame content (flicker, visible in both the
-        // 3D viewport and the GUI since both are already composited into this image by here).
-        // WaitForIdle was previously called before this Submit instead of after, which only waited
-        // on the *prior* frame's work and left this exact gap uncovered.
+        // this WaitForIdle is required to keep the presentation engine from reading the swapchain
+        // image before the GPU has finished writing it.
         //
-        // This is also the frame's single most diagnostic number: WaitForIdle blocks the CPU until
-        // the GPU has drained everything submitted above, so its duration is the GPU tail (see
-        // FrameProfiler's class summary). If this phase dominates the frame, the bottleneck is the
-        // GPU or this forced full sync - not CPU submission.
+        // This is also the frame's most diagnostic number: its duration is the GPU tail (see
+        // FrameProfiler's class summary). If this phase dominates, the bottleneck is the GPU or
+        // this forced full sync, not CPU submission.
         using (FrameProfiler.Sample(FrameProfiler.GpuWaitPhase))
             graphicsDevice.WaitForIdle();
         using (FrameProfiler.Sample(FrameProfiler.PresentPhase))
@@ -636,7 +724,26 @@ public class LunaWindow : IDisposable
             view.SubmitScene();
     }
 
-    protected virtual void OnClose() { }
+    protected virtual void OnClose()
+    {
+        // Captured before the layout save below so both land in the same file write. Only
+        // overwrites the stored windowed size while NOT maximized - SDL reports the maximized
+        // (screen-filling) size while maximized, not a size worth restoring to, so saving that
+        // would make "un-maximize" always land at the screen size instead of whatever windowed
+        // size the user actually had before maximizing (or the default, if they never un-maximized
+        // this session at all).
+        EditorSettings.WindowMaximized = MainWindow.IsMaximized;
+        if (!EditorSettings.WindowMaximized)
+        {
+            var (w, h) = MainWindow.GetWindowSize();
+            EditorSettings.WindowWidth = w;
+            EditorSettings.WindowHeight = h;
+        }
+
+        // Persist whatever the user ended the session with, so tweaks made without an explicit
+        // "Save Layout As..." (dragging/resizing a panel) aren't lost on the next launch.
+        DockspaceLayoutManager.SaveActiveLayout(EditorSettings, openFrames);
+    }
 
     private void OnResize(int width, int height)
     {

@@ -3,6 +3,7 @@ using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Assets.Animations;
 using ReLunacy.Engine.Assets.Mobys;
 using ReLunacy.Engine.Assets.Ties;
 using ReLunacy.Engine.Export;
@@ -56,16 +57,10 @@ public record struct TieAsset
 }
 
 /// <summary>Terrain fragment, listed alongside Mobys and Ties even though it is not an "asset" in
-/// the same sense - UFrags are not instanced, so each one IS its own single placement.
-///
-/// That is exactly why they belong here: a UFrag's bake is unambiguous. A Tie's lightmap depends on
-/// which instance you are looking at (one Tie asset, many placements, a different bake index each),
-/// so there is no context-free answer to "what does this asset's lightmap look like"; for a UFrag
-/// there is. It is currently the only asset type whose baked lighting can be inspected on its own.
-///
-/// Holds no Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
-/// (see ResolveUFragMesh), so what is previewed is byte-identical to what the 3D view draws,
-/// lightmap material and all, with no second copy to keep in sync or dispose.</summary>
+/// the same sense - UFrags are not instanced, so each one IS its own single placement, and its bake
+/// is therefore unambiguous (unlike a Tie, whose lightmap depends on which instance you're looking
+/// at). Holds no Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
+/// (see ResolveUFragMesh).</summary>
 public record struct UFragAsset
 {
     public UFragAsset(ulong zoneId, int index, IUFrag ufrag)
@@ -78,10 +73,8 @@ public record struct UFragAsset
         triangleCount = (uint)(ufrag.GetIndices().Length / 3);
 
         // Measured off the geometry, NOT from GetBoundingRadius(): old-engine UFrags don't have a
-        // decodable radius in their record (boundingSphere.W at 0x6C reads NaN for all 1987 UFrags in
-        // metropolis, which is why ZoneReader substitutes a flat 2.5f). A constant is useless for
-        // framing a preview, and these are raw fixed-point x256 units, so both values stay in that
-        // space and get descaled with the rest of the transform.
+        // decodable radius in their record. Raw fixed-point x256 units, descaled with the rest of
+        // the transform.
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         for (int i = 0; i + 2 < positions.Length; i += 3)
         {
@@ -129,9 +122,24 @@ public class AssetViewer : DockedFrame, ILevelListener
     // Render-target size for the preview, distinct from previewHeight (the splitter position).
     private uint previewTexWidth = 300, previewTexHeight = 300;
     private bool previewDirty = true;
+    // A level unload can be requested after this preview image was already queued into the current
+    // ImGui frame. Keep the render target alive until the Asset Viewer is entered again so that
+    // RenderImDrawData never replays a draw command against a disposed TextureView.
+    private bool disposePreviewOnNextRender;
     public readonly EditorCamera Camera;
     private readonly List<(Vector3 a, Vector3 b, Vector4 color)> _debugLines = new();
     private bool showSkeleton = true;
+
+    // Old-engine animation preview state. Animation affects only the Asset Viewer copy of the mesh;
+    // scene instances and source GeometryData stay untouched.
+    private readonly AnimationPlayer _animationPlayer = new();
+    private int _selectedAnimationIndex = -1;
+    private string _animationSearch = "";
+    private string? _animationError;
+    private Matrix4x4[]? _animationSkinMatrices;
+    private int _lastPreviewAnimationFrame = -1;
+    private bool _animationAutoplay = true;
+    private IMaterial? _selectedInlineMaterial;
 
     // Picking granularity for this viewport only (never fed into the shared scene-picking used
     // by View3D) - reuses local (bangleIndex, meshIndex) as the picking ID directly instead of
@@ -141,17 +149,10 @@ public class AssetViewer : DockedFrame, ILevelListener
     private int selectedVertexIndex;
     private bool vertexEditMode;
 
-    // Screen-space pixel radii for the vertex-edit-mode overlay/picking - kept generous on the
-    // pick radius specifically per the ask that vertex selection be tolerant, since a raw vertex
-    // dot is a much smaller target than a mesh triangle.
+    // Screen-space pixel radii for the vertex-edit-mode overlay/picking.
     private const float VertexPointPixelRadius = 4f;
     private const float SelectedVertexPixelRadius = 7f;
     private const float VertexPickPixelRadius = 10f;
-
-    // ImmediateRenderer's DrawBillboard always uses white-source * this to produce, for any
-    // background pixel color C, a final color of (1,1,1) - C - i.e. the dot always reads as the
-    // inverse of whatever's behind it, so it stays visible regardless of the underlying texture
-    // (this is the whole reason for this blend state instead of a fixed dot color). Alpha is left
 
     // Persisted, user-draggable pane sizes (pixels) - each tracks the pane immediately BEFORE its
     // splitter; the trailing pane on the other side of a splitter always just takes whatever
@@ -165,10 +166,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     public List<TieAsset> tieAssets = [];
     public List<UFragAsset> ufragAssets = [];
 
-    // UFrag-tab state. The lightmapped/not split is the first question worth asking of any UFrag and
-    // eyeballing "lm -" across ~2000 rows doesn't scale, so it gets its own filter rather than
-    // reusing the Used/Unused one above - that one is meaningless here, since a UFrag is its own
-    // single placement and is therefore always "used".
+    // UFrag-tab state. Lightmapped/not gets its own filter rather than reusing the Used/Unused one
+    // above, which is meaningless here since a UFrag is always its own single, "used" placement.
     private bool? ufragLightmapFilter;
     private bool ufragShowUVOverlay = true;
     private bool ufragShowUVWireframe = true;
@@ -190,6 +189,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         {
             selectedMobyAsset = value;
             if (value != null) selectedTieAsset = null;
+            ResetAnimationPreview();
             selectedMesh = null;
             exportNameOverride = "";
             IsDirty = true;
@@ -204,7 +204,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedTieAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; }
+            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; ResetAnimationPreview(); }
             selectedMesh = null;
             exportNameOverride = "";
             IsDirty = true;
@@ -219,8 +219,13 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedUFragAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; }
-            selectedMesh = null;
+            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; ResetAnimationPreview(); }
+            // A UFrag is one single mesh (see ForEachPreviewMesh's pick id 0 for it) - unlike
+            // Moby/Tie, which need a viewport click to pick which submesh, there's nothing to
+            // disambiguate, so this jumps straight to it instead of leaving the raw-vertex panel
+            // on its "click a mesh" hint until the user clicks the one thing there is to click.
+            selectedMesh = value != null ? (0, 0) : null;
+            _selectedUFragMesh = value != null ? BuildUFragMesh(value.Value) : null;
             exportNameOverride = "";
             IsDirty = true;
             RebuildSelectedAssetMaterials();
@@ -228,11 +233,10 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    // Lets the user rename an asset for export (textures/.bin/.gltf all take this name too - see
-    // ExportModel/GetExportName) instead of being stuck with the asset's raw internal name, which
-    // is routinely something like a full "levels/.../foo.entity.irb" path - not exactly what you
-    // want a Models Resource submission's files named after. Reset to blank (falls back to the
-    // asset's own default name) whenever the selection changes, above.
+    // IMesh adapter for the currently selected UFrag - see BuildUFragMesh.
+    private IMesh? _selectedUFragMesh;
+
+    // Lets the user rename an asset for export instead of using its raw internal name.
     private string exportNameOverride = "";
 
     private AssetManager? assetManager;
@@ -283,6 +287,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         selectedTieAsset = null;
         selectedUFragAsset = null;
         selectedMesh = null;
+        _selectedUFragMesh = null;
         RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
@@ -292,10 +297,11 @@ public class AssetViewer : DockedFrame, ILevelListener
         usedMobyIds.Clear();
         usedTieIds.Clear();
         assetManager = null;
-        // The preview renderer holds image views onto AssetManager's textures and GPU buffers built
-        // from meshes that are about to be destroyed, so it has to go with them - a preview left alive
-        // across a level unload would be sampling freed images on its next frame.
-        DisposePreview();
+        // Do not dispose the preview synchronously here. OnLevelUnloading can run while ImGui is
+        // still building the current frame, after the preview image has already been queued. The
+        // level's own GPU teardown is deferred for the same reason in LunaWindow.TryWipeLevel.
+        // Dispose before the Asset Viewer renders again instead, after the queued frame has flushed.
+        disposePreviewOnNextRender = true;
         IsDirty = true;
     }
 
@@ -346,6 +352,7 @@ public class AssetViewer : DockedFrame, ILevelListener
 
     private void RebuildSelectedAssetMaterials()
     {
+        _selectedInlineMaterial = null;
         selectedMobyMaterialsByBangle.Clear();
         selectedTieMaterials.Clear();
         mobyUsageResults = null;
@@ -529,11 +536,19 @@ public class AssetViewer : DockedFrame, ILevelListener
         return true;
     }
 
-    public bool SelectUFragById(ulong ufragId)
+    /// <summary>Selects the given UFrag instance, e.g. when jumping here from the Property
+    /// Inspector's "Open in Asset Viewer" button. Matched by reference, not by IUFrag.Id: Id is
+    /// only unique within its own zone (ZoneReader assigns it as a local per-zone loop index), so
+    /// two UFrags from different zones routinely share an Id - matching on it, as this used to,
+    /// jumped to whichever zone's UFrag happened to be first in ufragAssets with that same local
+    /// index, not the one actually requested. See TexturesExplorer.SelectUFragInView3D, which hit
+    /// and documented the same Id collision for its own "used by" lookup. Returns false if this
+    /// exact instance isn't in the currently transmitted set.</summary>
+    public bool SelectUFrag(IUFrag ufrag)
     {
-        var match = ufragAssets.FirstOrDefault(a => a.UFrag.Id == ufragId);
+        var match = ufragAssets.FirstOrDefault(a => ReferenceEquals(a.UFrag, ufrag));
         if (match.UFrag == null) return false;
-        
+
         SelectedUFragAsset = match;
         return true;
     }
@@ -593,26 +608,62 @@ public class AssetViewer : DockedFrame, ILevelListener
     // own texture-reference thumbnails - since a shader has no rendering of its own worth showing.
     private void RenderShaderGrid(IReadOnlyList<IMaterial> materials, string columnsId)
     {
-        int columns = Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 72);
+        int columns = Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 92);
         ImGui.Columns(columns, columnsId, false);
         foreach (var mat in materials)
         {
+            bool selected = _selectedInlineMaterial?.Id == mat.Id;
             if (mat.AlbedoTexture != null && assetManager != null && assetManager.BuiltTextures.TryGetValue(mat.AlbedoTexture.Id, out var tex2D))
             {
                 var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, tex2D.DeviceTexture);
-                ImGui.Image(ptr, new Vector2(64, 64), Vector2.UnitY, Vector2.UnitX);
+                ImGui.Image(ptr, new Vector2(72, 72), Vector2.UnitY, Vector2.UnitX);
                 if (ImGui.IsItemClicked())
-                    OpenShaderInBrowser(mat.Id);
+                    _selectedInlineMaterial = mat;
             }
-            if (ImGui.Selectable($"{mat.Name ?? mat.Id.ToString("X")}##shader_grid_{mat.Id:X}"))
-                OpenShaderInBrowser(mat.Id);
+            else
+            {
+                ImGui.Dummy(new Vector2(72, 72));
+            }
+
+            if (ImGui.Selectable($"{mat.Name ?? mat.Id.ToString("X")}##shader_grid_{mat.Id:X}", selected))
+                _selectedInlineMaterial = mat;
             ImGui.NextColumn();
         }
         ImGui.Columns(1);
     }
 
+    private void RenderInlineMaterialDetails()
+    {
+        if (_selectedInlineMaterial is not { } mat)
+        {
+            ImGui.TextDisabled("Select a shader/material above to inspect it here.");
+            return;
+        }
+
+        ImGui.SeparatorText("Selected shader");
+        ImGui.TextUnformatted(mat.Name ?? $"Shader_{mat.Id:X}");
+        ImGui.TextDisabled($"0x{mat.Id:X}");
+        ImGui.Text($"Render mode: {mat.RenderMode}   Game mode: {mat.GameRenderMode}");
+        ImGui.Text($"Alpha clip: {mat.AlphaClipThreshold:0.###}");
+        ImGui.Text($"Parallax: scale {mat.ParallaxScale:0.###}, bias {mat.ParallaxBias:0.###}");
+        ImGui.Text($"Detail tiling: {mat.DetailTiling:0.###}   Uses detail map: {mat.UsesDetailMap}");
+        ImGui.Text($"Albedo: {(mat.AlbedoTexture != null ? $"0x{mat.AlbedoTexture.Id:X}" : "-")}");
+        ImGui.Text($"Normal: {(mat.NormalTexture != null ? $"0x{mat.NormalTexture.Id:X}" : "-")}");
+        ImGui.Text($"Properties: {(mat.PropertiesTexture != null ? $"0x{mat.PropertiesTexture.Id:X}" : "-")}");
+        ImGui.Text($"Detail: {(mat.DetailTexture != null ? $"0x{mat.DetailTexture.Id:X}" : "-")}");
+
+        if (ImGui.Button("Open full Shader Browser"))
+            OpenShaderInBrowser(mat.Id);
+    }
+
     protected override void Render(double deltaTime)
     {
+        if (disposePreviewOnNextRender)
+        {
+            disposePreviewOnNextRender = false;
+            DisposePreview();
+        }
+
         Vector2 totalAvail = ImGui.GetContentRegionAvail();
         treeListWidth = Math.Clamp(treeListWidth, 150f, Math.Max(150f, totalAvail.X - 200f));
 
@@ -767,9 +818,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                 _viewport.DrawEmpty();
 
             // Overlay, then picking. Same priority order as the level view (there is no gizmo in this
-            // one), and the order the calls are made in IS the order: TryConsumeClick answers true only
-            // for a click the toolbar did not want. Picking used to run before the image was even
-            // submitted, which is why a click on a toolbar button also moved the mesh selection.
+            // one): TryConsumeClick answers true only for a click the toolbar did not want.
             DrawPreviewOverlay();
 
             if (_viewport.TryConsumeClick())
@@ -786,65 +835,98 @@ public class AssetViewer : DockedFrame, ILevelListener
 
         HorizontalSplitter("##split_preview", ref previewHeight, rightWidth);
 
-        // Distance to Target (the orbit pivot), not Camera.Position.Length() (distance to world
-        // zero) - those were the same thing before middle-click pan could move Target away from
-        // Vector3.Zero, but "distance to origin" now means "distance to wherever the pivot is."
+        // Distance to Target (the orbit pivot), not Camera.Position.Length() (distance to world zero).
         ImGui.Text($"{_viewport.PixelWidth}x{_viewport.PixelHeight} - Distance to target: {Vector3.Distance(Camera.Position, Camera.Target)}m");
         ImGui.Separator();
 
-        // Lower part split vertically: asset info/shaders/export on the left (unchanged content),
-        // selected-mesh inspector (from GPU picking in the preview above) on the right.
-        Vector2 lowerAvail = ImGui.GetContentRegionAvail();
-        assetInfoWidth = Math.Clamp(assetInfoWidth, 150f, Math.Max(150f, lowerAvail.X - 150f));
-        if (ImGui.BeginChild("asset_lower_left", new Vector2(assetInfoWidth, lowerAvail.Y), ImGuiChildFlags.None))
-        {
-        ImGui.Text("Asset");
+        // Full-width tabbed inspector. Raw mesh diagnostics remain available, but no longer consume
+        // half of the normal Asset Viewer workspace when the user is browsing/exporting/animating.
+        if (ImGui.BeginChild("asset_details", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
+            RenderAssetDetailsTabs();
+        ImGui.EndChild();
 
-        if (selectedMobyAsset != null)
-        {
-            var moby = selectedMobyAsset.Value.Moby;
-            string mobyDefaultName = moby.Name ?? $"Moby_{moby.Id:X}";
+        ImGui.EndGroup();
+    }
 
-            ImGui.Separator();
-            ImGui.SetNextItemWidth(200);
-            ImGui.InputTextWithHint("##export_name_moby", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", mobyDefaultName), ref exportNameOverride, 128);
+    private void RenderAssetDetailsTabs()
+    {
+        if (selectedMobyAsset is { } mobyAsset)
+        {
+            RenderMobyDetailsTabs(mobyAsset);
+            return;
+        }
+        if (selectedTieAsset is { } tieAsset)
+        {
+            RenderTieDetailsTabs(tieAsset);
+            return;
+        }
+        if (selectedUFragAsset is { } ufragAsset)
+        {
+            if (ImGui.BeginTabBar("asset_details_tabs_ufrag"))
+            {
+                if (ImGui.BeginTabItem("Overview"))
+                {
+                    RenderUFragPanel(ufragAsset);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Mesh Debug"))
+                {
+                    RenderSelectedMeshPanel();
+                    ImGui.EndTabItem();
+                }
+                ImGui.EndTabBar();
+            }
+            return;
+        }
+
+        ImGui.TextDisabled("Select an asset to inspect it.");
+    }
+
+    private void RenderMobyDetailsTabs(MobyAsset asset)
+    {
+        var moby = asset.Moby;
+        if (!ImGui.BeginTabBar("asset_details_tabs_moby")) return;
+
+        if (ImGui.BeginTabItem("Overview"))
+        {
+            string defaultName = moby.Name ?? $"Moby_{moby.Id:X}";
+            ImGui.SetNextItemWidth(260f);
+            ImGui.InputTextWithHint("##export_name_moby", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", defaultName), ref exportNameOverride, 128);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
+
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(defaultName), GetMobyGroups(moby), moby.Skeleton);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
-                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(defaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", GetExportName(mobyDefaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
-            
-            ImGui.BeginGroup();
-            ImGui.Text("Id");
-            ImGui.Text("Name");
-            ImGui.Text("Scale");
-            ImGui.Text("Bangles");
-            ImGui.Text("Vertices");
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Skeleton"));
-            ImGui.EndGroup();
-            ImGui.SameLine();
-            ImGui.BeginGroup();
-            ImGui.Text(moby.Id.ToString("X"));
-            ImGui.Text(moby.Name ?? "-");
-            ImGui.Text(moby.Scale.ToString("0.###"));
-            ImGui.Text(moby.Bangles.Count.ToString());
-            ImGui.Text(selectedMobyAsset.Value.verticesCount.ToString());
+                ExportModel(ObjExporter.Export, "obj", GetExportName(defaultName), GetMobyGroups(moby), moby.Skeleton, ownFolder: true);
+
+            ImGui.SeparatorText("Asset information");
+            ImGui.Text($"Id: 0x{moby.Id:X}");
+            ImGui.Text($"Name: {moby.Name ?? "-"}");
+            ImGui.Text($"Scale: {moby.Scale:0.###}");
+            ImGui.Text($"Bangles: {moby.Bangles.Count}");
+            ImGui.Text($"Vertices: {asset.verticesCount}");
             ImGui.Text(moby.Skeleton != null
                 ? LM.Get("GUI_Frame_AssetViewer_SkeletonBones", moby.Skeleton.Bones.Count)
                 : LM.Get("GUI_Frame_AssetViewer_SkeletonNone"));
-            ImGui.EndGroup();
+            ImGui.EndTabItem();
+        }
 
-            if (moby.Skeleton != null)
-                ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_ShowSkeleton"), ref showSkeleton);
+        if (ImGui.BeginTabItem($"Animations ({moby.Animations.Count})"))
+        {
+            RenderAnimationPanel(moby);
+            ImGui.EndTabItem();
+        }
 
-            if (ImGui.BeginChild("moby_bangles_switches", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y / 2), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        if (ImGui.BeginTabItem($"Bangles ({moby.Bangles.Count})"))
+        {
+            if (ImGui.BeginChild("moby_bangles_switches_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
-                var renderMap = selectedMobyAsset.Value.RenderModelMap;
+                var renderMap = asset.RenderModelMap;
                 for (int i = 0; i < renderMap.Length; i++)
                 {
                     if (ImGui.Checkbox($"Bangle_{i}", ref renderMap[i]))
@@ -852,104 +934,108 @@ public class AssetViewer : DockedFrame, ILevelListener
                 }
             }
             ImGui.EndChild();
+            ImGui.EndTabItem();
+        }
 
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
-            if (ImGui.BeginChild("moby_shaders", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        if (ImGui.BeginTabItem("Shaders"))
+        {
+            foreach (var (bangleIndex, materials) in selectedMobyMaterialsByBangle)
             {
-                foreach (var (bangleIndex, materials) in selectedMobyMaterialsByBangle)
+                if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_shader_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
                 {
-                    if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_shader_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
-                    {
-                        RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}");
-                        ImGui.TreePop();
-                    }
+                    RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}");
+                    ImGui.TreePop();
                 }
             }
-            ImGui.EndChild();
+            RenderInlineMaterialDetails();
+            ImGui.EndTabItem();
+        }
 
-            ImGui.Separator();
+        if (ImGui.BeginTabItem("Instances"))
+        {
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
                 mobyUsageResults = FindMobyInstances(moby.Id);
             RenderUsageResults(mobyUsageResults, "moby_usage");
+            ImGui.EndTabItem();
         }
-        else if (selectedTieAsset != null)
+
+        if (ImGui.BeginTabItem("Mesh Debug"))
         {
-            var tie = selectedTieAsset.Value.Tie;
-            ImGui.Separator();
-            string tieAssetName = tie.Name ?? $"Tie_{tie.Id:X}";
-            var tieGroups = new List<MeshGroup> { new(tieAssetName, tie.Meshes) };
-            ImGui.SetNextItemWidth(200);
-            ImGui.InputTextWithHint("##export_name_tie", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", tieAssetName), ref exportNameOverride, 128);
+            RenderSelectedMeshPanel();
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
+    }
+
+    private void RenderTieDetailsTabs(TieAsset asset)
+    {
+        var tie = asset.Tie;
+        if (!ImGui.BeginTabBar("asset_details_tabs_tie")) return;
+
+        if (ImGui.BeginTabItem("Overview"))
+        {
+            string defaultName = tie.Name ?? $"Tie_{tie.Id:X}";
+            var groups = new List<MeshGroup> { new(defaultName, tie.Meshes) };
+            ImGui.SetNextItemWidth(260f);
+            ImGui.InputTextWithHint("##export_name_tie", LM.Get("GUI_Frame_AssetViewer_ExportNameHint", defaultName), ref exportNameOverride, 128);
             ImGui.SameLine();
             ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_AssetViewer_ExportNameHelp"));
+
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltf")))
-                ExportModel(GltfExporter.Export, "glb", GetExportName(tieAssetName), tieGroups);
+                ExportModel(GltfExporter.Export, "glb", GetExportName(defaultName), groups);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportGltfSeparate")))
-                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(tieAssetName), tieGroups, ownFolder: true);
+                ExportModel(GltfExporter.ExportGltfSeparate, "gltf", GetExportName(defaultName), groups, ownFolder: true);
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ExportObj")))
-                ExportModel(ObjExporter.Export, "obj", GetExportName(tieAssetName), tieGroups, ownFolder: true);
-            
-            ImGui.BeginGroup();
-            ImGui.Text("Id");
-            ImGui.Text("Name");
-            ImGui.Text("Scale");
-            ImGui.Text("Vertices");
-            ImGui.EndGroup();
-            ImGui.SameLine();
-            ImGui.BeginGroup();
-            ImGui.Text(tie.Id.ToString("X"));
-            ImGui.Text(tie.Name ?? "-");
-            ImGui.Text(tie.Scale.ToString("0.###"));
-            ImGui.Text(selectedTieAsset.Value.verticesCount.ToString());
-            ImGui.EndGroup();
+                ExportModel(ObjExporter.Export, "obj", GetExportName(defaultName), groups, ownFolder: true);
 
-            ImGui.Text(LM.Get("GUI_Frame_AssetViewer_Shaders"));
-            if (ImGui.BeginChild("tie_shaders", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-            {
-                RenderShaderGrid(selectedTieMaterials, "tie_shader_grid");
-            }
-            ImGui.EndChild();
+            ImGui.SeparatorText("Asset information");
+            ImGui.Text($"Id: 0x{tie.Id:X}");
+            ImGui.Text($"Name: {tie.Name ?? "-"}");
+            ImGui.Text($"Scale: {tie.Scale:0.###}");
+            ImGui.Text($"Vertices: {asset.verticesCount}");
+            ImGui.EndTabItem();
+        }
 
-            ImGui.Separator();
+        if (ImGui.BeginTabItem("Shaders"))
+        {
+            RenderShaderGrid(selectedTieMaterials, "tie_shader_grid_tab");
+            RenderInlineMaterialDetails();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Instances"))
+        {
             if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_FindUsages")))
                 tieUsageResults = FindTieInstances(tie.Id);
             RenderUsageResults(tieUsageResults, "tie_usage");
+            ImGui.EndTabItem();
         }
-        else if (selectedUFragAsset != null)
+
+        if (ImGui.BeginTabItem("Mesh Debug"))
         {
-            RenderUFragPanel(selectedUFragAsset.Value);
-        }
-        }
-        ImGui.EndChild();
-
-        VerticalSplitter("##split_lower", ref assetInfoWidth, lowerAvail.Y);
-
-        if (ImGui.BeginChild("asset_lower_right", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders))
             RenderSelectedMeshPanel();
-        ImGui.EndChild();
+            ImGui.EndTabItem();
+        }
 
-        ImGui.EndGroup();
+        ImGui.EndTabBar();
     }
 
     /// <summary>Blank exportNameOverride falls back to the asset's own default name; otherwise the
-    /// user's typed name is used verbatim (still gets sanitized for filesystem-illegal characters
-    /// by ExportModel below either way) - this is the one place that decides what name every
-    /// exported file (model, .bin, and every texture) ultimately gets built from.</summary>
+    /// user's typed name is used verbatim. The one place that decides what name every exported
+    /// file (model, .bin, and every texture) is built from.</summary>
     private string GetExportName(string defaultName) => string.IsNullOrWhiteSpace(exportNameOverride) ? defaultName : exportNameOverride;
 
     /// <summary>
-    /// Shared by every Moby/Tie export button - builds a sanitized output path under
-    /// EditorPath/Exported/Models (asset names routinely contain path-like characters, e.g.
-    /// "levels/great_clock_a/entities/.../foo.entity.irb", which would otherwise be interpreted
-    /// as subdirectories) and hands off to ExportRunner for the actual background export + progress
-    /// modal + result modal (shared with the whole-level export in GameBrowserFrame/FileMenuDraw).
+    /// Shared by every Moby/Tie/UFrag export button - builds a sanitized output path under
+    /// EditorPath/Exported/Models and hands off to ExportRunner for the background export +
+    /// progress modal + result modal.
     /// </summary>
-    /// <param name="ownFolder">True for exporters that write more than one file alongside the
-    /// main one (e.g. GltfExporter.ExportGltfSeparate's .bin + texture PNGs) - puts the asset in
-    /// its own Exported/Models/&lt;name&gt;/ folder instead of dropping several loose files
-    /// directly into Exported/Models next to every other asset's exports.</param>
+    /// <param name="ownFolder">True for exporters that write more than one file alongside the main
+    /// one (e.g. GltfExporter.ExportGltfSeparate's .bin + texture PNGs) - puts the asset in its own
+    /// Exported/Models/&lt;name&gt;/ folder instead.</param>
     private static void ExportModel(Action<string, string, IReadOnlyList<MeshGroup>, ISkeleton?, Action<float>?> exporter, string extension, string assetName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, bool ownFolder = false)
     {
         string safeName = ExportPaths.SanitizeFileName(assetName);
@@ -962,22 +1048,16 @@ public class AssetViewer : DockedFrame, ILevelListener
             progress => exporter(path, safeName, groups, skeleton, progress));
     }
 
-    /// <summary>One MeshGroup per bangle (indexed name fallback for unnamed bangles) - keeps
-    /// bangles as distinct submeshes/nodes on export instead of flattening the whole Moby into a
-    /// single mesh, since bangles are independently toggleable parts (see RenderModelMap above),
-    /// not interchangeable LOD/skin variants.</summary>
     /// <summary>The scene entity's own already-built GPU mesh for this UFrag, or null if the level
-    /// produced no entity for it. Borrowed, never owned: building a second Mesh here would duplicate
-    /// the vertex buffer AND detach the preview from the material the 3D view actually renders with -
-    /// including its bound lightmap atlases, which is the whole point of previewing a UFrag.</summary>
+    /// produced no entity for it. Borrowed, never owned, so the preview stays byte-identical to what
+    /// the 3D view renders (lightmap material included).</summary>
     private static RenderMesh? ResolveUFragMesh(UFragAsset asset) =>
         EntityManager.Singleton.AllEntities().OfType<EntityUFrag>()
             .FirstOrDefault(e => ReferenceEquals(e.UFrag, asset.UFrag))?.UFragMesh;
 
-    /// <summary>Pulls the camera back far enough to frame the selected UFrag. Necessary because the
-    /// mesh keeps its true 1/256 scale (see the renderable build) and UFrags vary from a few world
-    /// units across to tens - a fixed camera distance shows either a speck or the inside of a wall.
-    /// Clamped under the camera's 100f far plane so a large chunk can't land entirely beyond it.</summary>
+    /// <summary>Pulls the camera back far enough to frame the selected UFrag. UFrags vary widely in
+    /// size, so a fixed distance would show either a speck or the inside of a wall. Clamped under
+    /// the camera's 100f far plane.</summary>
     private void FrameUFragInPreview(UFragAsset asset)
     {
         float radius = MathF.Max(asset.localRadius / 256f, 0.01f);
@@ -987,10 +1067,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Export payload for a UFrag: one mesh, one shader. Positions are descaled by 256 to
-    /// world units, and the placement ANCHOR is deliberately not applied - the export is asset-local,
-    /// matching Moby/Tie export, so a UFrag lands at the origin rather than wherever it sits in the
-    /// level. Real normals/tangents are passed through so GeometryData doesn't recompute them from
-    /// triangles when the file already told us (its tangent handedness is still derived, as always).</summary>
+    /// world units; the placement ANCHOR is deliberately not applied, so the export is asset-local
+    /// like Moby/Tie export (UFrag lands at the origin, not wherever it sits in the level).</summary>
     private static List<MeshGroup> GetUFragGroups(UFragAsset asset, string name)
     {
         var ufrag = asset.UFrag;
@@ -1077,12 +1155,9 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>The baked-lighting readout: which atlas entry this UFrag resolves to, the UV rectangle
-    /// its vertices occupy, and the atlases themselves with the UV island drawn on top.
-    ///
-    /// The rect and the overlay separate the two failure modes that look identical on screen - a UFrag
-    /// rendering black because its atlas region genuinely IS black, versus because it is addressing the
-    /// wrong region. That distinction is what caught the UVs2 decode bug (islands were landing about
-    /// two texels wide, see UFragVertex.UVs2), so it stays even though that particular bug is fixed.</summary>
+    /// its vertices occupy, and the atlases themselves with the UV island drawn on top. The rect and
+    /// the overlay separate two failure modes that look identical on screen - a UFrag rendering black
+    /// because its atlas region genuinely IS black, versus because it's addressing the wrong region.</summary>
     private void RenderUFragBakedSection(UFragAsset asset)
     {
         var ufrag = asset.UFrag;
@@ -1114,9 +1189,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (!asset.HasLightmap) return;
 
         // Preview-local, so these can be swept while looking at one UFrag without disturbing the 3D
-        // view. They drive THIS frame's own renderer instance, which is also why the UV overlay below
-        // reads its transform from the same place: the overlay has to describe the shader that drew
-        // the image next to it, or it lies.
+        // view. Drive THIS frame's own renderer instance; the UV overlay below reads its transform
+        // from the same place so it describes the shader that drew the image next to it.
         {
             var lit = _lighting;
             ImGui.SeparatorText(LM.Get("GUI_Frame_AssetViewer_UFragPreviewSection"));
@@ -1270,18 +1344,31 @@ public class AssetViewer : DockedFrame, ILevelListener
         ImGui.TextUnformatted(floatSb.ToString());
     }
 
+    /// <summary>One MeshGroup per bangle (indexed name fallback for unnamed bangles), since bangles
+    /// are independently toggleable parts, not interchangeable LOD/skin variants.</summary>
     private static List<MeshGroup> GetMobyGroups(IMoby moby) =>
         moby.Bangles.Select((bangle, i) => new MeshGroup(string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name, bangle.Meshes)).ToList();
 
     public override void RenderAsWindow(double deltaTime)
     {
-        ImGui.SetNextWindowPos(DefaultPosition, DockingConditions, new Vector2(0.5f));
+        // No SetNextWindowPos here (see ShaderBrowser's comment) - it cancelled the dockspace
+        // preset's placement for this frame ("Asset") on first appearance. SetNextWindowSizeConstraints
+        // is unaffected - it just bounds size, it doesn't request a floating position - and applies
+        // whether or not this ends up docked.
         ImGui.SetNextWindowSizeConstraints(new(400, 300), ImGui.GetMainViewport().Size);
         base.RenderAsWindow(deltaTime);
     }
 
     private void Tick(double deltaTime)
     {
+        if (_animationPlayer.IsPlaying)
+        {
+            _animationPlayer.Update((float)deltaTime);
+            int frame = _animationPlayer.CurrentFrame;
+            if (frame != _lastPreviewAnimationFrame)
+                RefreshAnimationPose();
+        }
+
         // The viewport measured the region and sampled the mouse in Begin, and it latched the left
         // click for TryConsumeClick to hand over once the toolbar has had its turn.
         CheckCameraDragInput(_viewport.AllowCameraInput);
@@ -1296,16 +1383,13 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>
-    /// GPU colour-ID picking scoped to this viewport's own preview model (the same renderer
-    /// class View3D uses for whole-entity picking, but the id here is packed straight from local
-    /// (bangleIndex, meshIndex) instead of a globally-unique per-mesh id - this viewport only ever
-    /// shows one asset at a time, so there's no cross-asset collision risk to design around.
-    /// bangleIndex is always 0 for Ties.
+    /// GPU colour-ID picking scoped to this viewport's own preview model. Pick id is packed from
+    /// local (bangleIndex, meshIndex). bangleIndex is always 0 for Ties and UFrags.
     /// </summary>
     private void PickMeshUnderCursor()
     {
         if (!_viewport.HasArea) return;
-        if (_vkPreview == null || selectedUFragAsset != null) return;
+        if (_vkPreview == null) return;
 
         uint hitId;
         try
@@ -1353,14 +1437,64 @@ public class AssetViewer : DockedFrame, ILevelListener
             var meshes = selectedTieAsset.Value.Tie.Meshes;
             return meshIndex >= 0 && meshIndex < meshes.Count ? meshes[meshIndex] : null;
         }
+        if (selectedUFragAsset != null) return _selectedUFragMesh;
         return null;
+    }
+
+    /// <summary>Wraps a UFrag's decoded per-vertex arrays as an IMesh (same GeometryData+Mesh
+    /// composition every other reader builds), so the raw-vertex inspector and vertex-edit-mode
+    /// picking/overlay work for UFrags too. Positions are rescaled to world space (raw/256,
+    /// re-centred on localCentre) to match the preview's own world matrix.</summary>
+    private static IMesh BuildUFragMesh(UFragAsset asset)
+    {
+        var ufrag = asset.UFrag;
+        float[] rawPositions = ufrag.GetVertexPositions();
+        var positions = new float[rawPositions.Length];
+        for (int i = 0; i + 2 < rawPositions.Length; i += 3)
+        {
+            positions[i + 0] = rawPositions[i + 0] / 256f - asset.localCentre.X / 256f;
+            positions[i + 1] = rawPositions[i + 1] / 256f - asset.localCentre.Y / 256f;
+            positions[i + 2] = rawPositions[i + 2] / 256f - asset.localCentre.Z / 256f;
+        }
+
+        // GeometryData's tangents parameter takes raw xyz (3 per vertex); GetTangents() already
+        // includes the derived w handedness (4 per vertex), so strip it back off here.
+        float[]? ufragTangents = ufrag.GetTangents();
+        float[]? tangentsXyz = null;
+        if (ufragTangents != null)
+        {
+            tangentsXyz = new float[ufragTangents.Length / 4 * 3];
+            for (int i = 0; i * 4 + 2 < ufragTangents.Length; i++)
+            {
+                tangentsXyz[i * 3 + 0] = ufragTangents[i * 4 + 0];
+                tangentsXyz[i * 3 + 1] = ufragTangents[i * 4 + 1];
+                tangentsXyz[i * 3 + 2] = ufragTangents[i * 4 + 2];
+            }
+        }
+
+        var geometry = new Engine.Assets.Geometry.GeometryData(
+            id: ufrag.Id,
+            positions: positions,
+            uvs: ufrag.GetTextureCoordinates(),
+            indices: ufrag.GetIndices(),
+            normals: ufrag.GetNormals(),
+            tangents: tangentsXyz,
+            lightmapUVs: ufrag.GetLightmapUVs(),
+            vertexAlpha: ufrag.GetVertexAlpha());
+
+        return new Engine.Assets.Geometry.Mesh(geometry, ufrag.Material, "UFragMesh", "UFragVertex", i => DumpUFragVertex(ufrag, i));
+    }
+
+    /// <summary>Raw-vertex inspector dump for a UFrag vertex - see UFragVertex.Dump.</summary>
+    private static string? DumpUFragVertex(IUFrag ufrag, int index)
+    {
+        var rawVertices = ufrag.GetRawVertices();
+        return index >= 0 && index < rawVertices.Length ? rawVertices[index].Dump() : null;
     }
 
     /// <summary>CPU screen-space nearest-vertex picking against the selected mesh's raw vertex
     /// positions, rather than a second GPU picking pass - these preview meshes are small enough
-    /// (single asset, not a whole level) that projecting every vertex per click is cheap, and it
-    /// sidesteps rasterizing sub-pixel point primitives with a click-tolerant hit radius, which a
-    /// GPU ID buffer can't easily give without inflating actual triangle geometry.</summary>
+    /// that projecting every vertex per click is cheap.</summary>
     private void PickVertexUnderCursor()
     {
         if (!_viewport.HasArea) return;
@@ -1488,11 +1622,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>RMB drags orbit (rotates Position around the fixed Target); MMB drags pan (moves
-    /// Position and Target together, so the orbit origin itself relocates instead of just
-    /// spinning around it). Both share one method rather than two independent ones because they
-    /// also share relative-mouse-mode: two separate methods each reporting their own drag state
-    /// would have the second one cancel whatever the first just started whenever only one of the
-    /// two buttons is actually held.</summary>
+    /// Position and Target together, relocating the orbit origin). Both share one method since they
+    /// also share relative-mouse-mode.</summary>
     private void CheckCameraDragInput(bool allowGrab)
     {
         bool rotating = rmbghandler.TryGrabMouse(allowGrab);
@@ -1500,8 +1631,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         bool isDragging = rotating || panning;
 
         // The viewport owns relative mouse mode. It is one global flag shared with the level view, so
-        // only whichever viewport turned it on turns it off again; this used to be hand-rolled here
-        // with an edge tracker precisely because the other view kept clobbering it.
+        // only whichever viewport turned it on turns it off again.
         _viewport.SetMouseCaptured(isDragging);
 
         if (!isDragging) return;
@@ -1513,35 +1643,27 @@ public class AssetViewer : DockedFrame, ILevelListener
             Vector2 rot = delta * Program.Settings.CamSensivity;
 
             // rotateAroundTarget: true swings Position around the fixed Target (real orbit).
-            // false - what this used to pass - keeps Position fixed and swings Target instead,
-            // which is FPS-style look, not an orbit; that's why this never actually orbited.
             Camera.SetPitch(Camera.GetPitch() - rot.Y, true);
             Camera.SetYaw(Camera.GetYaw() - rot.X, true);
         }
 
         if (panning)
         {
-            // Screen-pixel delta -> world-space delta at the orbit target's own depth (same
-            // perspective back-solve as WorldScaleForPixelRadius, without that method's
-            // billboard-specific 0.005 constant), so the point under the cursor at drag-start
-            // stays roughly under the cursor while dragging, matching typical middle-click-pan
-            // tools.
+            // Screen-pixel delta -> world-space delta at the orbit target's own depth, so the point
+            // under the cursor at drag-start stays roughly under the cursor while dragging.
             float distance = Vector3.Distance(Camera.Position, Camera.Target);
             float fovYRad = Camera.Fov * (MathF.PI / 180f);
             float worldUnitsPerPixel = 2f * distance * MathF.Tan(fovYRad * 0.5f) / Math.Max(1, _viewport.PixelHeight);
 
-            // Built by hand instead of Cam3D.MoveRight/MoveUp: those use GetRight() = Cross(Forward,
-            // Up) and the raw Up field directly, neither of which is normalized - Up drifts and
-            // isn't guaranteed orthogonal to Forward after SetPitch/SetRoll, so pan speed would
-            // vary with pitch (shrinking toward zero looking straight up/down) and drift over time.
-            // right/up here are a proper orthonormal basis for the current view.
+            // Built by hand instead of Cam3D.MoveRight/MoveUp: those rely on the raw Up field, which
+            // isn't guaranteed normalized/orthogonal to Forward. right/up here are a proper
+            // orthonormal basis for the current view.
             Vector3 forward = Camera.GetForward();
             Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Camera.Up));
             Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
 
-            // Signs make the dragged point track the cursor (drag right -> content follows right,
-            // i.e. camera moves left; drag down -> content follows down, i.e. camera moves up) -
-            // not runtime-verified; if the pan feels inverted, flip both signs here.
+            // Signs make the dragged point track the cursor. Not runtime-verified; flip both signs
+            // here if the pan feels inverted.
             Vector3 shift = right * (-delta.X * worldUnitsPerPixel) + up * (delta.Y * worldUnitsPerPixel);
             Camera.Position += shift;
             Camera.Target += shift;
@@ -1564,8 +1686,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     private readonly SceneLighting _lighting = new();
 
     // Placeholder shown when nothing is selected, so the viewport is never just an empty rectangle.
-    // Registered with the capture registry once, under its own key, exactly like real asset geometry -
-    // that is what lets the normal preview path draw it with no special case beyond this.
+    // Registered with the capture registry once, under its own key, exactly like real asset geometry.
     private RenderMesh? _placeholderMesh;
     private float[]? _placeholderVertexData;
     private uint[]? _placeholderIndices;
@@ -1615,10 +1736,8 @@ public class AssetViewer : DockedFrame, ILevelListener
             indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3]);
         }
 
-        // A real 1x1 white albedo, not an empty material. The renderer substitutes SOME texture for an
-        // unbound slot, but it picks that fallback from the scene's own materials, and when nothing is
-        // selected this cube is the whole scene: leaving it textureless makes the renderer refuse to
-        // build at all, which shows up as an empty viewport exactly when the placeholder is the point.
+        // A real 1x1 white albedo, not an empty material: when nothing is selected this cube is the
+        // whole scene, and a textureless material makes the renderer refuse to build at all.
         _placeholderTexture ??= GpuTexture.Solid(graphicsDevice, 255, 255, 255, 255);
         _placeholderMaterial = new RenderMaterial();
         _placeholderMaterial.AddMaterialMap(MaterialMapType.Albedo, new MaterialMap(_placeholderTexture));
@@ -1684,7 +1803,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             if (!geoRemap.TryGetValue(gi, out int geoSlot))
             {
                 geoSlot = verts.Count;
-                verts.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]);
+                verts.Add(BuildPreviewVertexData(mesh, pickId, Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]));
                 idx.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.Indices[gi]);
                 geoRemap[gi] = geoSlot;
             }
@@ -1726,8 +1845,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Walks the selected asset's drawable meshes, handing each one its world transform and
-    /// its pick id. One place, so rendering and picking can never disagree about what is on screen -
-    /// they used to build that list separately.</summary>
+    /// its pick id. One place, so rendering and picking can never disagree about what is on screen.</summary>
     private void ForEachPreviewMesh(Action<RenderMesh, Matrix4x4, uint> add)
     {
         if (selectedMobyAsset != null)
@@ -1755,31 +1873,347 @@ public class AssetViewer : DockedFrame, ILevelListener
         }
         else if (ResolveUFragMesh(selectedUFragAsset.Value) is { } ufragMesh)
         {
-            // Scale matches EntityUFrag exactly (raw positions are fixed-point x256 on both engines)
-            // rather than being normalised per UFrag to fit the viewport. A per-selection scale would
-            // silently change the apparent lighting from one UFrag to the next - specular and the
-            // normal-map derivatives are not scale-invariant - and comparing bakes across UFrags is
-            // what this tab is for. The camera moves instead; see FrameUFragInPreview.
+            // Scale matches EntityUFrag exactly rather than being normalised per UFrag to fit the
+            // viewport, since specular/normal-map lighting is not scale-invariant and comparing
+            // bakes across UFrags is what this tab is for. The camera moves instead; see FrameUFragInPreview.
             var world = Matrix4x4.CreateScale(1f / 256f)
                 * Matrix4x4.CreateTranslation(-selectedUFragAsset.Value.localCentre / 256f);
             add(ufragMesh, world, 0u);
         }
     }
 
-    private void AppendSkeleton(ISkeleton skeleton)
+    private void ResetAnimationPreview()
     {
-        var red = new Vector4(1f, 0f, 0f, 1f);
-        foreach (var bone in skeleton.Bones)
+        _animationPlayer.SetClip(null);
+        _selectedAnimationIndex = -1;
+        _animationSearch = "";
+        _animationError = null;
+        _animationSkinMatrices = null;
+        _lastPreviewAnimationFrame = -1;
+    }
+
+    private static readonly float[] AnimationSpeedSteps =
+    [
+        0.25f, 0.50f, 0.75f, 1.00f,
+        1.10f, 1.20f, 1.30f, 1.40f, 1.50f,
+        1.60f, 1.70f, 1.80f, 1.90f, 2.00f,
+    ];
+
+    private void SelectAnimation(Moby moby, int index)
+    {
+        if (index < 0 || index >= moby.Animations.Count)
         {
-            if (bone.ParentIndex < 0) continue;
-            var parent = skeleton.Bones[bone.ParentIndex];
-            _debugLines.Add((parent.WorldBindPose.Translation, bone.WorldBindPose.Translation, red));
+            ResetAnimationPreview();
+            previewDirty = true;
+            return;
+        }
+
+        _selectedAnimationIndex = index;
+        _animationPlayer.SetClip(moby.Animations[index]);
+        _animationError = null;
+        _animationSkinMatrices = null;
+        _lastPreviewAnimationFrame = -1;
+        RefreshAnimationPose();
+
+        if (_animationAutoplay && _animationPlayer.CanSamplePose && moby.Skeleton != null)
+            _animationPlayer.Play();
+    }
+
+    private void SelectRelativeAnimation(Moby moby, int delta)
+    {
+        if (moby.Animations.Count == 0) return;
+        int current = _selectedAnimationIndex >= 0 ? _selectedAnimationIndex : 0;
+        int next = ((current + delta) % moby.Animations.Count + moby.Animations.Count) % moby.Animations.Count;
+        SelectAnimation(moby, next);
+    }
+
+    /// <summary>Media-player previous semantics: when the current clip has actually progressed,
+    /// restart it. When it is already at its beginning, jump to the previous animation instead.</summary>
+    private void PreviousAnimationOrRestart(Moby moby)
+    {
+        if (_animationPlayer.Clip is not { } clip)
+        {
+            if (moby.Animations.Count > 0) SelectAnimation(moby, 0);
+            return;
+        }
+
+        float restartThreshold = MathF.Min(0.25f, MathF.Max(0.05f, clip.DurationSeconds * 0.20f));
+        if (_animationPlayer.Time > restartThreshold)
+        {
+            bool wasPlaying = _animationPlayer.IsPlaying;
+            _animationPlayer.SeekToFrame(0);
+            RefreshAnimationPose();
+            if (wasPlaying && _animationPlayer.CanSamplePose)
+                _animationPlayer.Play();
+            return;
+        }
+
+        SelectRelativeAnimation(moby, -1);
+    }
+
+    private void CycleAnimationSpeed()
+    {
+        float current = _animationPlayer.Speed;
+        for (int i = 0; i < AnimationSpeedSteps.Length; i++)
+        {
+            if (AnimationSpeedSteps[i] > current + 0.001f)
+            {
+                _animationPlayer.Speed = AnimationSpeedSteps[i];
+                return;
+            }
+        }
+        _animationPlayer.Speed = AnimationSpeedSteps[0];
+    }
+
+    private void RefreshAnimationPose()
+    {
+        _animationError = null;
+        _animationSkinMatrices = null;
+        var moby = selectedMobyAsset?.Moby;
+        if (moby?.Skeleton == null || _animationPlayer.Clip == null)
+        {
+            previewDirty = true;
+            return;
+        }
+
+        if (!_animationPlayer.CanSamplePose)
+        {
+            _animationError = _animationPlayer.UnsupportedReason;
+            _lastPreviewAnimationFrame = _animationPlayer.CurrentFrame;
+            previewDirty = true;
+            return;
+        }
+
+        try
+        {
+            _animationSkinMatrices = _animationPlayer.SamplePose(moby.Skeleton);
+            _lastPreviewAnimationFrame = _animationPlayer.CurrentFrame;
+        }
+        catch (Exception ex)
+        {
+            _animationError = ex.Message;
+            _animationPlayer.Pause();
+            _animationSkinMatrices = null;
+        }
+        previewDirty = true;
+    }
+
+    private void RenderAnimationPanel(Moby moby)
+    {
+        // Skeleton visualization is animation-oriented tooling, so it lives here rather than in
+        // Overview. It remains available even when this particular Moby has no playable clips.
+        if (moby.Skeleton != null)
+        {
+            ImGui.Checkbox(LM.Get("GUI_Frame_AssetViewer_ShowSkeleton"), ref showSkeleton);
+            ImGui.SameLine();
+            ImGui.TextDisabled($"{moby.Skeleton.Bones.Count} bones");
+            ImGui.Separator();
+        }
+
+        if (moby.Animations.Count == 0)
+        {
+            ImGui.TextDisabled("No animations for this Moby.");
+            return;
+        }
+
+        ImGui.SetNextItemWidth(-1f);
+        ImGui.InputTextWithHint("##animation_search", "Filter animations...", ref _animationSearch, 128);
+        if (ImGui.BeginChild("moby_animation_list", new Vector2(ImGui.GetContentRegionAvail().X, 150f), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+        {
+            for (int i = 0; i < moby.Animations.Count; i++)
+            {
+                var clip = moby.Animations[i];
+                if (!string.IsNullOrWhiteSpace(_animationSearch) && !clip.Name.Contains(_animationSearch, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string tags = (clip.Looping ? " [Loop authored]" : "") + (clip.Additive ? " [Partial]" : "");
+                if (ImGui.Selectable($"{i:D2}  {clip.Name}{tags}##anim_{i}", _selectedAnimationIndex == i))
+                    SelectAnimation(moby, i);
+            }
+        }
+        ImGui.EndChild();
+
+        var selected = _animationPlayer.Clip;
+        if (selected == null) return;
+
+        bool canSample = _animationPlayer.CanSamplePose && moby.Skeleton != null;
+
+        // Outer buttons navigate animation slots and are ALWAYS available, including on partial
+        // clips whose pose composition is still under reverse. Inner buttons only navigate frames.
+        if (ImGui.Button("<< Anim")) PreviousAnimationOrRestart(moby);
+        ImGui.SameLine();
+        if (ImGui.Button("< Frame"))
+        {
+            _animationPlayer.SeekToFrame(_animationPlayer.CurrentFrame - 1);
+            RefreshAnimationPose();
+        }
+        ImGui.SameLine();
+
+        if (!canSample) ImGui.BeginDisabled();
+        if (ImGui.Button(_animationPlayer.IsPlaying ? "Pause" : "Play"))
+        {
+            if (_animationPlayer.IsPlaying) _animationPlayer.Pause(); else _animationPlayer.Play();
+        }
+        if (!canSample) ImGui.EndDisabled();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Frame >"))
+        {
+            _animationPlayer.SeekToFrame(_animationPlayer.CurrentFrame + 1);
+            RefreshAnimationPose();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Anim >>")) SelectRelativeAnimation(moby, +1);
+        ImGui.SameLine();
+        if (ImGui.Button("Stop"))
+        {
+            _animationPlayer.Stop();
+            RefreshAnimationPose();
+        }
+
+        int frame = _animationPlayer.CurrentFrame;
+        int maxFrame = Math.Max(0, selected.NumFrames - 1);
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.SliderInt("##animation_frame", ref frame, 0, maxFrame, $"Frame %d / {maxFrame}"))
+        {
+            _animationPlayer.SeekToFrame(frame);
+            RefreshAnimationPose();
+        }
+
+        bool loop = _animationPlayer.Loop;
+        if (ImGui.Checkbox("Loop", ref loop))
+            _animationPlayer.Loop = loop;
+        ImGui.SameLine();
+        if (ImGui.Checkbox("Autoplay", ref _animationAutoplay))
+        {
+            if (_animationAutoplay && canSample && !_animationPlayer.IsPlaying)
+                _animationPlayer.Play();
+        }
+        ImGui.SameLine();
+        ImGui.TextUnformatted("Speed");
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"x{_animationPlayer.Speed:0.##}"))
+            CycleAnimationSpeed();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Click to cycle 0.25x, 0.50x, 0.75x, 1.00x, then +0.10x up to 2.00x.");
+
+        ImGui.TextDisabled($"{_animationPlayer.Time:0.000}s / {selected.DurationSeconds:0.000}s  •  {selected.FrameRate:0.###} fps  •  animation {_selectedAnimationIndex + 1}/{moby.Animations.Count}");
+
+        if (_animationError != null)
+            ImGui.TextWrapped(_animationError);
+
+        if (selected.Additive)
+            ImGui.TextDisabled("Partial/additive pose composition is still under native EBOOT reverse. Animation navigation and raw frame inspection remain available.");
+
+        if (ImGui.TreeNode("Animation Debug"))
+        {
+            ImGui.TextUnformatted($"Local slot: {_selectedAnimationIndex}");
+            ImGui.TextUnformatted($"Storage: {selected.StorageKind}   Local index: {selected.LocalIndex}");
+            ImGui.TextUnformatted($"Frames: {selected.NumFrames}   Active/declared bones: {selected.NumBones}");
+            ImGui.TextUnformatted($"Tracks: 16-bit={selected.Num16BitTracks}, 8-bit={selected.Num8BitTracks}, refs={selected.NumReferenceValues}");
+            ImGui.TextUnformatted($"Control bytes: 0x{selected.ControlByteSize:X}   Packed: {selected.Packed}");
+            ImGui.TextUnformatted($"Linear speed: {selected.LinearSpeed:0.######}");
+            ImGui.TextUnformatted($"Root transform block: {(selected.HasRootTransforms ? "yes (parsed, not yet composed)" : "no")}");
+            try
+            {
+                if (moby.Skeleton != null)
+                {
+                    var control = selected.GetControl(moby.Skeleton.Bones.Count);
+                    ImGui.TextUnformatted($"Control size verified: {control.SizeMatchesHeader}");
+                    if (selected.Additive)
+                        ImGui.TextUnformatted($"Blend values: non-zero={control.ActiveBlendBoneCount} / {control.BoneBlendValues.Length}");
+                }
+                if (selected.TryReadFramePrefix(_animationPlayer.CurrentFrame, out uint[] prefix))
+                    ImGui.TextUnformatted($"Frame prefix: {prefix[0]:X8} {prefix[1]:X8} {prefix[2]:X8} {prefix[3]:X8}");
+                if (selected.HasFrameRemap)
+                    ImGui.TextUnformatted($"Stored frame: {selected.MapLogicalToStoredFrame(_animationPlayer.CurrentFrame)}");
+                if (selected.HasRootTransforms)
+                {
+                    var rt = selected.ReadRootTransform(_animationPlayer.CurrentFrame);
+                    ImGui.TextUnformatted($"Root flags=0x{rt.Flags:X} mode={rt.Mode:0.###} scale=({rt.Scale.X:0.###},{rt.Scale.Y:0.###},{rt.Scale.Z:0.###})");
+                    ImGui.TextUnformatted($"Root translation=({rt.Translation.X:0.###},{rt.Translation.Y:0.###},{rt.Translation.Z:0.###})");
+                }
+            }
+            catch (Exception ex)
+            {
+                ImGui.TextWrapped($"Decoder diagnostic: {ex.Message}");
+            }
+            ImGui.TreePop();
         }
     }
 
-    /// <summary>Vertex markers as small screen-scaled crosses. These were billboarded quads before;
-    /// a cross is what the debug-line overlay can draw, and it marks a point at least as precisely.
-    /// The screen-space sizing is unchanged, so a dot stays the same size at any zoom or mesh scale.</summary>
+    private float[] BuildPreviewVertexData(RenderMesh renderMesh, uint pickId, float[] captured)
+    {
+        if (_animationSkinMatrices == null || selectedMobyAsset == null)
+            return captured;
+
+        int bangleIndex = (int)(pickId >> 16);
+        int meshIndex = (int)(pickId & 0xFFFF);
+        var moby = selectedMobyAsset.Value.Moby;
+        if ((uint)bangleIndex >= (uint)moby.Bangles.Count || (uint)meshIndex >= (uint)moby.Bangles[bangleIndex].Meshes.Count)
+            return captured;
+
+        var geometry = moby.Bangles[bangleIndex].Meshes[meshIndex].Geometry;
+        int[]? joints = geometry.GetJointIndices();
+        float[]? weights = geometry.GetJointWeights();
+        if (joints == null || weights == null) return captured;
+
+        const int stride = 18;
+        int vertexCount = Math.Min(captured.Length / stride, Math.Min(joints.Length, weights.Length) / 4);
+        var result = (float[])captured.Clone();
+
+        for (int v = 0; v < vertexCount; v++)
+        {
+            int o = v * stride;
+            Vector3 sourcePosition = new(captured[o + 0], captured[o + 1], captured[o + 2]);
+            Vector3 sourceNormal = new(captured[o + 5], captured[o + 6], captured[o + 7]);
+            Vector3 sourceTangent = new(captured[o + 8], captured[o + 9], captured[o + 10]);
+            Vector3 position = Vector3.Zero, normal = Vector3.Zero, tangent = Vector3.Zero;
+            float totalWeight = 0f;
+
+            for (int slot = 0; slot < 4; slot++)
+            {
+                int binding = v * 4 + slot;
+                int joint = joints[binding];
+                float weight = weights[binding];
+                if (joint < 0 || joint >= _animationSkinMatrices.Length || weight <= 0f) continue;
+                Matrix4x4 skin = _animationSkinMatrices[joint];
+                position += Vector3.Transform(sourcePosition, skin) * weight;
+                normal += Vector3.TransformNormal(sourceNormal, skin) * weight;
+                tangent += Vector3.TransformNormal(sourceTangent, skin) * weight;
+                totalWeight += weight;
+            }
+
+            if (totalWeight <= 1e-6f) continue;
+            position /= totalWeight;
+            normal /= totalWeight;
+            tangent /= totalWeight;
+            if (normal.LengthSquared() > 1e-12f) normal = Vector3.Normalize(normal);
+            if (tangent.LengthSquared() > 1e-12f) tangent = Vector3.Normalize(tangent);
+
+            result[o + 0] = position.X; result[o + 1] = position.Y; result[o + 2] = position.Z;
+            result[o + 5] = normal.X; result[o + 6] = normal.Y; result[o + 7] = normal.Z;
+            result[o + 8] = tangent.X; result[o + 9] = tangent.Y; result[o + 10] = tangent.Z;
+        }
+        return result;
+    }
+
+    private void AppendSkeleton(ISkeleton skeleton)
+    {
+        var red = new Vector4(1f, 0f, 0f, 1f);
+        var animated = _animationPlayer.LastAnimatedWorld;
+        bool useAnimated = animated != null && animated.Length == skeleton.Bones.Count;
+        for (int i = 0; i < skeleton.Bones.Count; i++)
+        {
+            var bone = skeleton.Bones[i];
+            if (bone.ParentIndex < 0 || bone.ParentIndex >= skeleton.Bones.Count) continue;
+            Vector3 childPos = useAnimated ? animated![i].Translation : bone.WorldBindPose.Translation;
+            Vector3 parentPos = useAnimated ? animated![bone.ParentIndex].Translation : skeleton.Bones[bone.ParentIndex].WorldBindPose.Translation;
+            _debugLines.Add((parentPos, childPos, red));
+        }
+    }
+
+    /// <summary>Vertex markers as small screen-scaled crosses, sized so a marker stays the same
+    /// on-screen size at any zoom or mesh scale.</summary>
     private void AppendVertexOverlay(IMesh mesh)
     {
         float[] positions = mesh.Geometry.GetVertexPositions();
@@ -1820,10 +2254,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         catch (Exception e) { LunaLog.LogError($"[AssetViewer] preview resize failed: {e.Message}"); DisposePreview(); }
     }
 
-    /// <summary>Foliage inspector. Read-only and deliberately raw: every number here is either
-    /// straight out of the file or one step from it, because foliage is still being reverse
-    /// engineered and a prettied-up view would hide the two things worth watching - whether the UVs
-    /// really land on quadrant boundaries, and whether the LOD ranges partition the card set.</summary>
+    /// <summary>Foliage inspector. Read-only and deliberately raw: every number is either straight
+    /// out of the file or one step from it, since foliage is still being reverse engineered.</summary>
     private void RenderFoliageList()
     {
         var level = LunaWindow.Instance.Level;

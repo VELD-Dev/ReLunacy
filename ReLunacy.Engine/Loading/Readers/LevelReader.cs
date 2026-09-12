@@ -17,6 +17,7 @@ public sealed class LevelReader
     private TieReader _tieReader = null!;
     private ZoneReader _zoneReader = null!;
     private FoliageReader _foliageReader = null!;
+    private AnimationReader _animationReader = null!;
     private RegionReader _regionReader = null!;
 
     private Dictionary<ulong, Assets.Mobys.Moby>? _mobys;
@@ -24,6 +25,7 @@ public sealed class LevelReader
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
+    private IReadOnlyList<Assets.Animations.AnimationClip>? _animations;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
 
@@ -40,7 +42,14 @@ public sealed class LevelReader
         progressCallback?.Invoke("Loading Textures & Shaders...", 0.0f);
         _textureShaderLoader.LoadAll();
 
-        _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader);
+        // Old-engine animation metadata is independent of geometry and must exist before mobys are
+        // converted so each D100 record can resolve its own +0x16/+0x24 clip list. New engine
+        // intentionally receives an empty list from AnimationReader.
+        progressCallback?.Invoke("Loading Animations...", 0.02f);
+        _animationReader = new AnimationReader(_fileManager);
+        _animations = _animationReader.ReadAll();
+
+        _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader, _animationReader);
         _tieReader = new TieReader(_fileManager, _materialReader, _debugReader);
 
         progressCallback?.Invoke("Loading Debug Data...", 0.05f);
@@ -78,14 +87,11 @@ public sealed class LevelReader
             _region.Zones = [.. _zones!.Values];
         }
 
-        // Foliage is independent of everything above (its own asset section and its own instance
-        // section), so it loads regardless of which of the mobys/ties/zones flags are set. Old
-        // engine only - FoliageReader returns empty on new-engine files rather than reading
-        // old-engine offsets out of them.
+        // Foliage has its own asset + instance sections, so it loads regardless of the mobys/ties/
+        // zones flags. Old engine only - FoliageReader returns empty on new-engine files.
         progressCallback?.Invoke("Loading Foliage...", 0.9f);
-        // Pass the MaterialReader so each foliage asset resolves its atlas from A200+0x08 (a direct
-        // index into the 0x5200 texture table — see FoliageMetadata.TextureIndex). Textures are
-        // already loaded above (_textureShaderLoader.LoadAll), so OldTexturesByIndex is populated.
+        // MaterialReader resolves each foliage asset's atlas from A200+0x08, a direct index into
+        // the 0x5200 texture table (see FoliageMetadata.TextureIndex).
         _foliageReader = new FoliageReader(_fileManager, _materialReader);
         _foliages = _foliageReader.ReadAll();
 
@@ -123,6 +129,7 @@ public sealed class LevelReader
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
+    public IReadOnlyList<Assets.Animations.AnimationClip> Animations => _animations ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
     public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
     public Assets.Levels.Region? Region => _region;
@@ -138,27 +145,18 @@ public sealed class LevelData
     public bool IsOldEngine { get; }
     public DebugReader DebugReader { get; }
 
-    /// <summary>
-    /// Every texture read from textures.dat/highmips.dat, including ones no loaded Moby/Tie/UFrag
-    /// material references - cut/unused textures aren't wired to any shader used by this level's
-    /// geometry, but are still worth being able to see/export (e.g. Hidden Palace-style datamining).
-    /// </summary>
+    /// <summary>Every texture read from textures.dat/highmips.dat, including ones unreferenced
+    /// by any loaded material.</summary>
     public IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture> AllTextures { get; }
 
-    /// <summary>
-    /// Every shader the loader parsed from shaders.dat/main.dat, keyed by TUID - including ones
-    /// no loaded Moby/Tie/UFrag material references (same "cut content is still worth seeing"
-    /// reasoning as AllTextures above). Raw, not the engine-facing IMaterial wrapper: this is
-    /// meant for the Shader Browser, which exists specifically to inspect metadata (renderingMode
-    /// byte, alphaClip, the still-unidentified Unk byte ranges) that IMaterial deliberately
-    /// doesn't expose.
-    /// </summary>
+    /// <summary>Every shader parsed from shaders.dat/main.dat, keyed by TUID, including
+    /// unreferenced ones. Raw Shader, not the IMaterial wrapper - used by the Shader Browser to
+    /// inspect metadata IMaterial doesn't expose.</summary>
     public IReadOnlyDictionary<ulong, Shader> Shaders { get; }
 
     /// <summary>Baked light colour / light direction textures (main.dat sections 0x5400 / 0x5410),
-    /// POSITIONALLY indexed: entry X of each belongs to the instance whose lightmap index is X -
-    /// see TieInstance.LightmapIndex. The two lists always have equal length in real data.
-    /// Empty on the new engine, whose pixel data lives in lighting.dat and isn't wired up.</summary>
+    /// positionally indexed by lightmap index (see TieInstance.LightmapIndex). Empty on the new
+    /// engine, whose pixel data lives in lighting.dat and isn't wired up.</summary>
     public IReadOnlyList<Assets.Interfaces.ITexture> ZoneLightmaps { get; }
     public IReadOnlyList<Assets.Interfaces.ITexture> ZoneDirectionals { get; }
 

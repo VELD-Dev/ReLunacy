@@ -50,12 +50,9 @@ public sealed class RegionReader
             return new Assets.Levels.Region(0, [], [], [], false);
         }
 
-        // New engine: gameplay.dat itself only carries a string table of region names (see
-        // Legacy's Gameplay class) - the actual moby/volume instance and zone-membership data
-        // lives in a pair of per-region-named files (<regionName>/gp_prius.dat and
-        // <regionName>/region.dat), loaded lazily here since FileManager only eagerly opens the
-        // fixed top-level set. FileManager's suffix-based archive path resolution already handles
-        // the nested "<regionName>/..." path without any changes there.
+        // New engine: gameplay.dat only carries a string table of region names. The actual
+        // moby/volume instance and zone-membership data lives in per-region files
+        // (<regionName>/gp_prius.dat and <regionName>/region.dat), loaded lazily here.
         var regionNames = ReadRegionNames(gameplay);
         if (regionNames.Count == 0)
         {
@@ -64,9 +61,8 @@ public sealed class RegionReader
         }
         if (regionNames.Count > 1)
         {
-            // Every new-engine level observed so far has exactly one region ("default"); the
-            // format supports more (see Legacy's Gameplay.regions array), but the data model here
-            // (LevelData.Region, singular) doesn't yet. Load the first and flag the rest.
+            // The format supports multiple regions, but the data model here only holds one.
+            // Load the first and flag the rest.
             Console.WriteLine($"Level has {regionNames.Count} regions ({string.Join(", ", regionNames)}) - only '{regionNames[0]}' is currently loaded.");
         }
 
@@ -150,8 +146,7 @@ public sealed class RegionReader
             if (_mobys.TryGetValue(legacyInstance.mobyIndex, out var moby))
             {
                 var transform = new Transform3D(legacyInstance.position, legacyInstance.rotation, legacyInstance.scale);
-                // Matches Legacy's Region(IGFile, AssetLoader): debug.dat instance names (when
-                // present) are matched purely by array position, not by any tuid.
+                // debug.dat instance names (when present) are matched by array position, not by tuid.
                 string name = _debugReader.GetMobyInstanceName(i) ?? $"Moby_{legacyInstance.mobyIndex:X4}_Instance_{i}";
                 // 0 or negative in the file means unlimited - normalize to -1 so callers only
                 // ever need to check "< 0 = unlimited".
@@ -167,17 +162,15 @@ public sealed class RegionReader
     private List<IPlacedInstance<IMoby>> ReadMobyInstancesNew(IGFile prius, IGFile region)
     {
         var mobyInstances = new List<IPlacedInstance<IMoby>>();
-        // Instances, their names, and volumes all live in gp_prius.dat - not region.dat, which
-        // only carries the region-local moby-index lookup table and zone membership/names (see
-        // Legacy's Region(AssetLoader, regionName) constructor).
+        // Instances, their names, and volumes all live in gp_prius.dat - region.dat only carries
+        // the region-local moby-index lookup table and zone membership/names.
         var mobyInstanceSection = prius.QuerySection(MobyInstanceNew.ID);
 
         if (mobyInstanceSection.count == 0)
             return mobyInstances;
 
-        // Moby prototypes are resolved through a *region-local* mobyIndex -> TUID lookup table in
-        // region.dat (section 0x1C600, 8 bytes/entry) - not the global assetlookup.dat pointer
-        // table. Using the global table indexed the wrong prototypes (or found none at all).
+        // Moby prototypes are resolved through a region-local mobyIndex -> TUID lookup table in
+        // region.dat (section 0x1C600, 8 bytes/entry), not the global assetlookup.dat pointer table.
         var mobyLookupSection = region.QuerySection(0x1C600);
 
         var mobyMetadataSection = prius.QuerySection(InstanceMetadata.MobyInstMetadataID);
@@ -189,10 +182,8 @@ public sealed class RegionReader
             for (int i = 0; i < mobyMetadataSection.count; i++)
             {
                 metadatas[i] = new InstanceMetadata(prius.sh);
-                // ReadString(offset) seeks absolutely into the string pool and leaves the stream
-                // there - capture the sequential position first and restore it after, or every
-                // later iteration of this loop (and the seek-independent instance loop below)
-                // silently reads from a drifted position instead of the next record.
+                // ReadString(offset) seeks into the string pool and leaves the stream there -
+                // save/restore the sequential position so the next record read isn't drifted.
                 if (metadatas[i].namePointer != 0)
                 {
                     long nextRecordPos = prius.sh.BaseStream.Position;
@@ -247,17 +238,9 @@ public sealed class RegionReader
         var volumes = new Volume[volumeSection.count];
         for (int i = 0; i < volumeSection.count; i++)
         {
-            // Old-engine volume entries are 0x90 bytes each: a 0x40-byte (16-float, row-major,
-            // same convention as TieBound/new-engine volumes) transform matrix followed by 0x50
-            // bytes of still-unidentified trailing data - confirmed against ReLunacy-Ymir's own
-            // OldVolumeInstance, which documents this exact layout and explicitly warns against
-            // reading it as a packed array of bare matrices. Reading with no stride skip (what
-            // this used to do - sequential 0x40-byte reads with no gap) meant every entry after
-            // the first started inside the PREVIOUS entry's unknown trailing bytes instead of at
-            // its own real matrix: since gcd(0x40, 0x90) leaves a common period of 9 iterations
-            // (9 * 0x40 == 4 * 0x90), only every 9th "volume" happened to land back on a genuine
-            // entry boundary and decode correctly - everything else decomposed into a garbled
-            // scale/rotation, which reads as a visibly wrong-shaped/wrong-proportioned volume.
+            // Old-engine volume entries are 0x90 bytes each: a 0x40-byte row-major transform
+            // matrix followed by 0x50 bytes of unidentified trailing data. Stride must be 0x90,
+            // not 0x40, or entries decode starting inside the previous entry's trailing bytes.
             gameplayFile.sh.Seek(volumeSection.offset + i * 0x90);
             string name = debugReader.GetVolumeName(i) ?? $"Volume_{i}";
             volumes[i] = new Volume((ulong)i, ReadMatrix4x4(gameplayFile.sh), name);
@@ -267,11 +250,8 @@ public sealed class RegionReader
 
     private static List<Volume> ReadVolumesNew(IGFile prius)
     {
-        // Same file-location correction as moby instances: volumes and their names live in
-        // gp_prius.dat, not region.dat. Metadata (TUID/name/group) is read first into arrays,
-        // same two-pass shape as ReadMobyInstancesNew, so each Volume can be constructed with its
-        // real identity/group instead of a loop-index placeholder that a later pass can't fix up
-        // (Volume.Id is init-only).
+        // Volumes and their names live in gp_prius.dat, not region.dat. Metadata is read first
+        // into arrays (Volume.Id is init-only, so it must be known before construction).
         var volumeMetaSection = prius.QuerySection(InstanceMetadata.VolumeMetadataID);
         var metadatas = new InstanceMetadata[volumeMetaSection.count];
         var metadataNames = new string?[volumeMetaSection.count];
@@ -283,9 +263,7 @@ public sealed class RegionReader
                 metadatas[i] = new InstanceMetadata(prius.sh);
                 if (metadatas[i].namePointer != 0)
                 {
-                    // Same position-drift hazard as the moby metadata loop above: save/restore
-                    // around the string-pool seek so the next sequential InstanceMetadata read
-                    // stays correct.
+                    // Save/restore around the string-pool seek so the next sequential read stays correct.
                     long nextRecordPos = prius.sh.BaseStream.Position;
                     metadataNames[i] = prius.sh.ReadString(metadatas[i].namePointer);
                     prius.sh.Seek(nextRecordPos);

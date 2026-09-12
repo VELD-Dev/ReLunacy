@@ -15,11 +15,8 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// <summary>
 /// Reverse-engineering tool: lists every shader (material) the loaded level parsed, and for the
 /// selected one shows its raw renderingMode byte, alphaClip, decoded texture references, and a
-/// hex dump of every still-unidentified byte range (ShaderMetadataOld/New's Unk fields) - nothing
-/// here is hidden behind the IMaterial abstraction the renderer uses, since the whole point is to
-/// see what the file actually contains, not what we've already decided it means. Those ranges are
-/// deliberately kept as few and as LONG as the known fields allow: an unknown split at a boundary
-/// that isn't real hides any multi-word value straddling it.
+/// hex dump of every still-unidentified byte range (ShaderMetadataOld/New's Unk fields), bypassing
+/// the IMaterial abstraction the renderer uses.
 /// </summary>
 public class ShaderBrowser : DockedFrame, ILevelListener
 {
@@ -32,9 +29,8 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     private int selectedShader = -1;
     private ShaderUsageResult? usageResults;
 
-    // null = no filter (show every render mode). Filtering by the raw byte rather than the
-    // RenderingMode enum so 0x01/0x02/0x03/etc. - anything not named yet - can still be isolated
-    // and inspected, which is the whole point of this for reverse engineering.
+    // null = no filter. Filtering by the raw byte rather than the RenderingMode enum so values not
+    // named yet can still be isolated and inspected.
     private byte? renderModeFilter;
     // Distinct renderingMode byte values actually present among the loaded shaders, with counts -
     // rebuilt whenever the shader list changes, not per frame.
@@ -47,8 +43,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     // list changes, so the used/unused filter (and the per-row tag) is a set lookup, not a scan.
     private readonly HashSet<ulong> usedShaderTuids = [];
 
-    // Off by default (the hex dump alone is the more compact, general-purpose view) - toggled on
-    // when hunting for a specific numeric value, e.g. a per-material decal-offset bias, across the
+    // Off by default; toggled on when hunting for a specific numeric value across the
     // still-unidentified Unk byte ranges.
     private bool showFloatInterpretation;
 
@@ -72,9 +67,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             .Select(g => (g.Key, g.Count())));
 
         // A shader is "used" iff some loaded Moby/Tie/UFrag mesh resolved its material to that TUID.
-        // Computed once here rather than per row: the Shaders dictionary also carries records no
-        // rendered geometry references (cut content, effects, and - the reason this filter exists -
-        // foliage), and telling those apart from the drawn set is exactly what the filter surfaces.
+        // Computed once here rather than per row.
         usedShaderTuids.Clear();
         foreach (var moby in level.Mobys.Values)
             foreach (var bangle in moby.Bangles)
@@ -234,8 +227,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_RenderingMode", RenderModeLabel((byte)shader.RenderingMode)));
 
         // Old-engine materials have no stored alpha clip: the engine hardcodes the threshold per
-        // rendering mode (Cutout GEQUAL 128/255, the blended paths 4/255), and the 0x20 float once read
-        // as "alphaClip" is really an RGB parameter. Only the new engine stores one.
+        // rendering mode. Only the new engine stores one.
         if (!shader.isOld)
             ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_AlphaClip", shader.metadataNew!.Value.alphaClip));
 
@@ -245,14 +237,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Expensive"), shader.Expensive);
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_DetailMap"), shader.DetailMap);
 
-        // Live per-material parallax scale/bias - a reverse-engineering aid: the game's own shader
-        // computes height * scale + bias from two per-material constants, so these are the two
-        // numbers to hunt for in the raw metadata hex dump below. Type a candidate pair in here
-        // (ctrl+click a drag to enter an exact value) and watch the surface. Deliberately
-        // unclamped and shown at float precision so a value read straight out of the dump can be
-        // used verbatim - a wide range is the whole point, and the sign is part of what's being
-        // searched for. Runtime-only, nothing is persisted. Only shown when the material is
-        // actually built (i.e. the loaded region uses it).
+        // Live per-material parallax scale/bias, editable for reverse-engineering: the game's shader
+        // computes height * scale + bias from two per-material constants. Unclamped so any value read
+        // from the raw dump can be entered verbatim. Runtime-only, nothing is persisted. Only shown
+        // when the material is actually built.
         var assetManager = LunaWindow.Instance.AssetManager;
         if (assetManager != null && assetManager.TryGetParallax(shader.TUID, out float parallaxScale, out float parallaxBias))
         {
@@ -261,17 +249,11 @@ public class ShaderBrowser : DockedFrame, ILevelListener
                 ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_ParallaxNeedsLighting"));
 
             // What the loader actually parsed out of the metadata, shown verbatim next to the live
-            // controls. The 0x50/0x54 identification is a hypothesis: if these read as 0 across
-            // every material, parallax legitimately does nothing, and without this line that is
-            // indistinguishable from a rendering regression. New-engine shaders have no identified
-            // parallax fields at all and always report 0/0 (see MaterialReader.GetParallaxScale).
+            // controls. New-engine shaders have no identified parallax fields and always report 0/0.
             ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_ParallaxFromFile", MetadataParallaxScale(shader), MetadataParallaxBias(shader)));
 
-            // min == max == 0 is ImGui's own spelling for "unbounded" - passing float.MinValue /
-            // float.MaxValue instead overflows the internal (max - min) range calculation to
-            // infinity and leaves the drag inert. Unbounded is deliberate: the sign is part of
-            // what's being searched for, and a candidate straight out of the dump can be any
-            // magnitude.
+            // min == max == 0 is ImGui's own spelling for "unbounded" (float.MinValue/MaxValue
+            // overflows the internal range calculation and leaves the drag inert).
             bool changed = ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_ParallaxScale"), ref parallaxScale, 0.001f, 0f, 0f, "%.6f");
             changed |= ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_ParallaxBias"), ref parallaxBias, 0.001f, 0f, 0f, "%.6f");
             if (changed)
@@ -282,9 +264,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             if (ImGui.SmallButton($"{LM.Get("GUI_Common_Reset")}##parallax_reset"))
                 assetManager.SetParallax(shader.TUID, MetadataParallaxScale(shader), MetadataParallaxBias(shader));
 
-            // Detail maps are authored to tile above the base map's frequency. Only TILING is exposed:
-            // the per-channel "detail strengths" this used to offer were reading an unrelated RGB
-            // parameter triple (proven by the EBOOT reverse), so they've been removed.
+            // Detail maps are authored to tile above the base map's frequency. Only TILING is exposed.
             if (assetManager.TryGetDetailTiling(shader.TUID, out float detailTiling))
             {
                 if (ImGui.DragFloat(LM.Get("GUI_Frame_ShaderBrowser_DetailTiling"), ref detailTiling, 0.1f, 0f, 0f, "%.3f"))
@@ -301,20 +281,14 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (shader.isOld && shader.metadataOld.HasValue)
         {
             var meta = shader.metadataOld.Value;
-            // Raw byte AND decoded flags, deliberately both: the bit walk direction is a
-            // convention inherited from InsomniaToolset's x86 build (see ShaderMetadataOld.flags).
-            // Comparing "Detail" here against whether DetailMap above is actually present, across
-            // a few materials, is what confirms or reverses it.
+            // Raw byte AND decoded flags, deliberately both (see ShaderMetadataOld.flags).
             ImGui.Text($"0x10 flags: 0x{meta.flags:X2} (binary {Convert.ToString(meta.flags, 2).PadLeft(8, '0')})");
-            // Parallax, not specular - see ShaderMetadataOld.UsesParallax. Printed next to
-            // parallaxScale below so the two can be compared across materials, which is what
-            // confirms the bit.
+            // Parallax, not specular - see ShaderMetadataOld.UsesParallax.
             ImGui.Text($"     Parallax:{meta.UsesParallax} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
             ImGui.Text($"0x12 Class: {meta.Class}");
             DrawHexDump("Unk1", 0x13, meta.Unk1);
             // values[0].xyz is an RGB parameter triple the engine multiplies by the instance's own RGB
-            // when the Spatial Lighting flag is set, then uploads as a vertex constant - NOT an alpha
-            // clip and NOT detail strengths (both of those readings are refuted; see ShaderMetadataOld).
+            // when the Spatial Lighting flag is set, then uploads as a vertex constant.
             ImGui.Text($"0x20 value0 X: {meta.value0X:0.######}  Y: {meta.value0Y:0.######}  Z: {meta.value0Z:0.######}  W: {meta.value0W:0.######}");
             ImGui.Text($"0x30 value1 X: {meta.value1X:0.######}  Y: {meta.value1Y:0.######}  (0x34 is known live, meaning unknown)");
             DrawHexDump("Unk2b", 0x38, meta.Unk2b);
@@ -419,15 +393,9 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (!showFloatInterpretation || data.Length < 4)
             return;
 
-        // Every 4-byte-aligned position reinterpreted as a big-endian float32 - this file format
-        // is PS3/PowerPC (big-endian throughout, see StreamHelper.Endianness.Big), so a naive
-        // BitConverter read would silently byte-swap every value. Alignment is to the FILE's
-        // absolute offset, not to the start of this array: several of these ranges begin at an
-        // unaligned offset (e.g. 0x13, 0x22), and a float field in the real structure sits on a
-        // real 4-byte boundary, so aligning to the array start would show every such value split
-        // across two entries. If a field turns out to start at an unaligned byte this still won't
-        // show it, but 4-byte alignment is the overwhelmingly common case for game data structures
-        // and keeps this from being an unreadable wall of every byte offset.
+        // Every 4-byte-aligned position reinterpreted as a big-endian float32 (PS3/PowerPC format).
+        // Alignment is to the FILE's absolute offset, not to the start of this array, since several
+        // ranges begin at an unaligned offset (e.g. 0x13, 0x22).
         var floatSb = new StringBuilder();
         int firstAligned = (4 - (baseOffset & 3)) & 3;
         for (int i = firstAligned; i + 3 < data.Length; i += 4)
@@ -520,9 +488,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         if (v3d != null) v3d.SelectedEntity = entity;
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Appearing);
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override: SetNextWindowPos on first appearance used to live here, but Dear
+    // ImGui treats it as a request to float at that position, which cancels the DockBuilderDockWindow
+    // placement DockspaceLayoutManager sets up on the very same first appearance - confirmed by
+    // instrumented runs where every DockedFrame subclass with such a call failed to dock while the
+    // ones without it (View3D, ProfilerFrame) docked correctly regardless of target node or call
+    // order. The base Frame.RenderAsWindow is enough.
 }

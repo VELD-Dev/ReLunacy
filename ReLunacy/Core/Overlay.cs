@@ -52,9 +52,7 @@ public class Overlay
         }
         else if (Location == 4)
         {
-            // Centre of the rendered image in SCREEN space. This used to read the centre of a
-            // zero-origin rectangle, which is half the panel size measured from the top-left of the
-            // monitor, so the centred overlay landed nowhere near the view.
+            // Centre of the rendered image in SCREEN space.
             ImGui.SetNextWindowPos(useView && view != null ? view.ViewportScreenPos + view.ViewportSize * 0.5f : ImGui.GetWorkCenter(viewport), ImGuiCond.Always, new Vector2(0.5f, 0.5f));
             flags |= ImGuiWindowFlags.NoMove;
         }

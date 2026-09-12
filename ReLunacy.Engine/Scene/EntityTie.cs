@@ -19,12 +19,9 @@ public class EntityTie : Entity
     {
         BaseTie = tieInstance.Asset;
 
-        // Ties are placed via a raw affine matrix read straight from the file. Decompose it
-        // directly into translation/rotation/scale instead of going through IPlacedInstance's
-        // Euler-angle properties (Position/Rotation/Scale) - those are a lossy decompose-then-
-        // recompose round trip through a custom quaternion->Euler conversion whose axis mapping
-        // doesn't match System.Numerics' Quaternion.CreateFromYawPitchRoll, and they collapse
-        // anisotropic scale into a single averaged float. Decomposing once here is exact.
+        // Ties are placed via a raw affine matrix; decomposed directly rather than through
+        // IPlacedInstance's Euler-angle properties, which are lossy and collapse anisotropic scale
+        // into a single averaged float.
         Matrix4x4.Decompose(tieInstance.GetTransformMatrix(), out var scale, out var rotation, out var translation);
 
         Transform = new Transform
@@ -43,22 +40,11 @@ public class EntityTie : Entity
         Model = model;
 
         _assetManager = assetManager;
-        // Baked lighting for this placement, gated on the ASSET actually having a lightmap UV set.
-        // The instance's own index is real either way (1728 distinct on metropolis), but binding a
-        // bake to a tie whose second UV channel fell back to the base UV would tile the bake across
-        // every mesh - visibly wrong, and wrong in a way that looks like a shading bug rather than a
-        // missing offset. Ties without the UV array therefore render unlit, exactly as before.
+        // Baked lighting for this placement, gated on the asset actually having a lightmap UV set -
+        // binding a bake to a tie whose UVs fell back to the base UV would tile the bake incorrectly,
+        // so those ties render unlit instead.
         //
-        // The channel itself is settled. The game's tie vertex program (dev/ties/, and see
-        // Loading.Vertices.TieLightmapUV) routes RSX attribute location 4 - a stride-4 pair of half
-        // floats in its own stream, outside the 20-byte VertexFormat0 record - straight into tc0.zw,
-        // untransformed, which is where the tie fragment programs sample the baked light colour
-        // (tex4) and light direction (tex14). Ties and UFrags reach the bake identically; the older
-        // note here that ties must use "a different texcoord" was wrong. What differs per shader
-        // variant is only tc0's packing (the unlit tie variants read tc0.z as a lone scalar).
-        //
-        // What is NOT settled is where that array lives for two thirds of ties - see
-        // TieLightmapUV.TryReadLightmapUVs' caller for the one location that is known.
+        // Where the lightmap-UV array lives is not confirmed for all ties; see TieLightmapUV.
         LightmapIndex = BaseTie.GetLightmapUVs() is not null
             ? tieInstance.LightmapIndex
             : Loading.Objects.Instances.TieInstance.NoLightmap;
@@ -74,11 +60,9 @@ public class EntityTie : Entity
     {
         if (!IsDirty || Model is null) return;
         cachedRenderables.Clear();
-        // Baked lighting is per-PLACEMENT while the model (and its meshes' materials) is shared by
-        // every instance of this tie asset, so a lightmapped instance needs its own material.
-        // Renderable's material-override constructor gives us that without duplicating the
-        // mesh: the vertex/index buffers stay shared, only the material differs. Instances with
-        // no bake keep using the mesh's own material, so nothing extra is built for them.
+        // Baked lighting is per-placement while the model is shared across instances, so lit
+        // instances get their own material via Renderable's override constructor; unlit instances
+        // share the mesh's own material.
         bool lit = LightmapIndex != Loading.Objects.Instances.TieInstance.NoLightmap;
         for (int i = 0; i < Model.Meshes.Length; i++)
         {

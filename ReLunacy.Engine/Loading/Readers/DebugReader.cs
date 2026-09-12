@@ -9,15 +9,13 @@ public sealed class DebugReader
     private readonly Dictionary<ulong, string> _mobyPrototypeNames = [];
     private readonly Dictionary<ulong, string> _tiePrototypeNames = [];
     private readonly Dictionary<ulong, string> _shaderNames = [];
-    // Old engine only (Legacy never keys these by tuid - CMoby/CTie instance names are matched
-    // purely by array position: names[i].name against instance[i]). New engine reads instance
-    // names from gp_prius.dat (mobys) or the zone's own file (ties), not debug.dat.
+    // Old engine only, matched by array position (names[i] <-> instance[i]). New engine reads
+    // instance names from gp_prius.dat (mobys) or the zone's own file (ties), not debug.dat.
     private readonly List<string?> _mobyInstanceNames = [];
     private readonly List<string?> _tieInstanceNames = [];
-    // Index-aligned with the old-engine volume transform array (section 0x7740 in gameplay.dat -
-    // see RegionReader.ReadVolumesOld), same as _mobyInstanceNames/_tieInstanceNames above. Must
-    // stay List<string?> with an unconditional Add per entry, not List<string> skipping empties -
-    // skipping any entry desyncs every name after it from its actual volume index.
+    // Index-aligned with the old-engine volume array (gameplay.dat section 0x7740, see
+    // RegionReader.ReadVolumesOld). Must Add an entry (even null) per record - skipping one
+    // desyncs every name after it from its volume index.
     private readonly List<string?> _volumeNames = [];
     private readonly bool _isOld;
 
@@ -82,11 +80,8 @@ public sealed class DebugReader
             _tieInstanceNames.Add(string.IsNullOrEmpty(item.name) ? null : item.name);
     }
 
-    // Old engine assets have no real TUID - Legacy's DebugFile.GetMobyPrototypeName/
-    // GetTiePrototypeName index directly into this array by the asset's own flat index
-    // (CMoby/CTie old-engine constructors call debug.GetMobyPrototypeName(index)), ignoring
-    // whatever is in the DebugAssetName.tuid field at that position. New engine assets do have
-    // real TUIDs, so there we key by the embedded tuid field instead.
+    // Old engine assets have no real TUID, so they're keyed by flat index. New engine assets
+    // are keyed by the embedded tuid field.
     private void LoadMobyPrototypeNames()
     {
         var section = _debugFile!.QuerySection(0x9480);
@@ -137,11 +132,7 @@ public sealed class DebugReader
         var section = _debugFile!.QuerySection(0x7760);
         if (section.count == 0) return;
 
-        // Previously read via a bare loop of sh.ReadString() calls with no seek to section.offset
-        // first - it read from wherever the stream happened to be left by LoadShaderNames() just
-        // before it, not this section's actual data, and skipped adding an entry at all for empty
-        // names instead of preserving the slot - desyncing every name after the first gap from its
-        // real volume index. Same struct/pattern as moby/tie instance names fixes both.
+        // Must seek to section.offset - the stream may be left elsewhere by a previous read.
         _debugFile.sh.Seek(section.offset);
         var names = FileUtils.ReadStructureArray<DebugInstanceName>(_debugFile.sh, section.count);
 
