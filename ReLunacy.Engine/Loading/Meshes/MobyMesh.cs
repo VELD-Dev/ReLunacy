@@ -173,7 +173,12 @@ public record struct MobyMesh : ILunaSerializable, IMesh
 
     // vertexAlpha is null for verticesType==0 (VertexFormat0) meshes - on Mobys that field is a
     // real bone index, not vertex alpha. Only verticesType==1 (VertexFormat1) has a spare field.
-    public readonly void GetBuffers(float scalar, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[]? vertexAlpha)
+    // Also null on old engine: VertexFormat1.VertexAlphaAuto's A/B ranges were only confirmed on
+    // new-engine data - old and new engine do not share the same raw ranges (see VertexFormat0/
+    // UFragVertex, which both need a separate old-engine formula for the same reason), and no
+    // old-engine VertexFormat1 range has been confirmed yet, so this stays unavailable rather than
+    // guessing with the new-engine formula.
+    public readonly void GetBuffers(float scalar, bool isOld, out float[] vpos, out uint[] ind, out float[] uvcoords, out float[] normals, out float[] tangents, out float[]? vertexAlpha)
     {
         ind = new uint[indicesCount];
         for (int k = 0; k < indicesCount; k++) ind[k] = indices[k];
@@ -182,7 +187,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
         uvcoords = new float[verticesCount * 2];
         normals = new float[verticesCount * 3];
         tangents = new float[verticesCount * 3];
-        vertexAlpha = verticesType == 1 ? new float[verticesCount] : null;
+        vertexAlpha = verticesType == 1 && !isOld ? new float[verticesCount] : null;
 
         for (int k = 0; k < verticesCount; k++)
         {
@@ -207,7 +212,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
                 uvcoords[k * 2 + 1] = (float)vertices1[k].UVs.Item2;
                 n = vertices1[k].Normal;
                 t = vertices1[k].Tangent;
-                vertexAlpha![k] = vertices1[k].VertexAlphaAuto;
+                if (!isOld) vertexAlpha![k] = vertices1[k].VertexAlphaAuto;
             }
 
             n = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitY;

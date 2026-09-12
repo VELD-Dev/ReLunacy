@@ -62,13 +62,14 @@ public enum GameRenderMode : byte
 /// A RenderMesh is plain data with no GPU buffers of its own, so the renderer uploads geometry from
 /// here instead. AssetManager, EntityUFrag and EntityFoliage register every mesh they build, keyed by
 /// mesh instance, so all placements of one model share a single uploaded geometry. Vertex data is
-/// interleaved pos(3)+uv(2)+normal(3)+tangent(4, handedness in .w)+uv2(2, lightmap)+color(4) = 18
-/// floats/vertex.</summary>
+/// interleaved pos(3)+uv(2)+normal(3)+tangent(4, handedness in .w)+uv2(2, lightmap)+color(4)+
+/// joints(4)+weights(4) = 26 floats/vertex.</summary>
 public static class VulkanSceneCapture
 {
     /// <summary>Floats per vertex in <see cref="VertexData"/>: position xyz, texcoord uv, normal xyz,
-    /// tangent xyzw (w = bitangent handedness), lightmap texcoord uv2, colour rgba.</summary>
-    public const int FloatsPerVertex = 18;
+    /// tangent xyzw (w = bitangent handedness), lightmap texcoord uv2, colour rgba, joint indices
+    /// (skeleton-global, stored as whole-number floats), joint weights.</summary>
+    public const int FloatsPerVertex = 26;
 
     /// <summary>RenderMesh instance -> index into <see cref="VertexData"/>/<see cref="Indices"/>.
     /// Reference-keyed so every placement of the same mesh maps to one geometry.</summary>
@@ -105,6 +106,14 @@ public static class VulkanSceneCapture
             data[o + 15] = vertices[v].Color.Y;
             data[o + 16] = vertices[v].Color.Z;
             data[o + 17] = vertices[v].Color.W;
+            data[o + 18] = vertices[v].Joints.X;
+            data[o + 19] = vertices[v].Joints.Y;
+            data[o + 20] = vertices[v].Joints.Z;
+            data[o + 21] = vertices[v].Joints.W;
+            data[o + 22] = vertices[v].Weights.X;
+            data[o + 23] = vertices[v].Weights.Y;
+            data[o + 24] = vertices[v].Weights.Z;
+            data[o + 25] = vertices[v].Weights.W;
         }
         return data;
     }

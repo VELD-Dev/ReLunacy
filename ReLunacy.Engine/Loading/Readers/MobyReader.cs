@@ -198,9 +198,9 @@ public sealed class MobyReader
 
     private IMesh ConvertMobyMesh(MobyMesh legacyMesh, Objects.Moby moby)
     {
-        legacyMesh.GetBuffers(moby.Scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlphaCandidates);
+        legacyMesh.GetBuffers(moby.Scale, moby.IsOld, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlpha);
         var (jointIndices, jointWeights) = ExtractSkinData(legacyMesh, (int)(moby.Skeleton?.NumBones ?? 0));
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlphaCandidates: vertexAlphaCandidates);
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, jointIndices: jointIndices, jointWeights: jointWeights, vertexAlpha: vertexAlpha);
         IMaterial material = moby.IsOld ? _materialReader.GetMaterialByIndex(legacyMesh.shaderIndex) : _materialReader.GetMaterialForLocalIndex(moby.ShaderTUIDs, legacyMesh.shaderIndex);
         return new Assets.Geometry.Mesh(geometry, material, "MobyMesh", legacyMesh.VertexFormatName, legacyMesh.DumpVertex);
     }

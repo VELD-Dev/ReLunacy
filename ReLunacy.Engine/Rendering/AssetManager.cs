@@ -577,6 +577,8 @@ public sealed class AssetManager : IDisposable
         var tangents = geometry.GetTangents();
         var vertexAlpha = useVertexAlpha ? geometry.GetVertexAlpha() : null;
         var lightmapUVs = geometry.GetLightmapUVs();
+        var jointIndices = geometry.GetJointIndices();
+        var jointWeights = geometry.GetJointWeights();
 
         int vertexCount = positions.Length / 3;
         var vertices = new Vertex3D[vertexCount];
@@ -598,7 +600,20 @@ public sealed class AssetManager : IDisposable
                 : uv;
 
             float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
-            vertices[i] = new Vertex3D(pos, uv, lmUV, n, tan, new Vector4(1f, 1f, 1f, alpha));
+
+            // -1 (unused slot) is stored as 0 with a 0 weight - the weight already makes it
+            // contribute nothing, and clamping keeps it a valid SSBO index in the shader.
+            Vector4 joints = Vector4.Zero, weights = Vector4.Zero;
+            if (jointIndices != null && jointWeights != null && jointIndices.Length >= i * 4 + 4)
+            {
+                joints = new Vector4(
+                    MathF.Max(0, jointIndices[i * 4 + 0]), MathF.Max(0, jointIndices[i * 4 + 1]),
+                    MathF.Max(0, jointIndices[i * 4 + 2]), MathF.Max(0, jointIndices[i * 4 + 3]));
+                weights = new Vector4(
+                    jointWeights[i * 4 + 0], jointWeights[i * 4 + 1], jointWeights[i * 4 + 2], jointWeights[i * 4 + 3]);
+            }
+
+            vertices[i] = new Vertex3D(pos, uv, lmUV, n, tan, new Vector4(1f, 1f, 1f, alpha), joints, weights);
         }
 
         return vertices;
@@ -624,7 +639,7 @@ public sealed class AssetManager : IDisposable
     /// instance are included, remapped to a compact index. Returns null until instances exist.</summary>
     private (List<float[]> verts, List<uint[]> idx, List<VkMaterialDesc> materials,
         List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances,
-        Texture? envCube)? BuildVkScene()
+        Texture? envCube, int maxSkeletonBones, int maxConcurrentAnimated)? BuildVkScene()
     {
         if (VulkanSceneCapture.VertexData.Count == 0)
             return null;
@@ -635,6 +650,11 @@ public sealed class AssetManager : IDisposable
         var instances = new List<(int, int, Matrix4x4, Vector4, object, float, uint)>();
         var geoRemap = new Dictionary<int, int>();
         var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
+        int maxSkeletonBones = 0;
+        // One bone-palette region per moby that could possibly animate, so playing every skinned moby
+        // in the level at once can never run out (see VulkanRenderer.TrySetAnimatedInstance) - sized
+        // to what the level actually contains rather than a guessed constant.
+        var skinnedOwners = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
         foreach (var entity in EntityManager.Singleton.AllRenderableEntities())
         {
@@ -657,13 +677,19 @@ public sealed class AssetManager : IDisposable
                 }
                 float displayDistance = entity is EntityMoby moby ? moby.DisplayDistance : -1f;
                 instances.Add((geoSlot, matSlot, world, sphere, entity, displayDistance, (uint)entity.ID));
+
+                if (entity is EntityMoby em && em.BaseMoby.Skeleton is { } skel)
+                {
+                    if (skel.Bones.Count > maxSkeletonBones) maxSkeletonBones = skel.Bones.Count;
+                    skinnedOwners.Add(entity);
+                }
             }
         }
 
         if (instances.Count == 0)
             return null;
         var envCube = EnvironmentCubemapView?.Target;
-        return (verts, idx, materials, instances, envCube);
+        return (verts, idx, materials, instances, envCube, maxSkeletonBones, skinnedOwners.Count);
     }
 
     /// <summary>Builds <see cref="SceneRenderer"/> if it does not exist yet; a no-op once it does, or
@@ -678,7 +704,7 @@ public sealed class AssetManager : IDisposable
         {
             var scene = BuildVkScene();
             if (scene is not { } s) return false;
-            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, s.envCube, viewWidth, viewHeight);
+            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, s.envCube, viewWidth, viewHeight, s.maxSkeletonBones, s.maxConcurrentAnimated);
             return true;
         }
         catch (Exception e)

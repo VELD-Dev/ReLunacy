@@ -29,13 +29,42 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private const VkFormat DepthFormat = VkFormat.D32SfloatS8Uint;
     private const VkFormat AccumFormat = VkFormat.R16G16B16A16Sfloat;
     private const VkFormat RevealFormat = VkFormat.R16Sfloat;
-    private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 56
+    private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 104
     private const int TexPerMaterial = 5;
 
     // Polygon offset for the non-opaque pass, matching the real game (same values in AssetManager,
     // which applies them on the Bliss path).
     private const float NonOpaqueDepthBias = -87f;
     private const float NonOpaqueSlopeScaledDepthBias = -0.33972f;
+
+    // uBoneBase[gl_InstanceIndex] is the skinned instance's bone-palette region offset (see
+    // TrySetAnimatedInstance); 0 for every non-animating instance, which is the shared identity
+    // region, so skinning is a no-op unless an animation is actually playing.
+    private const string SkinningGlsl = @"
+layout(set = 0, binding = 4) readonly buffer BonePalette { mat4 uBones[]; };
+layout(set = 0, binding = 5) readonly buffer BoneBase { int uBoneBase[]; };
+layout(location = 6) in vec4 inJoints;
+layout(location = 7) in vec4 inWeights;
+vec3 skinnedPosition, skinnedNormal, skinnedTangent;
+void computeSkin(vec3 pos, vec3 nrm, vec3 tan) {
+    vec3 p = vec3(0.0), n = vec3(0.0), t = vec3(0.0);
+    float totalWeight = 0.0;
+    int base = uBoneBase[gl_InstanceIndex];
+    for (int slot = 0; slot < 4; slot++) {
+        float w = inWeights[slot];
+        if (w <= 0.0) continue;
+        mat4 skin = uBones[base + int(inJoints[slot])];
+        p += (skin * vec4(pos, 1.0)).xyz * w;
+        n += (mat3(skin) * nrm) * w;
+        t += (mat3(skin) * tan) * w;
+        totalWeight += w;
+    }
+    if (totalWeight <= 1e-6) { skinnedPosition = pos; skinnedNormal = nrm; skinnedTangent = tan; return; }
+    skinnedPosition = p / totalWeight;
+    n /= totalWeight; t /= totalWeight;
+    skinnedNormal = dot(n, n) > 1e-12 ? normalize(n) : nrm;
+    skinnedTangent = dot(t, t) > 1e-12 ? normalize(t) : tan;
+}";
 
     private const string VertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; };
@@ -53,14 +82,16 @@ layout(location = 3) out float fHandedness;
 layout(location = 4) out vec3 fWorldPos;
 layout(location = 5) out vec2 fUV2;
 layout(location = 6) out vec4 fColor;
+" + SkinningGlsl + @"
 void main() {
+    computeSkin(inPos, inNormal, inTangent.xyz);
     mat4 m = uT[gl_InstanceIndex];
     mat3 m3 = mat3(m);
     mat3 nrm = transpose(inverse(m3));
-    fWorldNormal = normalize(nrm * inNormal);
-    fWorldTangent = normalize(nrm * inTangent.xyz);
+    fWorldNormal = normalize(nrm * skinnedNormal);
+    fWorldTangent = normalize(nrm * skinnedTangent);
     fHandedness = inTangent.w * sign(determinant(m3));
-    vec4 world = m * vec4(inPos, 1.0);
+    vec4 world = m * vec4(skinnedPosition, 1.0);
     fWorldPos = world.xyz;
     fUV = inUV;
     fUV2 = inUV2;
@@ -226,7 +257,11 @@ layout(location = 2) in vec3 inNormal;
 layout(location = 3) in vec4 inTangent;
 layout(location = 4) in vec2 inUV2;
 layout(location = 5) in vec4 inColor;
-void main() { gl_Position = uPick * (uT[gl_InstanceIndex] * vec4(inPos, 1.0)); }";
+" + SkinningGlsl + @"
+void main() {
+    computeSkin(inPos, inNormal, inTangent.xyz);
+    gl_Position = uPick * (uT[gl_InstanceIndex] * vec4(skinnedPosition, 1.0));
+}";
 
     // Volume edges use their own per-draw world matrix rather than the transform SSBO, like the
     // visible wireframe pass.
@@ -326,11 +361,13 @@ layout(location = 2) in vec3 inNormal;
 layout(location = 3) in vec4 inTangent;
 layout(location = 4) in vec2 inUV2;
 layout(location = 5) in vec4 inColor;
+" + SkinningGlsl + @"
 void main() {
+    computeSkin(inPos, inNormal, inTangent.xyz);
     mat4 m = uT[gl_InstanceIndex];
-    vec4 clipPos = uMvp * (m * vec4(inPos, 1.0));
+    vec4 clipPos = uMvp * (m * vec4(skinnedPosition, 1.0));
     if (uParams.x > 0.0) {
-        vec4 clipNormal = uMvp * (m * vec4(inNormal, 0.0));
+        vec4 clipNormal = uMvp * (m * vec4(skinnedNormal, 0.0));
         if (length(clipNormal.xy) > 0.0001)
             clipPos.xy += normalize(clipNormal.xy) * uParams.x * clipPos.w;
     } else {
@@ -436,6 +473,18 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly VkDeviceMemory[] _lightMemories = new VkDeviceMemory[Frames];
     private readonly void*[] _lightMappings = new void*[Frames];
     private VkBuffer _transformBuffer; private VkDeviceMemory _tbMemory; private void* _tbMapped;
+    // GPU skeletal animation: a fixed-size bone palette with one shared "identity" region (index 0,
+    // every non-animating instance points here) plus one reserved region per moby in the scene that
+    // has a skeleton (_maxConcurrentAnimated - every skinned moby could in principle be playing at
+    // once, so this can never run out), each maxSkeletonBones mat4s wide. Pre-sized once at scene
+    // build so starting/stopping an animation only ever writes into an already-allocated region (see
+    // TrySetAnimatedInstance) - never a buffer resize or descriptor rebind, which would need to
+    // happen on the low-frequency Play/Stop path but per-frame pose updates must stay cheap.
+    private readonly int _maxSkeletonBones;
+    private readonly int _maxConcurrentAnimated;
+    private VkBuffer _bonePaletteBuffer; private VkDeviceMemory _bpMemory; private void* _bpMapped;
+    private VkBuffer _boneBaseBuffer; private VkDeviceMemory _bbMemory; private void* _bbMapped;
+    private readonly object?[] _animRegionOwners;
     private VkDescriptorSetLayout _descLayout; private VkDescriptorSetLayout _matSetLayout; private VkDescriptorSetLayout _resolveSetLayout;
     private VkDescriptorPool _descPool; private readonly VkDescriptorSet[] _descSets = new VkDescriptorSet[Frames]; private VkDescriptorSet _resolveSet;
     /// <summary>Set 0 for the slot being recorded.</summary>
@@ -528,11 +577,14 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     /// recorded, so the viewport runs one frame behind the camera.</summary>
     public Texture ColorTexture => _colorTex[_displaySlot];
 
-    public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, Texture? envCube, uint width, uint height)
+    public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, Texture? envCube, uint width, uint height, int maxSkeletonBones = 0, int maxConcurrentAnimated = 0)
     {
         _ctx = new VulkanContext(graphicsDevice);
         _api = _ctx.DeviceApi;
         _instanceCount = instances.Count;
+        _maxSkeletonBones = Math.Max(maxSkeletonBones, 0);
+        _maxConcurrentAnimated = Math.Max(maxConcurrentAnimated, 0);
+        _animRegionOwners = new object?[_maxConcurrentAnimated];
         _width = Math.Max(width, 1u);
         _height = Math.Max(height, 1u);
         // A scene without an environment cubemap is legitimate (e.g. the asset preview before any
@@ -693,6 +745,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         UploadGeometry(mergedVerts, mergedIdx);
         CreateVolumeGeometry();
         UploadTransforms(worlds);
+        UploadBonePalette();
+        UploadBoneBase();
         long tUpload = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateUniformBuffers();
         CreateSampler();
@@ -786,6 +840,31 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         for (int i = 0; i < worlds.Length; i++) dst[i] = worlds[i];
     }
 
+    /// <summary>Region 0 (shared identity) plus _maxConcurrentAnimated reserved regions, each
+    /// _maxSkeletonBones mat4s. All initialized to identity, so any instance pointing at a
+    /// not-yet-assigned region still renders in bind pose rather than garbage.</summary>
+    private void UploadBonePalette()
+    {
+        int bonesPerRegion = Math.Max(_maxSkeletonBones, 1);
+        int totalMats = bonesPerRegion * (1 + _maxConcurrentAnimated);
+        ulong size = (ulong)totalMats * 64;
+        (_bonePaletteBuffer, _bpMemory) = CreateBuffer(size, VkBufferUsageFlags.StorageBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        void* p; Check(_api.vkMapMemory(_bpMemory, 0, size, 0, &p), "vkMapMemory(bp)"); _bpMapped = p;
+        var dst = (Matrix4x4*)p;
+        for (int i = 0; i < totalMats; i++) dst[i] = Matrix4x4.Identity;
+    }
+
+    /// <summary>One bone-palette region offset per draw instance, defaulting to 0 (the shared identity
+    /// region) - see TrySetAnimatedInstance.</summary>
+    private void UploadBoneBase()
+    {
+        ulong size = (ulong)(Math.Max(_instanceCount, 1) * sizeof(int));
+        (_boneBaseBuffer, _bbMemory) = CreateBuffer(size, VkBufferUsageFlags.StorageBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        void* p; Check(_api.vkMapMemory(_bbMemory, 0, size, 0, &p), "vkMapMemory(bb)"); _bbMapped = p;
+        var dst = (int*)p;
+        for (int i = 0; i < _instanceCount; i++) dst[i] = 0;
+    }
+
     private void CreateUniformBuffers()
     {
         // 5 * mat4: viewProj, view, proj, the pick window's view-projection, and the pick window's
@@ -860,12 +939,14 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     private void CreateDescriptors(List<VkMaterialDesc> materials)
     {
-        VkDescriptorSetLayoutBinding* set0 = stackalloc VkDescriptorSetLayoutBinding[4];
+        VkDescriptorSetLayoutBinding* set0 = stackalloc VkDescriptorSetLayoutBinding[6];
         set0[0] = new VkDescriptorSetLayoutBinding { binding = 0, descriptorType = VkDescriptorType.UniformBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
         set0[1] = new VkDescriptorSetLayoutBinding { binding = 1, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
         set0[2] = new VkDescriptorSetLayoutBinding { binding = 2, descriptorType = VkDescriptorType.UniformBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
         set0[3] = new VkDescriptorSetLayoutBinding { binding = 3, descriptorType = VkDescriptorType.CombinedImageSampler, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
-        var set0Info = new VkDescriptorSetLayoutCreateInfo { bindingCount = 4, pBindings = set0 };
+        set0[4] = new VkDescriptorSetLayoutBinding { binding = 4, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
+        set0[5] = new VkDescriptorSetLayoutBinding { binding = 5, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
+        var set0Info = new VkDescriptorSetLayoutCreateInfo { bindingCount = 6, pBindings = set0 };
         VkDescriptorSetLayout dl0; Check(_api.vkCreateDescriptorSetLayout(&set0Info, &dl0), "vkCreateDescriptorSetLayout(0)"); _descLayout = dl0;
 
         VkDescriptorSetLayoutBinding* set1 = stackalloc VkDescriptorSetLayoutBinding[TexPerMaterial];
@@ -884,7 +965,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         VkDescriptorPoolSize* sizes = stackalloc VkDescriptorPoolSize[3];
         // Set 0 exists once per in-flight frame, so its descriptors are counted Frames times.
         sizes[0] = new VkDescriptorPoolSize { type = VkDescriptorType.UniformBuffer, descriptorCount = 2 * Frames };
-        sizes[1] = new VkDescriptorPoolSize { type = VkDescriptorType.StorageBuffer, descriptorCount = Frames };
+        sizes[1] = new VkDescriptorPoolSize { type = VkDescriptorType.StorageBuffer, descriptorCount = 3 * Frames }; // Transforms + BonePalette + BoneBase
         sizes[2] = new VkDescriptorPoolSize { type = VkDescriptorType.CombinedImageSampler, descriptorCount = (uint)(TexPerMaterial * nMat + Frames + 2) }; // +cube per set0 +resolve(accum,reveal)
         var poolInfo = new VkDescriptorPoolCreateInfo { maxSets = (uint)(Frames + nMat + 1), poolSizeCount = 3, pPoolSizes = sizes };
         VkDescriptorPool dp; Check(_api.vkCreateDescriptorPool(&poolInfo, &dp), "vkCreateDescriptorPool"); _descPool = dp;
@@ -896,9 +977,11 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // One set 0 per in-flight frame. Only the two uniform buffers differ between them; the
         // transform SSBO and the cubemap are shared (see UpdateEntityTransforms for why the SSBO can be).
         var ssboInfo = new VkDescriptorBufferInfo { buffer = _transformBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
+        var boneInfo = new VkDescriptorBufferInfo { buffer = _bonePaletteBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
+        var boneBaseInfo = new VkDescriptorBufferInfo { buffer = _boneBaseBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var cubeInfo = new VkDescriptorImageInfo { sampler = _sampler, imageView = _envCubeView, imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
         // stackalloc lives until the method returns, not the iteration, so these sit outside the loop.
-        VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[4];
+        VkWriteDescriptorSet* w0 = stackalloc VkWriteDescriptorSet[6];
         for (int f = 0; f < Frames; f++)
         {
             VkDescriptorSetLayout l0 = _descLayout;
@@ -910,7 +993,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             w0[1] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 1, descriptorCount = 1, descriptorType = VkDescriptorType.StorageBuffer, pBufferInfo = &ssboInfo };
             w0[2] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 2, descriptorCount = 1, descriptorType = VkDescriptorType.UniformBuffer, pBufferInfo = &lightInfo };
             w0[3] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 3, descriptorCount = 1, descriptorType = VkDescriptorType.CombinedImageSampler, pImageInfo = &cubeInfo };
-            _api.vkUpdateDescriptorSets(4, w0, 0, null);
+            w0[4] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 4, descriptorCount = 1, descriptorType = VkDescriptorType.StorageBuffer, pBufferInfo = &boneInfo };
+            w0[5] = new VkWriteDescriptorSet { dstSet = ds0, dstBinding = 5, descriptorCount = 1, descriptorType = VkDescriptorType.StorageBuffer, pBufferInfo = &boneBaseInfo };
+            _api.vkUpdateDescriptorSets(6, w0, 0, null);
         }
         _descSet = _descSets[0];
 
@@ -1135,14 +1220,18 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
         // --- Lit vertex input (opaque + accumulate).
         var vbinding = new VkVertexInputBindingDescription { binding = 0, stride = VertexStride, inputRate = VkVertexInputRate.Vertex };
-        VkVertexInputAttributeDescription* attrs = stackalloc VkVertexInputAttributeDescription[6];
+        VkVertexInputAttributeDescription* attrs = stackalloc VkVertexInputAttributeDescription[8];
         attrs[0] = new VkVertexInputAttributeDescription { location = 0, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 0 };
         attrs[1] = new VkVertexInputAttributeDescription { location = 1, binding = 0, format = VkFormat.R32G32Sfloat, offset = 12 };
         attrs[2] = new VkVertexInputAttributeDescription { location = 2, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 20 };
         attrs[3] = new VkVertexInputAttributeDescription { location = 3, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 32 };
         attrs[4] = new VkVertexInputAttributeDescription { location = 4, binding = 0, format = VkFormat.R32G32Sfloat, offset = 48 };
         attrs[5] = new VkVertexInputAttributeDescription { location = 5, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 56 };
-        var litVertexInput = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbinding, vertexAttributeDescriptionCount = 6, pVertexAttributeDescriptions = attrs };
+        // Joint indices, stored as whole-number floats (cast with int() in the shader) rather than a
+        // uint format, so Interleave can write them alongside every other field with no format split.
+        attrs[6] = new VkVertexInputAttributeDescription { location = 6, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 72 };
+        attrs[7] = new VkVertexInputAttributeDescription { location = 7, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 88 };
+        var litVertexInput = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbinding, vertexAttributeDescriptionCount = 8, pVertexAttributeDescriptions = attrs };
         var rasterCullNone = new VkPipelineRasterizationStateCreateInfo { polygonMode = VkPolygonMode.Fill, cullMode = VkCullModeFlags.None, frontFace = VkFrontFace.CounterClockwise, lineWidth = 1f };
 
         // Polygon offset for every non-opaque draw, matching the game's decal/overlay offset (see
@@ -1987,6 +2076,51 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         return true;
     }
 
+    /// <summary>Assigns (or reuses) a bone-palette region for <paramref name="owner"/> and writes
+    /// <paramref name="skinMatrices"/> into it, pointing every one of its draw instances at that region
+    /// via the BoneBase SSBO. Safe to call every frame while an animation plays - it only overwrites
+    /// the region's contents, never reallocates. Returns false if the owner has no instances in this
+    /// scene, its skeleton is larger than the palette was sized for, or every region is already taken
+    /// by other playing entities - shouldn't happen in practice, since _maxConcurrentAnimated is
+    /// sized to the number of skinned mobys actually in the scene (see AssetManager.BuildVkScene).</summary>
+    public bool TrySetAnimatedInstance(object owner, IReadOnlyList<Matrix4x4> skinMatrices)
+    {
+        if (!_ownerInstances.TryGetValue(owner, out var owned)) return false;
+        if (skinMatrices.Count > Math.Max(_maxSkeletonBones, 1)) return false;
+
+        int region = Array.IndexOf(_animRegionOwners, owner);
+        if (region < 0)
+        {
+            region = Array.IndexOf(_animRegionOwners, null);
+            if (region < 0) return false;
+            _animRegionOwners[region] = owner;
+        }
+
+        int bonesPerRegion = Math.Max(_maxSkeletonBones, 1);
+        int baseIndex = (1 + region) * bonesPerRegion;
+        var bones = (Matrix4x4*)_bpMapped;
+        for (int k = 0; k < skinMatrices.Count; k++) bones[baseIndex + k] = skinMatrices[k];
+
+        var boneBase = (int*)_bbMapped;
+        foreach (int i in owned) boneBase[i] = baseIndex;
+        return true;
+    }
+
+    /// <summary>Frees the owner's bone-palette region (if any) and snaps its instances back to the
+    /// shared identity region (bind pose). No-op if the owner was never assigned one.</summary>
+    public void ClearAnimatedInstance(object owner)
+    {
+        int region = Array.IndexOf(_animRegionOwners, owner);
+        if (region < 0) return;
+        _animRegionOwners[region] = null;
+
+        if (_ownerInstances.TryGetValue(owner, out var owned))
+        {
+            var boneBase = (int*)_bbMapped;
+            foreach (int i in owned) boneBase[i] = 0;
+        }
+    }
+
     // Six frustum planes (left,right,bottom,top,near,far) in world space from the row-vector viewProj
     // (Gribb-Hartmann; D3D/Vulkan clip with z in [0,1]). Plane (a,b,c,d): a*x+b*y+c*z+d >= 0 is inside.
     private void ExtractFrustumPlanes(Matrix4x4 m) => ExtractPlanes(m, _planes);
@@ -2169,6 +2303,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyDescriptorSetLayout(_descLayout);
         _api.vkDestroyDescriptorSetLayout(_resolveSetLayout);
         _api.vkDestroyBuffer(_transformBuffer); _api.vkFreeMemory(_tbMemory);
+        _api.vkDestroyBuffer(_bonePaletteBuffer); _api.vkFreeMemory(_bpMemory);
+        _api.vkDestroyBuffer(_boneBaseBuffer); _api.vkFreeMemory(_bbMemory);
         for (int f = 0; f < Frames; f++)
         {
             _api.vkDestroyBuffer(_lightBuffers[f]); _api.vkFreeMemory(_lightMemories[f]);

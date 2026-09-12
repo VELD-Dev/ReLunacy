@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Rendering.Resources;
+using ReLunacy.Engine.Assets.Animations;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Diagnostics;
 using ReLunacy.Engine.Rendering;
@@ -12,6 +13,13 @@ public class EntityMoby : Entity
     public readonly IMoby BaseMoby;
     public override string Name { get; protected set; }
     public RenderModel[]? Models { get; private set; }
+
+    /// <summary>Lazily created on first use - most mobys never play an animation in the 3D View, so
+    /// there is no reason for every instance to carry one. See EntityManager.PlayingMobyAnimations
+    /// for the per-frame update/GPU-push loop that drives this once playback starts.</summary>
+    public AnimationPlayer AnimationPlayer => _animationPlayer ??= new AnimationPlayer();
+    private AnimationPlayer? _animationPlayer;
+    public bool IsPlayingAnimation => _animationPlayer?.IsPlaying ?? false;
 
     public override Vector4 BoundingSphere { get; set; }
 

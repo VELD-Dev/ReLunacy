@@ -15,6 +15,8 @@ Because the European date format is better, please keep date format like this: `
 - Found and decoded vertex alpha offset and vertex alpha ranges in New Engine for UFragVertex, VertexFormat0 and VertexFormat1. Ranges: (1.0-0.0) 0xFF80-0xFFFF, 0x7F80-0x7FFF, 0x9080-0x9001, 0x8080-0x8001; Some are ascending, other descending, annoying shit I won't detail.
 - The editor window now opens maximized by default and remembers last size and maximization state between sessions.
 - Added per-zone render toggles (`Render menu > Zones`)
+- Added animation support by @Fianshoo in PRs #58, #59 and #60
+- 
 
 ## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026
 

@@ -266,6 +266,7 @@ public class View3D : DockedFrame
                 if (SelectedEntity is { } moved)
                     Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(moved);
 
+                UpdateAnimatedMobys(deltaTime, vkStage);
                 UpdateBoundingSphereOverlay();
 
                 vkStage.Frame(
@@ -328,6 +329,22 @@ public class View3D : DockedFrame
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0));
         base.RenderAsWindow(deltaTime);
         ImGui.PopStyleVar(2);
+    }
+
+    /// <summary>Advances every currently-playing moby's AnimationPlayer and pushes its sampled pose
+    /// into the GPU bone palette (see VulkanRenderer.TrySetAnimatedInstance). Membership in
+    /// PlayingMobyAnimations is owned entirely by the Property Inspector's Play/Stop buttons - a
+    /// paused or naturally-finished clip stays in the list and keeps rendering its frozen pose rather
+    /// than snapping back to bind pose; only an explicit Stop clears it.</summary>
+    private void UpdateAnimatedMobys(double deltaTime, Engine.Rendering.Vulkan.VulkanRenderer vkStage)
+    {
+        foreach (var moby in EntityManager.Singleton.PlayingMobyAnimations)
+        {
+            if (moby.BaseMoby.Skeleton is not { } skeleton) continue;
+            var player = moby.AnimationPlayer;
+            player.Update((float)deltaTime);
+            vkStage.TrySetAnimatedInstance(moby, player.SamplePose(skeleton));
+        }
     }
 
     public void UpdateWindowSize()
