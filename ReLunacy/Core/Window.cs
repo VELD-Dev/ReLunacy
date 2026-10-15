@@ -547,6 +547,7 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
             RenderMenuDraw.ZoneVisibility();
+            RenderMenuDraw.SkyVisibility();
             ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
             ImGui.Separator();

@@ -22,7 +22,7 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 ///
 /// Every non-opaque draw carries the game's polygon offset (see NonOpaqueDepthBias). This renderer
 /// compiles its own SPIR-V rather than using Bliss's lit shader.</summary>
-public sealed unsafe class VulkanRenderer : IDisposable
+public sealed unsafe partial class VulkanRenderer : IDisposable
 {
     private const VkFormat ColorFormat = VkFormat.R8G8B8A8Unorm;
     // Depth carries stencil for the selection outline's stencil mask-and-inflate technique.
@@ -1595,6 +1595,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         clearsO[1] = new VkClearValue { depthStencil = new VkClearDepthStencilValue(1f, 0) };
         var rpO = new VkRenderPassBeginInfo { renderPass = _rpOpaque, framebuffer = _fbOpaque[_slot], renderArea = area, clearValueCount = 2, pClearValues = clearsO };
         _api.vkCmdBeginRenderPass(_cmd, &rpO, VkSubpassContents.Inline);
+        // The sky is part of the scene: drawn first, without depth writes, so every level surface
+        // covers it. See VulkanRenderer.Sky.cs.
+        DrawSky();
         BindLitState();
         // Everything that writes depth goes first - Opaque + Cutout, then Soft-Edge's alpha-tested
         // DEPTH PREPASS (colour writes off) so its geometry occludes correctly, then the foliage
@@ -1786,6 +1789,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         TextureFiltering filtering = TextureFiltering.Bilinear)
     {
         ApplyFiltering(filtering);
+        ApplyReplacementSky();
         _cmd = _cmds[_slot];
         _descSet = _descSets[_slot];
         Matrix4x4 viewProj = view * projection;
@@ -2244,6 +2248,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     {
         WaitForPendingFrames();
         _api.vkDeviceWaitIdle();
+        // The sky owns raw Vulkan objects created against this renderer's descriptor layout and
+        // render pass, so release them while those parents are still alive.
+        DestroySkyResources();
         DestroyTargets();
         _api.vkDestroyImageView(_envCubeView);
         foreach (var v in _texViews) _api.vkDestroyImageView(v);

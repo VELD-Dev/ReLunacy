@@ -269,6 +269,11 @@ public class View3D : DockedFrame
                 UpdateAnimatedMobys(deltaTime, vkStage);
                 UpdateBoundingSphereOverlay();
 
+                // Builds the level's sky packet once its textures are uploaded, attaches it to this
+                // renderer and sets the retail clear colour. Cheap once built.
+                SkyRenderOptions.Enabled = Program.Settings.RenderSky;
+                SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
+
                 vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),

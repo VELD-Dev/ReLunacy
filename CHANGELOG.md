@@ -16,6 +16,8 @@ Because the European date format is better, please keep date format like this: `
 - The editor window now opens maximized by default and remembers last size and maximization state between sessions.
 - Added per-zone render toggles (`Render menu > Zones`)
 - Added animation support by @Fianshoo in PRs #58, #59 and #60
+- Added sky rendering on both engines (`Render menu > Sky`) by @Fianshoo: the dome and its gradient, the two scrolling cloud layers and the authored sky shells (panoramas, stars, planets), drawn in the game's pass order with each texture's own RSX sampler. Tools of Destruction reads main.dat 0x8150/0x8160/0x8170 and the shell mesh in vertices.dat 0x9000/0x9100; the new engine reads every sky of the region (region.dat 0x81B0, textures in sky.dat), so All 4 One's seaside (3 skies) and polar_sea (2) can show each one. The clear colour comes from the sky, as in game. Bloom shells stay off for now.
+- Old-engine textures now keep their whole 0x5200 RSX descriptor (`TextureMetadataOld` fields 0x08-0x1C, `Texture.OldDescriptor`) instead of 16 unnamed bytes.
 - 
 
 ## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026

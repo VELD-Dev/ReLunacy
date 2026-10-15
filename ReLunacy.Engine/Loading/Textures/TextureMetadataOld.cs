@@ -12,10 +12,13 @@ public record struct TextureMetadataOld : ILunaSerializable, ITextureMetadata
     [FileOffset(0x00)] public uint offset;
     [FileOffset(0x04)] public ushort mipmapCount;
     [FileOffset(0x06)] public ushort formatBitfield;
-    [FileOffset(0x08), Reference(0x10)] public byte[] Unk1;
+    [FileOffset(0x08)] public uint address;           // NV4097_SET_TEXTURE_ADDRESS
+    [FileOffset(0x0C)] public uint control0;          // NV4097_SET_TEXTURE_CONTROL0
+    [FileOffset(0x10)] public uint control1;          // NV4097_SET_TEXTURE_CONTROL1
+    [FileOffset(0x14)] public uint filter;            // NV4097_SET_TEXTURE_FILTER
     [FileOffset(0x18)] public ushort width;
     [FileOffset(0x1A)] public ushort height;
-    [FileOffset(0x1C)] public uint Unk2;
+    [FileOffset(0x1C)] public uint control3;          // NV4097_SET_TEXTURE_CONTROL3
 
     public readonly uint Width => width;
     public readonly uint Height => height;
@@ -28,7 +31,8 @@ public record struct TextureMetadataOld : ILunaSerializable, ITextureMetadata
         Format is TextureFormat.DXT1 or TextureFormat.DXT3 or TextureFormat.DXT5 or TextureFormat.BC4 or TextureFormat.BC5
         || ((formatBitfield >> 2) & 1) != 0;
 
-    // Unk1 (0x08-0x18) is unexamined raw bytes.
+    // 0x08-0x18 and 0x1C are the RSX NV4097 sampler registers, kept verbatim. See
+    // Assets.Textures.OldTextureDescriptorState for the decoded bitfields.
 
     // One-shot diagnostic: logs which old-engine formatBitfield values appear in real level data.
     private static readonly HashSet<ushort> _loggedFormatBitfields = [];

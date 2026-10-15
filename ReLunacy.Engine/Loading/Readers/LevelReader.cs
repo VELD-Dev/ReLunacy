@@ -28,6 +28,7 @@ public sealed class LevelReader
     private IReadOnlyList<Assets.Animations.AnimationClip>? _animations;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
+    private IReadOnlyList<Assets.Sky.LevelSky>? _skies;
 
     public LevelReader(FileManager fileManager)
     {
@@ -95,6 +96,11 @@ public sealed class LevelReader
         _foliageReader = new FoliageReader(_fileManager, _materialReader);
         _foliages = _foliageReader.ReadAll();
 
+        // Old engine: main.dat 0x8150/0x8160/0x8170 + vertices.dat 0x9000/0x9100. New engine: one sky
+        // per region.dat 0x81B0 record, textures in the region's sky.dat. See SkyReader.
+        progressCallback?.Invoke("Loading Sky...", 0.91f);
+        _skies = new SkyReader(_fileManager, _materialReader, _region?.Name).ReadAll();
+
         // Old engine only (section 0x5920). Independent of geometry, same as foliage.
         _cubemaps = new CubemapReader(_fileManager).ReadAll();
 
@@ -122,7 +128,8 @@ public sealed class LevelReader
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
             foliages: _foliages,
             cubemaps: _cubemaps,
-            lightingEnvironment: _lightingEnvironment);
+            lightingEnvironment: _lightingEnvironment,
+            skies: _skies);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -132,6 +139,7 @@ public sealed class LevelReader
     public IReadOnlyList<Assets.Animations.AnimationClip> Animations => _animations ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
     public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
+    public IReadOnlyList<Assets.Sky.LevelSky> Skies => _skies ?? [];
     public Assets.Levels.Region? Region => _region;
 }
 
@@ -178,6 +186,13 @@ public sealed class LevelData
     /// Loading.Readers.LightingEnvironmentReader.</summary>
     public Assets.Lighting.LightingEnvironment? LightingEnvironment { get; }
 
+    /// <summary>Every sky of the level: one on the old engine, one per region.dat 0x81B0 record on the
+    /// new engine (several on some All 4 One regions). Empty when the level has none.</summary>
+    public IReadOnlyList<Assets.Sky.LevelSky> Skies { get; }
+
+    /// <summary>The first of <see cref="Skies"/>: the sky retail shows before any set_sky().</summary>
+    public Assets.Sky.SkyData Sky => Skies.Count != 0 ? Skies[0].Data : Assets.Sky.SkyData.Empty;
+
     public LevelData(
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
@@ -192,7 +207,8 @@ public sealed class LevelData
         System.Numerics.Vector3? environmentAverage = null,
         IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,
         IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null,
-        Assets.Lighting.LightingEnvironment? lightingEnvironment = null)
+        Assets.Lighting.LightingEnvironment? lightingEnvironment = null,
+        IReadOnlyList<Assets.Sky.LevelSky>? skies = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -208,5 +224,6 @@ public sealed class LevelData
         Foliages = foliages ?? [];
         Cubemaps = cubemaps ?? [];
         LightingEnvironment = lightingEnvironment;
+        Skies = skies ?? [];
     }
 }

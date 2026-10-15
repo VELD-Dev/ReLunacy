@@ -32,6 +32,15 @@ public sealed class MaterialReader
         return GetDefaultMaterial();
     }
 
+    /// <summary>Old engine: the texture at a position in the 0x5200 table, without building a
+    /// material for it (the sky references that table directly). Null for the 0xFFFFFFFF sentinel
+    /// or an out-of-range index.</summary>
+    public ITexture? GetOldTextureByIndex(uint textureIndex)
+    {
+        var legacy = _loader.ResolveOldTextureIndex(textureIndex);
+        return legacy == null ? null : WrapTexture(legacy);
+    }
+
     /// <summary>Builds the material for an old-engine foliage asset from its direct texture index
     /// (FoliageMetadata.TextureIndex, a position in the 0x5200 table). Returns null for the
     /// 0xFFFFFFFF sentinel or an out-of-range index.</summary>
@@ -114,9 +123,23 @@ public sealed class MaterialReader
 
         var texture = Texture.FromData(legacy.id, legacy.Width, legacy.Height, ToTextureFormat(legacy.TexFormat), legacy.data, (int)legacy.MipmapCounts);
         texture.Name = legacy.name;
+        if (legacy.isOld && legacy.textureMetadata is Textures.TextureMetadataOld oldMeta)
+            texture.OldDescriptor = ToAssetDescriptor(oldMeta);
         _textureCache[legacy.id] = texture;
         return texture;
     }
+
+    private static OldTextureDescriptorState ToAssetDescriptor(in Textures.TextureMetadataOld meta) => new(
+        meta.offset,
+        meta.mipmapCount,
+        meta.formatBitfield,
+        meta.address,
+        meta.control0,
+        meta.control1,
+        meta.filter,
+        meta.width,
+        meta.height,
+        meta.control3);
 
     private Material GetDefaultMaterial()
     {

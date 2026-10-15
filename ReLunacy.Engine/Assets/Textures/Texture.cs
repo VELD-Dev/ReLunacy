@@ -15,6 +15,20 @@ public sealed class Texture : ITexture
     public TextureFormat Format { get; init; }
     public int MipmapCount { get; init; }
 
+    /// <summary>
+    /// Complete old-engine NV4097 descriptor (main.dat 0x5200) when this texture comes from one.
+    /// Null for generated and new-engine textures. Renderers use it to build the retail sampler
+    /// (wrap, filter, LOD) instead of a generic one.
+    /// </summary>
+    public OldTextureDescriptorState? OldDescriptor { get; set; }
+
+    /// <summary>New engine only: the RSX descriptor declared for this texture by its container
+    /// (a sky's 0x5200, for example). Kept apart from <see cref="OldDescriptor"/>.</summary>
+    public OldTextureDescriptorState? NewEngineDescriptor { get; set; }
+
+    /// <summary>The RSX descriptor that governs sampling, whichever engine it came from.</summary>
+    public OldTextureDescriptorState? SamplingDescriptor => OldDescriptor ?? NewEngineDescriptor;
+
     private readonly Func<byte[]>? _dataLoader;
 
     public Texture(ulong id, uint width, uint height, TextureFormat format, int mipmapCount = 1, Func<byte[]>? dataLoader = null)
