@@ -40,21 +40,49 @@ public class EntityTie : Entity
         Model = model;
 
         _assetManager = assetManager;
-        // Baked lighting for this placement, gated on the asset actually having a lightmap UV set -
-        // binding a bake to a tie whose UVs fell back to the base UV would tile the bake incorrectly,
-        // so those ties render unlit instead.
-        //
-        // Where the lightmap-UV array lives is not confirmed for all ties; see TieLightmapUV.
-        LightmapIndex = BaseTie.GetLightmapUVs() is not null
-            ? tieInstance.LightmapIndex
-            : Loading.Objects.Instances.TieInstance.NoLightmap;
+
+        OldBakedLightScale = tieInstance.OldBakedLightScale;
+        NewEngineBakedLight = tieInstance.NewEngineBakedLight;
+        NewEngineCubeTuid = tieInstance.NewEngineCubeTuid;
+        NewEnginePrelight = tieInstance.NewEnginePrelight;
+        OldEnginePrelight = tieInstance.OldEnginePrelight;
+        NewEnginePrelightBaked = tieInstance.NewEnginePrelightBaked;
+
+        // The game reads this as a BE ushort at instance+0x5A, then sanitizes values outside the
+        // available 0x5400/0x5410 lists to 0xFFFF. Mirror that where both decoded lists are known.
+        ushort candidateLightmap = tieInstance.LightmapIndex;
+        LightmapIndex = candidateLightmap != Loading.Objects.Instances.TieInstance.NoLightmap
+            && candidateLightmap < assetManager.ZoneLightmaps.Count
+            && candidateLightmap < assetManager.ZoneDirectionals.Count
+            && assetManager.ZoneLightmaps[candidateLightmap] != null
+            && assetManager.ZoneDirectionals[candidateLightmap] != null
+                ? candidateLightmap
+                : Loading.Objects.Instances.TieInstance.NoLightmap;
     }
 
     private readonly AssetManager _assetManager;
 
-    /// <summary>This placement's baked lighting entry, or 0xFFFF for none - see
+    /// <summary>This placement's sanitized baked lighting entry, or 0xFFFF for none - see
     /// IPlacedInstance.LightmapIndex.</summary>
     public ushort LightmapIndex { get; }
+
+    /// <summary>Old engine: per-instance baked light scale (TieInstance +0x60), or null.</summary>
+    public float? OldBakedLightScale { get; }
+
+    /// <summary>New engine: this placement's baked-light vertex constant c[4], or null.</summary>
+    public Vector4? NewEngineBakedLight { get; }
+
+    /// <summary>New engine: the cubemaps.dat resource this placement reflects, 0 for the region's default.</summary>
+    public ulong NewEngineCubeTuid { get; }
+
+    /// <summary>New engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
+    public byte[]? NewEnginePrelight { get; }
+
+    /// <summary>Old engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
+    public byte[]? OldEnginePrelight { get; }
+
+    /// <summary>New engine: whether the placement record carries a bake (+0x5A != 0xFFFF).</summary>
+    public bool NewEnginePrelightBaked { get; }
 
     protected override void EnsureRenderables()
     {

@@ -129,6 +129,8 @@ public sealed class VkSkyScene
     public OldTextureDescriptorState?[] TextureDescriptors { get; }
     public VkSkyDraw[] Draws { get; }
     public float TimeScale { get; }
+    /// <summary>SkyDefs +0xE0, the Bloom shells' alpha factor (<see cref="Assets.Sky.SkyDefs.BloomShellScale"/>).</summary>
+    public float BloomShellScale { get; }
 
     public bool HasDome => Dome is { HasGeometry: true };
     public bool HasClouds => HasDome && Clouds is { HasTextures: true };
@@ -145,7 +147,8 @@ public sealed class VkSkyScene
         Texture[] textures,
         OldTextureDescriptorState?[] textureDescriptors,
         VkSkyDraw[] draws,
-        float timeScale)
+        float timeScale,
+        float bloomShellScale = 0f)
     {
         if (textures.Length != textureDescriptors.Length)
             throw new ArgumentException("Sky texture/descriptor arrays must stay parallel.", nameof(textureDescriptors));
@@ -158,6 +161,7 @@ public sealed class VkSkyScene
         TextureDescriptors = textureDescriptors;
         Draws = draws;
         TimeScale = timeScale;
+        BloomShellScale = float.IsFinite(bloomShellScale) ? bloomShellScale : 0f;
 
         SkyShellCoverageAudit.Log(this);
     }

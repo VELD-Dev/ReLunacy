@@ -170,6 +170,34 @@ internal static class RenderMenuDraw
         ImGui.EndMenu();
     }
 
+    /// <summary>The game's own fidelity switches: its fragment programs (read from a decrypted EBOOT
+    /// in the level's install, and the programs a material ships itself), and on the old engine the
+    /// level's fog (main.dat 0x7100) and the TIE cube reflections. All on by default; they only hide.</summary>
+    internal static void GameFidelity()
+    {
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_GameShaders"), "", settings.GameShaders))
+        {
+            settings.GameShaders = !settings.GameShaders;
+            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = settings.GameShaders;
+            settings.SaveSettingsToFile();
+            LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+        }
+        if (LunaWindow.Instance.Level?.IsOldEngine != true) return;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineFog"), "", settings.OldEngineFog))
+        {
+            settings.OldEngineFog = !settings.OldEngineFog;
+            OldEngineRenderOptions.FogEnabled = settings.OldEngineFog;
+            settings.SaveSettingsToFile();
+        }
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineReflections"), "", settings.OldEngineReflections))
+        {
+            settings.OldEngineReflections = !settings.OldEngineReflections;
+            OldEngineRenderOptions.ReflectionsEnabled = settings.OldEngineReflections;
+            settings.SaveSettingsToFile();
+        }
+    }
+
     internal static void ShowMobyDistanceCulling()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_MobyDistanceCulling"), "", EntityManager.Singleton.MobyDistanceCullingEnabled)) return;

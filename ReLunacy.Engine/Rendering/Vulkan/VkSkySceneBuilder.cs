@@ -131,7 +131,8 @@ public static class VkSkySceneBuilder
             textures.ToArray(),
             textureDescriptors.ToArray(),
             draws.ToArray(),
-            defs.SkyTimeScale);
+            defs.SkyTimeScale,
+            defs.BloomShellScale);
     }
 
     private static float[] BuildShellVertices(SkyShellMesh mesh)

@@ -97,6 +97,19 @@ public sealed class NewUFrag : IUFrag
     public float[]? GetLightmapUVs() => _lightmapUVs;
     public ushort LightmapIndex { get; init; }
     public Loading.Objects.UFragMetadata? Metadata { get; init; }
+    public Vector4? NewEngineBakedLight => BakedLightOverride ?? Metadata?.NewEngineBakedLight;
+
+    /// <summary>c[4] when the record does not hold the QForce u16 pair (A Crack in Time: one float).</summary>
+    public Vector4? BakedLightOverride { get; internal set; }
+    public ulong NewEngineCubeTuid { get; internal set; }
+
+    /// <summary>Two-layer UFrag: the material record +0x52 blends in, by <see cref="BlendMask"/> (+0x58);
+    /// the per-vertex weight is the low 7 bits of each raw vertex's +0x06 / 128.</summary>
+    public IMaterial? SecondMaterial { get; internal set; }
+    public ITexture? BlendMask { get; internal set; }
+    public Vector3? NewEngineFadeDistances => Metadata?.NewEngineFadeDistances;
+    public byte? NewEngineFeatureMask => Metadata?.NewEngineFeatureMask;
+    public Geometry.UvAnimation? UvAnimation { get; internal set; }
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
     public float[]? GetVertexAlpha() => _vertexAlpha;

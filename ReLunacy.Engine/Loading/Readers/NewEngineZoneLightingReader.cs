@@ -1,19 +1,336 @@
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.Textures;
 using ReLunacy.Engine.Loading.IO;
+using ReLunacy.Engine.Loading.Objects;
 using LoadingTexture = ReLunacy.Engine.Loading.Textures.Texture;
 using LoadingTextureFormat = ReLunacy.Engine.Loading.Textures.TextureFormat;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>
-/// New-engine standalone RSX textures: a 0x20-byte NV4097 descriptor (the same layout as a shader's
-/// 0x5200 entry) whose payload lives in a separate raw file. The sky uses it (its embedded IGHW's
-/// 0x5200 + region sky.dat); the per-zone baked lighting (0x5400 / 0x5410 + lighting.dat) is the
-/// same relationship.
+/// Reads the new-engine per-zone baked-lighting texture pairs.
+///
+/// The zone IGHW owns the 0x20-byte RSX descriptors (0x5400 colour, 0x5410 direction), while
+/// lighting.dat owns their payload bytes. assetlookup.dat/0x1DB00 selects the lighting.dat slice by
+/// the same zone TUID. This mirrors the retail resource relationship without projecting the
+/// old-engine global-lighting layout onto the new engine.
 /// </summary>
 internal sealed class NewEngineZoneLightingReader
 {
+    internal const uint LightmapSectionId = 0x5400;
+    internal const uint DirectionalSectionId = 0x5410;
+    private const int DescriptorSize = 0x20;
+
+    private readonly Stream? _lightingStream;
+    private readonly Dictionary<ulong, AssetPointer> _lightingResources = [];
+    private readonly Stream? _highlightStream;
+    private readonly Dictionary<ulong, AssetPointer> _highlightResources = [];
+
+    public NewEngineZoneLightingReader(FileManager fileManager)
+    {
+        ArgumentNullException.ThrowIfNull(fileManager);
+        if (fileManager.isOld)
+            return;
+
+        if (!NewEngineAssetLookup.TryGetPayloadStream(
+                fileManager, "lighting.dat", "zone lighting", out Stream? lightingStream) ||
+            lightingStream is null)
+            return;
+
+        _lightingStream = lightingStream;
+
+        foreach (AssetPointer pointer in NewEngineAssetLookup.ReadPointers(
+                     fileManager, NewEngineAssetLookup.LightingPointers, "lighting"))
+        {
+            if (!_lightingResources.TryAdd(pointer.TUID, pointer))
+                Console.WriteLine($"New-engine lighting: duplicate resource TUID {pointer.TUID:X16}; keeping the first.");
+        }
+
+        // 0x5460 is the high-mip companion of 0x5400/0x5410. Its two (size,offset)
+        // pairs address highlight.dat through assetlookup 0x1DB80 using the same zone TUID.
+        // The payload is optional per texture: a zero size means the resident lighting.dat
+        // descriptor is already the highest available level.
+        if (NewEngineAssetLookup.TryGetPayloadStream(
+                fileManager, "highlight.dat", "zone lightmap high-mips", out Stream? highlightStream) &&
+            highlightStream is not null)
+        {
+            _highlightStream = highlightStream;
+            foreach (AssetPointer pointer in NewEngineAssetLookup.ReadPointers(
+                         fileManager, NewEngineAssetLookup.HighlightPointers, "highlight"))
+            {
+                if (!_highlightResources.TryAdd(pointer.TUID, pointer))
+                    Console.WriteLine($"New-engine highlight: duplicate resource TUID {pointer.TUID:X16}; keeping the first.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// A TIE placement's prelight words: <paramref name="byteCount"/> bytes at <paramref name="offset"/>
+    /// (placement +0x54) inside the zone's lighting.dat slice (assetlookup 0x1DB00). PROVEN on the 15
+    /// QForce levels: the 1,048 unbaked placements carrying an offset all land inside their zone's slice,
+    /// and every sampled word decodes to a valid chroma (0 impossible of 16,768), where offsets into
+    /// textures.dat, ties.dat or zones.dat fail on a quarter of them. Null when out of range.
+    /// </summary>
+    public byte[]? ReadPrelight(ulong zoneTuid, uint offset, int byteCount)
+    {
+        if (_lightingStream is null || byteCount <= 0 ||
+            !_lightingResources.TryGetValue(zoneTuid, out AssetPointer resource) ||
+            (ulong)offset + (ulong)byteCount > resource.length ||
+            (ulong)resource.offset + resource.length > (ulong)_lightingStream.Length)
+            return null;
+
+        var bytes = new byte[byteCount];
+        _lightingStream.Seek(resource.offset + (long)offset, SeekOrigin.Begin);
+        _lightingStream.ReadExactly(bytes);
+        return bytes;
+    }
+
+    public IReadOnlyList<ZoneLightingPair> ReadZone(
+        IGFile zoneFile,
+        ulong zoneTuid,
+        Func<ulong, ushort, bool, ulong> textureIdFactory)
+    {
+        ArgumentNullException.ThrowIfNull(zoneFile);
+        ArgumentNullException.ThrowIfNull(textureIdFactory);
+
+        if (_lightingStream is null || !_lightingResources.TryGetValue(zoneTuid, out AssetPointer resource))
+            return [];
+
+        ulong resourceEnd = (ulong)resource.offset + resource.length;
+        if (resourceEnd > (ulong)_lightingStream.Length)
+        {
+            Console.WriteLine(
+                $"New-engine zone {zoneTuid:X16}: lighting resource " +
+                $"0x{resource.offset:X}+0x{resource.length:X} exceeds lighting.dat length 0x{_lightingStream.Length:X}; " +
+                "baked lighting disabled for this zone.");
+            return [];
+        }
+
+        IGFile.SectionHeader lightSection = zoneFile.QuerySection(LightmapSectionId);
+        IGFile.SectionHeader dirSection = zoneFile.QuerySection(DirectionalSectionId);
+        IGFile.SectionHeader highlightSection = zoneFile.QuerySection(0x5460);
+        if (lightSection.id != LightmapSectionId || dirSection.id != DirectionalSectionId)
+            return [];
+
+        bool hasHighlightResource = false;
+        AssetPointer highlightResource = default;
+        if (_highlightStream is not null &&
+            _highlightResources.TryGetValue(zoneTuid, out highlightResource) &&
+            highlightResource.length != 0)
+        {
+            ulong highlightEnd = (ulong)highlightResource.offset + highlightResource.length;
+            if (highlightEnd <= (ulong)_highlightStream.Length)
+            {
+                hasHighlightResource = true;
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"New-engine zone {zoneTuid:X16}: highlight resource " +
+                    $"0x{highlightResource.offset:X}+0x{highlightResource.length:X} exceeds highlight.dat " +
+                    $"length 0x{_highlightStream.Length:X}; high-mips disabled for this zone.");
+            }
+        }
+
+        bool hasHighlightTable =
+            hasHighlightResource &&
+            highlightSection.id == 0x5460 &&
+            highlightSection.length == 0x10 &&
+            highlightSection.count != 0;
+
+        int lightCount;
+        int dirCount;
+        try
+        {
+            lightCount = ValidateDescriptorSection(zoneFile, lightSection, "lightmap", zoneTuid);
+            dirCount = ValidateDescriptorSection(zoneFile, dirSection, "directional", zoneTuid);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or OverflowException)
+        {
+            Console.WriteLine(
+                $"New-engine zone {zoneTuid:X16}: invalid baked-lighting descriptor table; " +
+                $"lighting disabled for this zone: {ex.Message}");
+            return [];
+        }
+
+        int pairCount = Math.Min(lightCount, dirCount);
+        if (lightCount != dirCount)
+        {
+            Console.WriteLine(
+                $"New-engine zone {zoneTuid:X16}: 0x5400 has {lightCount} descriptors but 0x5410 has {dirCount}; " +
+                $"only the first {pairCount} complete pairs are eligible.");
+        }
+
+        var pairs = new List<ZoneLightingPair>(pairCount);
+        for (int i = 0; i < pairCount; i++)
+        {
+            if (i > ushort.MaxValue)
+                break;
+
+            try
+            {
+                NewTextureDescriptor light = ReadDescriptor(
+                    zoneFile.sh, checked(lightSection.offset + (uint)(i * DescriptorSize)));
+                NewTextureDescriptor directional = ReadDescriptor(
+                    zoneFile.sh, checked(dirSection.offset + (uint)(i * DescriptorSize)));
+
+                byte[]? lightHighMip = null;
+                byte[]? directionalHighMip = null;
+                if (hasHighlightTable && i < highlightSection.count)
+                {
+                    zoneFile.sh.Seek(highlightSection.offset + (uint)(i * 0x10));
+                    uint lightHighSize = zoneFile.sh.ReadUInt32();
+                    uint lightHighOffset = zoneFile.sh.ReadUInt32();
+                    uint dirHighSize = zoneFile.sh.ReadUInt32();
+                    uint dirHighOffset = zoneFile.sh.ReadUInt32();
+
+                    lightHighMip = ReadHighlightMip(
+                        light, highlightResource, lightHighSize, lightHighOffset,
+                        $"Zone_{zoneTuid:X16}_Light_{i}");
+                    directionalHighMip = ReadHighlightMip(
+                        directional, highlightResource, dirHighSize, dirHighOffset,
+                        $"Zone_{zoneTuid:X16}_Direction_{i}");
+                }
+
+                ushort localIndex = (ushort)i;
+                ITexture? lightTexture = DecodeTexture(
+                    light, resource, textureIdFactory(zoneTuid, localIndex, false),
+                    $"Zone_{zoneTuid:X16}_Light_{i}", lightHighMip);
+                ITexture? dirTexture = DecodeTexture(
+                    directional, resource, textureIdFactory(zoneTuid, localIndex, true),
+                    $"Zone_{zoneTuid:X16}_Direction_{i}", directionalHighMip);
+
+
+                // The renderer consumes a matched colour+direction pair. Never shift the local index
+                // by dropping only one side: an undecodable pair simply remains unmapped.
+                if (lightTexture != null && dirTexture != null)
+                    pairs.Add(new ZoneLightingPair(localIndex, lightTexture, dirTexture));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(
+                    $"New-engine zone {zoneTuid:X16} lighting[{i}] skipped: {ex.Message}");
+            }
+        }
+
+        if (pairs.Count != 0)
+        {
+            Console.WriteLine(
+                $"New-engine zone {zoneTuid:X16}: decoded {pairs.Count}/{pairCount} baked-lighting pairs " +
+                $"from lighting.dat resource 0x{resource.offset:X}+0x{resource.length:X}.");
+        }
+
+        return pairs;
+    }
+
+    private byte[]? ReadHighlightMip(
+        in NewTextureDescriptor descriptor,
+        in AssetPointer resource,
+        uint size,
+        uint offset,
+        string name)
+    {
+        if (size == 0 || _highlightStream is null)
+            return null;
+
+        LoadingTextureFormat format = NormalizeFormat(descriptor.FormatByte);
+        if ((byte)format == 0xFF || !IsBlockCompressed(format))
+        {
+            Console.WriteLine(
+                $"New-engine {name}: 0x5460 high-mip format 0x{descriptor.FormatByte:X2} " +
+                "is not one of the audited block-compressed formats; keeping the resident chain.");
+            return null;
+        }
+
+        int highWidth = checked(descriptor.Width * 2);
+        int highHeight = checked(descriptor.Height * 2);
+        int expected = MipByteSize(format, highWidth, highHeight);
+        if (size != expected)
+        {
+            Console.WriteLine(
+                $"New-engine {name}: 0x5460 high-mip is 0x{size:X} bytes, expected 0x{expected:X} " +
+                $"for {highWidth}x{highHeight} {format}; ignored.");
+            return null;
+        }
+
+        ulong relativeEnd = (ulong)offset + size;
+        if (relativeEnd > resource.length)
+        {
+            Console.WriteLine(
+                $"New-engine {name}: 0x5460 range 0x{offset:X}+0x{size:X} exceeds highlight resource " +
+                $"length 0x{resource.length:X}; ignored.");
+            return null;
+        }
+
+        long start = checked((long)resource.offset + offset);
+        var bytes = new byte[size];
+        _highlightStream.Seek(start, SeekOrigin.Begin);
+        _highlightStream.ReadExactly(bytes);
+        return bytes;
+    }
+
+    private static int ValidateDescriptorSection(
+        IGFile zoneFile,
+        IGFile.SectionHeader section,
+        string label,
+        ulong zoneTuid)
+    {
+        // An IGHW array section stores the ELEMENT size at +0x0C, not the section's byte length:
+        // retail zones have 0x5400/0x5410 = count 1425, size 0x20. Reading +0x0C as the length made
+        // this validator keep ONE descriptor per zone (log: "directory count=983, length=0x20; using
+        // 1"), so on acid_refinery_pre 16 lightmaps were decoded instead of ~11,000 and nothing in
+        // the level was baked-lit. A section whose +0x0C is not the descriptor size is still treated
+        // as a byte length, as before.
+        ulong totalBytes = section.length == DescriptorSize
+            ? (ulong)section.count * DescriptorSize
+            : section.length;
+        ulong sectionEnd = (ulong)section.offset + totalBytes;
+        if (sectionEnd > (ulong)zoneFile.sh.BaseStream.Length)
+            throw new InvalidDataException(
+                $"Zone {zoneTuid:X16} {label} section 0x{section.id:X} exceeds the zone file.");
+
+        uint byLength = checked((uint)(totalBytes / DescriptorSize));
+        uint count = Math.Min(section.count, byLength);
+        if (section.count != byLength || totalBytes % DescriptorSize != 0)
+        {
+            Console.WriteLine(
+                $"New-engine zone {zoneTuid:X16} {label}: directory count={section.count}, " +
+                $"length=0x{section.length:X}; using {count} complete 0x{DescriptorSize:X}-byte descriptors.");
+        }
+
+        return checked((int)count);
+    }
+
+    /// <summary>
+    /// The zone's blend masks for its two-layer UFrags (record +0x58): 0x5700 descriptors in the zone,
+    /// texels in the zone's lighting.dat slice at the descriptor offset (PROVEN by byte match against the
+    /// TIE copies, Docs/reverse/NEW_ENGINE_TWO_LAYER_AND_GAMEPLAY_CONSTANTS_2026-10-07.md). Empty when the
+    /// zone has none.
+    /// </summary>
+    public ITexture?[] ReadZoneBlendMasks(IGFile zoneFile, ulong zoneTuid)
+    {
+        IGFile.SectionHeader descriptors = zoneFile.QuerySection(0x5700);
+        if (descriptors.id != 0x5700 || _lightingStream is null || !_lightingResources.TryGetValue(zoneTuid, out AssetPointer resource))
+            return [];
+        IGFile.SectionHeader ids = zoneFile.QuerySection(0x5900);
+        uint count = descriptors.count == 1 ? descriptors.length / DescriptorSize : descriptors.count;
+        var masks = new ITexture?[count];
+        for (uint k = 0; k < count; k++)
+        {
+            try
+            {
+                NewTextureDescriptor descriptor = ReadDescriptor(zoneFile.sh, checked(descriptors.offset + k * DescriptorSize));
+                uint id = ids.id == 0x5900 ? zoneFile.sh.ReadUInt32(ids.offset + k * 8) : (uint)(zoneTuid ^ k);
+                masks[k] = DecodeTexture(descriptor, resource, 0xB1E0_0000_0000_0000UL | id, $"BlendMask_{id:X8}");
+            }
+            catch (Exception e) when (e is InvalidDataException or IOException or OverflowException or ArgumentException)
+            {
+                Console.WriteLine($"New-engine zone {zoneTuid:X16}: blend mask {k} not decoded: {e.Message}");
+            }
+        }
+        return masks;
+    }
+
     internal static NewTextureDescriptor ReadDescriptor(StreamHelper sh, uint offset)
     {
         sh.Seek(offset);
@@ -31,6 +348,17 @@ internal sealed class NewEngineZoneLightingReader
             Control3: sh.ReadUInt32());
     }
 
+    private ITexture? DecodeTexture(
+        in NewTextureDescriptor descriptor,
+        in AssetPointer resource,
+        ulong textureId,
+        string name,
+        byte[]? highMip = null) =>
+        _lightingStream is null
+            ? null
+            : DecodeTexture(
+                _lightingStream, descriptor, resource.offset, (long)resource.offset + resource.length,
+                textureId, name, highMip);
 
     /// <summary>
     /// Decodes one texture described by a 0x20-byte NV4097 descriptor whose payload lives in a raw
@@ -156,7 +484,8 @@ internal sealed class NewEngineZoneLightingReader
             effectiveHeight,
             assetFormat,
             fullChain,
-            effectiveMipCount);
+            effectiveMipCount,
+            descriptor.Control1);
         texture.NewEngineDescriptor = new OldTextureDescriptorState(
             descriptor.Offset, descriptor.MipmapCount, (ushort)((descriptor.FormatByte << 8) | descriptor.Flags),
             descriptor.Address, descriptor.Control0, descriptor.Control1, descriptor.Filter,
@@ -250,3 +579,8 @@ internal sealed class NewEngineZoneLightingReader
         ushort Height,
         uint Control3);
 }
+
+internal readonly record struct ZoneLightingPair(
+    ushort LocalIndex,
+    ITexture Lightmap,
+    ITexture Directional);

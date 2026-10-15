@@ -71,6 +71,11 @@ public sealed class SkyDefs
     public Vector4 CloudColourMultiplier => new(
         ReadSingle(0xA8), ReadSingle(0xAC), ReadSingle(0xB0), CloudColourAlpha);
 
+    /// <summary>Bloom shells' factor, SkyDefs+0xE0: the Sky update (0x0057FFAC, 0x00581204) copies it to
+    /// the constant 0x1068F330 that the Bloom shell handler 0x00583BD4 patches into its program
+    /// (alpha = texture alpha x this x vertex alpha). Cache values 0.45..2.6.</summary>
+    public float BloomShellScale => ReadSingle(0xE0);
+
     /// <summary>Physical 0x5200 texture indices bound by Clouds to RSX TEX4/TEX5/TEX6.</summary>
     public uint TextureIndexE8 => ReadUInt32(0xE8);
     public uint TextureIndexEC => ReadUInt32(0xEC);

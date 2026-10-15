@@ -37,12 +37,16 @@ public record struct TextureMetadataNew : ILunaSerializable, ITextureMetadata
         return NormalizeFormatCore(raw);
     }
 
+    // The bare 0x0X values are the CELL_GCM code without its 0x80 bit: every shader that binds a
+    // texture declares 0x80 | bare in its own 0x5200 row (20,546/20,546 bindings, 18 levels,
+    // Tools/Reverse/newengine_texture_writer_audit.py). So bare 0x03 is A4R4G4B4 (22 bindings say 0x83)
+    // and 0x04 is R5G6B5 (13 say 0x84); the fork's 0x03 = R5G6B5 / 0x04 = A1R5G5B5 decoded both wrong.
     private static TextureFormat NormalizeFormatCore(byte raw) => raw switch
     {
         0x81 or 0xA1 or 0x01 => TextureFormat.R8,
-        0x82 or 0xA2 or 0x04 => TextureFormat.A1R5G5B5,
-        0x83 or 0xA3 => TextureFormat.RGBA4,
-        0x84 or 0xA4 or 0x03 => TextureFormat.R5G6B5,
+        0x82 or 0xA2 or 0x02 => TextureFormat.A1R5G5B5,
+        0x83 or 0xA3 or 0x03 => TextureFormat.RGBA4,
+        0x84 or 0xA4 or 0x04 => TextureFormat.R5G6B5,
         0x85 or 0xA5 or 0x05 => TextureFormat.A8R8G8B8,
         0x86 or 0xA6 or 0x06 => TextureFormat.DXT1,
         0x87 or 0xA7 or 0x07 => TextureFormat.DXT3,

@@ -28,10 +28,14 @@ public sealed class TieReader
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile.SectionHeader tieSection = main.QuerySection(TieMetadataOld.ID);
 
+        // ToD's animated UVs are level-wide (main.dat 0x5C00), keyed by the TIE's class index.
+        var uvAnimations = Assets.Geometry.OldEngineUvAnimations.Read(main);
         main.sh.Seek(tieSection.offset, SeekOrigin.Begin);
         for (uint i = 0; i < tieSection.count; i++)
         {
             var legacyTie = new Objects.Tie(main, _fileManager, old: true, index: i);
+            if (uvAnimations != null)
+                legacyTie.UvAnimations = uvAnimations.ForTie(i);
 
             // Old engine: TieInstance.tieIndex stores file offsets, not sequential indices -
             // key ties the same way to match.
@@ -46,33 +50,22 @@ public sealed class TieReader
     {
         var ties = new Dictionary<ulong, Assets.Ties.Tie>();
 
-        if (!_fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
-        {
-            Console.WriteLine("Cannot find assetlookup.dat.");
+        AssetPointer[] tiePtrs = NewEngineAssetLookup.ReadPointers(
+            _fileManager, NewEngineAssetLookup.TiePointers, "TIEs");
+        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "ties.dat", "TIEs", out Stream? tieStream) ||
+            tieStream is null)
             return ties;
-        }
-
-        IGFile.SectionHeader tieSection = assetlookup.QuerySection(0x1D300);
-        assetlookup.sh.Seek(tieSection.offset);
-        AssetPointer[] tiePtrs = AssetPointer.ReadArray(assetlookup.sh, tieSection.length / 0x10);
-        Stream tieStream = _fileManager.rawfiles["ties.dat"]!;
 
         for (int i = 0; i < tiePtrs.Length; i++)
         {
-            byte[] tiedat = new byte[tiePtrs[i].length];
-            tieStream.Seek(tiePtrs[i].offset, SeekOrigin.Begin);
-            tieStream.Read(tiedat, 0x00, (int)tiePtrs[i].length);
+            byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, tiePtrs[i], "TIE");
 
-            MemoryStream tiems = new(tiedat);
-            StreamHelper streamHelper = new(tiems, StreamHelper.Endianness.Big);
+            using MemoryStream tiems = new(tiedat);
 
             var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false);
             // Keyed by the assetlookup pointer-table TUID, not the tie's own embedded TUID field
             // (0x68) - the embedded field isn't reliably unique.
             ties.Add(tiePtrs[i].TUID, ConvertTie(legacyTie, tiePtrs[i].TUID));
-
-            tiems.Dispose();
-            streamHelper.Dispose();
         }
 
         return ties;
@@ -85,23 +78,50 @@ public sealed class TieReader
         var scaleVec = legacyTie.Scale;
         var meshes = new List<IMesh>();
 
-        // Validate the lightmap UVs mesh by mesh (see SliceLightmapUVs) and rebuild the tie-wide
-        // array from only the windows that pass. Meshes without a usable window keep zeros; null
-        // means no mesh had one at all (what EntityTie checks before binding a bake).
+        // IMPORTANT: lightmap validity is PER MESH. Keep the validated slice itself beside that mesh
+        // instead of using a zero-filled tie-wide reconstruction as the source of truth. A rejected
+        // mesh used to leave (0,0) behind in that reconstruction, then SliceLightmapUVs accepted those
+        // zeros on the second pass and silently re-enabled the lightmap we had just rejected.
+        var perMeshLightmapUVs = new float[]?[legacyTie.MeshesCount];
+
+        // Retain a tie-wide aggregate only for ITie.GetLightmapUVs/debug/export callers. It is NOT used
+        // to decide whether an individual mesh receives baked lighting.
         float[]? tieLightmapUVs = null;
+
         for (int i = 0; i < legacyTie.MeshesCount; i++)
         {
-            ref TieMesh m = ref legacyTie.Meshes[i];
-            var slice = SliceLightmapUVs(legacyTie.LightmapUVs, m.verticesIndex, m.verticesCount);
-            if (slice is null || !LooksLikeUnwrap(m, slice)) continue;
+            ref TieMesh mesh = ref legacyTie.Meshes[i];
 
+            // Neither engine addresses the compact Half2 secondary stream with +0x04, which is the
+            // primary VertexFormat0 index: a primitive's window starts at its +0x06. Old engine:
+            // file/corpus/geometry proof across nine ToD levels, gated by a non-zero +0x0E. New
+            // engine: read in the QForce EBOOT - the TIE renderer binds attribute 4 at
+            // array + primitive[+0x06] * 4 and the bake only for primitives whose +0x0E bit 0 is set
+            // (NewEngineBakedLighting). The game binds every such window, so the new engine only
+            // refuses what cannot be sampled at all; the old engine still has to find its array
+            // before trusting it, hence its range check and area correlation.
+            bool lightmapped = legacyTie.isOld
+                ? mesh.UsesOldSecondaryUv()
+                : NewEngineBakedLighting.IsLightmappedPrimitive(mesh);
+            if (!lightmapped)
+                continue;
+
+            ushort secondaryUvIndex = mesh.GetOldSecondaryUvIndex();
+            var rawSlice = SliceLightmapUVs(legacyTie.LightmapUVs, secondaryUvIndex, mesh.verticesCount,
+                requireUnitRange: legacyTie.isOld);
+            if (rawSlice is null) continue;
+
+            if (legacyTie.isOld && ClassifyUnwrap(mesh, rawSlice) != LightmapUvValidation.Confirmed)
+                continue;
+
+            perMeshLightmapUVs[i] = rawSlice;
             tieLightmapUVs ??= new float[legacyTie.LightmapUVs!.Length];
-            Array.Copy(slice, 0, tieLightmapUVs, m.verticesIndex * 2, slice.Length);
+            Array.Copy(rawSlice, 0, tieLightmapUVs, secondaryUvIndex * 2, rawSlice.Length);
         }
 
         for (int i = 0; i < legacyTie.MeshesCount; i++)
         {
-            meshes.Add(ConvertTieMesh(legacyTie.Meshes[i], scaleVec, legacyTie, tieLightmapUVs));
+            meshes.Add(ConvertTieMesh(legacyTie.Meshes[i], scaleVec, legacyTie, perMeshLightmapUVs[i], i));
         }
 
         var debugName = _debugReader.GetTiePrototypeName(legacyTie.TUID);
@@ -128,23 +148,37 @@ public sealed class TieReader
         }
     }
 
-    /// <summary>Minimum correlation for a UV window to be accepted as a real unwrap of its mesh.</summary>
+    /// <summary>Rejected below this: a mesh's UV window has to actually behave like an unwrap of
+    /// THIS mesh, not merely decode in range. Measured over metropolis's 494 testable tie meshes the
+    /// score's median is 0.874, so 0.5 sits far below the real population and cuts the windows that
+    /// pass the range check by luck and would otherwise repeat the bake across the surface.</summary>
     private const double MinUnwrapCorrelation = 0.5;
 
-    /// <summary>Below this many usable triangles the correlation is noise, so the mesh is accepted
-    /// untested rather than discarded.</summary>
+    /// <summary>Below this many usable triangles the correlation is too noisy to prove the window.
+    /// Such meshes are now UNKNOWN, not automatically accepted: accepting them was equivalent to
+    /// saying "we cannot prove these are lightmap UVs, therefore they are lightmap UVs".</summary>
     private const int MinTrianglesToTest = 40;
 
-    /// <summary>Tests whether a UV window is a real unwrap of this mesh: a lightmap packer allocates
-    /// texels roughly in proportion to world-space surface area, so per-triangle log(UV area) should
-    /// correlate with log(3D area) for a genuine unwrap but not for unrelated bytes. Does not
-    /// distinguish a lightmap unwrap from an albedo unwrap - only real-for-this-mesh from
-    /// not-for-this-mesh. Uses raw int16 positions; any per-axis scale only shifts the intercept.</summary>
-    private static bool LooksLikeUnwrap(in TieMesh mesh, float[] uvs)
+    private enum LightmapUvValidation
+    {
+        Invalid,
+        Unknown,
+        Confirmed,
+    }
+
+    /// <summary>Classifies whether this UV window unwraps THIS mesh. A lightmap packer allocates texels
+    /// roughly in proportion to surface area, so per-triangle log(UV area) tracks log(3D area).
+    ///
+    /// Confirmed means the correlation is strong enough to safely bind the per-instance bake.
+    /// Unknown means there was not enough information to prove it. Unknown deliberately does NOT bind
+    /// a lightmap until the remaining Half2-vs-vertex-bake shader usage is decoded.
+    /// Invalid means the geometry/indices contradict the candidate or the correlation is bad.</summary>
+    private static LightmapUvValidation ClassifyUnwrap(in TieMesh mesh, float[] uvs)
     {
         var verts = mesh.vertices;
         var indices = mesh.indices;
-        if (verts is null || indices is null) return true;
+        if (verts is null || indices is null)
+            return LightmapUvValidation.Unknown;
 
         int vertexCount = mesh.verticesCount;
         double sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
@@ -153,7 +187,8 @@ public sealed class TieReader
         for (int t = 0; t + 2 < indices.Length; t += 3)
         {
             int i0 = indices[t], i1 = indices[t + 1], i2 = indices[t + 2];
-            if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) return true;
+            if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+                return LightmapUvValidation.Invalid;
 
             var (ax, ay, az) = verts[i0].position;
             var (bx, by, bz) = verts[i1].position;
@@ -178,51 +213,123 @@ public sealed class TieReader
             n++;
         }
 
-        if (n < MinTrianglesToTest) return true;
+        if (n < MinTrianglesToTest)
+            return LightmapUvValidation.Unknown;
 
         double cov = sxy - sx * sy / n;
         double varX = sxx - sx * sx / n;
         double varY = syy - sy * sy / n;
-        if (varX <= 0 || varY <= 0) return true;
+        if (varX <= 0 || varY <= 0)
+            return LightmapUvValidation.Invalid;
 
-        return cov / Math.Sqrt(varX * varY) >= MinUnwrapCorrelation;
+        double correlation = cov / Math.Sqrt(varX * varY);
+        return correlation >= MinUnwrapCorrelation
+            ? LightmapUvValidation.Confirmed
+            : LightmapUvValidation.Invalid;
     }
 
-    private IMesh ConvertTieMesh(TieMesh legacyMesh, System.Numerics.Vector3 scale, Objects.Tie tie, float[]? tieLightmapUVs)
+    private IMesh ConvertTieMesh(TieMesh legacyMesh, System.Numerics.Vector3 scale, Objects.Tie tie, float[]? lightmapUVs, int meshIndex)
     {
-        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlpha);
+        legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlpha, out var bakedLightScales);
 
-        // The tie's lightmap UV array is indexed over its WHOLE vertex buffer, so each mesh takes
-        // the window starting at its own verticesIndex (see ITie.GetLightmapUVs). tieLightmapUVs is
-        // already the validated array, so this slice can't fail the range check a second time.
-        var lightmapUVs = SliceLightmapUVs(tieLightmapUVs, legacyMesh.verticesIndex, legacyMesh.verticesCount);
+        // Two-layer primitive: the second material, its mask, and the per-vertex blend weight the
+        // programs compare with the mask (TEX1.y = low 7 bits of |position.w| / 128).
+        IMaterial? secondMaterial = null;
+        ITexture? blendMask = null;
+        if (!legacyMesh.isOld && tie.SecondShaderIndices is { } seconds && meshIndex < seconds.Length &&
+            seconds[meshIndex] != 0xFFFF && tie.ShaderTUIDs != null &&
+            tie.BlendMaskIndices is { } maskIndices && tie.BlendMasks is { } masks &&
+            maskIndices[meshIndex] < masks.Length && masks[maskIndices[meshIndex]] is { } mask)
+        {
+            secondMaterial = _materialReader.GetMaterialForLocalIndex(tie.ShaderTUIDs, seconds[meshIndex]);
+            blendMask = mask;
+            vertexAlpha = new float[legacyMesh.verticesCount];
+            for (int k = 0; k < vertexAlpha.Length; k++)
+                vertexAlpha[k] = (Math.Abs((int)legacyMesh.vertices[k].boneIndex) & 0x7F) / 128f;
+        }
+        // Tools of Destruction: primitive +0x2A / +0x0A into 0x5000 / 0x5700. The vertex weight is 127/128 on
+        // all 5 884 vertices of the 71 retail two-layer primitives, so the shader takes it as that constant.
+        else if (legacyMesh.isOld && tie.SecondShaderIndices is { } oldSeconds && meshIndex < oldSeconds.Length &&
+                 oldSeconds[meshIndex] != 0xFFFF && tie.BlendMaskIndices is { } oldMasks &&
+                 _materialReader.GetOldBlendMask(oldMasks[meshIndex]) is { } oldMask)
+        {
+            secondMaterial = _materialReader.GetMaterialByIndex(oldSeconds[meshIndex]);
+            blendMask = oldMask;
+        }
 
-        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, vertexAlpha: vertexAlpha, lightmapUVs: lightmapUVs);
+        // lightmapUVs is already THIS mesh's validated slice. Do not re-slice a reconstructed
+        // tie-wide array here: doing that is what turned rejected zero-filled regions back into UVs.
+        var geometry = new GeometryData(id: 0, positions: positions, uvs: uvs, indices: indices, normals: normals, tangents: tangents, vertexAlpha: vertexAlpha, lightmapUVs: lightmapUVs, vertexBakedLightScales: bakedLightScales);
 
         IMaterial material = legacyMesh.isOld
             ? _materialReader.GetMaterialByIndex(legacyMesh.oldShaderIndex)
             : _materialReader.GetMaterialForLocalIndex(tie.ShaderTUIDs, legacyMesh.newShaderIndex);
 
-        return new Assets.Geometry.Mesh(geometry, material, "TieMesh", TieMesh.VertexFormatName, legacyMesh.DumpVertex);
+        OldTieShaderUse? shaderUse = null;
+        if (legacyMesh.isOld && material is Assets.Materials.Material oldMaterial)
+        {
+            // PROVEN loader reconstruction. Keep this as data: the terminal edge from
+            // EffectiveUseMask to callback52.arg2.low8 remains OPEN until the passive probe closes it.
+            shaderUse = new OldTieShaderUse(
+                legacyMesh.OldAuthoredShaderUseMask,
+                legacyMesh.OldAuthoredRaw2D,
+                legacyMesh.OldAuthoredRaw2E,
+                legacyMesh.OldAuthoredRaw2F,
+                oldMaterial.OldFeatureFlags,
+                oldMaterial.GameRenderMode,
+                oldMaterial.OldRenderFlags,
+                float.IsFinite(legacyMesh.oldDistanceFadeScale) ? legacyMesh.oldDistanceFadeScale : 0f,
+                float.IsFinite(legacyMesh.oldDistanceFadeBias) ? legacyMesh.oldDistanceFadeBias : 0f,
+                legacyMesh.verticesIndex);
+        }
+
+        return new Assets.Geometry.Mesh(
+            geometry,
+            material,
+            "TieMesh",
+            TieMesh.VertexFormatName,
+            legacyMesh.DumpVertex,
+            oldTieShaderUse: shaderUse)
+        {
+            SourceVertexBase = legacyMesh.isOld ? legacyMesh.verticesIndex : -1,
+            SecondMaterial = secondMaterial,
+            BlendMask = blendMask,
+            // A TIE's 0x5C00 record names the primitive by its vertex index (ToD's level-wide one too).
+            UvAnimation = tie.UvAnimations.TryGetValue(legacyMesh.verticesIndex, out var uv) ? uv : null,
+            NewEngineTiePrimitive = legacyMesh.isOld
+                ? null
+                : new Assets.Geometry.NewEngineTiePrimitive(
+                    legacyMesh.verticesIndex,
+                    legacyMesh.GetOldSecondaryUvIndex(),
+                    legacyMesh.verticesCount,
+                    NewEngineBakedLighting.IsLightmappedPrimitive(legacyMesh),
+                    new System.Numerics.Vector3(
+                        legacyMesh.fadeNormalDistance,
+                        legacyMesh.fadeReflectionDistance,
+                        legacyMesh.fadeDetailDistance),
+                    legacyMesh.newEngineFeatureMask),
+        };
     }
 
-    /// <summary>Copies out one mesh's window of the tie-wide lightmap UV array, or null if this mesh
-    /// has no usable one (renders unlit while siblings still light). Validity is checked per mesh,
-    /// not tie-wide, since not every mesh in a tie carries real UV data at this offset. The check is
-    /// "every value decodes inside [0,1]"; a short or out-of-bounds window returns null rather than a
-    /// partial copy.</summary>
-    private static float[]? SliceLightmapUVs(float[]? tieLightmapUVs, ushort verticesIndex, ushort verticesCount)
+    /// <summary>Copies out one mesh's window of the tie-wide candidate lightmap UV array, or null if
+    /// this mesh has no usable window. This is only the cheap first gate; ClassifyUnwrap then decides,
+    /// on the old engine, whether the range-valid bytes are actually proven to belong to this mesh.
+    /// <paramref name="requireUnitRange"/> keeps the old engine's exact [0,1]; the new engine only
+    /// refuses non-finite values - the console samples its lightmaps CLAMP_TO_EDGE (ADDRESS
+    /// 0x30303 / 0x730303) and binds whatever the primitive's window holds.</summary>
+    private static float[]? SliceLightmapUVs(float[]? tieLightmapUVs, ushort secondaryUvIndex, ushort verticesCount, bool requireUnitRange)
     {
         if (tieLightmapUVs is null || verticesCount == 0) return null;
 
-        int start = verticesIndex * 2;
+        int start = secondaryUvIndex * 2;
         int count = verticesCount * 2;
         if (start < 0 || start + count > tieLightmapUVs.Length) return null;
 
         for (int i = start; i < start + count; i++)
         {
             float f = tieLightmapUVs[i];
-            if (!float.IsFinite(f) || f < 0f || f > 1f) return null;
+            if (!float.IsFinite(f)) return null;
+            if (requireUnitRange && (f < 0f || f > 1f)) return null;
         }
 
         var slice = new float[count];

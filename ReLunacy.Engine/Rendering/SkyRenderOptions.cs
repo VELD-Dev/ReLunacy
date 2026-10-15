@@ -16,6 +16,7 @@ public static class SkyRenderOptions
     public static VkSkyScene? Scene { get; private set; }
 
     private static LevelData? _sceneLevel;
+    private static AssetManager? _sceneAssets;
     private static VulkanRenderer? _attachedRenderer;
     private static VkSkyScene? _attachedScene;
 
@@ -90,6 +91,18 @@ public static class SkyRenderOptions
         }
 
         SyncLevel(level);
+
+        // The packet points at textures of the AssetManager it was built with. A level reload can build it
+        // while the PREVIOUS level's AssetManager is still live (the new LevelData is published first), and
+        // DoLoadEntitiesCheck then disposes that manager: attaching the packet to the new renderer made
+        // vkCreateImageView read destroyed images (0xC0000005 in CreateSkyDescriptors, after every
+        // new-engine Create / structural edit). Rebuild against the manager in use.
+        if (!ReferenceEquals(_sceneAssets, assets))
+        {
+            Scene = null;
+            _visibleSky = null;
+            _sceneAssets = assets;
+        }
 
         // A renderer can be recreated for resize/level-view reasons while the decoded Sky packet stays
         // valid. Attach the already-built packet exactly once to each renderer instance. The clear colour
@@ -166,7 +179,12 @@ public static class SkyRenderOptions
         if (scene == null) return;
 
         CaptureEditorClear(renderer);
-        renderer.SetSky(scene);
+        // A level reload keeps drawing the previous level on the same renderer while the new LevelData is
+        // published (SyncLevel then forgets which renderer it attached): that renderer already draws a sky,
+        // and SetSky would destroy it under a frame in flight (0xC0000005 in vkQueueSubmit). Swap it at the
+        // next frame instead, the way the Sky menu does.
+        if (renderer.HasSky) renderer.ReplaceSky(scene);
+        else renderer.SetSky(scene);
         _attachedRenderer = renderer;
         _attachedScene = scene;
         Console.WriteLine("Sky: packet attached to the main Vulkan renderer; direct opaque-pass rendering active.");

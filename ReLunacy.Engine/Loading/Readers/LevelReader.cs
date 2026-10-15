@@ -29,12 +29,19 @@ public sealed class LevelReader
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
     private IReadOnlyList<Assets.Sky.LevelSky>? _skies;
+    private Assets.Lighting.LevelFog? _levelFog;
+
+    private readonly Games.GameDefinition? _gameDefinition;
 
     public LevelReader(FileManager fileManager)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
+        _gameDefinition = Games.GameDefinitions.FromLevelPath(fileManager.SourcePath);
         _textureShaderLoader = new TextureShaderLoader(fileManager);
-        _materialReader = new MaterialReader(_textureShaderLoader);
+        _materialReader = new MaterialReader(_textureShaderLoader)
+        {
+            CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
+        };
         _debugReader = new DebugReader(fileManager);
     }
 
@@ -72,7 +79,10 @@ public sealed class LevelReader
 
             if (loadZones)
             {
-                _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader);
+                _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader)
+                {
+                    CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
+                };
 
                 progressCallback?.Invoke("Loading Zones...", 0.6f);
                 _zones = _zoneReader.ReadAllZones();
@@ -101,11 +111,25 @@ public sealed class LevelReader
         progressCallback?.Invoke("Loading Sky...", 0.91f);
         _skies = new SkyReader(_fileManager, _materialReader, _region?.Name).ReadAll();
 
-        // Old engine only (section 0x5920). Independent of geometry, same as foliage.
-        _cubemaps = new CubemapReader(_fileManager).ReadAll();
+        // Old engine: section 0x5920. New engine: the region's cubemaps.dat resources.
+        _cubemaps = new CubemapReader(_fileManager, _region?.Name).ReadAll();
 
-        // Old-engine analytic lighting environment (section 0x8b00) - the game's real sun/ambient.
-        _lightingEnvironment = new LightingEnvironmentReader(_fileManager).Read();
+        // The game's analytic lighting: old-engine section 0x8b00; new engine region.dat's sun
+        // presentation, with its camera clip, fog and inscatter tables and atmosphere.
+        _lightingEnvironment = new LightingEnvironmentReader(_fileManager).Read()
+            ?? LightingEnvironmentReader.ReadNewEngineSunPresentation(_fileManager, _region?.Name);
+        if (_lightingEnvironment is not null)
+        {
+            _lightingEnvironment.CameraClip = LightingEnvironmentReader.ReadNewEngineCameraClip(_fileManager, _region?.Name);
+            _lightingEnvironment.FogTable = LightingEnvironmentReader.ReadNewEngineFogTable(_fileManager, _region?.Name);
+            _lightingEnvironment.InscatterTable = LightingEnvironmentReader.ReadNewEngineInscatterTable(_fileManager, _region?.Name);
+            _lightingEnvironment.Atmosphere = LightingEnvironmentReader.ReadNewEngineAtmosphere(_fileManager, _region?.Name);
+        }
+
+        // Old engine: main.dat 0x7100, the level's fog and bloom.
+        _levelFog = new LevelFogReader(_fileManager).Read();
+        if (_fileManager.isOld && _lightingEnvironment != null && _levelFog?.Bloom is { } oldBloom)
+            _lightingEnvironment.Bloom = oldBloom;
 
         progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
@@ -123,13 +147,21 @@ public sealed class LevelReader
             debugReader: _debugReader,
             allTextures: allTextures,
             shaders: _textureShaderLoader.Shaders,
-            zoneLightmaps: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps),
-            zoneDirectionals: _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals),
+            // Old engine: main.dat 0x5400 / 0x5410. New engine: every zone's pairs, read from
+            // lighting.dat by ZoneReader and indexed the way its placements address them.
+            zoneLightmaps: _fileManager.isOld
+                ? _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps)
+                : _zoneReader?.NewZoneLightmaps ?? [],
+            zoneDirectionals: _fileManager.isOld
+                ? _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals)
+                : _zoneReader?.NewZoneDirectionals ?? [],
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
             foliages: _foliages,
             cubemaps: _cubemaps,
             lightingEnvironment: _lightingEnvironment,
-            skies: _skies);
+            skies: _skies,
+            gameDefinition: _gameDefinition,
+            levelFog: _levelFog);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -190,6 +222,14 @@ public sealed class LevelData
     /// new engine (several on some All 4 One regions). Empty when the level has none.</summary>
     public IReadOnlyList<Assets.Sky.LevelSky> Skies { get; }
 
+    /// <summary>Old engine: main.dat 0x7100, the level's fog (and bloom). Null on the new engine,
+    /// whose fog lives in <see cref="LightingEnvironment"/>.</summary>
+    public Assets.Lighting.LevelFog? LevelFog { get; }
+
+    /// <summary>The game the level belongs to, when its name is one a game lists (see
+    /// Games.GameDefinitions.FromLevelPath); null otherwise.</summary>
+    public Games.GameDefinition? GameDefinition { get; }
+
     /// <summary>The first of <see cref="Skies"/>: the sky retail shows before any set_sky().</summary>
     public Assets.Sky.SkyData Sky => Skies.Count != 0 ? Skies[0].Data : Assets.Sky.SkyData.Empty;
 
@@ -208,7 +248,9 @@ public sealed class LevelData
         IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,
         IReadOnlyList<Assets.Cubemaps.Cubemap>? cubemaps = null,
         Assets.Lighting.LightingEnvironment? lightingEnvironment = null,
-        IReadOnlyList<Assets.Sky.LevelSky>? skies = null)
+        IReadOnlyList<Assets.Sky.LevelSky>? skies = null,
+        Games.GameDefinition? gameDefinition = null,
+        Assets.Lighting.LevelFog? levelFog = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -225,5 +267,7 @@ public sealed class LevelData
         Cubemaps = cubemaps ?? [];
         LightingEnvironment = lightingEnvironment;
         Skies = skies ?? [];
+        GameDefinition = gameDefinition;
+        LevelFog = levelFog;
     }
 }

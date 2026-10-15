@@ -44,8 +44,13 @@ public sealed unsafe partial class VulkanRenderer
 
     private VkShaderModule _skyVs;
     private VkShaderModule _skyFs;
+    private VkShaderModule _skyBloomFs;
     private VkPipelineLayout _skyLayout;
     private VkPipeline _pipelineSky;
+    // With the old engine's bloom on (DestinationAlphaGlow) the Sky writes the retail destination alpha,
+    // the bloom's glow mask: Color shells and the Dome through these variants, Bloom shells (passes 16/19)
+    // only then.
+    private VkPipeline _pipelineSkyGlow, _pipelineSkyBloom, _pipelineSkyDomeGlow;
 
     private VkShaderModule _skyDomeVs;
     private VkShaderModule _skyDomeFs;
@@ -56,12 +61,15 @@ public sealed unsafe partial class VulkanRenderer
 
     private const string SkyVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; };
+// (phase, rotation +0x10, rotation +0x14, Bloom shell factor SkyDefs +0xE0)
 layout(push_constant) uniform SkyPC { vec4 uSky0; };
 layout(location = 0) in vec4 inSkyPos;
 layout(location = 1) in vec4 inSkyColor;
 layout(location = 2) in vec2 inSkyUv;
 layout(location = 0) out vec2 fUv;
 layout(location = 1) out vec4 fColor;
+layout(location = 2) out vec3 fViewDir;
+layout(location = 3) out vec3 fWorldDir;
 void main() {
     // Retail shell vertices are HALF4 and the RSX VP performs DP4s on all four authored
     // components, so the authored position is a genuine homogeneous point. Carry W through the
@@ -76,20 +84,26 @@ void main() {
     float sy = sin(uSky0.z), cy = cos(uSky0.z);
     p.xyz = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
     vec4 viewPos = vec4(mat3(uView) * p.xyz, p.w);
+    fViewDir = viewPos.xyz;
+    fWorldDir = p.xyz;
     gl_Position = uProj * viewPos;
     // Pin depth to the far plane after projection, matching the recovered VP (DP4 with c35 into both
     // HPOS.z and HPOS.w) and the pass-17 Clouds stage. Only z is touched, so the mapping is unchanged;
     // depth test and write are off for this pass. Retail shell radii are 1.0..3.6 (2026-09-16 corpus
     // census), so this is contract consistency, not a clipping fix. Authored W is 1.0 corpus-wide.
-    gl_Position.z = gl_Position.w;
+    // The renderer's depth is reversed (VulkanRenderer.ReverseDepth), so the far plane is z = 0.
+    gl_Position.z = 0.0;
     fUv = inSkyUv;
     fColor = inSkyColor;
 }";
 
     private const string SkyFragmentGlsl = @"#version 450
+" + LightBufferGlsl + NewEngineAtmosphereGlsl + SkyAtmosphereGlsl + @"
 layout(set = 1, binding = 0) uniform sampler2D uSky;
 layout(location = 0) in vec2 fUv;
 layout(location = 1) in vec4 fColor;
+layout(location = 2) in vec3 fViewDir;
+layout(location = 3) in vec3 fWorldDir;
 layout(location = 0) out vec4 outColor;
 void main() {
     // PROVEN (retail Color-shell FP): out = texture(tex0, TEX0) * TEX1, where TEX1 is the vertex
@@ -104,8 +118,34 @@ void main() {
     // opaque overwrite, so a level with 11 ordered shells only ever showed the last one per pixel.
     //
     vec4 texel = texture(uSky, fUv);
-    outColor = vec4(texel.rgb * fColor.rgb, texel.a * fColor.a);
+    outColor = vec4(skyAtmosphere(texel.rgb * fColor.rgb, fViewDir, fWorldDir), texel.a * fColor.a);
 }";
+
+    // Bloom shells, passes 16/19 (FP 63 of the post table 0x100C3660): alpha = texture alpha x SkyDefs
+    // +0xE0 x vertex alpha. The B8 textures' CONTROL1 0x02FF puts the byte in alpha (applied at upload).
+    // Blended ZERO / ONE on colour and SRC_ALPHA / ONE_MINUS_SRC_ALPHA on alpha
+    // (TOD_Sky_Shell_Blend_2026-09-13.md): only the glow mask changes.
+    private const string SkyBloomFragmentGlsl = @"#version 450
+layout(push_constant) uniform SkyPC { vec4 uSky0; };
+layout(set = 1, binding = 0) uniform sampler2D uSky;
+layout(location = 0) in vec2 fUv;
+layout(location = 1) in vec4 fColor;
+layout(location = 0) out vec4 outColor;
+void main() {
+    outColor = vec4(0.0, 0.0, 0.0, clamp(texture(uSky, fUv).a * uSky0.w * fColor.a, 0.0, 1.0));
+}";
+
+    private const string SkyAtmosphereGlsl = @"
+// The game's atmosphere pass reaches the sky at the cleared depth: t = 1 and d = far x |ray| (view ray
+// with z = 1). The sky's output is display-encoded: decoded, fogged, encoded back.
+vec3 skyAtmosphere(vec3 c, vec3 viewDir, vec3 worldDir) {
+    if (!newEngineAtmosphereOn() || uAtmPhase.w <= 0.0) return c;
+    float rayLength = length(viewDir) / max(abs(viewDir.z), 1e-4);
+    vec3 lin = pow(max(c, vec3(0.0)), vec3(2.2));
+    lin = newEngineAtmosphere(lin, rayLength / uAtmPhase.w, worldDir);
+    return pow(max(lin, vec3(0.0)), vec3(1.0 / 2.2));
+}
+";
 
     private const string SkyDomeVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; };
@@ -115,12 +155,16 @@ layout(location = 1) in vec4 inDomeColor;
 layout(location = 2) in vec2 inDomeProjected;
 layout(location = 0) out vec4 fColor;
 layout(location = 1) out float fBlend;
+layout(location = 2) out vec3 fViewDir;
+layout(location = 3) out vec3 fWorldDir;
 void main() {
     // Same contract as the SkyShell and Clouds stages: carry the generated homogeneous W and pin
     // depth to the far plane so the Dome cannot be near/far clipped by the editor camera.
     vec4 viewPos = vec4(mat3(uView) * inDomePos.xyz, inDomePos.w);
+    fViewDir = viewPos.xyz;
+    fWorldDir = inDomePos.xyz;
     vec4 clip = uProj * viewPos;
-    gl_Position = vec4(clip.x, clip.y, clip.w, clip.w);
+    gl_Position = vec4(clip.x, clip.y, 0.0, clip.w); // far plane of the reversed depth
     fColor = inDomeColor;
     // PROVEN (retail Dome VP, RPCS3 cache + EBOOT): TEX4.x = saturate((pos.y - c42.x) * c42.y).
     // The SkyDefs gradient only spans part of the Dome, so without the saturate the fragment mix
@@ -130,19 +174,27 @@ void main() {
 }";
 
     private const string SkyDomeFragmentGlsl = @"#version 450
+" + LightBufferGlsl + NewEngineAtmosphereGlsl + SkyAtmosphereGlsl + @"
 layout(push_constant) uniform DomePC { vec4 uC42; vec4 uC0; };
 layout(location = 0) in vec4 fColor;
 layout(location = 1) in float fBlend;
+layout(location = 2) in vec3 fViewDir;
+layout(location = 3) in vec3 fWorldDir;
 layout(location = 0) out vec4 outColor;
 void main() {
+    // RGBA mix (Dome FP 59): its alpha is the destination alpha the old engine's bloom reads; the
+    // pipeline writes it only then (_pipelineSkyDomeGlow).
     vec4 colour = mix(fColor, uC0, fBlend);
-    outColor = vec4(colour.rgb, 1.0);
+    outColor = vec4(skyAtmosphere(colour.rgb, fViewDir, fWorldDir), clamp(colour.a, 0.0, 1.0));
 }";
 
     /// <summary>
     /// Installs the current authored Sky packet into this renderer. AssetManager calls this immediately
     /// after constructing a renderer, before its first frame, so no in-flight GPU work needs draining.
     /// </summary>
+    /// <summary>Whether this renderer draws a sky packet now (so a new one must go through <see cref="ReplaceSky"/>).</summary>
+    public bool HasSky => _skyScene != null;
+
     public void SetSky(VkSkyScene? scene)
     {
         DestroySkyResources();
@@ -373,11 +425,12 @@ void main() {
         {
             _skyVs = Module(SkyVertexGlsl, ShaderStages.Vertex);
             _skyFs = Module(SkyFragmentGlsl, ShaderStages.Fragment);
+            _skyBloomFs = Module(SkyBloomFragmentGlsl, ShaderStages.Fragment);
 
             VkDescriptorSetLayout* sets = stackalloc VkDescriptorSetLayout[2] { _descLayout, _skyTextureLayout };
             var push = new VkPushConstantRange
             {
-                stageFlags = VkShaderStageFlags.Vertex,
+                stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
                 offset = 0,
                 size = 16,
             };
@@ -429,7 +482,9 @@ void main() {
                 srcAlphaBlendFactor = VkBlendFactor.One,
                 dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcAlpha,
                 alphaBlendOp = VkBlendOp.Add,
-                colorWriteMask = mask,
+                // RGB only: the retail sky leaves alpha - the bloom source - at 0, and with the bloom
+                // off the cleared 1 keeps the viewport opaque.
+                colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B,
             };
             var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
             var info = new VkGraphicsPipelineCreateInfo
@@ -451,6 +506,23 @@ void main() {
             VkPipeline pipeline;
             Check(_api.vkCreateGraphicsPipelines(cache, 1, &info, &pipeline), "vkCreateGraphicsPipelines(sky)");
             _pipelineSky = pipeline;
+
+            // Glow variants: the retail alpha factors, written (TOD_Sky_Shell_Blend_2026-09-13.md).
+            // Color shells: A = 0 x As + Adst (1 - As).
+            blendAttach.srcAlphaBlendFactor = VkBlendFactor.Zero;
+            blendAttach.dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcAlpha;
+            blendAttach.colorWriteMask = mask;
+            Check(_api.vkCreateGraphicsPipelines(cache, 1, &info, &pipeline), "vkCreateGraphicsPipelines(sky glow)");
+            _pipelineSkyGlow = pipeline;
+            // Bloom shells: RGB = RGBdst, A = As As + Adst (1 - As).
+            blendAttach.srcColorBlendFactor = VkBlendFactor.Zero;
+            blendAttach.dstColorBlendFactor = VkBlendFactor.One;
+            blendAttach.srcAlphaBlendFactor = VkBlendFactor.SrcAlpha;
+            blendAttach.dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcAlpha;
+            blendAttach.colorWriteMask = VkColorComponentFlags.A;
+            stages[1].module = _skyBloomFs;
+            Check(_api.vkCreateGraphicsPipelines(cache, 1, &info, &pipeline), "vkCreateGraphicsPipelines(sky bloom)");
+            _pipelineSkyBloom = pipeline;
         }
 
         if (scene.Dome is { HasGeometry: true })
@@ -499,7 +571,8 @@ void main() {
             var blendAttach = new VkPipelineColorBlendAttachmentState
             {
                 blendEnable = false,
-                colorWriteMask = mask,
+                // RGB only, like the shells: alpha is the bloom source.
+                colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B,
             };
             var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
             var info = new VkGraphicsPipelineCreateInfo
@@ -521,6 +594,9 @@ void main() {
             VkPipeline pipeline;
             Check(_api.vkCreateGraphicsPipelines(cache, 1, &info, &pipeline), "vkCreateGraphicsPipelines(skyDome)");
             _pipelineSkyDome = pipeline;
+            blendAttach.colorWriteMask = mask;
+            Check(_api.vkCreateGraphicsPipelines(cache, 1, &info, &pipeline), "vkCreateGraphicsPipelines(skyDome glow)");
+            _pipelineSkyDomeGlow = pipeline;
         }
 
         CreateSkyCloudPipeline(scene);
@@ -540,7 +616,7 @@ void main() {
             _skyDomeVertexBuffer.Handle != 0 &&
             _skyDomeIndexBuffer.Handle != 0)
         {
-            _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _pipelineSkyDome);
+            _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, DestinationAlphaGlow ? _pipelineSkyDomeGlow : _pipelineSkyDome);
             _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _skyDomeLayout, 0, 1, &sceneSet, 0, null);
             VkBuffer vb = _skyDomeVertexBuffer;
             ulong offset = 0;
@@ -564,8 +640,10 @@ void main() {
         int submitted = 0;
 
         // Draws are sorted by retail pass. Insert pass 17 exactly between pre-shell pass 15/16 and
-        // post-shell pass 18/19. Bloom records remain skipped, but they still preserve the ordering
-        // boundary so Clouds are never accidentally moved after post-shell imagery.
+        // post-shell pass 18/19. Bloom records only write the old engine's glow mask, so they are drawn
+        // only with its bloom on; they still preserve the ordering boundary so Clouds are never
+        // accidentally moved after post-shell imagery.
+        bool glow = DestinationAlphaGlow && _pipelineSkyGlow.Handle != 0;
         foreach (var draw in scene.Draws)
         {
             if (!cloudsSubmitted && draw.RetailPassId > SkyData.CloudsPassId)
@@ -574,20 +652,22 @@ void main() {
                 cloudsSubmitted = true;
             }
 
+            bool bloomShell = draw.Bloom &&
+                (draw.RetailPassId == SkyData.BloomPreShellPassId || draw.RetailPassId == SkyData.BloomPostShellPassId);
             if (!canDrawShells ||
-                draw.Bloom ||
-                (draw.RetailPassId != SkyData.ColorPreShellPassId && draw.RetailPassId != SkyData.ColorPostShellPassId) ||
+                (draw.Bloom && !(glow && bloomShell)) ||
+                (!draw.Bloom && draw.RetailPassId != SkyData.ColorPreShellPassId && draw.RetailPassId != SkyData.ColorPostShellPassId) ||
                 draw.TextureSlot < 0 || draw.TextureSlot >= _skyTextureSets.Length)
                 continue;
 
             // Clouds bind a different pipeline/layout and the Dome vertex buffer. Rebind the authored
-            // SkyShell state for every Color draw so pass 18 cannot inherit pass-17 state.
-            BindSkyShellState(sceneSet);
+            // SkyShell state for every draw so pass 18 cannot inherit pass-17 state.
+            BindSkyShellState(sceneSet, draw.Bloom ? _pipelineSkyBloom : glow ? _pipelineSkyGlow : _pipelineSky);
             VkDescriptorSet textureSet = _skyTextureSets[draw.TextureSlot];
             _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _skyLayout, 1, 1, &textureSet, 0, null);
             float phase = (draw.InitialPhase + draw.SpinRate * retailTime) % SkyTwoPi;
-            Vector4 pc = new(phase, draw.Rotation10, draw.Rotation14, 0f);
-            _api.vkCmdPushConstants(_cmd, _skyLayout, VkShaderStageFlags.Vertex, 0, 16, &pc);
+            Vector4 pc = new(phase, draw.Rotation10, draw.Rotation14, scene.BloomShellScale);
+            _api.vkCmdPushConstants(_cmd, _skyLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 16, &pc);
             _api.vkCmdDrawIndexed(_cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
             submitted++;
         }
@@ -607,11 +687,15 @@ void main() {
         DestroySkyCloudResources();
 
         if (_pipelineSky.Handle != 0) _api.vkDestroyPipeline(_pipelineSky);
+        if (_pipelineSkyGlow.Handle != 0) _api.vkDestroyPipeline(_pipelineSkyGlow);
+        if (_pipelineSkyBloom.Handle != 0) _api.vkDestroyPipeline(_pipelineSkyBloom);
         if (_pipelineSkyDome.Handle != 0) _api.vkDestroyPipeline(_pipelineSkyDome);
+        if (_pipelineSkyDomeGlow.Handle != 0) _api.vkDestroyPipeline(_pipelineSkyDomeGlow);
         if (_skyLayout.Handle != 0) _api.vkDestroyPipelineLayout(_skyLayout);
         if (_skyDomeLayout.Handle != 0) _api.vkDestroyPipelineLayout(_skyDomeLayout);
         if (_skyVs.Handle != 0) _api.vkDestroyShaderModule(_skyVs);
         if (_skyFs.Handle != 0) _api.vkDestroyShaderModule(_skyFs);
+        if (_skyBloomFs.Handle != 0) _api.vkDestroyShaderModule(_skyBloomFs);
         if (_skyDomeVs.Handle != 0) _api.vkDestroyShaderModule(_skyDomeVs);
         if (_skyDomeFs.Handle != 0) _api.vkDestroyShaderModule(_skyDomeFs);
 
@@ -632,11 +716,15 @@ void main() {
         if (_skyDomeVbMemory.Handle != 0) _api.vkFreeMemory(_skyDomeVbMemory);
 
         _pipelineSky = default;
+        _pipelineSkyGlow = default;
+        _pipelineSkyBloom = default;
         _pipelineSkyDome = default;
+        _pipelineSkyDomeGlow = default;
         _skyLayout = default;
         _skyDomeLayout = default;
         _skyVs = default;
         _skyFs = default;
+        _skyBloomFs = default;
         _skyDomeVs = default;
         _skyDomeFs = default;
         _skyTextureViews = [];

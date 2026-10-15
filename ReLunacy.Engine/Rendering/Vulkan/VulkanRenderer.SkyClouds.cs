@@ -15,7 +15,7 @@ public sealed unsafe partial class VulkanRenderer
     private VkShaderModule _skyCloudVs;
     private VkShaderModule _skyCloudFs;
     private VkPipelineLayout _skyCloudLayout;
-    private VkPipeline _pipelineSkyCloud;
+    private VkPipeline _pipelineSkyCloud, _pipelineSkyCloudGlow;
     private bool _skyLoggedFirstCloudDraw;
 
     private bool _skyRuntimeStarted;
@@ -113,7 +113,8 @@ void main() {
     // DP4(position,c35) to BOTH HPOS.z and HPOS.w, exactly like the other old-engine Sky stages.
     vec3 viewPos = mat3(uView) * inDomePos.xyz;
     vec4 clip = uProj * vec4(viewPos, inDomePos.w);
-    gl_Position = vec4(clip.x, clip.y, clip.w, clip.w);
+    // Far plane of the renderer's reversed depth (VulkanRenderer.ReverseDepth) is z = 0.
+    gl_Position = vec4(clip.x, clip.y, 0.0, clip.w);
 }";
 
     private const string SkyCloudFragmentGlsl = @"#version 450
@@ -234,7 +235,8 @@ void main() {
             srcAlphaBlendFactor = VkBlendFactor.One,
             dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcAlpha,
             alphaBlendOp = VkBlendOp.Add,
-            colorWriteMask = mask,
+            // RGB only: alpha is the bloom source (VulkanRenderer.Sky.cs).
+            colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B,
         };
         var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
         VkDynamicState* dyn = stackalloc VkDynamicState[2] { VkDynamicState.Viewport, VkDynamicState.Scissor };
@@ -262,6 +264,11 @@ void main() {
         VkPipeline pipeline;
         Check(_api.vkCreateGraphicsPipelines(GetPipelineCache(), 1, &info, &pipeline), "vkCreateGraphicsPipelines(skyClouds)");
         _pipelineSkyCloud = pipeline;
+        // With the old engine's bloom on: the retail alpha factors, written (A = Adst (1 - As)).
+        blendAttach.srcAlphaBlendFactor = VkBlendFactor.Zero;
+        blendAttach.colorWriteMask = mask;
+        Check(_api.vkCreateGraphicsPipelines(GetPipelineCache(), 1, &info, &pipeline), "vkCreateGraphicsPipelines(skyClouds glow)");
+        _pipelineSkyCloudGlow = pipeline;
     }
 
     private float UpdateSkyRuntime(VkSkyScene scene)
@@ -318,9 +325,9 @@ void main() {
         }
     }
 
-    private void BindSkyShellState(VkDescriptorSet sceneSet)
+    private void BindSkyShellState(VkDescriptorSet sceneSet, VkPipeline pipeline)
     {
-        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _pipelineSky);
+        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, pipeline);
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _skyLayout, 0, 1, &sceneSet, 0, null);
         VkBuffer shellVb = _skyVertexBuffer;
         ulong shellOffset = 0;
@@ -343,7 +350,8 @@ void main() {
             (uint)clouds.Texture6Slot >= (uint)_skyTextureSets.Length)
             return;
 
-        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _pipelineSkyCloud);
+        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics,
+            DestinationAlphaGlow && _pipelineSkyCloudGlow.Handle != 0 ? _pipelineSkyCloudGlow : _pipelineSkyCloud);
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _skyCloudLayout, 0, 1, &sceneSet, 0, null);
         VkDescriptorSet* textureSets = stackalloc VkDescriptorSet[3]
         {
@@ -387,10 +395,12 @@ void main() {
     private void DestroySkyCloudResources()
     {
         if (_pipelineSkyCloud.Handle != 0) _api.vkDestroyPipeline(_pipelineSkyCloud);
+        if (_pipelineSkyCloudGlow.Handle != 0) _api.vkDestroyPipeline(_pipelineSkyCloudGlow);
         if (_skyCloudLayout.Handle != 0) _api.vkDestroyPipelineLayout(_skyCloudLayout);
         if (_skyCloudVs.Handle != 0) _api.vkDestroyShaderModule(_skyCloudVs);
         if (_skyCloudFs.Handle != 0) _api.vkDestroyShaderModule(_skyCloudFs);
         _pipelineSkyCloud = default;
+        _pipelineSkyCloudGlow = default;
         _skyCloudLayout = default;
         _skyCloudVs = default;
         _skyCloudFs = default;

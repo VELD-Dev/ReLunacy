@@ -30,7 +30,7 @@ public class View3D : DockedFrame
     public bool BakedDebugView { get => lighting.BakedDebugView; set => lighting.BakedDebugView = value; }
     // Cubemap reflection: strength of the (normally near-invisible) reflection term, and a debug
     // view that shows the raw reflection on everything. See LitModelShaderSource's ENVIRONMENT FILL.
-    public float ReflectionIntensity { get; set; } = 0.12f;
+    public float ReflectionIntensity { get; set; } = 1f;
     public bool ReflectionDebugView { get => lighting.ReflectionDebugView; set => lighting.ReflectionDebugView = value; }
     public float ReflectionBase { get => lighting.ReflectionBase; set => lighting.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
@@ -205,9 +205,15 @@ public class View3D : DockedFrame
         // Flat stand-in for the level's environment cubemap (see LevelData.EnvironmentAverage).
         // Intensity stays 0 when the level has no cubemap. Kept well below 1 since the cubemap decode
         // can produce HDR values that wash the scene out at full strength.
-        var env = Core.LunaWindow.Instance.Level?.EnvironmentAverage;
-        lighting.EnvironmentColour = env ?? Vector3.One;
-        lighting.EnvironmentIntensity = env.HasValue ? ReflectionIntensity : 0f;
+        var level = Core.LunaWindow.Instance.Level;
+        bool oldEngine = level?.IsOldEngine == true;
+        lighting.OldEngineMode = oldEngine;
+        // Old engine: the TIE programs reflect the level's cube themselves (Render > Reflections).
+        // New engine: the cubemaps already carry their HDR colour, so no flat average is needed.
+        var env = level?.EnvironmentAverage;
+        lighting.EnvironmentColour = oldEngine ? (env ?? Vector3.One) : Vector3.One;
+        lighting.EnvironmentIntensity = !oldEngine && level is { Cubemaps.Count: > 0 } ? ReflectionIntensity : 0f;
+        lighting.LevelFog = oldEngine ? level?.LevelFog : null;
         // The real cubemap the lit shader samples for reflections, in place of the flat average above.
         // AssetManager always provides one (a 1x1 fallback when the level has none), so the lit
         // effect's set 10 is always bound. See AssetManager.BuildEnvironmentCubemap.
@@ -228,6 +234,15 @@ public class View3D : DockedFrame
             lighting.EnvDirection0 = lights.Count > 0 ? lights[0].Direction : Vector3.UnitY;
             lighting.EnvLight1Colour = lights.Count > 1 ? lights[1].Colour : Vector3.Zero;
             lighting.EnvDirection1 = lights.Count > 1 ? lights[1].Direction : Vector3.UnitY;
+        }
+        else
+        {
+            // View3D survives level switches: clear the previous level's values.
+            lighting.EnvAmbient = Vector3.Zero;
+            lighting.EnvLight0Colour = Vector3.Zero;
+            lighting.EnvDirection0 = Vector3.UnitY;
+            lighting.EnvLight1Colour = Vector3.Zero;
+            lighting.EnvDirection1 = Vector3.UnitY;
         }
 
         // Measures the region the image will occupy and samples the mouse against it, which everything
@@ -272,6 +287,9 @@ public class View3D : DockedFrame
                 // Builds the level's sky packet once its textures are uploaded, attaches it to this
                 // renderer and sets the retail clear colour. Cheap once built.
                 SkyRenderOptions.Enabled = Program.Settings.RenderSky;
+                OldEngineRenderOptions.FogEnabled = Program.Settings.OldEngineFog;
+                OldEngineRenderOptions.ReflectionsEnabled = Program.Settings.OldEngineReflections;
+                Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = Program.Settings.GameShaders;
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(

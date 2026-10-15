@@ -16,6 +16,15 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     public float DisplayDistance { get; init; } = -1f;
     public float UpdateDistance { get; init; } = -1f;
     public ushort LightmapIndex { get; init; } = 0xFFFF;
+    public float? OldBakedLightScale { get; init; }
+    public Vector4? NewEngineBakedLight { get; init; }
+    public ulong NewEngineCubeTuid { get; init; }
+    public byte[]? NewEnginePrelight { get; init; }
+    /// <summary>Old engine: this placement's prelight words, one per vertex of its TIE (see IPlacedInstance).</summary>
+    public byte[]? OldEnginePrelight { get; init; }
+    /// <summary>Record +0x54: where <see cref="NewEnginePrelight"/> starts in the zone's lighting.dat slice.</summary>
+    public uint NewEnginePrelightOffset { get; init; } = 0xFFFFFFFF;
+    public bool NewEnginePrelightBaked { get; init; }
 
     private readonly Matrix4x4? _rawMatrix;
 
