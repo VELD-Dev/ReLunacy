@@ -56,6 +56,10 @@ public class EditorSettings
     public bool RenderFoliage;
     public bool RenderVolumes;
     public bool RenderBoundingSpheres;
+    public bool RenderSky;
+    public bool GameShaders;
+    public bool OldEngineFog;
+    public bool OldEngineReflections;
     public bool MobyDistanceCullingEnabled;
     public float RenderDistance;
     public float CamMoveSpeed;
@@ -154,6 +158,10 @@ public class EditorSettings
         RenderFoliage = true;
         RenderVolumes = true;
         RenderBoundingSpheres = false;
+        RenderSky = true;
+        GameShaders = true;
+        OldEngineFog = true;
+        OldEngineReflections = true;
         MobyDistanceCullingEnabled = true;
         RenderDistance = 3000f;
         CamMoveSpeed = 15f;

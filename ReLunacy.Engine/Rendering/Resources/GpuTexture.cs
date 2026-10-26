@@ -2,16 +2,11 @@ using NeoVeldrid;
 
 namespace ReLunacy.Engine.Rendering.Resources;
 
-/// <summary>A decoded texture and its full mip chain, in main memory, ready to be uploaded.
-///
-/// Split out from <see cref="GpuTexture"/> so the expensive half (plain arithmetic over byte arrays)
-/// can be parallelised off the main thread, leaving only the upload itself on the device thread.</summary>
+/// <summary>A decoded texture and its full mip chain, in main memory, ready to be uploaded.</summary>
 public sealed class TextureLevels
 {
     public uint Width { get; }
     public uint Height { get; }
-
-    /// <summary>Mip levels from largest to smallest. Level 0 is the source image.</summary>
     public byte[][] Levels { get; }
 
     private TextureLevels(uint width, uint height, byte[][] levels)
@@ -21,11 +16,11 @@ public sealed class TextureLevels
         Levels = levels;
     }
 
-    /// <param name="rgba">Tightly packed RGBA8, width * height * 4 bytes.</param>
-    /// <param name="mipmap">Off for anything sampled at a fixed scale (lightmap atlases, UI previews),
-    /// where a chain is wasted memory and bleeds across atlas cells.</param>
     public static TextureLevels Prepare(uint width, uint height, byte[] rgba, bool mipmap = true)
     {
+        if (ReLunacy.Engine.Rendering.TextureUploadPreparer.TryConsumeAuthored(rgba, out var authored))
+            return authored;
+
         ArgumentOutOfRangeException.ThrowIfZero(width);
         ArgumentOutOfRangeException.ThrowIfZero(height);
         if (rgba.Length < (long)width * height * 4)
@@ -37,13 +32,32 @@ public sealed class TextureLevels
 
         uint lw = width, lh = height;
         for (uint mip = 1; mip < count; mip++)
-        {
             levels[mip] = Downsample(levels[mip - 1], lw, lh, out lw, out lh);
+        return new TextureLevels(width, height, levels);
+    }
+
+    public static TextureLevels FromAuthored(uint width, uint height, IReadOnlyList<byte[]> authoredLevels)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(width);
+        ArgumentOutOfRangeException.ThrowIfZero(height);
+        if (authoredLevels.Count == 0)
+            throw new ArgumentException("At least one authored mip level is required.", nameof(authoredLevels));
+
+        var levels = new byte[authoredLevels.Count][];
+        uint w = width, h = height;
+        for (int mip = 0; mip < authoredLevels.Count; mip++)
+        {
+            int expected = checked((int)(w * h * 4));
+            var src = authoredLevels[mip] ?? throw new ArgumentException($"Authored mip {mip} is null.", nameof(authoredLevels));
+            if (src.Length != expected)
+                throw new ArgumentException($"Authored mip {mip} is {src.Length} bytes; expected {expected} for {w}x{h} RGBA8.", nameof(authoredLevels));
+            levels[mip] = src;
+            w = Math.Max(1u, w / 2);
+            h = Math.Max(1u, h / 2);
         }
         return new TextureLevels(width, height, levels);
     }
 
-    /// <summary>A full chain down to 1x1, which is what a sampler with no LOD clamp expects to find.</summary>
     private static uint CountMipLevels(uint width, uint height)
     {
         uint levels = 1;
@@ -56,17 +70,10 @@ public sealed class TextureLevels
         return levels;
     }
 
-    /// <summary>Box filter over each 2x2 block.
-    ///
-    /// Two paths on purpose. Even dimensions (every texture this game actually ships, being powers of
-    /// two) need no bounds handling at all, so the inner loop is four straight reads. Odd dimensions
-    /// halve down to the floor and clamp, which drops the last row or column; exact enough, and it is
-    /// the case that never happens on real content.</summary>
     private static byte[] Downsample(byte[] src, uint width, uint height, out uint outWidth, out uint outHeight)
     {
         outWidth = Math.Max(1u, width / 2);
         outHeight = Math.Max(1u, height / 2);
-
         var dst = new byte[outWidth * outHeight * 4];
         bool exact = width >= 2 && height >= 2 && (width & 1) == 0 && (height & 1) == 0;
 
@@ -81,7 +88,6 @@ public sealed class TextureLevels
             {
                 uint sx0 = exact ? x * 2 : Math.Min(x * 2, width - 1);
                 uint sx1 = exact ? sx0 + 1 : Math.Min(sx0 + 1, width - 1);
-
                 uint i00 = (row0 + sx0) * 4, i01 = (row0 + sx1) * 4;
                 uint i10 = (row1 + sx0) * 4, i11 = (row1 + sx1) * 4;
 
@@ -95,68 +101,88 @@ public sealed class TextureLevels
     }
 }
 
-/// <summary>An RGBA8 texture resident on the GPU, with its mip chain.
-///
-/// The one asset type that still owns a real graphics resource, because the renderer samples it
-/// directly. Construction is the upload only: the decoding and mip generation happen in
-/// <see cref="TextureLevels"/>, which can be done on any thread beforehand.</summary>
 public sealed class GpuTexture : IDisposable
 {
-    public uint Width { get; }
-    public uint Height { get; }
-    public uint MipLevels { get; }
+    public uint Width { get; private set; }
+    public uint Height { get; private set; }
+    public uint MipLevels { get; private set; }
     public Texture DeviceTexture { get; private set; }
 
-    /// <summary>Uploads an already-prepared chain. Must run on the thread that owns the device.</summary>
+    private readonly List<Texture> _retiredDeviceTextures = [];
+
     public GpuTexture(GraphicsDevice graphicsDevice, TextureLevels prepared)
         : this(graphicsDevice, prepared.Width, prepared.Height, (uint)prepared.Levels.Length)
     {
         UploadAll(graphicsDevice, prepared);
     }
 
-    /// <summary>Allocates the device texture only - no pixel data yet, so DeviceTexture's content is
-    /// undefined until <see cref="UploadAll"/>/<see cref="UploadMip"/> runs. Lets a caller hand out a
-    /// valid Texture reference immediately and upload mips later, spread across frames - see
-    /// AssetManager.UploadOnePendingTexture.</summary>
     public GpuTexture(GraphicsDevice graphicsDevice, uint width, uint height, uint mipLevels)
     {
         Width = width;
         Height = height;
         MipLevels = mipLevels;
-        DeviceTexture = graphicsDevice.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
-            Width, Height, MipLevels, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
+        DeviceTexture = CreateDeviceTexture(graphicsDevice, Width, Height, MipLevels);
     }
 
-    /// <summary>Uploads every mip of an already-prepared chain in one call - the original, immediate,
-    /// fully-synchronous behaviour, still used for anything not going through the deferred queue.</summary>
+    private static Texture CreateDeviceTexture(GraphicsDevice graphicsDevice, uint width, uint height, uint mipLevels) =>
+        graphicsDevice.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
+            width, height, mipLevels, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
+
     public void UploadAll(GraphicsDevice graphicsDevice, TextureLevels prepared)
     {
-        uint w = Width, h = Height;
-        for (uint mip = 0; mip < MipLevels; mip++)
+        if (prepared.Width != Width || prepared.Height != Height || prepared.Levels.Length != MipLevels)
+            throw new ArgumentException("Prepared texture dimensions/mip count do not match this GPU texture.", nameof(prepared));
+
+        UploadAllTo(graphicsDevice, DeviceTexture, prepared);
+    }
+
+    private static void UploadAllTo(GraphicsDevice graphicsDevice, Texture target, TextureLevels prepared)
+    {
+        uint w = prepared.Width, h = prepared.Height;
+        for (uint mip = 0; mip < (uint)prepared.Levels.Length; mip++)
         {
-            UploadMip(graphicsDevice, mip, prepared.Levels[mip], w, h);
+            graphicsDevice.UpdateTexture(target, prepared.Levels[(int)mip], 0, 0, 0, w, h, 1, mip, 0);
             w = Math.Max(1u, w / 2);
             h = Math.Max(1u, h / 2);
         }
     }
 
-    /// <summary>Uploads exactly one mip level, so a caller can spread a texture's mips (or many
-    /// textures) across multiple frames instead of blocking through all of them at once.</summary>
+    public void Replace(GraphicsDevice graphicsDevice, TextureLevels prepared)
+    {
+        Texture replacement = CreateDeviceTexture(graphicsDevice, prepared.Width, prepared.Height, (uint)prepared.Levels.Length);
+        try
+        {
+            UploadAllTo(graphicsDevice, replacement, prepared);
+        }
+        catch
+        {
+            replacement.Dispose();
+            throw;
+        }
+
+        Texture oldDevice = DeviceTexture;
+        DeviceTexture = replacement;
+        Width = prepared.Width;
+        Height = prepared.Height;
+        MipLevels = (uint)prepared.Levels.Length;
+        _retiredDeviceTextures.Add(oldDevice);
+    }
+
     public void UploadMip(GraphicsDevice graphicsDevice, uint mip, byte[] data, uint mipWidth, uint mipHeight) =>
         graphicsDevice.UpdateTexture(DeviceTexture, data, 0, 0, 0, mipWidth, mipHeight, 1, mip, 0);
 
-    /// <summary>Prepares and uploads in one step, for callers with a single texture and no reason to
-    /// stage the work (previews, the 1x1 fallbacks).</summary>
     public GpuTexture(GraphicsDevice graphicsDevice, uint width, uint height, byte[] rgba, bool mipmap = true)
         : this(graphicsDevice, TextureLevels.Prepare(width, height, rgba, mipmap)) { }
 
-    /// <summary>A 1x1 texture of one colour, for the flat fallbacks every material slot needs bound.</summary>
     public static GpuTexture Solid(GraphicsDevice graphicsDevice, byte r, byte g, byte b, byte a) =>
         new(graphicsDevice, 1, 1, [r, g, b, a], mipmap: false);
 
     public void Dispose()
     {
         DeviceTexture?.Dispose();
+        foreach (Texture retired in _retiredDeviceTextures)
+            retired.Dispose();
+        _retiredDeviceTextures.Clear();
         DeviceTexture = null!;
     }
 }

@@ -2,6 +2,7 @@ using System.Numerics;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using TinyBCSharp;
+using RsxTextureChannelRemap = ReLunacy.Engine.Loading.Textures.RsxTextureChannelRemap;
 
 namespace ReLunacy.Engine.Rendering;
 
@@ -45,77 +46,126 @@ public static class TextureUtils
     private static readonly BlockDecoder Bc1Decoder = BlockDecoder.Create(BlockFormat.BC1);
     private static readonly BlockDecoder Bc2Decoder = BlockDecoder.Create(BlockFormat.BC2);
     private static readonly BlockDecoder Bc3Decoder = BlockDecoder.Create(BlockFormat.BC3);
-    // Unsigned variants; this decode path is generic and shared by plain texture export, so it
-    // makes no normal-map assumptions about BC4/BC5 data.
     private static readonly BlockDecoder Bc4Decoder = BlockDecoder.Create(BlockFormat.BC4U);
     private static readonly BlockDecoder Bc5Decoder = BlockDecoder.Create(BlockFormat.BC5U);
 
     /// <summary>
-    /// Decodes an ITexture's raw (possibly block-compressed) pixel data to a plain RGBA8888 buffer,
-    /// shared by AssetManager and the model exporters. Returns null if the texture has no data or
-    /// an unrecognized format.
+    /// Decodes only the physical texel packing into RGBA8. No RSX channel remap, signed/unsigned
+    /// remap, gamma or sampler state is applied here. This is the lossless inspection boundary a
+    /// texture editor needs: it shows what the payload actually stores before NV4097 sampling state
+    /// changes what the fragment program sees.
     /// </summary>
-    public static byte[]? DecodeToRgba8888(ITexture texture, out int width, out int height)
+    public static byte[]? DecodePhysicalToRgba8888(ITexture texture, out int width, out int height)
     {
-        width = (int)texture.Width;
-        height = (int)texture.Height;
+        width = checked((int)texture.Width);
+        height = checked((int)texture.Height);
         byte[] raw = texture.GetPixelData();
         if (raw.Length == 0)
             return null;
 
-        return texture.Format switch
-        {
-            Assets.Interfaces.TextureFormat.R5G6B5 => RGB565ToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.A1R5G5B5 => A1RGB555ToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.RGBA4 => RGBA4444ToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.A8R8G8B8 => ARGB8888ToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.R8 => R8ToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.G8B8 => G8B8ToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.RGBA16F => RGBA16FToRGBA8888(raw, width, height),
-            Assets.Interfaces.TextureFormat.DXT1 => Bc1Decoder.Decode(width, height, raw),
-            Assets.Interfaces.TextureFormat.DXT3 => Bc2Decoder.Decode(width, height, raw),
-            Assets.Interfaces.TextureFormat.DXT5 => Bc3Decoder.Decode(width, height, raw),
-            Assets.Interfaces.TextureFormat.BC4 => Bc4Decoder.Decode(width, height, raw),
-            Assets.Interfaces.TextureFormat.BC5 => Bc5Decoder.Decode(width, height, raw),
-            _ => null,
-        };
+        return DecodePhysicalToRgba8888(texture.Format, raw, width, height);
+    }
+
+    /// <summary>Physical format decode for one tightly-packed mip level.</summary>
+    internal static byte[]? DecodePhysicalToRgba8888(TextureFormat format, byte[] raw, int width, int height) => format switch
+    {
+        TextureFormat.R5G6B5 => RGB565ToRGBA8888(raw, width, height),
+        TextureFormat.A1R5G5B5 => A1RGB555ToRGBA8888(raw, width, height),
+        TextureFormat.RGBA4 => RGBA4444ToRGBA8888(raw, width, height),
+        TextureFormat.A8R8G8B8 => ARGB8888ToRGBA8888(raw, width, height),
+        TextureFormat.R8 => R8ToRGBA8888(raw, width, height),
+        TextureFormat.G8B8 => G8B8ToRGBA8888(raw, width, height),
+        TextureFormat.RGBA16F => RGBA16FToRGBA8888(raw, width, height),
+        TextureFormat.DXT1 => Bc1Decoder.Decode(width, height, raw),
+        TextureFormat.DXT3 => Bc2Decoder.Decode(width, height, raw),
+        TextureFormat.DXT5 => Bc3Decoder.Decode(width, height, raw),
+        TextureFormat.BC4 => Bc4Decoder.Decode(width, height, raw),
+        TextureFormat.BC5 => Bc5Decoder.Decode(width, height, raw),
+        _ => null,
+    };
+
+    /// <summary>
+    /// Decodes to the logical RGBA sampled by the renderer. For old-engine render assets this applies
+    /// the proven low-16 NV4097 CONTROL1 channel mapping after physical format decode. Signed/unsigned
+    /// ADDRESS remap, gamma and unresolved CONTROL1 high-word overrides deliberately remain outside
+    /// this function until their exact retail semantics are closed.
+    ///
+    /// If the backing asset contains authored mips, the exact lower levels are registered for the
+    /// immediately following TextureLevels.Prepare call instead of being regenerated.
+    /// </summary>
+    public static byte[]? DecodeToRgba8888(ITexture texture, out int width, out int height)
+    {
+        byte[]? decoded = DecodePhysicalToRgba8888(texture, out width, out height);
+        return decoded == null ? null : TextureUploadPreparer.PostprocessDecoded(texture, decoded);
     }
 
     /// <summary>
-    /// This game's normal maps store partial derivatives (dx = -nx/nz, dy = -ny/nz) rather than a
-    /// standard tangent-space (nx,ny,nz) encoding; the game reconstructs the real normal on the GPU
-    /// as n = normalize(vec3(-dx, -dy, 1)).
-    ///
-    /// This reconstructs the real normal from the stored derivatives and repacks it in the
-    /// conventional (nx,ny,nz) encoding, for export only - the live renderer uploads the raw
-    /// derivative bytes untouched.
-    ///
-    /// Layout: the derivatives live in the decoded G and A channels (dx=Alpha, dy=Green); B is
-    /// always constant, R unused.
+    /// Decodes one authored mip level to the same logical RGBA representation used by the renderer.
+    /// Unlike DecodeToRgba8888 this is inspection-only: it does not register an authored chain for a
+    /// later GPU upload, so callers can freely scrub across mip levels without perturbing upload state.
     /// </summary>
+    public static byte[]? DecodeMipmapToRgba8888(ITexture texture, int mipLevel, out int width, out int height)
+    {
+        int mipCount = Math.Max(1, texture.MipmapCount);
+        if ((uint)mipLevel >= (uint)mipCount)
+            throw new ArgumentOutOfRangeException(nameof(mipLevel), mipLevel, $"Texture exposes {mipCount} mip level(s).");
+
+        width = checked((int)texture.Width);
+        height = checked((int)texture.Height);
+        for (int level = 0; level < mipLevel; level++)
+        {
+            width = Math.Max(1, width / 2);
+            height = Math.Max(1, height / 2);
+        }
+
+        byte[] raw = mipLevel == 0 ? texture.GetPixelData() : texture.GetMipmapData(mipLevel);
+        if (raw.Length == 0)
+            return null;
+
+        byte[]? decoded = DecodePhysicalToRgba8888(texture.Format, raw, width, height);
+        return decoded == null ? null : TextureUploadPreparer.ApplyNativeControl1(texture, decoded);
+    }
+
     public static byte[]? ReconstructNormalMap(ITexture texture, out int width, out int height)
     {
         byte[]? rgba = DecodeToRgba8888(texture, out width, out height);
-        if (rgba == null)
-            return null;
+        return rgba == null ? null : ReconstructNormalMapFromLogicalRgba(texture, rgba, width, height);
+    }
+
+    /// <summary>Normal-map reconstruction for one authored mip level.</summary>
+    public static byte[]? ReconstructNormalMap(ITexture texture, int mipLevel, out int width, out int height)
+    {
+        byte[]? rgba = DecodeMipmapToRgba8888(texture, mipLevel, out width, out height);
+        return rgba == null ? null : ReconstructNormalMapFromLogicalRgba(texture, rgba, width, height);
+    }
+
+    private static byte[] ReconstructNormalMapFromLogicalRgba(ITexture texture, byte[] rgba, int width, int height)
+    {
+        // Old-engine normal textures use CONTROL1 to present the derivative pair to the shader as
+        // logical R/G. Proven examples: 0x6AE0 maps DXT5 physical A/G -> logical R/G, while 0x6AF0
+        // maps G8B8's two stored components -> logical R/G. Before CONTROL1 support this exporter
+        // correctly read physical A/G for DXT5; after DecodeToRgba8888 began applying CONTROL1 it
+        // accidentally kept reading A/G and therefore consumed the wrong X component.
+        //
+        // Identity CONTROL1 keeps the legacy physical A/G convention for new-engine/unmapped normal
+        // assets. A Texture Editor can inspect either side explicitly through DecodePhysicalToRgba8888
+        // versus DecodeToRgba8888 instead of guessing which representation it is looking at.
+        bool logicalRemap = texture is Assets.Textures.Texture assetTexture
+            && !RsxTextureChannelRemap.Decode(assetTexture.NativeControl1).IsIdentity;
 
         var result = new byte[rgba.Length];
         int pixelCount = width * height;
         for (int p = 0; p < pixelCount; p++)
         {
             int i = p * 4;
-            float dx = rgba[i + 3] / 255f * 2f - 1f; // A
-            float dy = rgba[i + 1] / 255f * 2f - 1f; // G
-
-            // No sign flip: the derivatives are used directly as (dx, dy, 1), matching the live shader.
+            float dx = rgba[i + (logicalRemap ? 0 : 3)] / 255f * 2f - 1f;
+            float dy = rgba[i + 1] / 255f * 2f - 1f;
             var n = Vector3.Normalize(new Vector3(dx, dy, 1f));
-
             result[i + 0] = (byte)((n.X * 0.5f + 0.5f) * 255f);
             result[i + 1] = (byte)((n.Y * 0.5f + 0.5f) * 255f);
             result[i + 2] = (byte)((n.Z * 0.5f + 0.5f) * 255f);
             result[i + 3] = 255;
         }
-
         return result;
     }
 
@@ -124,10 +174,8 @@ public static class TextureUtils
         const int PixelSize = 4;
         var size = width * height * PixelSize;
         byte[] result = new byte[size];
-
         if (rawData.Length / PixelSize != width * height)
             throw new InvalidOperationException($"Pixel count does not match the raw data size ! ({rawData.Length / PixelSize} pixels, but {width * height} pixels expected)");
-
         for (int i = 0; i < size; i += PixelSize)
         {
             result[i + 0] = rawData[i + 1];
@@ -135,7 +183,6 @@ public static class TextureUtils
             result[i + 2] = rawData[i + 3];
             result[i + 3] = rawData[i + 0];
         }
-
         return result;
     }
 
@@ -150,12 +197,9 @@ public static class TextureUtils
     public static byte[] ColourAsMain(in byte[] rawData, Colours colourFilter)
     {
         const int PixelSize = 4;
-
         if (rawData.Length % PixelSize != 0)
             throw new InvalidOperationException("This image does not have the right count of bytes !");
-
         byte[] result = new byte[rawData.Length];
-
         for (int i = 0; i < rawData.Length; i += PixelSize)
         {
             result[i + 0] = rawData[i + (int)colourFilter];
@@ -163,7 +207,6 @@ public static class TextureUtils
             result[i + 2] = rawData[i + (int)colourFilter];
             result[i + 3] = 0xFF;
         }
-
         return result;
     }
 
@@ -182,50 +225,39 @@ public static class TextureUtils
                     Colours.Alpha => currCol.A,
                     _ => 0,
                 };
-
                 img.SetPixel(x, y, new RgbaColor(pxlCol, pxlCol, pxlCol, 0xFF));
             }
         }
-
         return img;
     }
 
-    /// <summary>Reassembles a big-endian (disk-order) 16-bit pixel from a 2-byte source.</summary>
     private static ushort ReadPixel16(byte[] rawData, int i) => (ushort)((rawData[i * 2] << 8) | rawData[i * 2 + 1]);
-
-    /// <summary>Expands an N-bit channel value to 8 bits by replicating its high bits into the low
-    /// bits (e.g. 5-bit 11111 -> 11111111, not 11111000).</summary>
     private static byte Expand(int value, int bits) => (byte)((value << (8 - bits)) | (value >> (2 * bits - 8)));
 
     public static byte[] RGB565ToRGBA8888(in byte[] rawData, int width, int height)
     {
-        const int Rgb565Ps = 2;
-        const int Rgba8888Ps = 4;
-        var pixelCount = width * height;
-        byte[] result = new byte[width * height * Rgba8888Ps];
-
-        if (rawData.Length / Rgb565Ps != pixelCount)
-            throw new InvalidOperationException($"Pixel count does not match the raw data size ! ({rawData.Length / Rgb565Ps} pixels, but {width * height} expected)");
-
+        const int SrcPs = 2, DstPs = 4;
+        int pixelCount = width * height;
+        byte[] result = new byte[pixelCount * DstPs];
+        if (rawData.Length / SrcPs != pixelCount)
+            throw new InvalidOperationException($"Pixel count does not match the raw data size ! ({rawData.Length / SrcPs} pixels, but {pixelCount} pixels expected)");
         for (int i = 0; i < pixelCount; i++)
         {
             ushort px = ReadPixel16(rawData, i);
-            result[i * Rgba8888Ps + 0] = Expand((px >> 11) & 0x1F, 5);
-            result[i * Rgba8888Ps + 1] = Expand((px >> 5) & 0x3F, 6);
-            result[i * Rgba8888Ps + 2] = Expand(px & 0x1F, 5);
-            result[i * Rgba8888Ps + 3] = 0xFF;
+            result[i * DstPs + 0] = Expand((px >> 11) & 0x1F, 5);
+            result[i * DstPs + 1] = Expand((px >> 5) & 0x3F, 6);
+            result[i * DstPs + 2] = Expand(px & 0x1F, 5);
+            result[i * DstPs + 3] = 0xFF;
         }
-
         return result;
     }
 
-    /// <summary>Bit layout (MSB->LSB) A1 R5 G5 B5. Not independently confirmed against real data.</summary>
+    /// <summary>Native RSX A1R5G5B5 layout (MSB->LSB A1 R5 G5 B5).</summary>
     public static byte[] A1RGB555ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
         int pixelCount = width * height;
         byte[] result = new byte[pixelCount * DstPs];
-
         for (int i = 0; i < pixelCount; i++)
         {
             ushort px = ReadPixel16(rawData, i);
@@ -234,36 +266,31 @@ public static class TextureUtils
             result[i * DstPs + 2] = Expand(px & 0x1F, 5);
             result[i * DstPs + 3] = (byte)(((px >> 15) & 0x1) * 0xFF);
         }
-
         return result;
     }
 
-    /// <summary>Bit layout (MSB->LSB) R4 G4 B4 A4. Unconfirmed against real data.</summary>
+    /// <summary>Native RSX CELL_GCM_TEXTURE_A4R4G4B4 layout (format byte 0x83): A:R:G:B.</summary>
     public static byte[] RGBA4444ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
         int pixelCount = width * height;
         byte[] result = new byte[pixelCount * DstPs];
-
         for (int i = 0; i < pixelCount; i++)
         {
             ushort px = ReadPixel16(rawData, i);
-            result[i * DstPs + 0] = Expand((px >> 12) & 0xF, 4);
-            result[i * DstPs + 1] = Expand((px >> 8) & 0xF, 4);
-            result[i * DstPs + 2] = Expand((px >> 4) & 0xF, 4);
-            result[i * DstPs + 3] = Expand(px & 0xF, 4);
+            result[i * DstPs + 0] = Expand((px >> 8) & 0xF, 4);
+            result[i * DstPs + 1] = Expand((px >> 4) & 0xF, 4);
+            result[i * DstPs + 2] = Expand(px & 0xF, 4);
+            result[i * DstPs + 3] = Expand((px >> 12) & 0xF, 4);
         }
-
         return result;
     }
 
-    /// <summary>Single 8-bit channel, replicated across R/G/B for a legible grayscale view.</summary>
     public static byte[] R8ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
         int pixelCount = width * height;
         byte[] result = new byte[pixelCount * DstPs];
-
         for (int i = 0; i < pixelCount; i++)
         {
             byte v = rawData[i];
@@ -272,36 +299,35 @@ public static class TextureUtils
             result[i * DstPs + 2] = v;
             result[i * DstPs + 3] = 0xFF;
         }
-
         return result;
     }
 
-    /// <summary>byte0=G, byte1=B per the format name's order. Unconfirmed against real data.</summary>
     public static byte[] G8B8ToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int SrcPs = 2, DstPs = 4;
         int pixelCount = width * height;
         byte[] result = new byte[pixelCount * DstPs];
-
+        // The RSX's physical A,R,G,B for G8B8 are G,B,G,B (RPCS3 maps the format's components the same
+        // way): A repeats the G byte and R the B byte. CONTROL1 then picks from them - the normal maps'
+        // 0x2AF0 / 0x6AF0 read A and B - so A must carry data. It used to be a constant 255, which made
+        // every such normal map's x exactly 1 and its z = 1 - |xy|^2 collapse (black ramps in the
+        // retail programs; Docs/reverse/NEW_ENGINE_EMBEDDED_PROGRAMS_2026-10-07.md).
         for (int i = 0; i < pixelCount; i++)
         {
-            result[i * DstPs + 0] = 0;
-            result[i * DstPs + 1] = rawData[i * SrcPs + 0];
-            result[i * DstPs + 2] = rawData[i * SrcPs + 1];
-            result[i * DstPs + 3] = 0xFF;
+            byte g = rawData[i * SrcPs + 0], b = rawData[i * SrcPs + 1];
+            result[i * DstPs + 0] = b;
+            result[i * DstPs + 1] = g;
+            result[i * DstPs + 2] = b;
+            result[i * DstPs + 3] = g;
         }
-
         return result;
     }
 
-    /// <summary>4x 16-bit half-float channels (RGBA), clamped to [0,1] and scaled to 8-bit since the
-    /// output target here is always an LDR buffer. HDR values above 1.0 clip rather than tone-map.</summary>
     public static byte[] RGBA16FToRGBA8888(in byte[] rawData, int width, int height)
     {
         const int DstPs = 4;
         int pixelCount = width * height;
         byte[] result = new byte[pixelCount * DstPs];
-
         for (int i = 0; i < pixelCount; i++)
         {
             for (int c = 0; c < 4; c++)
@@ -312,7 +338,6 @@ public static class TextureUtils
                 result[i * DstPs + c] = (byte)(Math.Clamp(value, 0f, 1f) * 0xFF);
             }
         }
-
         return result;
     }
 }
