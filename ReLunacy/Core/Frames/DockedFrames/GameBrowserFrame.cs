@@ -22,6 +22,16 @@ public class GameBrowserFrame : DockedFrame
     public GameBrowserFrame()
     {
         FrameName = LM.Get("GUI_Frame_GameBrowser");
+
+        // Persisted across both frame reopens and app restarts (EditorSettings.GameBrowserRootPath)
+        // - if a path was scanned before, pick up right where the user left off instead of making
+        // them re-Browse/Paste/Scan it by hand every time this frame opens.
+        var savedPath = LunaWindow.Instance.EditorSettings.GameBrowserRootPath;
+        if (!string.IsNullOrEmpty(savedPath))
+        {
+            rootPathInput = savedPath;
+            Scan();
+        }
     }
 
     protected override void Render(double deltaTime)
@@ -175,6 +185,13 @@ public class GameBrowserFrame : DockedFrame
             statusMessage = "That path doesn't exist.";
             library = null;
             return;
+        }
+
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (settings.GameBrowserRootPath != rootPathInput)
+        {
+            settings.GameBrowserRootPath = rootPathInput;
+            settings.SaveSettingsToFile();
         }
 
         try

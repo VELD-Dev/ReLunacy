@@ -4,10 +4,9 @@ using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.Modals;
 
-/// <summary>Shown when UpdateChecker finds a newer release than the one currently running, on
-/// either update channel (see EditorSettings.UpdateChannel). isNightly changes the wording since
-/// nightly builds don't carry a clean version number, just a commit-hash-and-date identity baked
-/// into the release asset's filename by .github/workflows/nightly.yml.</summary>
+/// <summary>Shown when UpdateChecker finds a newer release than the one currently running.
+/// isNightly switches the wording since nightly builds are identified by commit hash and date
+/// rather than a version number.</summary>
 public class UpdateInfoFrame : Modal
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;

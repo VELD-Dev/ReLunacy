@@ -11,7 +11,8 @@ public sealed class GeometryData : IGeometry
     private readonly float[]? _normals;
     private readonly float[] _tangents;
     private readonly float[]? _lightmapUVs;
-    private readonly float[]? _vertexAlphaCandidates;
+    private readonly float[]? _vertexAlpha;
+    private readonly float[]? _vertexBakedLightScales;
     private readonly uint[] _indices;
     private readonly int[]? _jointIndices;
     private readonly float[]? _jointWeights;
@@ -22,8 +23,8 @@ public sealed class GeometryData : IGeometry
     public bool IsLoaded => true;
 
     public GeometryData(ulong id, float[] positions, float[] uvs, uint[] indices, float[]? normals = null, BoundingSphere? boundingSphere = null,
-        int[]? jointIndices = null, float[]? jointWeights = null, float[]? vertexAlphaCandidates = null, float[]? tangents = null,
-        float[]? lightmapUVs = null)
+        int[]? jointIndices = null, float[]? jointWeights = null, float[]? vertexAlpha = null, float[]? tangents = null,
+        float[]? lightmapUVs = null, float[]? vertexBakedLightScales = null)
     {
         if (positions.Length % 3 != 0)
             throw new ArgumentException("Positions must be in groups of 3 (x,y,z)", nameof(positions));
@@ -44,6 +45,8 @@ public sealed class GeometryData : IGeometry
             throw new ArgumentException("Tangent count must match vertex count");
         if (lightmapUVs != null && lightmapUVs.Length != vertexCount * 2)
             throw new ArgumentException("Lightmap UV count must match vertex count", nameof(lightmapUVs));
+        if (vertexBakedLightScales != null && vertexBakedLightScales.Length != vertexCount)
+            throw new ArgumentException("Baked light scale count must match vertex count", nameof(vertexBakedLightScales));
         if (jointIndices != null && jointIndices.Length != vertexCount * 4)
             throw new ArgumentException("Joint index count must be vertex count * 4", nameof(jointIndices));
         if (jointWeights != null && jointWeights.Length != vertexCount * 4)
@@ -52,19 +55,12 @@ public sealed class GeometryData : IGeometry
         Id = id;
         _positions = positions;
         _uvs = uvs;
-        // Moby/Tie readers now decode real per-vertex normals (VertexFormat0/1's packed signed
-        // 11:11:10 normal word - see PackedNormal) and pass them in. This fallback only fires for
-        // formats that don't carry real normals at all (UFrags currently don't plumb theirs
-        // through either) - computed from the triangle data itself rather than guessed, so it's
-        // still a reasonable substitute where no real data is available.
+        // Falls back to computed normals/tangents when the reader didn't decode real ones.
         _normals = normals ?? GeometryMath.ComputeNormals(positions, indices);
-        // Same idea for tangents: readers pass in the packed tangent word's decode (real
-        // tangent-space data) when they have it, and GeometryMath falls back to deriving one from
-        // UV gradients (and always derives the handedness sign, since the source format never
-        // carries one either way - see GeometryMath.ComputeTangents).
         _tangents = GeometryMath.ComputeTangents(positions, uvs, _normals, indices, tangents);
         _lightmapUVs = lightmapUVs;
-        _vertexAlphaCandidates = vertexAlphaCandidates;
+        _vertexAlpha = vertexAlpha;
+        _vertexBakedLightScales = vertexBakedLightScales;
         _indices = indices;
         _jointIndices = jointIndices;
         _jointWeights = jointWeights;
@@ -74,9 +70,40 @@ public sealed class GeometryData : IGeometry
     public float[] GetVertexPositions() => _positions;
     public float[] GetTextureCoordinates() => _uvs;
     public float[]? GetNormals() => _normals;
+
+    /// <summary>The built tangents: 4 floats per vertex (xyz direction + w handedness).</summary>
     public float[]? GetTangents() => _tangents;
+
+    /// <summary>
+    /// Drops the handedness from a 4-floats-per-vertex tangent array, giving back the
+    /// 3-floats-per-vertex direction this constructor's <c>tangents</c> parameter takes.
+    ///
+    /// The asymmetry is the trap, and it has now bitten twice: tangents are consumed as 3 and
+    /// produced as 4, so anything holding built tangents (<see cref="GetTangents"/>,
+    /// <c>IUFrag.GetTangents()</c>) cannot be fed straight back in. Doing so throws from this
+    /// constructor - as "Tangents must be in groups of 3", or, when the vertex count happens to be a
+    /// multiple of 3 so that 4N still divides by 3, as the far more confusing "Tangent count must
+    /// match vertex count".
+    ///
+    /// Re-deriving w afterwards is lossless: it depends only on the tangent direction, the normal and
+    /// the UV winding, none of which this changes.
+    /// </summary>
+    public static float[]? StripTangentHandedness(float[]? tangentsXyzw)
+    {
+        if (tangentsXyzw == null) return null;
+        int vertexCount = tangentsXyzw.Length / 4;
+        var result = new float[vertexCount * 3];
+        for (int v = 0; v < vertexCount; v++)
+        {
+            result[v * 3 + 0] = tangentsXyzw[v * 4 + 0];
+            result[v * 3 + 1] = tangentsXyzw[v * 4 + 1];
+            result[v * 3 + 2] = tangentsXyzw[v * 4 + 2];
+        }
+        return result;
+    }
     public float[]? GetLightmapUVs() => _lightmapUVs;
-    public float[]? GetVertexAlphaCandidates() => _vertexAlphaCandidates;
+    public float[]? GetVertexAlpha() => _vertexAlpha;
+    public float[]? GetVertexBakedLightScales() => _vertexBakedLightScales;
     public uint[] GetIndices() => _indices;
     public int[]? GetJointIndices() => _jointIndices;
     public float[]? GetJointWeights() => _jointWeights;

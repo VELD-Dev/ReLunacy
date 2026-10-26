@@ -1,8 +1,6 @@
 namespace ReLunacy.Engine.Export;
 
-/// <summary>Shared filename sanitization for exporters - asset/material names routinely contain
-/// path-like characters (e.g. "levels/great_clock_a/entities/.../foo.entity.irb"), which break
-/// file creation if used as-is.</summary>
+/// <summary>Shared filename sanitization for exporters - strips path-like and invalid characters from asset/material names.</summary>
 public static class ExportPaths
 {
     private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();

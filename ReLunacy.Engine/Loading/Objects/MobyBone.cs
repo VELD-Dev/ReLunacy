@@ -3,9 +3,7 @@ using ReLunacy.Engine.Loading.IO;
 
 namespace ReLunacy.Engine.Loading.Objects;
 
-/// <summary>On-disk bone record (8 bytes) - layout confirmed against InsomniaToolset's `Bone`
-/// struct (common/include/insomnia/classes/moby.hpp), which documents the same fields at the same
-/// offsets for both engine generations.</summary>
+/// <summary>On-disk bone record (8 bytes).</summary>
 [FileStructure(0x08)]
 public record struct MobyBone : ILunaSerializable
 {

@@ -11,16 +11,10 @@ namespace ReLunacy.Engine.Export;
 
 public readonly record struct LevelExportOptions(bool ExportMobys, bool ExportTies, bool ExportUFrags);
 
-/// <summary>
-/// Exports an entire loaded level as a single .glb. Unlike single-asset export, this builds each
-/// unique Moby/Tie asset's mesh exactly once and references it from every placed instance's node -
-/// true glTF mesh instancing, so a level with hundreds of copies of the same prop doesn't duplicate
-/// its geometry hundreds of times, and Blender/Unreal show them as linked duplicates (edit one,
-/// every instance updates). Nodes are organized as Mobys/AssetName/Instance and
-/// Zones/ZoneName/{Ties/AssetName,UFrags}/Instance, mirroring the level's own data model instead of
-/// flattening everything into one unstructured mesh soup. UFrags are unique per-placement terrain
-/// geometry (nothing to instance), so they're exported flat under their owning zone.
-/// </summary>
+/// <summary>Exports an entire loaded level as a single .glb. Builds each unique Moby/Tie asset's
+/// mesh once and references it from every placed instance's node (true glTF mesh instancing).
+/// Nodes are organized as Mobys/AssetName/Instance and Zones/ZoneName/{Ties/AssetName,UFrags}/Instance.
+/// UFrags are unique per-placement terrain geometry, so they're exported flat under their zone.</summary>
 public static class LevelExporter
 {
     public static void Export(string filePath, string levelName, EntityManager entityManager, LevelExportOptions options, Action<float>? onProgress = null)
@@ -53,14 +47,8 @@ public static class LevelExporter
                 foreach (var instance in assetGroup)
                 {
                     // Mobys are always exported as static (rigid) meshes at whole-level scope, even
-                    // when their asset has a skeleton - a shared skeletal asset placed more than once
-                    // would need one fresh joint hierarchy per instance, all parented under the same
-                    // level-wide root, and SharpGLTF's armature validation rejects that as soon as two
-                    // instances' bone nodes collide by name (NodeBuilder.IsValidArmature walks the
-                    // whole scene graph under the shared root, not just one instance's joints),
-                    // throwing "Export failed:  (Parameter 'joints')" on any level with a skinned Moby
-                    // placed more than once. Single-asset export (AssetViewer) is unaffected - each
-                    // export there gets its own standalone scene/root.
+                    // when their asset has a skeleton - SharpGLTF's armature validation rejects
+                    // multiple instances of the same skeleton sharing one scene root.
                     AddInstanceNode(sceneBuilder, assetNode, instance.Name, instance.Transform.GetMatrix(), assetMeshes);
                     anyContentAdded = true;
                     ReportProgress();
@@ -152,8 +140,7 @@ public static class LevelExporter
         if (cache.TryGetValue(moby.Id, out var cached))
             return cached;
 
-        // Always the rigid (unskinned) builder - see the comment at this method's call site for why
-        // whole-level export never uses skeletal data, even for Mobys that have one.
+        // Always the rigid (unskinned) builder - see the comment at this method's call site.
         var result = moby.Bangles
             .Select((bangle, i) => string.IsNullOrEmpty(bangle.Name) ? $"Bangle_{i}" : bangle.Name)
             .Zip(moby.Bangles, (name, bangle) => (name, (IMeshBuilder<MaterialBuilder>)GltfExporter.BuildMeshBuilder(name, bangle.Meshes, materialCache)))
@@ -176,9 +163,8 @@ public static class LevelExporter
         return result;
     }
 
-    /// <summary>Adapts IUFrag (which carries geometry+material directly, not split into
-    /// IMesh/IGeometry like Mobys/Ties) so GltfExporter.BuildMeshBuilder can build UFrag terrain
-    /// through the exact same code path - including the "expensive" texture channel mapping.</summary>
+    /// <summary>Adapts IUFrag (which carries geometry+material directly) to IMesh/IGeometry so
+    /// GltfExporter.BuildMeshBuilder can build UFrag terrain through the same code path.</summary>
     private sealed class UFragMeshAdapter(IUFrag ufrag, string name) : IMesh, IGeometry
     {
         public IGeometry Geometry => this;
@@ -195,9 +181,7 @@ public static class LevelExporter
         public float[]? GetNormals() => ufrag.GetNormals();
         public float[]? GetLightmapUVs() => ufrag.GetLightmapUVs();
 
-        // UFrag terrain carries no baked tangent (or, on some readers, even normal) data - derive
-        // both from the triangle/UV data itself via the same fallback GeometryData uses for
-        // formats that don't decode real vertex attributes.
+        // UFrag terrain carries no baked tangent (or, on some readers, normal) data - compute both.
         public float[]? GetTangents()
         {
             var positions = ufrag.GetVertexPositions();
@@ -206,7 +190,7 @@ public static class LevelExporter
             return GeometryMath.ComputeTangents(positions, ufrag.GetTextureCoordinates(), normals, indices, null);
         }
 
-        public float[]? GetVertexAlphaCandidates() => null;
+        public float[]? GetVertexAlpha() => null;
         public uint[] GetIndices() => ufrag.GetIndices();
         public Vector3 GetBoundingCenter() => ufrag.GetBoundingCenter();
         public float GetBoundingRadius() => ufrag.GetBoundingRadius();

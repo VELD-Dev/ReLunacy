@@ -3,8 +3,8 @@ using System.Reflection;
 
 namespace ReLunacy.Engine.Loading.IO;
 
-// Reflection-based struct deserializer emulating C struct layout without marshalling,
-// which would break on pointer-indirected fields. See StreamHelper for the read primitives.
+// Reflection-based struct deserializer emulating C struct layout without marshalling.
+// See StreamHelper for the read primitives.
 
 [AttributeUsage(AttributeTargets.Struct, Inherited = true, AllowMultiple = false)]
 public class FileStructure(uint size) : Attribute
@@ -29,7 +29,7 @@ public class Reference : Attribute
     public Reference(uint count) => _count = count;
 
     // Some array counts require a calculation on the partially-built struct instead of a
-    // literal field (e.g. Moby bangle count), hence a property name rather than a field name.
+    // literal field, hence a property name rather than a field name.
     public uint GetArrayCount(object? instance = null)
     {
         if (_countCalculator == string.Empty) return _count;
@@ -61,11 +61,7 @@ public static class FileUtils
 
             sh.Seek(initialOffset + offset.Offset);
 
-            // Array fields are entirely handled by the second pass below, whose own byte[] branch
-            // reads `count` bytes directly with no pointer indirection at all for a literal/property
-            // [Reference(count)] (only non-byte[] array types there are genuinely pointer-indirected).
-            // Falling through to the Reference check below for an array field would instead read
-            // the field's own first 4 bytes as if they were a pointer and seek to that garbage value.
+            // Array fields are handled entirely by the second pass below.
             if (fields[i].FieldType.IsArray)
             {
                 arrays.Add(fields[i]);

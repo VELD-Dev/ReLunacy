@@ -1,14 +1,9 @@
 namespace ReLunacy.Utility;
 
 /// <summary>Font Awesome 6 Free Solid glyphs, merged into the default ImGui font by ImGuiController.
-/// Use them anywhere ImGui takes text - a label, a button, a menu item - either directly
-/// (<c>ImGui.Text(Icons.Folder)</c>) or combined with text via <see cref="ImGuiPlus.Label"/> /
-/// <see cref="ImGuiPlus.IconButton"/>.
-///
-/// Stored as <c>\uXXXX</c> escapes (all in the Private Use Area the loader whitelists,
-/// 0xE000-0xF8FF) so the source stays ASCII. Every codepoint was verified present in
-/// Assets/Fonts/fa-solid-900.ttf (Font Awesome 6.7.2). To add more: look the icon up on
-/// fontawesome.com (Free + Solid), take its Unicode value, confirm it's in that range.</summary>
+/// Use anywhere ImGui takes text, directly or via <see cref="ImGuiPlus.Label"/> /
+/// <see cref="ImGuiPlus.IconButton"/>. Stored as <c>\uXXXX</c> escapes in the Private Use Area
+/// (0xE000-0xF8FF).</summary>
 public static class Icons
 {
     // General / app

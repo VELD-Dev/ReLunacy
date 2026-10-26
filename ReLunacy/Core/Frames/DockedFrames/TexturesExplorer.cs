@@ -25,11 +25,9 @@ public record struct TextureObject
 
     public readonly string? TextureName => Texture.Name;
 
-    /// <summary>Position in the level's texture table, counted in load order. This is the number
-    /// the file formats reference textures BY - foliage's 0xA200 record, for instance, picks its
-    /// texture with a small integer, not with a TUID or a pointer - so it stays visible even when a
-    /// debug name was recovered, since the name is what a human recognises and this is what the
-    /// data actually says.</summary>
+    /// <summary>Position in the level's texture table, counted in load order - the number the file
+    /// formats reference textures by (e.g. foliage's 0xA200 record). Shown even when a debug name
+    /// was recovered.</summary>
     public readonly int Index;
 
     public readonly ITexture Texture;
@@ -467,11 +465,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     }
 
     // UFrags are baked per-zone terrain, not a browsable asset catalog like Mobys/Ties - the
-    // coherent selection target for one is the scene entity already loaded in the 3D view.
-    // Matched by reference, not Id: IUFrag.Id is only unique within its own zone (ZoneReader
-    // assigns it as a local loop index), so two UFrags from different zones can share an Id -
-    // EntityUFrag.UFrag holds the exact same IUFrag instance from LevelData.Zones though, so
-    // reference equality is the one comparison that's actually unambiguous here.
+    // coherent selection target is the scene entity already loaded in the 3D view. Matched by
+    // reference, not Id: IUFrag.Id is only unique within its own zone.
     private static void SelectUFragInView3D(IUFrag ufrag)
     {
         var entity = EntityManager.Singleton.AllEntities().OfType<EntityUFrag>().FirstOrDefault(e => ReferenceEquals(e.UFrag, ufrag));
@@ -564,14 +559,9 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         if(selectedTexture != -1)
         {
             ImGui.SameLine();
-            // AlwaysVerticalScrollbar: without it, the scrollbar's appearance depends on whether
-            // the Find Usages results (a variable-length list) push content past the visible
-            // height - but the image above is sized from ContentRegionAvail().X, so the
-            // scrollbar showing up shrinks the available width, which shrinks the square image,
-            // which shrinks total content height, which removes the need for a scrollbar next
-            // frame, which grows the image back... an every-frame oscillation. Reserving the
-            // scrollbar's space unconditionally keeps the available width constant regardless of
-            // whether it's actually needed, breaking the feedback loop.
+            // AlwaysVerticalScrollbar: reserves the scrollbar's space unconditionally, since the
+            // preview image is sized from available width and a conditional scrollbar would
+            // otherwise create an every-frame width/height feedback loop.
             if(ImGui.BeginChild("texture_preview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
                 var selection = textureObjects[selectedTexture];
@@ -722,9 +712,6 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         }
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Appearing);
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowPos on first appearance
+    // cancels the dockspace preset's placement, which this frame is a target of ("Texture").
 }

@@ -10,9 +10,7 @@ namespace ReLunacy.Utility;
 /// and this puts the result on the swapchain.</summary>
 public sealed class FullscreenBlit : IDisposable
 {
-    // A single oversized triangle rather than two triangles for a quad: it covers the framebuffer with
-    // no seam down the diagonal, and needs no vertex buffer at all because the three corners are
-    // derived from the vertex index.
+    // Single oversized triangle instead of a quad: no diagonal seam, no vertex buffer needed.
     private const string VertexShader = """
         #version 450
 
@@ -22,9 +20,7 @@ public sealed class FullscreenBlit : IDisposable
         {
             vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
             gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
-            // Clip y = +1 is the top row of the framebuffer here (the device is configured for the
-            // standard clip-space Y direction), while texture v = 0 is the top row of the source, so
-            // the vertical axis has to be flipped or the whole screen presents upside down.
+            // V flipped: clip y=+1 is the top row, texture v=0 is also the top row.
             fsUV = vec2(corner.x, 1.0 - corner.y);
         }
         """;
@@ -65,9 +61,8 @@ public sealed class FullscreenBlit : IDisposable
             new ResourceLayoutElementDescription("SourceSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
     }
 
-    /// <summary>Cached per output format. The swapchain's format is fixed in practice, so this holds one
-    /// pipeline, but the key keeps a second target (a different sample count or colour format) from
-    /// silently reusing an incompatible one.</summary>
+    /// <summary>Pipeline cache keyed per output format, in case a target with a different sample count
+    /// or color format is drawn to.</summary>
     private Pipeline GetPipeline(OutputDescription output)
     {
         if (_pipelines.TryGetValue(output, out var cached)) return cached;

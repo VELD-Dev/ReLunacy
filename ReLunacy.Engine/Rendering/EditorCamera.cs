@@ -2,26 +2,14 @@ using System.Numerics;
 
 namespace ReLunacy.Engine.Rendering;
 
-/// <summary>A look-at camera: position, target, up, and a perspective projection.
-///
-/// Replaces Bliss's Cam3D, whose behaviour this reproduces exactly for the way the editor drives it
-/// (its own Custom mode - the editor moves the camera itself and never used Cam3D's built-in movement
-/// modes). Two differences are deliberate:
-///
-///  - <see cref="Update"/> rebuilds both matrices. Cam3D only rebuilt them inside Begin(), which was a
-///    command-list call, so a view with no command list would silently keep serving the matrices from
-///    whenever it last drew. Nothing here touches the graphics API at all.
-///  - <see cref="GetYaw"/>/<see cref="GetPitch"/> are read straight off the forward vector instead of
-///    round-tripping the view matrix through a quaternion and Euler angles. The callers only ever use
-///    them as Set(Get() - delta), where the absolute value cancels out and only the delta survives, so
-///    this is observably identical while being far better conditioned.</summary>
+/// <summary>A look-at camera: position, target, up, and a perspective projection.</summary>
 public sealed class EditorCamera
 {
     public Vector3 Position;
     public Vector3 Target;
     public Vector3 Up;
 
-    /// <summary>Vertical field of view, in DEGREES (Cam3D's convention, and what the settings store).</summary>
+    /// <summary>Vertical field of view, in degrees.</summary>
     public float Fov;
     public float NearPlane;
     public float FarPlane;
@@ -42,9 +30,8 @@ public sealed class EditorCamera
         Update();
     }
 
-    /// <summary>Right-handed look-at, and a right-handed perspective with +Y up - the same
-    /// System.Numerics calls Cam3D made, so every downstream convention is unchanged (including the
-    /// renderer's negative-height viewport, which is what maps +Y-up clip space onto Vulkan).</summary>
+    /// <summary>Rebuilds the view and projection matrices: right-handed look-at, right-handed
+    /// perspective with +Y up.</summary>
     public void Update()
     {
         _projection = Matrix4x4.CreatePerspectiveFieldOfView(
@@ -63,8 +50,7 @@ public sealed class EditorCamera
 
     public Vector3 GetForward() => Vector3.Normalize(Target - Position);
 
-    /// <summary>Deliberately NOT normalized, matching Cam3D: callers that need a unit vector normalize
-    /// it themselves, and the pitch rotation only uses it as an axis (which gets normalized anyway).</summary>
+    /// <summary>Not normalized; callers that need a unit vector normalize it themselves.</summary>
     public Vector3 GetRight() => Vector3.Cross(GetForward(), Up);
 
     public float GetYaw() => float.RadiansToDegrees(MathF.Atan2(GetForward().X, GetForward().Z));
@@ -82,8 +68,7 @@ public sealed class EditorCamera
     }
 
     /// <summary>Rotates about <see cref="GetRight"/> by (angle - current pitch), clamped so the view
-    /// direction can never reach or cross either pole - that clamp is what stops the camera flipping
-    /// upside down, so it is reproduced exactly (including the 0.001 rad guard band).</summary>
+    /// direction can never reach or cross either pole.</summary>
     public void SetPitch(float angle, bool rotateAroundTarget)
     {
         float delta = float.DegreesToRadians(angle - GetPitch());

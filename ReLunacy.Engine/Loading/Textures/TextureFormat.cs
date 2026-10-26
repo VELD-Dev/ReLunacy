@@ -1,12 +1,8 @@
 namespace ReLunacy.Engine.Loading.Textures;
 
 // Values match the raw 4-bit old-engine format code (TextureMetadataOld's (formatBitfield >> 8) &
-// 0xF) directly, ported from ReLunacy-Ymir's CTexture.TexFormat - that fork's texture handling is
-// confirmed working across formats this enum previously didn't even have members for (R8,
-// A1R5G5B5, BC4, BC5, G8B8), which is why old-engine levels using those formats (e.g. Tools of
-// Destruction's meridian_city) failed to decode. RGBA4/RGBA16F can't come from the old-engine 4-bit
-// mask at all (new-engine only, selected by TextureMetadataNew's format-byte prefix instead), so
-// they keep the fork's original raw byte values (0x83/0x9A) to avoid colliding with 0x00-0x0F.
+// 0xF). RGBA4/RGBA16F are new-engine only (selected via TextureMetadataNew's format-byte prefix)
+// and keep raw byte values 0x83/0x9A to avoid colliding with 0x00-0x0F.
 public enum TextureFormat
 {
     R8 = 0x01,

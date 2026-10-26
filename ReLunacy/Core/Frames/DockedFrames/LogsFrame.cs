@@ -36,9 +36,6 @@ public class LogsFrame : DockedFrame
         ImGui.EndChild();
     }
 
-    public override void RenderAsWindow(double deltaTime)
-    {
-        ImGui.SetNextWindowPos(DefaultPosition, ImGuiCond.Once, new Vector2(0.5f));
-        base.RenderAsWindow(deltaTime);
-    }
+    // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowPos on first appearance
+    // cancels the dockspace preset's placement, which this frame is a target of ("Console"/"Log").
 }

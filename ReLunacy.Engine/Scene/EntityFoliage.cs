@@ -6,17 +6,11 @@ using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 
-/// <summary>One placement of a foliage asset: a batch of camera-facing sprite cards.
+/// <summary>One placement of a foliage asset: a batch of camera-facing sprite cards. Geometry is built
+/// once; billboarding is done in the vertex shader by adding each card's corner offset after the view
+/// transform, so no per-frame rebuild is needed.
 ///
-/// The geometry is built ONCE, not per frame. Every vertex stores the card's ANCHOR as its
-/// position and its own 2D corner offset in TexCoords2; BillboardModelShaderSource does the
-/// facing by adding that offset after the view transform. So the vertex buffer is static and the
-/// cards still turn with the camera - no per-frame rebuild, no CPU billboarding.
-///
-/// Only ONE sprite LOD is built (the highest-detail one). The LOD chain is a distance-switching
-/// mechanism and drawing every level at once stacks 117 cards where the game draws 58; wiring the
-/// switch needs the LOD distances in Loading.Objects.FoliageSpriteLodRange, which are read but not
-/// yet acted on.</summary>
+/// Only the highest-detail sprite LOD is currently built; distance-based LOD switching is not yet wired up.</summary>
 public class EntityFoliage : Entity
 {
     public readonly Assets.Foliage.Foliage BaseFoliage;
@@ -38,10 +32,8 @@ public class EntityFoliage : Entity
         Matrix4x4.Decompose(placement.Transform, out var scale, out var rotation, out var translation);
         Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
 
-        // BoundingSphere is LOCAL per Entity's convention, i.e. in the space the card anchors are in.
-        // The placement record's sphere is WORLD-space, so the whole placement transform is undone
-        // rather than just its translation: subtracting the translation alone left the sphere rotated
-        // and scaled wrongly about the placement, which culled foliage that was still in frame.
+        // BoundingSphere is LOCAL per Entity's convention; the placement record's sphere is world-space,
+        // so the whole placement transform is undone here rather than just its translation.
         var centre = new Vector3(placement.BoundingSphere.X, placement.BoundingSphere.Y, placement.BoundingSphere.Z);
         float radius = placement.BoundingSphere.W;
         float maxScale = MathF.Max(MathF.Abs(scale.X), MathF.Max(MathF.Abs(scale.Y), MathF.Abs(scale.Z)));
@@ -55,18 +47,14 @@ public class EntityFoliage : Entity
         var cards = foliage.SpritesForLod(BuiltLod).ToList();
         if (cards.Count == 0) return;
 
-        // material carries the atlas resolved from FoliageMetadata.TextureIndex — a DIRECT index
-        // into the 0x5200 texture table, proven by the game's own A200 loader (see that field). It
-        // is null only when the asset's index is the 0xFFFFFFFF sentinel or the level is new-engine;
-        // GetOrBuildBillboardMaterial then falls back to the default white texture, which still
-        // shows the billboarding and card geometry while making an unresolved case obvious on screen.
+        // material carries the atlas resolved from the asset's texture index; null falls back to the
+        // default white texture in GetOrBuildBillboardMaterial.
         _material = assetManager.GetOrBuildBillboardMaterial(material);
         _mesh = BuildMesh(cards, _material);
     }
 
-    /// <summary>Two triangles per card, sharing the anchor as every corner's position. The corner
-    /// order in the file is already a consistent winding around the quad (0,1,2,3), so the two
-    /// triangles are 0-1-2 and 0-2-3.</summary>
+    /// <summary>Builds two triangles per card (winding 0-1-2, 0-2-3), each vertex storing the card's
+    /// anchor as its position.</summary>
     private static RenderMesh BuildMesh(List<Assets.Foliage.FoliageSpriteCard> cards, RenderMaterial material)
     {
         var vertices = new Vertex3D[cards.Count * 4];
@@ -98,18 +86,14 @@ public class EntityFoliage : Entity
 
         var mesh = new RenderMesh(vertices, indices, material);
 
-        // Foliage builds its mesh here rather than through AssetManager.BuildModel, so it has to
-        // register its own geometry with the capture registry - otherwise the scene walk finds no
-        // geometry for it and foliage silently never renders (the same gap EntityUFrag had).
+        // Registers geometry with the capture registry so the Vulkan scene walk can find it.
         Rendering.Vulkan.VulkanSceneCapture.Register(mesh, Rendering.Vulkan.VulkanSceneCapture.Interleave(vertices), indices);
 
         return mesh;
     }
 
-    /// <summary>Fallback bounds from the cards themselves, used when the instance record's radius
-    /// is zero. Card offsets are added in view space so they can point any direction in world
-    /// space - the anchor spread is padded by the largest corner offset rather than assuming the
-    /// cards lie in some plane.</summary>
+    /// <summary>Fallback local bounds computed from the cards themselves, used when the instance
+    /// record's radius is zero.</summary>
     private static Vector4 ComputeLocalBounds(Assets.Foliage.Foliage foliage)
     {
         if (foliage.Sprites.Count == 0) return Vector4.Zero;

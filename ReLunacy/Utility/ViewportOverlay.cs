@@ -3,26 +3,9 @@ using Hexa.NET.ImGui;
 
 namespace ReLunacy.Utility;
 
-/// <summary>A compact toolbar drawn ON TOP of a viewport image, plus optional drop-down panels hanging
-/// off its buttons.
-///
-/// Any frame that renders a 3D viewport can use this: call <see cref="Begin"/> straight after the
-/// <c>ImGui.Image</c>, add buttons, open panels for the ones that are toggled on, then <see cref="End"/>.
-/// It positions everything in screen space over the image and restores the caller's layout cursor
-/// afterwards, so the surrounding frame layout is untouched.
-///
-/// Buttons drawn after the image land on top of it: same ImGui window, later draw order.
-///
-/// <code>
-/// _overlay.Begin("viewport", imagePos, imageSize);
-/// _overlay.ToggleButton("C", ref showClip, "Clip distance");
-/// if (showClip &amp;&amp; _overlay.BeginPanel("clip", new Vector2(260f, 0f)))
-/// {
-///     ImGui.SliderFloat("Far", ref far, 1f, 10000f);
-///     _overlay.EndPanel();
-/// }
-/// _overlay.End();
-/// </code></summary>
+/// <summary>A compact toolbar drawn on top of a viewport image, plus optional drop-down panels
+/// hanging off its buttons. Call <see cref="Begin"/> right after drawing the image, add buttons,
+/// open panels for the toggled-on ones, then <see cref="End"/>.</summary>
 public sealed class ViewportOverlay
 {
     private const float Margin = 8f;
@@ -42,10 +25,8 @@ public sealed class ViewportOverlay
     /// are all no-ops when inactive.</summary>
     public bool IsActive => _active;
 
-    /// <summary>True when the cursor is over one of this overlay's controls, so a click on it belongs to
-    /// the overlay and must not also reach the gizmo or the picker underneath. Reset by <see cref="Begin"/>
-    /// and accumulated as the controls are added; <see cref="Viewport3D"/> reads it when resolving who
-    /// gets the click.</summary>
+    /// <summary>True when the cursor is over one of this overlay's controls, so the click must not
+    /// also reach the gizmo or picker underneath. Reset by <see cref="Begin"/>.</summary>
     public bool WantsMouse { get; private set; }
 
     /// <param name="id">Unique per viewport; keeps ImGui ids from colliding between frames that both
@@ -67,8 +48,7 @@ public sealed class ViewportOverlay
         _panelColumn = 0;
 
         ImGui.PushID(id);
-        // Translucent so the viewport stays readable underneath, and brighter on hover/press so the
-        // buttons still feel like buttons rather than a watermark.
+        // Translucent so the viewport stays readable underneath, brighter on hover/press.
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.10f, 0.10f, 0.12f, 0.65f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.25f, 0.25f, 0.30f, 0.85f));
         ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.35f, 0.35f, 0.42f, 0.95f));
@@ -130,8 +110,7 @@ public sealed class ViewportOverlay
 
         ImGui.SetCursorScreenPos(new Vector2(left, _panelTop));
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.08f, 0.08f, 0.10f, 0.92f));
-        // AutoResizeY when no explicit height was asked for, so a panel is exactly as tall as the
-        // widgets in it rather than a guessed constant that has to be maintained by hand.
+        // AutoResizeY when no explicit height was given, so the panel fits its widgets.
         var flags = ImGuiChildFlags.Borders | (height <= 0f ? ImGuiChildFlags.AutoResizeY : ImGuiChildFlags.None);
         bool open = ImGui.BeginChild(id, new Vector2(width, height), flags);
         if (!open)
@@ -145,9 +124,7 @@ public sealed class ViewportOverlay
     public void EndPanel()
     {
         if (!_active) return;
-        // Asked while still inside the child, so it answers for the panel rather than the frame's window.
-        // AllowWhenBlockedByActiveItem keeps a slider being dragged counted as ours even on the frames
-        // the cursor has wandered off the panel.
+        // AllowWhenBlockedByActiveItem keeps a dragged slider counted as ours even off-panel.
         if (ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem))
             WantsMouse = true;
         ImGui.EndChild();
@@ -156,25 +133,14 @@ public sealed class ViewportOverlay
 
     public void End()
     {
-        // Nothing was drawn and the cursor was never moved, so there is nothing to put back. Restoring
-        // anyway would submit the Dummy below for no reason and nudge the parent's content extent.
         if (!_active) return;
 
         ImGui.PopStyleColor(3);
         ImGui.PopID();
         _active = false;
 
-        // Put the layout cursor back where the caller left it, so the overlay cannot disturb whatever
-        // the frame lays out after the viewport.
-        //
-        // The Dummy is required, not decorative. ImGui flags "SetCursorPos used to extend parent
-        // boundaries" when a window ends with the cursor past CursorMaxPos and no item submitted
-        // since. The cursor after an Image sits exactly one ItemSpacing.y below CursorMaxPos, so simply
-        // restoring it trips that assert whenever nothing else follows the viewport (which is the norm:
-        // gizmos draw through draw lists, not items). Submitting a zero-size item at the restore point
-        // pulls CursorMaxPos down to it and clears the flag; setting the position again afterwards then
-        // leaves the cursor exactly where the caller had it, with CursorPos == CursorMaxPos, which the
-        // check passes.
+        // Restores the caller's layout cursor. The zero-size Dummy is required: without an item
+        // submitted at the restore point, ImGui asserts about the cursor extending parent bounds.
         ImGui.SetCursorScreenPos(_restoreCursor);
         ImGui.Dummy(Vector2.Zero);
         ImGui.SetCursorScreenPos(_restoreCursor);

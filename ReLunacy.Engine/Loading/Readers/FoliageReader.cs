@@ -7,12 +7,11 @@ using ReLunacy.Engine.Loading.Vertices;
 namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>Reads old-engine foliage: the card sets in section 0xA200 and their placements in
-/// 0x9340. See <see cref="FoliageMetadata"/> and <see cref="FoliageSpriteCorner"/> for the format
-/// and the capture that confirms it.
+/// 0x9340. See <see cref="FoliageMetadata"/> and <see cref="FoliageSpriteCorner"/> for the format.
 ///
-/// New engine is not handled. Its equivalents have different section IDs (InsomniaToolset's
-/// FoliageV2 family) and nothing has been verified against them, so ReadAll returns empty rather
-/// than reading old-engine offsets out of a new-engine file.</summary>
+/// New engine is not handled - its equivalents use different section IDs (InsomniaToolset's
+/// FoliageV2 family) and aren't parsed, so ReadAll returns empty rather than reading old-engine
+/// offsets out of a new-engine file.</summary>
 public sealed class FoliageReader
 {
     private readonly FileManager _fileManager;
@@ -41,8 +40,7 @@ public sealed class FoliageReader
         }
         catch
         {
-            // A level with no foliage simply has no 0xA200 section - not an error worth failing
-            // the whole level load over.
+            // No 0xA200 section just means no foliage in this level, not an error.
             return [];
         }
 
@@ -57,10 +55,10 @@ public sealed class FoliageReader
 
             var sprites = ReadSprites(vertices.sh, (uint)vertSection.offset, meta);
 
-            // Resolve the atlas straight from the record's direct texture index (A200+0x08 →
-            // 0x5200[index], see FoliageMetadata.TextureIndex). Null for the 0xFFFFFFFF sentinel, an
-            // out-of-range index, or a null materialReader — the asset then keeps a null material
-            // and the renderer draws the default billboard texture rather than crashing.
+            // Atlas resolved from the direct texture index (A200+0x08 -> 0x5200[index], see
+            // FoliageMetadata.TextureIndex). Null on the 0xFFFFFFFF sentinel, an out-of-range
+            // index, or a missing materialReader; the renderer then falls back to the default
+            // billboard texture.
             var material = _materialReader?.GetFoliageMaterial(meta.TextureIndex);
 
             byOffset[recordBase] = result.Count;
@@ -77,10 +75,7 @@ public sealed class FoliageReader
         return result;
     }
 
-    /// <summary>Prints what was actually decoded. This is the only thing that exercises the reader
-    /// end to end - the format was verified offline against the same bytes, but a silent zero here
-    /// would otherwise look identical to a level that genuinely has no foliage. For metropolis the
-    /// expected line is 2 assets, 117 sprites each, LODs 58/30/17/11/1, 757 placements total.</summary>
+    /// <summary>Logs what was decoded: asset, sprite and placement counts.</summary>
     private static void LogSummary(List<Assets.Foliage.Foliage> foliages)
     {
         if (foliages.Count == 0)
@@ -94,9 +89,7 @@ public sealed class FoliageReader
         foreach (var f in foliages)
         {
             var lods = string.Join("/", f.Metadata.SpriteLodRanges.Where(r => r.CornerCount > 0).Select(r => r.SpriteCount));
-            // Report how the direct texture index resolved — an unresolved index or a wrong 0x5200
-            // ordering would otherwise be invisible until the atlas rendered wrong on screen. For
-            // metropolis both assets should read 0x5200[0]/[1] as 512x512 DXT5.
+            // Report how the texture index resolved, so a bad 0x5200 mapping shows in the log.
             string tex = !f.Metadata.HasTexture
                 ? "none (0xFFFFFFFF)"
                 : f.Material?.AlbedoTexture is { } a
@@ -107,9 +100,8 @@ public sealed class FoliageReader
         }
     }
 
-    /// <summary>Expands the card set into flat sprite records. Each card is four corners of the
-    /// per-corner array plus the one anchor record that four corners share - that grouping is the
-    /// frequency=4 divisor from the capture, not an assumption about ordering.</summary>
+    /// <summary>Expands the card set into flat sprite records. Each card is four corners plus
+    /// one shared anchor record.</summary>
     private static List<Assets.Foliage.FoliageSpriteCard> ReadSprites(StreamHelper sh, uint sectionOffset, in FoliageMetadata meta)
     {
         var cards = new List<Assets.Foliage.FoliageSpriteCard>();
@@ -138,9 +130,7 @@ public sealed class FoliageReader
             {
                 var c = corners[c0 + k];
                 offsets[k] = new Vector2(c.OffsetX, c.OffsetY);
-                // V arrives negative (the file's atlas convention runs the opposite way to this
-                // renderer's) - negate rather than clamp or abs, or a card samples the mirrored
-                // quadrant instead of its own. See FoliageSpriteCorner.
+                // V is negated - the file's atlas V convention is inverted relative to this renderer's.
                 uvs[k] = new Vector2(c.U, -c.V);
             }
 
@@ -188,9 +178,7 @@ public sealed class FoliageReader
             uint recordBase = (uint)(instances.offset + FoliageInstance.Size * i);
             var inst = FoliageInstance.Read(main.sh, recordBase);
 
-            // Instances whose pointer doesn't land on a parsed asset are dropped rather than
-            // clamped to asset 0 - a mis-sized record would otherwise pile every placement onto
-            // one plant and look like a loader that "worked".
+            // Instances whose pointer doesn't match a parsed asset are dropped, not clamped to asset 0.
             if (!byOffset.TryGetValue(inst.FoliageOffset, out int index)) continue;
 
             lists[index].Add(new Assets.Foliage.FoliagePlacement(inst.Transform, inst.BoundingSphere));

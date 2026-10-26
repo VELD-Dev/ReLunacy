@@ -13,8 +13,7 @@ public sealed class Tie : ITie
     public IReadOnlyList<IMesh> Meshes { get; init; }
     public float Scale { get; init; }
 
-    /// <summary>Backing store for <see cref="GetLightmapUVs"/> - see ITie for the shape and for why
-    /// nothing sets it yet.</summary>
+    /// <summary>Backing store for <see cref="GetLightmapUVs"/>; nothing sets it yet.</summary>
     private readonly float[]? _lightmapUVs;
 
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;

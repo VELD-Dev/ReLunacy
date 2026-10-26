@@ -8,8 +8,7 @@ using ReLunacy.Utility.Localization;
 namespace ReLunacy.Core.Frames.Modals;
 
 /// <summary>Lets the user pick which categories (Mobys/Ties/UFrags) to include before exporting
-/// the whole loaded level to a single .glb - see LevelExporter for why this is glTF-only (OBJ has
-/// no node hierarchy or mesh instancing, both of which whole-level export depends on).</summary>
+/// the whole loaded level to a single .glb (glTF-only: needs node hierarchy and mesh instancing).</summary>
 public class LevelExportModal : Modal
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;

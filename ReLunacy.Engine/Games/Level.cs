@@ -10,12 +10,8 @@ public enum LevelSourceKind
     Psarc,
 }
 
-/// <summary>
-/// A single level discovered on disk (or inside a PSARC), independent of whether it's currently
-/// loaded. Owns its own load/unload lifecycle so the editor can juggle many discovered levels
-/// while only holding one (or a few) fully loaded in memory at a time. <see cref="Data"/> is the
-/// hook a future GLTF exporter would read from.
-/// </summary>
+/// <summary>A single level discovered on disk (or inside a PSARC), independent of whether it's
+/// currently loaded. Owns its own load/unload lifecycle.</summary>
 public sealed class Level : IDisposable
 {
     public string Name { get; }
@@ -25,11 +21,7 @@ public sealed class Level : IDisposable
     /// <summary>Folder path (SourceKind == Folder) or the .psarc file path (SourceKind == Psarc).</summary>
     public string SourcePath { get; }
 
-    /// <summary>
-    /// Old engine only: resolved location of this level's debug.dat, if one was found near it at
-    /// scan time (see GameLibraryScanner.ResolveDebugDatPath) - it never ships inside main.dat/the
-    /// level's own .psarc, so this has to be tracked separately.
-    /// </summary>
+    /// <summary>Old engine only: resolved location of this level's debug.dat, if found at scan time (see GameLibraryScanner.ResolveDebugDatPath).</summary>
     public string? DebugDatPath { get; }
 
     public FileManager? FileManager { get; private set; }

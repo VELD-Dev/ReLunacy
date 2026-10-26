@@ -1,12 +1,21 @@
 using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Assets.Terrain;
 
 /// <summary>Old-engine UFrag: direct terrain geometry baked into zones - not instanced.</summary>
 public sealed class OldUFrag : IUFrag
 {
-    public ulong Id { get; init; }
+    /// <summary>Serialized 0x6200 ordinal. Changes only when an editor delete removes an earlier record.</summary>
+    public ulong Id { get; private set; }
+    /// <summary>ToD's animated UVs for this UFrag (main.dat 0x5C00, <see cref="Geometry.OldEngineUvAnimations"/>), or null.</summary>
+    public Geometry.UvAnimation? UvAnimation { get; internal set; }
+    /// <summary>Two-layer UFrag (12 of the 23 readable levels): main.dat 0x6400 +0x06, the material the mask
+    /// paints in; null for a single-layer one.</summary>
+    public IMaterial? SecondMaterial { get; internal set; }
+    /// <summary>Two-layer UFrag: its 0x5700 mask (record +0x58), painted in lightmap space.</summary>
+    public ITexture? BlendMask { get; internal set; }
     public string? Name { get; init; }
     public bool IsLoaded { get; private set; }
     public IMaterial Material { get; init; }
@@ -16,14 +25,13 @@ public sealed class OldUFrag : IUFrag
     private readonly float[] _uvs;
     private readonly float[]? _normals;
     private readonly float[]? _tangents;
-    // Second UV set = lightmap UVs, and the per-instance index selecting this UFrag's entry in the
-    // zone's baked light colour (0x5400) / light direction (0x5410) lists. See IUFrag.
     private readonly float[]? _lightmapUVs;
-    private readonly float[]? _vertexAlphaCandidates;
+    private readonly float[]? _vertexAlpha;
     private readonly uint[] _indices;
     private readonly Vector3 _anchor;
     private readonly Vector3 _boundingCenter;
     private readonly float _boundingRadius;
+    private readonly UFragVertex[] _rawVertices;
 
     public OldUFrag(
         ulong id,
@@ -37,10 +45,11 @@ public sealed class OldUFrag : IUFrag
         float[]? normals = null,
         float[]? tangents = null,
         float[]? lightmapUVs = null,
-        float[]? vertexAlphaCandidates = null,
+        float[]? vertexAlpha = null,
         ushort lightmapIndex = Loading.Objects.UFragMetadata.NoLightmap,
         Loading.Objects.UFragMetadata? metadata = null,
-        string? name = null)
+        string? name = null,
+        UFragVertex[]? rawVertices = null)
     {
         Id = id;
         Name = name;
@@ -51,10 +60,11 @@ public sealed class OldUFrag : IUFrag
         _normals = normals;
         _tangents = tangents;
         _lightmapUVs = lightmapUVs;
-        _vertexAlphaCandidates = vertexAlphaCandidates;
+        _vertexAlpha = vertexAlpha;
         LightmapIndex = lightmapIndex;
         Metadata = metadata;
         _anchor = anchor;
+        _rawVertices = rawVertices ?? [];
         IsLoaded = true;
 
         if (boundingCenter.HasValue && boundingRadius.HasValue)
@@ -96,9 +106,16 @@ public sealed class OldUFrag : IUFrag
     public Loading.Objects.UFragMetadata? Metadata { get; init; }
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
-    public float[]? GetVertexAlphaCandidates() => _vertexAlphaCandidates;
+    public float[]? GetVertexAlpha() => _vertexAlpha;
+    public UFragVertex[] GetRawVertices() => _rawVertices;
     public uint[] GetIndices() => _indices;
     public Vector3 GetAnchor() => _anchor;
     public Vector3 GetBoundingCenter() => _boundingCenter;
     public float GetBoundingRadius() => _boundingRadius;
+
+    /// <summary>
+    /// Re-addresses this UFrag after an in-place structural edit removed earlier 0x6200 records, so the
+    /// scene stays in step with main.dat without reloading the level.
+    /// </summary>
+    public void RenumberAfterStructuralEdit(ulong ordinal) => Id = ordinal;
 }

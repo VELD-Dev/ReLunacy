@@ -4,11 +4,8 @@ using Vortice.Vulkan;
 namespace ReLunacy.Utility;
 
 /// <summary>
-/// Bliss/NeoVeldrid expose no cross-backend GPU memory query, so this reads used VRAM directly
-/// through Vortice.Vulkan (already loaded in-process for this project's own raw-Vulkan renderer,
-/// independent of whatever binding NeoVeldrid itself uses internally) via VK_EXT_memory_budget.
-/// Vulkan-only - D3D11/Metal/OpenGL would each need their own native query and aren't implemented;
-/// other backends always read 0.
+/// Reads used VRAM directly through Vortice.Vulkan via VK_EXT_memory_budget, since NeoVeldrid
+/// exposes no cross-backend GPU memory query. Vulkan-only; other backends always read 0.
 /// </summary>
 internal static unsafe class VramUsageQuery
 {
@@ -47,8 +44,7 @@ internal static unsafe class VramUsageQuery
         }
         catch
         {
-            // Physical-device query only - safe to keep retrying on transient failure, but
-            // never let an optional stat readout take the editor down with it.
+            // Never let an optional stat readout take the editor down with it.
             _getMemoryProperties2 = null;
             return 0;
         }

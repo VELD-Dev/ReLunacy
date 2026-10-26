@@ -6,30 +6,9 @@ using ReLunacy.Engine.Scene;
 namespace ReLunacy.Utility;
 
 /// <summary>Hosts a 3D viewport inside an ImGui window: the rendered image, the toolbar over it, the
-/// gizmo, and the arbitration that decides which of those gets the mouse.
-///
-/// Every frame that shows a 3D view used to carry its own copy of this plumbing (mouse position
-/// relative to the image, a hover test, a "a click happened" latch consumed somewhere further down,
-/// and the relative-mouse-mode flag), which meant the rules for who wins a click existed once per
-/// frame and had already drifted between them. They live here now, in one order, stated once:
-///
-///   overlay UI  >  gizmo  >  picking  >  camera
-///
-/// The order is expressed by the order the calls are made in, so it is visible at the call site
-/// rather than encoded as a chain of boolean guards:
-///
-/// <code>
-/// _viewport.Begin("view3d");
-/// // ... camera control, gated on AllowCameraInput, reporting drags via SetMouseCaptured
-/// _viewport.DrawImage(binding);        // image, then the overlay opens over it
-/// _viewport.Overlay.ToggleButton(...); // claims the click if it was hovered
-/// _viewport.Gizmo(gizmoController, camera, selected);   // claims it next
-/// if (_viewport.TryConsumeClick()) Pick();              // only what nothing above took
-/// _viewport.End();
-/// </code>
-///
-/// Nothing here renders the scene or moves a camera: those differ per viewport (the level view flies,
-/// the asset preview orbits) and stay with the frame that owns them.</summary>
+/// gizmo, and the arbitration that decides which of those gets the mouse, in order:
+/// overlay UI &gt; gizmo &gt; picking &gt; camera. Scene rendering and camera movement stay with the
+/// frame that owns them.</summary>
 public sealed class Viewport3D
 {
     /// <summary>The toolbar drawn over the image. Opened by <see cref="DrawImage"/>/<see cref="DrawEmpty"/>
@@ -64,10 +43,8 @@ public sealed class Viewport3D
     private bool _claimed;
     private GizmoController? _gizmo;
 
-    // Relative mouse mode is a single global flag but there are several viewports, so ownership is
-    // tracked rather than assumed: a viewport only clears the flag if it is the one that set it.
-    // Without this, any viewport ticking while another was mid-drag would cancel that drag, which is
-    // exactly what used to happen between the level view and the asset preview.
+    // Relative mouse mode is a single global flag shared by several viewports; a viewport only
+    // clears it if it is the one that set it.
     private static Viewport3D? _captureOwner;
 
     /// <summary>Measures the region the image will occupy and samples the mouse against it. Call at the
@@ -91,9 +68,7 @@ public sealed class Viewport3D
 
         _claimed = false;
         _gizmo = null;
-        // Latched here and resolved at TryConsumeClick, because who is entitled to the click is not
-        // known yet: the overlay and the gizmo only find out whether they were hit when they draw,
-        // which is further down the same frame.
+        // Latched here, resolved at TryConsumeClick, once the overlay/gizmo have had a chance to claim it.
         _clickPending = IsHovered && Input.IsMouseButtonPressed(MouseButton.Left);
     }
 
@@ -112,8 +87,7 @@ public sealed class Viewport3D
         ImGuiIOPtr io = ImGui.GetIO();
         if (captured)
         {
-            // Another viewport is mid-drag. Leave its flag alone; this one's MouseGrabHandler has the
-            // button anyway, so the drag still tracks, it just does not also hide the cursor.
+            // Another viewport is mid-drag; leave its flag alone.
             if (_captureOwner != null) return;
             _captureOwner = this;
             io.ConfigFlags |= ImGuiConfigFlags.NoMouse;

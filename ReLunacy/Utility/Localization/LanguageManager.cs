@@ -108,12 +108,8 @@ public static class LM
         return key;
     }
 
-    // A locale string's placeholder count can drift out of sync with its call site - most often a
-    // stale on-disk translation left over after a key's format changed elsewhere: self-healing
-    // (above) only fills in keys that are entirely MISSING, it never reconciles an EXISTING key's
-    // value against a call site that now passes a different number of args. string.Format throwing
-    // on that mismatch used to take the whole app down over a single mistranslated/stale label -
-    // degrade to the raw unformatted string instead.
+    // A locale string's placeholder count can drift out of sync with its call site; degrade to the
+    // raw unformatted string instead of letting string.Format throw.
     private static string SafeFormat(string fmt, object[] args)
     {
         try

@@ -11,25 +11,15 @@ public class EntityVolume : Entity
     public readonly Volume BaseVolume;
 
     public override Vector4 BoundingSphere { get; set; } = Vector4.Zero;
-    /// <summary>The box's real (possibly non-uniform) half-extents source - kept separate from
-    /// Transform.Scale (always 1,1,1 for a Volume) because each edge instance takes this as an
-    /// explicit length rather than folding it into the placement transform. Only settable via
-    /// <see cref="SetScale"/>, which keeps BoundingSphere and the edge instances in sync with it -
-    /// never assign this field directly.</summary>
+    /// <summary>The box's real (possibly non-uniform) half-extents. Only settable via
+    /// <see cref="SetScale"/>, which keeps BoundingSphere and the edge instances in sync - never
+    /// assign this field directly.</summary>
     public Vector3 scale { get; private set; }
 
     public override string Name { get; protected set; }
 
-    // A volume has no mesh and no material of its own. The renderer draws its 12 wireframe edges
-    // straight from GetWorldEdgeTransforms and VolumeColour, with its own thin-box edge geometry (see
-    // VulkanRenderer's edge cube, which matches what Primitives.CreateWireEdge used to build) and its
-    // own flat-colour pipeline.
-    //
-    // This used to be a shared unit-length edge mesh plus a pair of tinted materials, rebuilt whenever
-    // the colour settings or the wire thickness changed. All of it fed a render path that no longer
-    // exists, and none of it was ever reached by the current one: the edge mesh was never registered
-    // with the capture registry, so the scene walk skipped these renderables outright. What remains is
-    // the part that was always doing the work, the 12 edge transforms.
+    // A volume has no mesh or material of its own; the renderer draws its 12 wireframe edges
+    // directly from GetWorldEdgeTransforms and VolumeColour.
 
     private Transform[] _edgeTransforms = [];
 
@@ -45,19 +35,15 @@ public class EntityVolume : Entity
         SetScale(initialScale);
     }
 
-    /// <summary>Sets <see cref="scale"/> and, in the same step, recomputes the local-space bounding
-    /// sphere and the 12 edge transforms. The three always have to change together, so this is the
-    /// only way to change the volume's size (from the Property Inspector or otherwise). Rebuilds
-    /// synchronously rather than leaving it to the IsDirty check, so a resize can never report the
-    /// pre-resize size for a frame.</summary>
+    /// <summary>Sets <see cref="scale"/> and recomputes the bounding sphere and the 12 edge transforms
+    /// together, synchronously.</summary>
     public void SetScale(Vector3 newScale)
     {
         scale = newScale;
 
-        // BoundingSphere is LOCAL space per Entity's convention (offset from Transform.Translation)
-        // - center coincides with the volume's own position (zero local offset), and the radius is
-        // the distance from that center to the cube's furthest corner: the half-extents vector's
-        // length, since one corner sits at exactly (sx/2, sy/2, sz/2) from center.
+        // BoundingSphere is LOCAL space per Entity's convention: center coincides with the volume's
+        // own position, and the radius is the half-extents vector's length (distance to the cube's
+        // furthest corner).
         BoundingSphere = new Vector4(Vector3.Zero, (scale / 2f).Length());
 
         RecomputeEdgeTransforms();
@@ -70,18 +56,16 @@ public class EntityVolume : Entity
     /// VolumeWireThickness).</summary>
     public IEnumerable<Matrix4x4> GetWorldEdgeTransforms()
     {
-        // Not an iterator itself: the freshness check has to run when this is CALLED, not when it is
-        // first enumerated. Resizing rebuilds synchronously (SetScale), but a gizmo move or rotate only
-        // sets IsDirty, so the rebuild has to happen somewhere the renderer actually reaches.
+        // Not an iterator itself: the freshness check must run when called, not when first
+        // enumerated, since a gizmo move or rotate only sets IsDirty.
         EnsureRenderables();
         return EnumerateWorldEdgeTransforms();
     }
 
     private IEnumerable<Matrix4x4> EnumerateWorldEdgeTransforms()
     {
-        // _edgeTransforms are ALREADY world transforms: ComposeEdgeTransform folds this volume's own
-        // Transform in when it builds them. Composing again here would apply the volume's placement
-        // twice and offset every box.
+        // _edgeTransforms are already world transforms; composing again here would double-apply the
+        // volume's placement.
         foreach (var e in _edgeTransforms)
             yield return e.GetMatrix();
     }
@@ -124,22 +108,15 @@ public class EntityVolume : Entity
         }
     }
 
-    /// <summary>Builds one edge's full WORLD Transform by composing its volume-local placement
-    /// (length/orientation/offset) with this volume's own Transform, matching the same
-    /// Matrix4x4.Decompose-based composition already used to derive the volume's own Transform
-    /// from its source data in the constructor. Matrix4x4.Decompose can theoretically fail on a
-    /// degenerate input (never expected here - this volume's own Transform.Scale is always
-    /// Vector3.One, so there's no shear/reflection to trip it up), in which case the edge falls
-    /// back to this volume's own placement with a zero local offset rather than leaving it at a
-    /// stale or default Transform.</summary>
+    /// <summary>Builds one edge's world Transform by composing its volume-local placement with this
+    /// volume's own Transform. Falls back to the volume's own placement if Decompose fails (not
+    /// expected here, since Transform.Scale is always Vector3.One for a volume).</summary>
     private Transform ComposeEdgeTransform(Vector3 lengthAxis, float length, Vector3 localCenter)
     {
         var local = new Transform
         {
-            // Scale is applied in local mesh space BEFORE rotation (see Transform.GetMatrix()'s
-            // Scale*Rotation*Translation order), so Scale.X always stretches SharedEdgeMesh's own
-            // local length axis regardless of the rotation below - this is what keeps the
-            // thickness axes (Y/Z, left at 1) constant no matter how long the edge is.
+            // Scale is applied before rotation, so Scale.X always stretches the edge mesh's own
+            // length axis regardless of rotation.
             Scale = new Vector3(length, 1f, 1f),
             Rotation = AlignUnitXTo(lengthAxis),
             Translation = localCenter,
@@ -152,10 +129,9 @@ public class EntityVolume : Entity
         return new Transform { Scale = decomposedScale, Rotation = decomposedRotation, Translation = decomposedTranslation };
     }
 
-    /// <summary>Rotation aligning SharedEdgeMesh's local +X (its length axis) to point along
-    /// <paramref name="axis"/> (always UnitX/UnitY/UnitZ). Only the axis LINE matters, not its
-    /// polarity - the edge mesh is symmetric about its own center and radially symmetric in
-    /// cross-section, so a +90 deg/-90 deg sign mismatch here would still produce an identical result.</summary>
+    /// <summary>Rotation aligning the edge mesh's local +X (its length axis) to <paramref name="axis"/>
+    /// (always UnitX/UnitY/UnitZ). Only the axis line matters, not polarity, since the edge mesh is
+    /// radially symmetric.</summary>
     private static Quaternion AlignUnitXTo(Vector3 axis)
     {
         if (axis == Vector3.UnitY) return Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2f);

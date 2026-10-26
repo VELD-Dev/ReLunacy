@@ -4,14 +4,11 @@ using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
-/// <summary>Live per-frame CPU breakdown fed by <see cref="FrameProfiler"/>. Answers "where does the
-/// frame go?" - command recording, submission, the GPU-idle stall, present - and prints a verdict
-/// naming the dominant cost so the next optimisation target is obvious.
+/// <summary>Live per-frame CPU breakdown fed by <see cref="FrameProfiler"/>: command recording,
+/// submission, the GPU-idle stall, present, plus a verdict naming the dominant cost.
 ///
-/// The numbers are CPU wall-clock: there is no GPU timestamp query in NeoVeldrid, so the GPU's own
-/// per-pass time can't be read. The "GPU Wait" phase (the per-frame WaitForIdle) is the stand-in -
-/// it is exactly how long the CPU sat blocked for the GPU to finish, which is the honest measure of
-/// the GPU tail as long as the frame ends with a full sync. See FrameProfiler's class summary.</summary>
+/// The numbers are CPU wall-clock (no GPU timestamp query in NeoVeldrid); the "GPU Wait" phase is
+/// how long the CPU sat blocked on the per-frame WaitForIdle, standing in for GPU time.</summary>
 public class ProfilerFrame : DockedFrame
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;

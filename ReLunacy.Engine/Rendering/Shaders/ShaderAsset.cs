@@ -1,20 +1,11 @@
 namespace ReLunacy.Engine.Rendering.Shaders;
 
-/// <summary>Loads GLSL shader assets shipped alongside the executable, from the output <c>Shaders/</c>
-/// directory. That folder is the FUSION of the app's own shaders (ReLunacy/Shaders, e.g. the ImGui
-/// and picking shaders) and the engine's model shaders (ReLunacy.Engine/Shaders) - both projects
-/// copy their Shaders tree to the same output location, so a flat name resolves regardless of which
-/// project shipped it.
+/// <summary>Loads GLSL shader assets from the output <c>Shaders/</c> directory (the merged output of
+/// both the app's and the engine's Shaders trees). Resolves against
+/// <see cref="AppContext.BaseDirectory"/> since the engine has no runtime output of its own.
 ///
-/// Resolves against <see cref="AppContext.BaseDirectory"/> (the running executable's directory)
-/// rather than the engine assembly's own path: the engine is a library with no output of its own at
-/// runtime, and its content files are copied into the host app's output next to the .exe.
-///
-/// ASCII ONLY inside these .glsl files, comments included: a single non-ASCII byte makes the runtime
-/// shaderc compile fail with a MISLEADING "unexpected end of file" error (see LitModelShaderSource).
-///
-/// Contents are cached after first read - shader sources don't change at runtime, and every Effect
-/// rebuild (e.g. toggling lighting) would otherwise re-hit the disk.</summary>
+/// Must stay ASCII only inside the .glsl files, comments included, or shaderc fails to compile.
+/// Contents are cached after first read.</summary>
 public static class ShaderAsset
 {
     private static readonly string Root = Path.Combine(AppContext.BaseDirectory, "Shaders");

@@ -29,28 +29,22 @@ public class Moby : IDisposable
     public ulong AnimsetID => MobyObj is OldMoby ? uint.MinValue : ((NewMoby)MobyObj).animsetTuid;
     public MobyBangle[] Bangles => MobyObj.bangles;
     public ulong[]? ShaderTUIDs;
-
-    /// <summary>Null if this moby has no skeleton (static props etc.) or if reading one failed -
-    /// see the catch below. Read defensively: this is new, unverified-against-every-real-asset
-    /// code, and a bug in it must not be able to break loading for mobys that don't even reach it.</summary>
+    public string Name { get; private set; } = string.Empty;
     public MobySkeleton? Skeleton { get; private set; }
 
-    public Moby(StreamHelper sh, FileManager fm, int index = 0) // Index only for old mobys
+    public Moby(StreamHelper sh, FileManager fm, int index = 0)
     {
         mobyStream = sh;
-
         var igFile = new IGFile(mobyStream.BaseStream);
-        IGFile.SectionHeader section = igFile.QuerySection(OldMoby.ID); // Old and new mobys share the section ID
-        if (section.length == 0x100)
-            mobyStream.Seek(section.offset);
-        else
-            mobyStream.Seek(section.offset + OldMoby.Size * index);
+        IGFile.SectionHeader section = igFile.QuerySection(OldMoby.ID);
+        if (section.length == 0x100) mobyStream.Seek(section.offset);
+        else mobyStream.Seek(section.offset + OldMoby.Size * index);
 
         ReadMoby(isOld: section.length != 0x100, index);
 
         try
         {
-            Skeleton = MobySkeletonReader.Read(mobyStream, SkeletonPointer, BonesCount);
+            Skeleton = MobySkeletonReader.Read(mobyStream, SkeletonPointer, BonesCount, readAnimationReferencePose: true);
         }
         catch (Exception ex)
         {
@@ -59,50 +53,34 @@ public class Moby : IDisposable
 
         if (!IsOld)
         {
+            var nameSection = igFile.QuerySection(0xD200);
+            if (nameSection.id == 0xD200) Name = mobyStream.ReadString(nameSection.offset);
+
             var shaderReferencesSec = igFile.QuerySection(Shader.NewInternalTUIDSecID);
-
             ShaderTUIDs = ArrayPool<ulong>.Shared.Rent((int)shaderReferencesSec.count);
-
             for (int i = 0; i < shaderReferencesSec.count; i++)
             {
                 sh.Seek((long)(shaderReferencesSec.offset + sizeof(ulong) * (ulong)i));
                 ShaderTUIDs[i] = sh.ReadUInt64();
             }
 
-            // New engine: geometry lives inside this moby's own IGFile as dedicated sections,
-            // not a raw-file offset field (there is none on NewMoby) - mirrors Tie's new-engine
-            // vertex/index section reads.
             var vertSec = igFile.QuerySection(MobyMesh.VerticesSecID);
             mobyStream.Seek(vertSec.offset);
             verticesStream = new StreamHelper(new MemoryStream(mobyStream.ReadBytes(vertSec.length)), StreamHelper.Endianness.Big);
-
             var indSec = igFile.QuerySection(MobyMesh.IndicesSecID);
             mobyStream.Seek(indSec.offset);
             indicesStream = new StreamHelper(new MemoryStream(mobyStream.ReadBytes(indSec.length)), StreamHelper.Endianness.Big);
         }
         else
         {
-            if (MobyObj is not OldMoby omoby)
-                return;
-
-            // Some old-engine mobys (logic-only props: triggers, camera targets, path markers,
-            // etc. - confirmed present in Tools of Destruction's meridian_city) have zero bangles,
-            // or a bangle with zero meshes: no visual geometry at all. bangles/meshes are
-            // [Reference(...)]-deserialized arrays that stay null when their count is zero, so
-            // blindly indexing bangles[^1].meshes[^1] (as this used to, four times below) threw a
-            // NullReferenceException for any such moby instead of just... having no mesh data.
+            if (MobyObj is not OldMoby omoby) return;
             if (!TryGetLastMesh(omoby.bangles, out var lastMesh))
             {
-                // Empty, not left null: MobyReader.ReadMobyBanglesMeshes unconditionally seeks
-                // these streams before checking bangle/mesh counts, so a null stream here would
-                // just move the same crash one call further down instead of fixing it.
                 verticesStream = new StreamHelper(new MemoryStream(), StreamHelper.Endianness.Big);
                 indicesStream = new StreamHelper(new MemoryStream(), StreamHelper.Endianness.Big);
                 return;
             }
 
-            // Old engine: geometry lives in either vertices.dat or textures.dat, selected by
-            // the high bit of the offset field itself.
             if ((omoby.verticesOffset & 0x80000000) != 0)
             {
                 var vertigfile = fm.igfiles["vertices.dat"]!;
@@ -115,7 +93,6 @@ public class Moby : IDisposable
             {
                 if (!fm.rawfiles.TryGetValue("textures.dat", out var txstream) || txstream is null)
                     throw new FileNotFoundException("File is missing.", "textures.dat");
-
                 omoby.verticesOffset &= ~0x80000000;
                 txstream.Seek(omoby.verticesOffset, SeekOrigin.Begin);
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
@@ -136,7 +113,6 @@ public class Moby : IDisposable
             {
                 if (!fm.rawfiles.TryGetValue("textures.dat", out var txstream) || txstream is null)
                     throw new FileNotFoundException("File is missing.", "textures.dat");
-
                 omoby.indicesOffset &= ~0x80000000;
                 txstream.Seek(omoby.indicesOffset, SeekOrigin.Begin);
                 var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
@@ -147,16 +123,10 @@ public class Moby : IDisposable
         }
     }
 
-    // Searches backward for the last bangle that actually has meshes (not necessarily the very
-    // last bangle - a moby could have trailing empty bangles too), since the whole point is
-    // finding the true final mesh's offset/count to compute the total buffer length. Returns
-    // false if this moby has no mesh data anywhere (null/empty bangles, or every bangle empty).
     private static bool TryGetLastMesh(MobyBangle[]? bangles, out MobyMesh lastMesh)
     {
         lastMesh = default;
-        if (bangles == null)
-            return false;
-
+        if (bangles == null) return false;
         for (int i = bangles.Length - 1; i >= 0; i--)
         {
             if (bangles[i].meshes != null && bangles[i].meshes.Length > 0)
@@ -165,28 +135,19 @@ public class Moby : IDisposable
                 return true;
             }
         }
-
         return false;
     }
 
-    public void ReadMoby(bool isOld, int index = 0) // index only for old mobys
-    {
-        MobyObj = isOld ? OldMoby.Read(mobyStream, index) : NewMoby.Read(mobyStream);
-    }
-
+    public void ReadMoby(bool isOld, int index = 0) => MobyObj = isOld ? OldMoby.Read(mobyStream, index) : NewMoby.Read(mobyStream);
     public byte[] ToBytes() => MobyObj.ToBytes(false);
 
     public void Dispose()
     {
-        // Same null-bangles/null-meshes possibility as the constructor guards against above (a
-        // moby with no visual geometry) - nothing was rented from either pool in that case, so
-        // there's nothing to return either.
         if (MobyObj.bangles != null)
         {
             for (int i = 0; i < MobyObj.bangles.Length; i++)
             {
                 if (MobyObj.bangles[i].meshes == null) continue;
-
                 for (int j = 0; j < MobyObj.bangles[i].meshes.Length; j++)
                 {
                     ref var mesh = ref MobyObj.bangles[i].meshes[j];
@@ -196,10 +157,8 @@ public class Moby : IDisposable
             }
             ArrayPool<MobyBangle>.Shared.Return(MobyObj.bangles);
         }
-
         verticesStream?.Close();
         indicesStream?.Close();
-
         mobyStream.Close();
         GC.SuppressFinalize(this);
     }

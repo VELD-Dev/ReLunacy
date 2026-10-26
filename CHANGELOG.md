@@ -3,7 +3,36 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
-## [v0.05.1](https://github.com/VELD-Dev/releases/0.05.1) - 28-08-2026
+## [v0.06](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-09-2026
+
+- Added Moby Assets names reading for the Asset Explorer.
+- Added the raw-vertex inspector in Asset Viewer for reverse-engineering purposes.
+- Added a layout system. You can create custom layouts and save them. The layout is automatically saved on exit and is reused directly when reopening ReLunacy.
+- ReLunacy now starts with a default docked layout.
+- Every panel now starts docked, and spawns/appears docked on first opening.
+- Game Browser now remembers the last USRDIR path you scanned, both when reopening the frame AND relaunching ReLunacy.
+- Fixed "Open in Asset Viewer" (from the Property Inspector) jumping to the wrong UFrag, or the wrong zone's UFrag entirely, whenever a level had more than one zone in New Engine.
+- Found and decoded vertex alpha offset and vertex alpha ranges in New Engine for UFragVertex, VertexFormat0 and VertexFormat1. Ranges: (1.0-0.0) 0xFF80-0xFFFF, 0x7F80-0x7FFF, 0x9080-0x9001, 0x8080-0x8001; Some are ascending, other descending, annoying shit I won't detail.
+- The editor window now opens maximized by default and remembers last size and maximization state between sessions.
+- Added per-zone render toggles (`Render menu > Zones`)
+- Added animation support by @Fianshoo in PRs #58, #59 and #60
+- Added sky rendering on both engines (`Render menu > Sky`) by @Fianshoo: the dome and its gradient, the two scrolling cloud layers and the authored sky shells (panoramas, stars, planets), drawn in the game's pass order with each texture's own RSX sampler. Tools of Destruction reads main.dat 0x8150/0x8160/0x8170 and the shell mesh in vertices.dat 0x9000/0x9100; the new engine reads every sky of the region (region.dat 0x81B0, textures in sky.dat), so All 4 One's seaside (3 skies) and polar_sea (2) can show each one. The clear colour comes from the sky, as in game. Bloom shells stay off for now.
+- Old-engine textures now keep their whole 0x5200 RSX descriptor (`TextureMetadataOld` fields 0x08-0x1C, `Texture.OldDescriptor`) instead of 16 unnamed bytes.
+- Rendering closer to the games, on both engines, by @Fianshoo. Every item below was checked against the game's own code (EBOOT, RSX programs, RPCS3 shader cache) or measured over the retail files:
+  - Textures are sampled the way the RSX samples them: each texture's own descriptor drives wrap, filter, LOD, channel remap (CONTROL1), gamma and signed/biased decoding, on both engines.
+  - The game's own fragment programs: materials draw with the programs they ship (holograms, shields, veils...) and, when a decrypted EBOOT (*.elf) lies in the level's install, with the game's standard programs (QForce, All 4 One, Into the Nexus; A Crack in Time borrows a sibling's) and Tools of Destruction's TIE programs. `Render > Game shaders` turns them off.
+  - Bloom as the games run it (the level's own parameters: region.dat 0x34000 on the new engine, main.dat 0x7100 on ToD), with the sky writing its glow mask.
+  - Fog: ToD's per-level fog (main.dat 0x7100), and the new engine's fog tables and atmosphere (Henyey-Greenstein sun scattering). `Render > Fog` hides ToD's.
+  - Baked lighting: new-engine zone lightmaps from lighting.dat with their high-resolution half from highlight.dat, the per-placement baked-light constant, the unbaked TIEs' prelight (both engines), ToD's per-vertex baked light multiplier, lightmap indices sanitized the way the game does.
+  - Reflections: the new engine's cubemaps.dat cubes picked per placement, ToD's cube decoded as the console does (sRGB on all four channels, HDR exponent base 2) with the TIE programs' distance fade. `Render > Reflections` hides ToD's.
+  - Two-layer surfaces (grass, snow, moss over stone): the second material and its blend mask on TIEs and terrain, both engines.
+  - Animated UVs (section 0x5C00): scrolling and turning textures move, stepped at the game's frame rate (60 on ToD, 30 on the new engine).
+  - ToD back faces culled as the game culls them, its non-opaque polygon offset, the new engine's normal/reflection/detail fade distances.
+  - Known level names tell the game apart (`GameDefinitions.FromLevelPath`), which selects A Crack in Time's data layout.
+  - The skinning added in #60 is kept: the lit, picking and outline vertex shaders still skin, the bone palette now sits at bindings 9 and 11.
+- 
+
+## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026
 
 [View diff](https://github.com/VELD-Dev/ReLunacy/compare/0.05..0.05.1)
 
