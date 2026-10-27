@@ -125,6 +125,19 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>The Lua source editor.</summary>
+    internal static void ShowLuaEditor()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaEditorFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaEditor"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<LuaEditorFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new LuaEditorFrame());
+    }
+
     /// <summary>The .lc disassembly view. Grouped with the other reverse-engineering tools rather
     /// than the level views: it inspects a file, not the loaded level.</summary>
     internal static void ShowLuaDisassembly()
