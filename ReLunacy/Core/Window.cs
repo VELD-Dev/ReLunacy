@@ -381,8 +381,14 @@ public class LunaWindow : IDisposable
             _finalizingLevelLoad = true;
         }
 
-        if (!_finalizingLevelLoad || AssetManager is null) return;
+        if (AssetManager is null) return;
 
+        // Draining is NOT tied to _finalizingLevelLoad: textures are also requested long after a level
+        // has finished loading. The Sky builds its own the first time View3D calls PrepareScene, which
+        // happens after finalization has already cleared the flag - so while this was gated on it, those
+        // uploads sat in the queue forever, PrepareScene saw HasPendingUploads on every frame, and the
+        // sky packet was never built ("Sky: not drawn - waiting on texture uploads", then silence).
+        // Anything queued later (asset previews, lazily built materials) was stuck the same way.
         if (AssetManager.HasPendingUploads)
         {
             // GraphicsDevice.UpdateTexture work, spread across as many AfterUpdate calls as it takes,
@@ -391,11 +397,15 @@ public class LunaWindow : IDisposable
             while (AssetManager.HasPendingUploads && uploadSw.Elapsed.TotalMilliseconds < UploadBudgetMs)
                 AssetManager.UploadOnePendingTexture();
 
+            // Only meaningful while the loading modal is up; null once the level has finalized.
             if (_uploadProgress != null)
                 _uploadProgress.current = (uint)(AssetManager.TotalQueuedUploads - AssetManager.PendingUploadCount);
 
             if (AssetManager.HasPendingUploads) return; // more queued - resume next frame
         }
+
+        // Everything below is the one-shot level-finalization tail.
+        if (!_finalizingLevelLoad) return;
 
         _finalizingLevelLoad = false;
         _uploadProgress = null;
