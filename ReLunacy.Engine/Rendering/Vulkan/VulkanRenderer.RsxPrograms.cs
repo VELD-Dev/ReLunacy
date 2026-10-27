@@ -156,14 +156,22 @@ public sealed unsafe partial class VulkanRenderer
         var multisample = new VkPipelineMultisampleStateCreateInfo { rasterizationSamples = VkSampleCountFlags.Count1 };
         var inputAssembly = new VkPipelineInputAssemblyStateCreateInfo { topology = VkPrimitiveTopology.TriangleList };
         var vbinding = new VkVertexInputBindingDescription { binding = 0, stride = VertexStride, inputRate = VkVertexInputRate.Vertex };
-        VkVertexInputAttributeDescription* attrs = stackalloc VkVertexInputAttributeDescription[6];
+        VkVertexInputAttributeDescription* attrs = stackalloc VkVertexInputAttributeDescription[8];
         attrs[0] = new VkVertexInputAttributeDescription { location = 0, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 0 };
         attrs[1] = new VkVertexInputAttributeDescription { location = 1, binding = 0, format = VkFormat.R32G32Sfloat, offset = 12 };
         attrs[2] = new VkVertexInputAttributeDescription { location = 2, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 20 };
         attrs[3] = new VkVertexInputAttributeDescription { location = 3, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 32 };
         attrs[4] = new VkVertexInputAttributeDescription { location = 4, binding = 0, format = VkFormat.R32G32Sfloat, offset = 48 };
         attrs[5] = new VkVertexInputAttributeDescription { location = 5, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 56 };
-        var vertexInput = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbinding, vertexAttributeDescriptionCount = 6, pVertexAttributeDescriptions = attrs };
+        // Retail draws go through the same skinned vertex module as the generic ones (_vs / _vsNonOpaque,
+        // see SkinningGlsl), so they must declare the joint/weight attributes too. Leaving them out binds
+        // nothing to locations 6 and 7: computeSkin then reads zero weights, falls into its
+        // totalWeight <= 1e-6 branch and draws every animated moby in bind pose, while the outline and
+        // pick passes - which own their pipelines and do declare these - keep following the animation.
+        // Offsets match the generic lit pipeline exactly; both are the one 26-float VertexStride layout.
+        attrs[6] = new VkVertexInputAttributeDescription { location = 6, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 72 };
+        attrs[7] = new VkVertexInputAttributeDescription { location = 7, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 88 };
+        var vertexInput = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbinding, vertexAttributeDescriptionCount = 8, pVertexAttributeDescriptions = attrs };
 
         bool opaque = kind is LitKind.Opaque or LitKind.OpaqueCull or LitKind.OpaqueCullCw;
         bool cull = kind is LitKind.OpaqueCull or LitKind.OpaqueCullCw or LitKind.AccumCull or LitKind.AccumCullCw

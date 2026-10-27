@@ -29,7 +29,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     private const VkFormat DepthFormat = VkFormat.D32SfloatS8Uint;
     private const VkFormat AccumFormat = VkFormat.R16G16B16A16Sfloat;
     private const VkFormat RevealFormat = VkFormat.R16Sfloat;
-    private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 56
+    private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 104
     // Albedo, normal, properties, bake colour / direction, detail, auxiliary A / B, then the second
     // layer of a two-layer TIE: albedo, normal, properties, detail and the blend mask.
     private const int TexPerMaterial = 13;

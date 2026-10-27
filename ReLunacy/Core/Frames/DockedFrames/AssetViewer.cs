@@ -797,6 +797,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                 try
                 {
                     _vkPreview.SetDebugLines(_debugLines);
+                    _vkPreview.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
                     _vkPreview.Frame(
                         Camera.GetView(), Camera.GetProjection(),
                         _lighting.BuildLightData(Camera.Position),

@@ -290,6 +290,10 @@ public class View3D : DockedFrame
                 OldEngineRenderOptions.FogEnabled = Program.Settings.OldEngineFog;
                 OldEngineRenderOptions.ReflectionsEnabled = Program.Settings.OldEngineReflections;
                 Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = Program.Settings.GameShaders;
+                // Per-material culling comes from the retail raster state (_matCullBack); this switch
+                // gates it so the editor can still inspect geometry double-sided. Pushed per frame so
+                // the toggle takes effect live, without a scene rebuild.
+                vkStage.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(

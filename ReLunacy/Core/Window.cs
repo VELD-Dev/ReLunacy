@@ -652,9 +652,9 @@ public class LunaWindow : IDisposable
         // EntityManager is engine-layer and deliberately doesn't read Program.Settings, so the
         // persisted setting is pushed in here every frame instead of being read where it's consumed.
         EntityManager.Singleton.FrustumCullingEnabled = EditorSettings.FrustrumCulling;
-        // Lighting is pushed straight to the renderer every frame (View3D passes
-        // EditorSettings.EnableLighting to VulkanRenderer.Frame), and backface culling is baked into
-        // the renderer's pipelines, so neither goes through the asset manager.
+        // Lighting and backface culling are pushed straight to the renderer every frame (View3D
+        // passes EditorSettings.EnableLighting to VulkanRenderer.Frame and assigns
+        // RetailBackfaceCulling), so neither goes through the asset manager.
         AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
 
         // Captured here rather than at the point isOpen flips false (TryCloseFirstFrame, or the
