@@ -127,7 +127,17 @@ public abstract record LuaConstant
     /// <summary>Stored as read; b4404 numbers are float32, so values are not double-precision.</summary>
     public sealed record Number(double Value) : LuaConstant
     {
-        public override string ToString() => Value.ToString("R");
+        /// <summary>b4404 numbers are float32, so a constant read back as a double carries the
+        /// widening artefacts of that - 0.2f prints as 0.20000000298023224 unless it is rendered at
+        /// the precision it was actually stored with. Invariant culture throughout: a listing that
+        /// says "1,5" on a French machine and "1.5" elsewhere is not a format tool.</summary>
+        public override string ToString()
+        {
+            var f = (float)Value;
+            return (double)f == Value
+                ? f.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                : Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>Raw bytes without the terminating NUL. Lua strings are byte strings, so they are kept
