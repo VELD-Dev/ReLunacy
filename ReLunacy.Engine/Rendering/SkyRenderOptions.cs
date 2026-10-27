@@ -79,6 +79,25 @@ public static class SkyRenderOptions
     /// then drawn inside the main opaque framebuffer, before the level geometry.
     /// SkyDefs alone is enough for a Dome-only packet; SkyShell geometry is optional.
     /// </summary>
+
+    // PrepareScene returns early on several conditions and used to do it silently, so "no sky" gave
+    // no clue which gate stopped it. Logged once per distinct reason: this runs every frame.
+    private static string? _lastBail;
+
+    private static void Bail(string reason)
+    {
+        if (_lastBail == reason) return;
+        _lastBail = reason;
+        Vulkan.LunaLog.LogInfo($"Sky: not drawn - {reason}");
+    }
+
+    private static void BailCleared(string note)
+    {
+        if (_lastBail == null) return;
+        _lastBail = null;
+        Vulkan.LunaLog.LogInfo($"Sky: {note}");
+    }
+
     public static void PrepareScene(LevelData? level, AssetManager? assets)
     {
         if (level == null || assets == null)
@@ -117,6 +136,7 @@ public static class SkyRenderOptions
         SkyData sky = VisibleSky(level);
         if (!sky.HasSkyDefs)
         {
+            Bail($"no SkyDefs (0x8150) among the {level.Skies.Count} sky(ies) ticked {string.Join(",", _visible.Order())}");
             AttachToRenderer(assets); // nothing ticked: take the sky off a renderer that still draws one
             RestoreEditorClear(assets);
             return;
@@ -133,20 +153,27 @@ public static class SkyRenderOptions
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: sky source '{source.Label}' texture build failed: {ex.Message}");
+                Vulkan.LunaLog.LogWarning($"sky source '{source.Label}' texture build failed: {ex.Message}");
             }
         }
 
         if (assets.HasPendingUploads)
+        {
+            Bail("waiting on texture uploads (retried every frame)");
             return;
+        }
 
         Scene = VkSkySceneBuilder.Build(sky, assets.BuiltTextures);
         if (Scene is not { HasGeometry: true })
         {
+            Bail(Scene == null
+                ? "VkSkySceneBuilder.Build returned null (SkyDefs missing at build time)"
+                : "the built packet has neither a dome nor shell geometry");
             AttachToRenderer(assets);
             RestoreEditorClear(assets);
             return;
         }
+        BailCleared("packet built; proceeding to attach");
 
         string dome = Scene.HasDome
             ? $"Dome {Scene.Dome!.VertexData.Length / (int)VkSkyDome.FloatsPerVertex:N0}v/{Scene.Dome.Indices.Length:N0}i"
@@ -154,7 +181,7 @@ public static class SkyRenderOptions
         string shell = sky.ShellMesh is { } mesh
             ? $"shell {mesh.Vertices.Count:N0}v/{mesh.Indices.Count:N0}i, {Scene.Draws.Length} draw(s)"
             : "shell absent";
-        Console.WriteLine($"Sky: native Vulkan packet {dome}; {shell}; sky(ies) [{string.Join(", ", _visible.Order())}] of {level.Skies.Count}.");
+        Vulkan.LunaLog.LogInfo($"Sky: native Vulkan packet {dome}; {shell}; sky(ies) [{string.Join(", ", _visible.Order())}] of {level.Skies.Count}.");
 
         AttachToRenderer(assets);
         SyncRetailClear(assets);
@@ -173,7 +200,7 @@ public static class SkyRenderOptions
             if (ReferenceEquals(_attachedScene, scene)) return;
             renderer.ReplaceSky(scene);
             _attachedScene = scene;
-            Console.WriteLine(scene == null ? "Sky: no sky ticked; packet removed." : "Sky: packet swapped for the ticked skies.");
+            Vulkan.LunaLog.LogInfo(scene == null ? "Sky: no sky ticked; packet removed." : "Sky: packet swapped for the ticked skies.");
             return;
         }
         if (scene == null) return;
@@ -187,7 +214,7 @@ public static class SkyRenderOptions
         else renderer.SetSky(scene);
         _attachedRenderer = renderer;
         _attachedScene = scene;
-        Console.WriteLine("Sky: packet attached to the main Vulkan renderer; direct opaque-pass rendering active.");
+        Vulkan.LunaLog.LogInfo("Sky: packet attached to the main Vulkan renderer; direct opaque-pass rendering active.");
     }
 
     private static void SyncRetailClear(AssetManager assets)
