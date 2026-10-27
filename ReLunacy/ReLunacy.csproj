@@ -37,6 +37,15 @@
     </Content>
   </ItemGroup>
 
+  <!-- Lua API documentation, shipped the same way as Locales: versioned here, copied next to the
+       executable, and editable there without a rebuild. Recursive, since it is one folder per game. -->
+  <ItemGroup>
+    <Content Include="LuaApi/**/*.lua;LuaApi/**/*.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>LuaApi\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+
   <ItemGroup>
     <EmbeddedResource Include="Assets\logo.ico" />
   </ItemGroup>

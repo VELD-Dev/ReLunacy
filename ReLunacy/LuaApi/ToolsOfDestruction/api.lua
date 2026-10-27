@@ -1,0 +1,4 @@
+---@meta
+--- Tools of Destruction API. Empty on purpose - see README.md in this folder and the format
+--- reference one level up. Declaring nothing here is deliberate: a placeholder with invented
+--- types would produce confidently wrong completions, which is worse than none.
