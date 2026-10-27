@@ -125,6 +125,20 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>The .lc disassembly view. Grouped with the other reverse-engineering tools rather
+    /// than the level views: it inspects a file, not the loaded level.</summary>
+    internal static void ShowLuaDisassembly()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaDisassemblyFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaDisassembly"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<LuaDisassemblyFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new LuaDisassemblyFrame());
+    }
+
     internal static void ShowPSArcExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();
