@@ -2,22 +2,17 @@ using System.Numerics;
 using ReLunacy.Engine.Scripting;
 using ReLunacy.Utility.Localization;
 
-namespace ReLunacy.Core.Frames.DockedFrames;
+namespace ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 
 /// <summary>
-/// Reverse-engineering view over a precompiled Lua chunk (<c>.lc</c>): its header, its prototype
-/// tree, and the decoded instruction listing for the selected prototype with constants resolved.
+/// Disassembly of a precompiled chunk (<c>.lc</c>), as a view so it can sit beside the editor.
 ///
-/// This is the surface the compiler gets debugged against. When step 5 compiles one of the shipped
-/// sources and the bytes differ, a byte offset says nothing useful; seeing both sides as named
-/// instructions is what makes the difference legible.
+/// This is the surface the compiler gets debugged against: once step 5 compiles a shipped source
+/// and the bytes differ, a byte offset says nothing, whereas the two listings side by side name the
+/// instruction that diverged.
 /// </summary>
-public class LuaDisassemblyFrame : DockedFrame
+public sealed class LuaDisassemblyView
 {
-    protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
-    protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
-    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
-
     private string _path = "";
     private string? _error;
     private LuaChunk? _chunk;
@@ -27,10 +22,6 @@ public class LuaDisassemblyFrame : DockedFrame
     private int _selected;
     private List<LuaDisassembler.Line> _lines = [];
 
-    public LuaDisassemblyFrame()
-    {
-        FrameName = LM.Get("GUI_Frame_LuaDisassembly");
-    }
 
     /// <summary>Loads a chunk already in memory - how the PSARC browser and, later, the editor hand
     /// one over without going through the filesystem.</summary>
@@ -69,12 +60,12 @@ public class LuaDisassemblyFrame : DockedFrame
             : [];
     }
 
-    protected override void Render(double deltaTime)
+    public void Render(double deltaTime)
     {
         ImGui.SetNextItemWidth(-140f);
-        ImGui.InputText(LM.Get("GUI_Frame_LuaDisassembly_Path"), ref _path, 1024);
+        ImGui.InputText(LM.Get("GUI_LuaEnv_Dis_Path"), ref _path, 1024);
         ImGui.SameLine();
-        if (ImGui.Button(LM.Get("GUI_Frame_LuaDisassembly_Load")))
+        if (ImGui.Button(LM.Get("GUI_LuaEnv_Dis_Load")))
         {
             if (File.Exists(_path)) Load(File.ReadAllBytes(_path), _path);
             else { _error = $"no such file: {_path}"; _chunk = null; _protos.Clear(); _lines = []; }
@@ -85,13 +76,13 @@ public class LuaDisassemblyFrame : DockedFrame
             ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), _error);
             return;
         }
-        if (_chunk is not { } chunk) { ImGui.TextDisabled(LM.Get("GUI_Frame_LuaDisassembly_Empty")); return; }
+        if (_chunk is not { } chunk) { ImGui.TextDisabled(LM.Get("GUI_LuaEnv_Dis_Empty")); return; }
 
         ImGui.Text(chunk.Header.ToString());
         if (!chunk.Header.IsB4404)
         {
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), LM.Get("GUI_Frame_LuaDisassembly_NotB4404"));
+            ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), LM.Get("GUI_LuaEnv_Dis_NotB4404"));
         }
         ImGui.Separator();
 
@@ -127,12 +118,12 @@ public class LuaDisassemblyFrame : DockedFrame
 
         if (ImGui.BeginTabBar("lua_code_tabs"))
         {
-            if (ImGui.BeginTabItem(LM.Get("GUI_Frame_LuaDisassembly_Code")))
+            if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_Dis_Code")))
             {
                 RenderCode();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem(LM.Get("GUI_Frame_LuaDisassembly_Constants")))
+            if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_Dis_Constants")))
             {
                 RenderConstants(proto);
                 ImGui.EndTabItem();

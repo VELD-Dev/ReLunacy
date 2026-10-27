@@ -546,8 +546,7 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();
             ViewMenuDraw.ShowPSArcExplorer();
-            ViewMenuDraw.ShowLuaEditor();
-            ViewMenuDraw.ShowLuaDisassembly();
+            ViewMenuDraw.ShowLuaEnvironment();
             ImGui.Separator();
             ViewMenuDraw.LayoutPresets();
             ImGui.EndMenu();

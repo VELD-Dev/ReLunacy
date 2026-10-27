@@ -125,31 +125,19 @@ internal static class ViewMenuDraw
         }
     }
 
-    /// <summary>The Lua source editor.</summary>
-    internal static void ShowLuaEditor()
+    /// <summary>The Lua development environment: source editor and bytecode disassembly in one
+    /// window. Grouped with the file inspectors rather than the level views, since it works on
+    /// scripts rather than on the loaded level.</summary>
+    internal static void ShowLuaEnvironment()
     {
-        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaEditorFrame>();
-        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaEditor"), "", frameAlreadyOpen, true))
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaEnvironmentFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaEnvironment"), "", frameAlreadyOpen, true))
             return;
 
         if (frameAlreadyOpen)
-            LunaWindow.Instance.TryCloseFirstFrame<LuaEditorFrame>();
+            LunaWindow.Instance.TryCloseFirstFrame<LuaEnvironmentFrame>();
         else
-            LunaWindow.Instance.AddFrame(new LuaEditorFrame());
-    }
-
-    /// <summary>The .lc disassembly view. Grouped with the other reverse-engineering tools rather
-    /// than the level views: it inspects a file, not the loaded level.</summary>
-    internal static void ShowLuaDisassembly()
-    {
-        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaDisassemblyFrame>();
-        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaDisassembly"), "", frameAlreadyOpen, true))
-            return;
-
-        if (frameAlreadyOpen)
-            LunaWindow.Instance.TryCloseFirstFrame<LuaDisassemblyFrame>();
-        else
-            LunaWindow.Instance.AddFrame(new LuaDisassemblyFrame());
+            LunaWindow.Instance.AddFrame(new LuaEnvironmentFrame());
     }
 
     internal static void ShowPSArcExplorer()
