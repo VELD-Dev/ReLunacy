@@ -12,6 +12,7 @@ public sealed class GeometryData : IGeometry
     private readonly float[] _tangents;
     private readonly float[]? _lightmapUVs;
     private readonly float[]? _vertexAlpha;
+    private readonly float[]? _vertexBakedLightScales;
     private readonly uint[] _indices;
     private readonly int[]? _jointIndices;
     private readonly float[]? _jointWeights;
@@ -23,7 +24,7 @@ public sealed class GeometryData : IGeometry
 
     public GeometryData(ulong id, float[] positions, float[] uvs, uint[] indices, float[]? normals = null, BoundingSphere? boundingSphere = null,
         int[]? jointIndices = null, float[]? jointWeights = null, float[]? vertexAlpha = null, float[]? tangents = null,
-        float[]? lightmapUVs = null)
+        float[]? lightmapUVs = null, float[]? vertexBakedLightScales = null)
     {
         if (positions.Length % 3 != 0)
             throw new ArgumentException("Positions must be in groups of 3 (x,y,z)", nameof(positions));
@@ -44,6 +45,8 @@ public sealed class GeometryData : IGeometry
             throw new ArgumentException("Tangent count must match vertex count");
         if (lightmapUVs != null && lightmapUVs.Length != vertexCount * 2)
             throw new ArgumentException("Lightmap UV count must match vertex count", nameof(lightmapUVs));
+        if (vertexBakedLightScales != null && vertexBakedLightScales.Length != vertexCount)
+            throw new ArgumentException("Baked light scale count must match vertex count", nameof(vertexBakedLightScales));
         if (jointIndices != null && jointIndices.Length != vertexCount * 4)
             throw new ArgumentException("Joint index count must be vertex count * 4", nameof(jointIndices));
         if (jointWeights != null && jointWeights.Length != vertexCount * 4)
@@ -57,6 +60,7 @@ public sealed class GeometryData : IGeometry
         _tangents = GeometryMath.ComputeTangents(positions, uvs, _normals, indices, tangents);
         _lightmapUVs = lightmapUVs;
         _vertexAlpha = vertexAlpha;
+        _vertexBakedLightScales = vertexBakedLightScales;
         _indices = indices;
         _jointIndices = jointIndices;
         _jointWeights = jointWeights;
@@ -66,9 +70,40 @@ public sealed class GeometryData : IGeometry
     public float[] GetVertexPositions() => _positions;
     public float[] GetTextureCoordinates() => _uvs;
     public float[]? GetNormals() => _normals;
+
+    /// <summary>The built tangents: 4 floats per vertex (xyz direction + w handedness).</summary>
     public float[]? GetTangents() => _tangents;
+
+    /// <summary>
+    /// Drops the handedness from a 4-floats-per-vertex tangent array, giving back the
+    /// 3-floats-per-vertex direction this constructor's <c>tangents</c> parameter takes.
+    ///
+    /// The asymmetry is the trap, and it has now bitten twice: tangents are consumed as 3 and
+    /// produced as 4, so anything holding built tangents (<see cref="GetTangents"/>,
+    /// <c>IUFrag.GetTangents()</c>) cannot be fed straight back in. Doing so throws from this
+    /// constructor - as "Tangents must be in groups of 3", or, when the vertex count happens to be a
+    /// multiple of 3 so that 4N still divides by 3, as the far more confusing "Tangent count must
+    /// match vertex count".
+    ///
+    /// Re-deriving w afterwards is lossless: it depends only on the tangent direction, the normal and
+    /// the UV winding, none of which this changes.
+    /// </summary>
+    public static float[]? StripTangentHandedness(float[]? tangentsXyzw)
+    {
+        if (tangentsXyzw == null) return null;
+        int vertexCount = tangentsXyzw.Length / 4;
+        var result = new float[vertexCount * 3];
+        for (int v = 0; v < vertexCount; v++)
+        {
+            result[v * 3 + 0] = tangentsXyzw[v * 4 + 0];
+            result[v * 3 + 1] = tangentsXyzw[v * 4 + 1];
+            result[v * 3 + 2] = tangentsXyzw[v * 4 + 2];
+        }
+        return result;
+    }
     public float[]? GetLightmapUVs() => _lightmapUVs;
     public float[]? GetVertexAlpha() => _vertexAlpha;
+    public float[]? GetVertexBakedLightScales() => _vertexBakedLightScales;
     public uint[] GetIndices() => _indices;
     public int[]? GetJointIndices() => _jointIndices;
     public float[]? GetJointWeights() => _jointWeights;

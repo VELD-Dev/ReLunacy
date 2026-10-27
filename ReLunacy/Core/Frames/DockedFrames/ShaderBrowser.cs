@@ -226,10 +226,8 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_RenderingMode", RenderModeLabel((byte)shader.RenderingMode)));
 
-        // Old-engine materials have no stored alpha clip: the engine hardcodes the threshold per
-        // rendering mode. Only the new engine stores one.
-        if (!shader.isOld)
-            ImGui.Text(LM.Get("GUI_Frame_ShaderBrowser_AlphaClip", shader.metadataNew!.Value.alphaClip));
+        // Neither engine stores an alpha clip: the threshold is rendering-mode state (the new engine's
+        // +0x30, once read as one, is the normal-map strength).
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_TexturesSection"));
         DrawTextureRef(LM.Get("GUI_Frame_ShaderBrowser_Albedo"), shader.Albedo);
@@ -284,7 +282,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             // Raw byte AND decoded flags, deliberately both (see ShaderMetadataOld.flags).
             ImGui.Text($"0x10 flags: 0x{meta.flags:X2} (binary {Convert.ToString(meta.flags, 2).PadLeft(8, '0')})");
             // Parallax, not specular - see ShaderMetadataOld.UsesParallax.
-            ImGui.Text($"     Parallax:{meta.UsesParallax} Gloss:{meta.UsesGlossiness} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
+            ImGui.Text($"     Parallax:{meta.UsesParallax} Gloss:{meta.UsesGloss} Normal:{meta.UsesNormalMap} Detail:{meta.UsesDetailMap}");
             ImGui.Text($"0x12 Class: {meta.Class}");
             DrawHexDump("Unk1", 0x13, meta.Unk1);
             // values[0].xyz is an RGB parameter triple the engine multiplies by the instance's own RGB
@@ -300,9 +298,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         else if (!shader.isOld && shader.metadataNew.HasValue)
         {
             var meta = shader.metadataNew.Value;
-            DrawHexDump("Unk1", 0x0C, meta.Unk1);
-            DrawHexDump("Unk2", 0x22, meta.Unk2);
-            DrawHexDump("Unk3", 0x34, meta.Unk3);
+            ImGui.Text($"0x20 featureFlags: 0x{meta.featureFlags:X2}  0x22 class: 0x{meta.shaderClass:X2}  0x23 flags: 0x{meta.shaderFlags:X2}");
+            ImGui.Text($"0x24 tint: ({meta.tintR:0.###}, {meta.tintG:0.###}, {meta.tintB:0.###})");
+            ImGui.Text($"0x30 normal strength: {meta.parameter30:0.###}  0x34 reflection strength: {meta.parameter34:0.###}");
+            ImGui.Text($"0x50 reflection tint: ({meta.reflectionTintR:0.###}, {meta.reflectionTintG:0.###}, {meta.reflectionTintB:0.###}), albedo mix {meta.reflectionTintAlbedoMix:0.###}");
         }
 
         ImGui.Separator();

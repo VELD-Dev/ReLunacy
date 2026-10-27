@@ -1831,7 +1831,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         try
         {
             _vkPreview = new Engine.Rendering.Vulkan.VulkanRenderer(
-                graphicsDevice, verts, idx, materials, instances, envCube, previewTexWidth, previewTexHeight)
+                graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight)
             {
                 // The preview has always had a light background; the level view keeps its dark one.
                 ClearColour = new Vector4(0.68f, 0.85f, 0.90f, 1f),

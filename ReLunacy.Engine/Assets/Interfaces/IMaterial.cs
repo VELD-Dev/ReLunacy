@@ -17,6 +17,10 @@ public interface IMaterial : IAsset
     // B = additive albedo brightness, A = additive specular intensity. Gated by
     // PropertiesTexture's alpha (the detail mask). Uses the base UV set.
     ITexture? DetailTexture { get; }
+    /// <summary>New-engine 0x5000 slots 4/5. Their retail programs bind these to RSX texture
+    /// units 8/9 when present; combine semantics remain program-family specific.</summary>
+    ITexture? AuxiliaryTextureA => null;
+    ITexture? AuxiliaryTextureB => null;
     RenderMode RenderMode { get; }
 
     /// <summary>The game's own rendering mode byte: 0 Opaque, 1 Overlay, 2 Additive, 3 Scunge,
@@ -26,12 +30,14 @@ public interface IMaterial : IAsset
 
     float AlphaClipThreshold { get; }
 
-    // Parallax remap: height * ParallaxScale + ParallaxBias. New-engine materials report 0/0
-    // (parallax disabled) - no identified equivalent field there.
+    // Per-material parallax remap, applied as height * ParallaxScale + ParallaxBias exactly as the
+    // captured game shader does (both are fragment constants there). Old engine reads 0x50/0x54;
+    // new engine reads the independently recovered 0x70/0x74 pair when feature bit 0x01 is set.
     float ParallaxScale { get; }
     float ParallaxBias { get; }
 
-    // Detail-map UV tiling. New-engine materials report 0 (not identified).
+    // Detail-map UV tiling. Old engine stores it at 0x58; new engine stores it at 0x78 and the
+    // embedded RSX program consumes that value in the detail UV path.
     float DetailTiling { get; }
 
     // Whether this material uses a detail map. New-engine materials fall back to "has a detail

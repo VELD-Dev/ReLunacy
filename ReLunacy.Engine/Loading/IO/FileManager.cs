@@ -17,9 +17,13 @@ public class FileManager : IDisposable
 
     public bool isOld { get; private set; }
 
+    /// <summary>The folder or archive the level was opened from.</summary>
+    public string SourcePath { get; private set; } = string.Empty;
+
     public void LoadFolder(string folderPath)
     {
         this.folderPath = folderPath;
+        SourcePath = folderPath;
         DirectoryInfo di = new(folderPath);
         FileInfo[] files = di.GetFiles();
         isOld = files.Any(x => x.Name == "main.dat");
@@ -38,6 +42,7 @@ public class FileManager : IDisposable
     /// level_*.psarc sibling next to it.</summary>
     public void LoadFromPsarcFile(string path)
     {
+        SourcePath = path;
         var primary = new PSARC(File.OpenRead(path));
         _archives.Clear();
         _archives.Add(primary);
@@ -83,6 +88,13 @@ public class FileManager : IDisposable
             LoadFile("highmips.dat", true);
             LoadFile("shaders.dat", true);
             LoadFile("zones.dat", true);
+
+            // Environment payloads, addressed through assetlookup: baked zone lighting (lighting.dat,
+            // with its high-resolution half in highlight.dat) and the region's cubemaps. A level
+            // without one is normal; LoadFile then records a null stream.
+            LoadFile("lighting.dat", true);
+            LoadFile("highlight.dat", true);
+            LoadFile("cubemaps.dat", true);
         }
     }
 

@@ -1,4 +1,6 @@
 using ReLunacy.Core;
+using ReLunacy.Engine.Assets.Sky;
+using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility.Localization;
 
@@ -114,6 +116,86 @@ internal static class RenderMenuDraw
         }
 
         ImGui.EndMenu();
+    }
+
+    /// <summary>Every sky of the loaded level, each with its own visibility tick. A new-engine region
+    /// can hold several (All 4 One's seaside has three, switched in game by set_sky); the level opens
+    /// on its first one alone, the one the game shows before a script calls set_sky(). Skipped when
+    /// no level is open, like ZoneVisibility.</summary>
+    internal static void SkyVisibility()
+    {
+        var level = LunaWindow.Instance.Level;
+        if (level == null) return;
+        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderSkies"))) return;
+
+        if (level.Skies.Count == 0)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_MenuItem_SkyNone"));
+            ImGui.EndMenu();
+            return;
+        }
+
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ShowSky"), "", settings.RenderSky))
+        {
+            settings.RenderSky = !settings.RenderSky;
+            SkyRenderOptions.Enabled = settings.RenderSky;
+            settings.SaveSettingsToFile();
+        }
+        ImGui.Separator();
+
+        ImGui.BeginDisabled(!settings.RenderSky);
+        foreach (LevelSky sky in level.Skies)
+        {
+            bool visible = SkyRenderOptions.IsVisible(level, sky.Index);
+            if (ImGui.Checkbox($"{sky.Label}###sky_{sky.Index}", ref visible))
+                SkyRenderOptions.SetVisible(level, sky.Index, visible);
+            if (level.Skies.Count > 1)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"{LM.Get("GUI_MenuItem_SkyOnly")}###sky_only_{sky.Index}"))
+                    SkyRenderOptions.ShowOnly(level, sky.Index);
+            }
+
+            SkyData data = sky.Data;
+            int shells = data.Family8160Records.Concat(data.Family8170Records).Count(record => record.IndexCount != 0);
+            int clouds = data.DefinitionTextures.Count(slot => slot.Texture != null);
+            string slots = sky.SetSkySlots.Count == 0 ? string.Empty : $"  -  set_sky slot {string.Join(", ", sky.SetSkySlots)}";
+            ImGui.TextDisabled($"      {shells} shell(s), {data.RenderSources.Count} texture(s), clouds {clouds}/3{slots}");
+        }
+        ImGui.EndDisabled();
+
+        if (level.Skies.Count > 1)
+            ImGui.TextDisabled(LM.Get("GUI_MenuItem_SkySeveralHint"));
+        ImGui.EndMenu();
+    }
+
+    /// <summary>The game's own fidelity switches: its fragment programs (read from a decrypted EBOOT
+    /// in the level's install, and the programs a material ships itself), and on the old engine the
+    /// level's fog (main.dat 0x7100) and the TIE cube reflections. All on by default; they only hide.</summary>
+    internal static void GameFidelity()
+    {
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_GameShaders"), "", settings.GameShaders))
+        {
+            settings.GameShaders = !settings.GameShaders;
+            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = settings.GameShaders;
+            settings.SaveSettingsToFile();
+            LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+        }
+        if (LunaWindow.Instance.Level?.IsOldEngine != true) return;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineFog"), "", settings.OldEngineFog))
+        {
+            settings.OldEngineFog = !settings.OldEngineFog;
+            OldEngineRenderOptions.FogEnabled = settings.OldEngineFog;
+            settings.SaveSettingsToFile();
+        }
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineReflections"), "", settings.OldEngineReflections))
+        {
+            settings.OldEngineReflections = !settings.OldEngineReflections;
+            OldEngineRenderOptions.ReflectionsEnabled = settings.OldEngineReflections;
+            settings.SaveSettingsToFile();
+        }
     }
 
     internal static void ShowMobyDistanceCulling()

@@ -13,6 +13,7 @@ public sealed class MaterialReader
     private readonly TextureShaderLoader _loader;
     private readonly Dictionary<ulong, Material> _materialCache = [];
     private readonly Dictionary<ulong, Texture> _textureCache = [];
+    private readonly Dictionary<(ulong SourceId, OldTextureDescriptorState Descriptor), Texture> _newBindingTextureCache = [];
     private readonly Dictionary<uint, IMaterial> _foliageMaterialCache = [];
     private Material? _defaultMaterial;
 
@@ -21,16 +22,40 @@ public sealed class MaterialReader
         _loader = loader;
     }
 
-    /// <summary>Old engine: shaderIndex is a direct key into the shader table.</summary>
+    /// <summary>
+    /// A Crack in Time's 0x5000 record keeps the parallax scale / bias at +0x60 / +0x64 and the detail
+    /// tiling at +0x70 - where All 4 One, QForce and Into the Nexus keep (rim gain, Fresnel exponent) and
+    /// (parallax scale, bias, detail tiling). Measured on krell_canyon (178 parallax materials: +0x70 =
+    /// 3 / 4 / 8 / 16 with zeros after it, +0x60 = 0.01..0.02 / -0.01..0) against luminopolis,
+    /// meridian_city and jungle_ruins_pvp, which all read (2, 3, z, 4) at +0x60 and (0.02, -0.01, 3, 0)
+    /// at +0x70; +0x30 / +0x34 / +0x3C / +0x68 / +0x6C have the same ranges in all four (STRONG). Read the
+    /// QForce way, ACiT terrain drew with a parallax scale of 3: smeared, marbled UFrags.
+    /// </summary>
+    public bool CrackInTimeLayout { get; init; }
+
     public IMaterial GetMaterialByIndex(uint shaderIndex) => GetMaterialByTuid(shaderIndex);
 
-    /// <summary>New engine: shaderIndex is local to the owning Moby/Tie/Zone and must be resolved through its ShaderTUIDs table first.</summary>
     public IMaterial GetMaterialForLocalIndex(ulong[]? shaderTuids, uint shaderIndex)
     {
         if (shaderTuids != null && shaderIndex < shaderTuids.Length)
             return GetMaterialByTuid(shaderTuids[shaderIndex]);
         return GetDefaultMaterial();
     }
+
+    /// <summary>Old engine: the texture at a position in the 0x5200 table, without building a
+    /// material for it (the sky references that table directly). Null for the 0xFFFFFFFF sentinel
+    /// or an out-of-range index.</summary>
+    public ITexture? GetOldTextureByIndex(uint textureIndex)
+    {
+        var legacy = _loader.ResolveOldTextureIndex(textureIndex);
+        return legacy == null ? null : WrapTexture(legacy);
+    }
+
+    /// <summary>Tools of Destruction: main.dat 0x5700 entry <paramref name="index"/>, a two-layer blend
+    /// mask (1 to 29 DXT1 textures of one mip, 128 to 1024 px, painted in lightmap space), or null
+    /// when out of range.</summary>
+    public ITexture? GetOldBlendMask(int index) =>
+        (uint)index < (uint)_loader.AuxiliaryTextures.Count ? WrapTexture(_loader.AuxiliaryTextures[index]) : null;
 
     /// <summary>Builds the material for an old-engine foliage asset from its direct texture index
     /// (FoliageMetadata.TextureIndex, a position in the 0x5200 table). Returns null for the
@@ -56,8 +81,6 @@ public sealed class MaterialReader
         return material;
     }
 
-    /// <summary>Wraps every texture the loader read, not just the ones referenced by a shader in
-    /// use by the loaded level's geometry.</summary>
     public IReadOnlyDictionary<ulong, ITexture> GetAllTextures()
     {
         foreach (var legacy in _loader.Textures.Values)
@@ -66,8 +89,14 @@ public sealed class MaterialReader
         return _textureCache.ToDictionary(kv => kv.Key, kv => (ITexture)kv.Value);
     }
 
-    /// <summary>Wraps zone lighting textures (0x5400 / 0x5410). Returned as a list, not a
-    /// dictionary: addressed positionally by TieInstance.LightmapIndex.</summary>
+    /// <summary>
+    /// Checks both serialized texture TUIDs and already-wrapped runtime ids without forcing every
+    /// texture through WrapTexture. Used by generated per-zone lighting textures to avoid id
+    /// collisions in AssetManager's shared GPU texture cache.
+    /// </summary>
+    internal bool ContainsTextureId(ulong id) =>
+        _loader.Textures.ContainsKey(id) || _textureCache.ContainsKey(id);
+
     public IReadOnlyList<ITexture> WrapZoneLighting(IReadOnlyList<Textures.Texture> legacy)
     {
         var result = new List<ITexture>(legacy.Count);
@@ -84,39 +113,192 @@ public sealed class MaterialReader
         if (!_loader.Shaders.TryGetValue(tuid, out var shader))
             return GetDefaultMaterial();
 
-        Texture? albedo = shader.Albedo != null ? WrapTexture(shader.Albedo) : null;
+        Texture? albedo = WrapShaderSlot(shader, shader.Albedo, 0);
+        Texture? normal = WrapShaderSlot(shader, shader.Normal, 1);
+        Texture? properties = WrapShaderSlot(shader, shader.Expensive, 2);
+        Texture? detail = WrapShaderSlot(shader, shader.DetailMap, 3);
+        Texture? auxiliaryA = WrapShaderSlot(shader, shader.Auxiliary4, 4);
+        Texture? auxiliaryB = WrapShaderSlot(shader, shader.Auxiliary5, 5);
 
         var material = Material.Create(
             id: tuid,
             albedo: albedo,
-            normal: shader.Normal != null ? WrapTexture(shader.Normal) : null,
-            properties: shader.Expensive != null ? WrapTexture(shader.Expensive) : null,
-            detail: shader.DetailMap != null ? WrapTexture(shader.DetailMap) : null,
+            normal: normal,
+            properties: properties,
+            detail: detail,
             renderMode: ToRenderMode(shader.RenderingMode),
             gameRenderMode: (byte)shader.RenderingMode <= 6 ? (byte)shader.RenderingMode : (byte)0,
             alphaClipThreshold: GetAlphaClip(shader),
             usesVertexAlpha: UsesVertexAlpha(shader.RenderingMode),
             albedoHasAlphaChannel: HasAlphaChannel(albedo),
-            parallaxScale: GetParallaxScale(shader),
-            parallaxBias: GetParallaxBias(shader),
-            detailTiling: GetDetailTiling(shader),
-            usesDetailMap: UsesDetailMap(shader));
+            parallaxScale: GetParallaxScale(shader, CrackInTimeLayout),
+            parallaxBias: GetParallaxBias(shader, CrackInTimeLayout),
+            detailTiling: GetDetailTiling(shader, CrackInTimeLayout),
+            usesDetailMap: UsesDetailMap(shader),
+            oldFeatureFlags: shader.isOld ? shader.metadataOld!.Value.flags : (byte)0,
+            oldRenderFlags: GetOldRenderFlags(shader),
+            auxiliaryA: auxiliaryA,
+            auxiliaryB: auxiliaryB);
         material.Name = shader.name;
+        material.ReflectionTintSource = shader.isOld
+            ? shader.metadataOld!.Value.ReflectionTint
+            : shader.metadataNew!.Value.ReflectionTint;
+        if (shader.isOld)
+            material.OldShaderVector30 = shader.metadataOld!.Value.Vector30;
+        if (!shader.isOld)
+        {
+            ShaderMetadataNew meta = shader.metadataNew!.Value;
+            material.IsNewEngineMaterial = true;
+            material.NewEngineShaderClass = meta.shaderClass;
+            material.NewEngineShaderFlags = meta.shaderFlags;
+            material.NewEngineParameter30 = meta.parameter30;
+            material.NewEngineParameter34 = meta.parameter34;
+            material.NewEnginePackedState38 = meta.packedState38;
+            material.NewEngineParameter3C = meta.parameter3C;
+            material.NewEngineFeatureFlags = meta.ParallaxApplies ? meta.featureFlags : (byte)(meta.featureFlags & ~0x01);
+            material.NewEngineFramebufferSamplingMask = meta.parameter44;
+            material.MaterialTintSource = meta.MaterialTint;
+            // ACiT has no (rim gain, Fresnel exponent) at +0x60: the other games' usual (2, 3) stand in
+            // (INFERRED); its +0x68 / +0x6C mean what they mean elsewhere.
+            material.ReflectionParametersSource = CrackInTimeLayout
+                ? new System.Numerics.Vector4(2f, 3f, meta.reflectionParamZ, meta.reflectionParamW)
+                : meta.ReflectionParameters;
+            uint cube = meta.environmentFilterIndex;
+            material.EnvironmentCubeIndex = cube <= 3 ? (int)cube : 0;
+            if (shader.ProgramBundle is { } bundle)
+            {
+                material.NewEngineProgramKeys = [.. bundle.Variants.Select(v => v.SkeletonKey)];
+                material.NewEngineProgramBundle = bundle;
+            }
+        }
 
         _materialCache[tuid] = material;
         return material;
     }
 
-    private Texture WrapTexture(Textures.Texture legacy)
+    private Texture? WrapShaderSlot(Shader shader, Textures.Texture? legacy, int slot)
     {
+        if (legacy == null)
+            return null;
+        return shader.isOld
+            ? WrapTexture(legacy)
+            : WrapTexture(legacy, shader.NewTextureDescriptors[slot]);
+    }
+
+    private Texture WrapTexture(Textures.Texture legacy, OldTextureDescriptorState? bindingDescriptor = null)
+    {
+        if (!legacy.isOld && bindingDescriptor is { } nativeBinding)
+        {
+            var bindingKey = (legacy.id, nativeBinding);
+            if (_newBindingTextureCache.TryGetValue(bindingKey, out var boundCached))
+                return boundCached;
+
+            ulong runtimeId = AllocateBindingTextureId(legacy.id, nativeBinding);
+            var bound = Texture.FromData(
+                runtimeId,
+                legacy.Width,
+                legacy.Height,
+                ToTextureFormat(legacy.TexFormat),
+                legacy.data,
+                (int)legacy.MipmapCounts,
+                nativeBinding.Control1);
+            bound.NewEngineDescriptor = nativeBinding;
+            bound.Name = legacy.name;
+            _textureCache[runtimeId] = bound;
+            _newBindingTextureCache[bindingKey] = bound;
+            return bound;
+        }
+
         if (_textureCache.TryGetValue(legacy.id, out var cached))
             return cached;
 
-        var texture = Texture.FromData(legacy.id, legacy.Width, legacy.Height, ToTextureFormat(legacy.TexFormat), legacy.data, (int)legacy.MipmapCounts);
+        uint nativeControl1 = Loading.Textures.RsxTextureChannelRemap.Identity;
+        OldTextureDescriptorState? oldDescriptor = null;
+        OldTextureStreamingState? oldStreaming = null;
+        if (legacy.isOld && legacy.textureMetadata is Loading.Textures.TextureMetadataOld oldMeta)
+        {
+            nativeControl1 = oldMeta.control1;
+            oldDescriptor = ToAssetDescriptor(oldMeta);
+
+            // The old loader intentionally uses the first 0x9800 record as the high-mip override.
+            // Preserve that exact allocation in the editor-facing texture so replacement validation
+            // can distinguish "fits this texture now" from "requires texstream repack".
+            if (legacy.highmipsMetadatasOld is { Count: > 0 })
+            {
+                Loading.Textures.TexstreamReference stream = legacy.highmipsMetadatasOld[0];
+                oldStreaming = new OldTextureStreamingState(
+                    stream.offset,
+                    stream.allocationBlocks128,
+                    stream.index);
+            }
+        }
+
+        if (!legacy.isOld && legacy.NewEngineDescriptor is { } newDescriptor)
+            nativeControl1 = newDescriptor.Control1;
+
+        var texture = Texture.FromData(
+            legacy.id,
+            legacy.Width,
+            legacy.Height,
+            ToTextureFormat(legacy.TexFormat),
+            legacy.data,
+            (int)legacy.MipmapCounts,
+            nativeControl1,
+            oldDescriptor,
+            oldStreaming);
+        texture.NewEngineDescriptor = legacy.isOld ? null : legacy.NewEngineDescriptor;
         texture.Name = legacy.name;
         _textureCache[legacy.id] = texture;
         return texture;
     }
+
+    private ulong AllocateBindingTextureId(ulong sourceId, in OldTextureDescriptorState descriptor)
+    {
+        // Binding-specific wrappers must not alias the source texture's GPU cache entry: CONTROL1,
+        // gamma/address/filter state belongs to the shader binding, and retail data reuses the same
+        // image under different descriptors. Deterministic FNV keeps ids stable between loads.
+        ulong hash = 14695981039346656037UL;
+        static ulong Mix(ulong h, ulong v)
+        {
+            const ulong prime = 1099511628211UL;
+            for (int i = 0; i < 8; i++)
+            {
+                h ^= (byte)(v >> (i * 8));
+                h *= prime;
+            }
+            return h;
+        }
+
+        hash = Mix(hash, sourceId);
+        hash = Mix(hash, descriptor.Offset);
+        hash = Mix(hash, (ulong)(uint)descriptor.MipmapCount);
+        hash = Mix(hash, descriptor.FormatBitfield);
+        hash = Mix(hash, descriptor.Address);
+        hash = Mix(hash, descriptor.Control0);
+        hash = Mix(hash, descriptor.Control1);
+        hash = Mix(hash, descriptor.Filter);
+        hash = Mix(hash, ((ulong)descriptor.Width << 16) | descriptor.Height);
+        hash = Mix(hash, descriptor.Control3);
+
+        const ulong ns = 0xC000000000000000UL;
+        const ulong payload = 0x0FFFFFFFFFFFFFFFUL;
+        ulong candidate = ns | (hash & payload);
+        while (candidate == 0 || _textureCache.ContainsKey(candidate) || _loader.Textures.ContainsKey(candidate))
+            candidate = ns | ((candidate + 1) & payload);
+        return candidate;
+    }
+
+    private static OldTextureDescriptorState ToAssetDescriptor(in Loading.Textures.TextureMetadataOld meta) => new(
+        meta.offset,
+        meta.mipmapCount,
+        meta.formatBitfield,
+        meta.address,
+        meta.control0,
+        meta.control1,
+        meta.filter,
+        meta.width,
+        meta.height,
+        meta.control3);
 
     private Material GetDefaultMaterial()
     {
@@ -145,7 +327,6 @@ public sealed class MaterialReader
             case RenderingMode.Blended: return RenderMode.AlphaBlend;
             case RenderingMode.SoftEdge: return RenderMode.AlphaBlend;
             case RenderingMode.Scunge: return RenderMode.AlphaBlend;
-            // BakedOnly/LitOnly aren't real render modes - debug/settings strings, not blend states.
             case RenderingMode.BakedOnly: return RenderMode.Opaque;
             case RenderingMode.LitOnly: return RenderMode.Opaque;
             default:
@@ -156,29 +337,49 @@ public sealed class MaterialReader
         }
     }
 
-    // Old engine has no alpha-clip threshold - it always clips at zero. New engine reads its own
-    // field at metadata offset 0x30.
-    private static float GetAlphaClip(Shader shader) =>
-        shader.isOld ? 0f : shader.metadataNew!.Value.alphaClip;
+    private static float GetAlphaClip(Shader shader) => shader.RenderingMode switch
+    {
+        // +0x30 is NOT an alpha reference on new engine. Alpha-test reference is render-mode state:
+        // Cutout uses 128/255 and the blended family uses the small 4/255 reject threshold.
+        RenderingMode.Cutout => 128f / 255f,
+        RenderingMode.Overlay or RenderingMode.Additive or RenderingMode.Scunge
+            or RenderingMode.SoftEdge or RenderingMode.Blended => 4f / 255f,
+        _ => 0f,
+    };
 
-    // Parallax height * scale + bias. New engine has no identified equivalent, so it gets 0/0
-    // (parallax disabled).
-    private static float GetParallaxScale(Shader shader) =>
-        shader.isOld ? shader.metadataOld!.Value.parallaxScale : 0f;
+    private static float GetParallaxScale(Shader shader, bool crackInTime)
+    {
+        if (shader.isOld) return shader.metadataOld!.Value.parallaxScale;
+        ShaderMetadataNew meta = shader.metadataNew!.Value;
+        return meta.ParallaxApplies ? (crackInTime ? meta.reflectionParamX : meta.parallaxScale) : 0f;
+    }
 
-    private static float GetParallaxBias(Shader shader) =>
-        shader.isOld ? shader.metadataOld!.Value.parallaxBias : 0f;
+    private static float GetParallaxBias(Shader shader, bool crackInTime)
+    {
+        if (shader.isOld) return shader.metadataOld!.Value.parallaxBias;
+        ShaderMetadataNew meta = shader.metadataNew!.Value;
+        return meta.ParallaxApplies ? (crackInTime ? meta.reflectionParamY : meta.parallaxBias) : 0f;
+    }
 
-    /// <summary>Whether the material declares a detail map. Old engine reads the real feature
-    /// flag; new engine falls back to "a detail texture is referenced".</summary>
     private static bool UsesDetailMap(Shader shader) =>
-        shader.isOld ? shader.metadataOld!.Value.UsesDetailMap : shader.DetailMap != null;
+        shader.isOld
+            ? shader.metadataOld!.Value.UsesDetailMap
+            : shader.metadataNew!.Value.UsesDetailMap && shader.DetailMap != null;
 
-    // Detail-map UV tiling. New engine has no identified field, so it gets 0.
-    private static float GetDetailTiling(Shader shader) =>
-        shader.isOld ? shader.metadataOld!.Value.detailTiling : 0f;
+    private static float GetDetailTiling(Shader shader, bool crackInTime)
+    {
+        if (shader.isOld) return shader.metadataOld!.Value.detailTiling;
+        ShaderMetadataNew meta = shader.metadataNew!.Value;
+        return meta.UsesDetailMap ? (crackInTime ? meta.parallaxScale : meta.detailTiling) : 0f;
+    }
 
-    // Vertex alpha applies to every non-Opaque render mode.
+    private static byte GetOldRenderFlags(Shader shader)
+    {
+        if (!shader.isOld) return 0;
+        var raw = shader.metadataOld!.Value.Unk1;
+        return raw is { Length: > 0 } ? raw[0] : (byte)0;
+    }
+
     private static bool UsesVertexAlpha(RenderingMode mode) =>
         mode != RenderingMode.Opaque;
 

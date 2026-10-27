@@ -18,6 +18,14 @@ public sealed class Moby : IMoby
     /// <summary>Convenience view used by existing UI/export code.</summary>
     public IReadOnlyList<Animations.AnimationClip> Animations => AnimationSet?.Clips ?? [];
 
+    /// <summary>
+    /// How many shader/material variant sets this Moby ships. A variant re-lists the same frags with
+    /// different material slots - team colours, ammo types, damage states - and is NOT a level of
+    /// detail; see Docs/reverse/NEW_ENGINE_MOBY_CLASS_2026-09-19.md. 1 means "no variants", which is
+    /// the case for 837 of the 1409 retail QForce mobys. <see cref="Bangles"/> is variant 0.
+    /// </summary>
+    public uint ShaderVariantCount { get; init; } = 1;
+
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;
 
     public Moby(
@@ -27,7 +35,8 @@ public sealed class Moby : IMoby
         string? name = null,
         Func<(Vector3, float)>? boundingSphereCalculator = null,
         ISkeleton? skeleton = null,
-        Animations.AnimationSet? animationSet = null)
+        Animations.AnimationSet? animationSet = null,
+        uint shaderVariantCount = 1)
     {
         Id = id;
         Name = name;
@@ -35,6 +44,7 @@ public sealed class Moby : IMoby
         Scale = scale;
         Skeleton = skeleton;
         AnimationSet = animationSet;
+        ShaderVariantCount = shaderVariantCount == 0 ? 1u : shaderVariantCount;
         IsLoaded = true;
 
         if (boundingSphereCalculator != null)

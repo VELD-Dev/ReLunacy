@@ -252,6 +252,10 @@ public class LunaWindow : IDisposable
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
         Program.ProvidedPath = path;
 
+        // The game's own fragment programs live in its EBOOT: a decrypted one (*.elf) in this level's
+        // install is read when the scene is built (NewEngineStandardPrograms, TodTiePrograms).
+        Engine.Loading.Shaders.NewEngineStandardPrograms.SearchRoots = [(path, null)];
+
         await Task.Run(() =>
         {
             fileManager = new FileManager();
@@ -547,6 +551,9 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
             RenderMenuDraw.ZoneVisibility();
+            RenderMenuDraw.SkyVisibility();
+            ImGui.Separator();
+            RenderMenuDraw.GameFidelity();
             ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
             ImGui.Separator();
