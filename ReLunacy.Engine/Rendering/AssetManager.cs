@@ -151,6 +151,66 @@ public sealed class AssetManager : IDisposable
     public IReadOnlyDictionary<ulong, ITexture> SourceTextures => _sourceTextures;
 
     public Dictionary<ulong, RenderModel[]> Mobys { get; } = []; // one Model per bangle
+
+    /// <summary>Opt-in audit (RELUNACY_BANGLE_AUDIT=1) of what each moby's bangles actually contain.
+    ///
+    /// EntityMoby.EnsureRenderables draws EVERY bangle, but a bangle is a group enabled/disabled at
+    /// runtime - character skins, LOD levels, NPC variations (see IBangle) - so alternates are drawn
+    /// superimposed. That is invisible while everything sits in bind pose and shows up as a duplicate
+    /// as soon as an animation plays. This reports which bangles carry skin weights, and whether any
+    /// joint index overruns the skeleton, so the "which bangle should the editor draw" rule can be
+    /// chosen from real data rather than inferred.
+    ///
+    /// Written with Console.WriteLine, which LunaLog classifies as Debug - the editor's Logging Level
+    /// must be Debug for these lines to reach Logs/relunacy_*.log.</summary>
+    private void LogBangleAudit(LevelData level)
+    {
+        if (Environment.GetEnvironmentVariable("RELUNACY_BANGLE_AUDIT") != "1") return;
+
+        int multi = 0, multiSkinned = 0, detailed = 0, overrun = 0;
+        const int DetailLimit = 40;
+        foreach (var (id, moby) in level.Mobys)
+        {
+            if (moby.Bangles.Count <= 1) continue;
+            multi++;
+            int bones = moby.Skeleton?.Bones.Count ?? 0;
+            if (bones > 0) multiSkinned++;
+            if (!Mobys.TryGetValue(id, out RenderModel[]? models)) continue;
+
+            // Per bangle: meshes, vertices, how many of those meshes have any non-zero weight, and the
+            // highest joint index referenced by a weighted vertex (uBones[base + joint] overruns the
+            // moby's own palette region when this reaches the bone count).
+            var parts = new List<string>(models.Length);
+            for (int b = 0; b < models.Length; b++)
+            {
+                int verts = 0, weighted = 0, maxJoint = -1;
+                foreach (RenderMesh mesh in models[b].Meshes)
+                {
+                    verts += mesh.Vertices.Length;
+                    bool any = false;
+                    foreach (ref readonly Vertex3D v in mesh.Vertices.AsSpan())
+                    {
+                        if (v.Weights == System.Numerics.Vector4.Zero) continue;
+                        any = true;
+                        if (v.Weights.X > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.X);
+                        if (v.Weights.Y > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.Y);
+                        if (v.Weights.Z > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.Z);
+                        if (v.Weights.W > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.W);
+                    }
+                    if (any) weighted++;
+                }
+                if (bones > 0 && maxJoint >= bones) overrun++;
+                string name = string.IsNullOrEmpty(moby.Bangles[b].Name) ? $"#{b}" : moby.Bangles[b].Name!;
+                parts.Add($"{name}: {models[b].Meshes.Length}m/{verts}v, {weighted} weighted, maxJoint {maxJoint}");
+            }
+
+            if (detailed++ >= DetailLimit) continue;
+            Console.WriteLine($"[BangleAudit] moby 0x{id:X} \"{moby.Name}\" bangles {models.Length} bones {bones} | {string.Join(" | ", parts)}");
+        }
+        Console.WriteLine($"[BangleAudit] {level.Mobys.Count} mobys; {multi} with >1 bangle ({multiSkinned} of those skinned); " +
+                          $"{overrun} bangle(s) referencing a joint past the skeleton" +
+                          (detailed > DetailLimit ? $"; {detailed - DetailLimit} detail line(s) suppressed past {DetailLimit}" : ""));
+    }
     public Dictionary<ulong, RenderModel> Ties { get; } = [];
     private readonly IReadOnlyDictionary<ulong, Assets.Mobys.Moby> _sourceMobys;
 
@@ -200,6 +260,7 @@ public sealed class AssetManager : IDisposable
             }
             Mobys[id] = models;
         }
+        LogBangleAudit(level);
 
         long tMobys = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
         foreach (var (id, tie) in level.Ties)

@@ -2258,6 +2258,15 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             region = Array.IndexOf(_animRegionOwners, null);
             if (region < 0) return false;
             _animRegionOwners[region] = owner;
+            // Opt-in (RELUNACY_ANIM_AUDIT=1), once per moby the first time it starts playing: how many
+            // draw instances carry its pose. EntityMoby draws every bangle, so a moby whose bangles are
+            // alternates (skins, LOD levels, destruction debris) has more instances here than the one
+            // variant you are looking at - the debris bangles carry no weights and stay in bind pose,
+            // which reads as the mesh being drawn twice. Debug level: Logging Level must be Debug.
+            if (Environment.GetEnvironmentVariable("RELUNACY_ANIM_AUDIT") == "1")
+                Console.WriteLine($"[AnimWiring] owner {owner.GetType().Name} '{(owner as Scene.Entity)?.Name}' " +
+                              $"instances {owned.Length}, region {region}, base {(1 + region) * Math.Max(_maxSkeletonBones, 1)}, " +
+                              $"bones {skinMatrices.Count}/{_maxSkeletonBones}, regions {_maxConcurrentAnimated}");
         }
 
         int bonesPerRegion = Math.Max(_maxSkeletonBones, 1);
