@@ -63,16 +63,30 @@ public sealed class LuaParser
         return true;
     }
 
-    private void Expect(string text)
+    private bool Expect(string text)
     {
-        if (Match(text)) return;
+        if (Match(text)) return true;
         Error($"expected '{text}' but found '{(AtEnd ? "<eof>" : Current.Text)}'");
+        return false;
     }
 
     private void Error(string message) =>
         Diagnostics.Add(new LuaDiagnostic(message, new LuaSpan(Current.Start, Current.End)));
 
-    private LuaSpan From(LuaPosition start) => new(start, _tokens[Math.Max(0, _index - 1)].End);
+    private LuaSpan From(LuaPosition start)
+    {
+        var end = _tokens[Math.Max(0, _index - 1)].End;
+        // An empty block at end of input would otherwise end before it starts.
+        return new LuaSpan(start, end.Line < start.Line
+            || (end.Line == start.Line && end.Column < start.Column) ? start : end);
+    }
+
+    /// <summary>The span of a construct whose terminator is missing, which while someone is typing
+    /// is the normal state of the one they are inside. It runs to end of input, so a caret below an
+    /// unclosed `function` or `for` still counts as being within its scope - without this, nothing
+    /// in scope is offered precisely when completion is wanted.</summary>
+    private LuaSpan FromOrEndOfInput(LuaPosition start, bool terminated) =>
+        terminated ? From(start) : new LuaSpan(start, _tokens[^1].End);
 
     // --- blocks and statements ----------------------------------------------------------------
 
@@ -115,14 +129,19 @@ public sealed class LuaParser
     {
         var start = Here;
 
-        if (Match("do")) { var body = ParseBlock(); Expect("end"); return new LuaDoStat(body, From(start)); }
+        if (Match("do"))
+        {
+            var body = ParseBlock();
+            bool closed = Expect("end");
+            return new LuaDoStat(body, FromOrEndOfInput(start, closed));
+        }
         if (Match("while"))
         {
             var condition = ParseExpr();
             Expect("do");
             var body = ParseBlock();
-            Expect("end");
-            return new LuaWhileStat(condition, body, From(start));
+            bool closed = Expect("end");
+            return new LuaWhileStat(condition, body, FromOrEndOfInput(start, closed));
         }
         if (Match("repeat"))
         {
@@ -165,8 +184,8 @@ public sealed class LuaParser
         }
 
         LuaBlock? elseBody = Match("else") ? ParseBlock() : null;
-        Expect("end");
-        return new LuaIfStat(clauses, elseBody, From(start));
+        bool closed = Expect("end");
+        return new LuaIfStat(clauses, elseBody, FromOrEndOfInput(start, closed));
     }
 
     private LuaStat ParseFor(LuaPosition start)
@@ -181,8 +200,8 @@ public sealed class LuaParser
             var step = Match(",") ? ParseExpr() : null;
             Expect("do");
             var body = ParseBlock();
-            Expect("end");
-            return new LuaNumericForStat(first, from, to, step, body, From(start));
+            bool closed = Expect("end");
+            return new LuaNumericForStat(first, from, to, step, body, FromOrEndOfInput(start, closed));
         }
 
         var names = new List<LuaNameDefinition> { first };
@@ -191,8 +210,8 @@ public sealed class LuaParser
         var expressions = ParseExprList();
         Expect("do");
         var genericBody = ParseBlock();
-        Expect("end");
-        return new LuaGenericForStat(names, expressions, genericBody, From(start));
+        bool genericClosed = Expect("end");
+        return new LuaGenericForStat(names, expressions, genericBody, FromOrEndOfInput(start, genericClosed));
     }
 
     private LuaStat ParseFunctionStat(LuaPosition start)
@@ -487,7 +506,7 @@ public sealed class LuaParser
         Expect(")");
 
         var body = ParseBlock();
-        Expect("end");
-        return new LuaFunctionExpr(parameters, isVararg, body, From(start));
+        bool closed = Expect("end");
+        return new LuaFunctionExpr(parameters, isVararg, body, FromOrEndOfInput(start, closed));
     }
 }

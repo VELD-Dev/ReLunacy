@@ -26,6 +26,11 @@ public sealed class LuaSymbol
 
     public bool IsGlobal => Kind == LuaSymbolKind.Global;
 
+    /// <summary>What this binding was initialised from, when it was. Completion infers a local's
+    /// type from it - `local m = moby_handle:new(1)` is the only thing that makes `m:` meaningful,
+    /// since the sources never declare types.</summary>
+    public LuaExpr? Initializer { get; init; }
+
     /// <summary>The block this binding lives in, used to tell whether it is visible at a position.
     /// Opaque on purpose: the scope tree is the resolver's business, not a consumer's.</summary>
     internal LuaScopeRegion? Scope { get; init; }
@@ -102,9 +107,13 @@ public static class LuaScopeResolver
         public void PushScope(LuaSpan span) => _scope = new Scope(span, _scope);
         public void PopScope() => _scope = _scope?.Parent;
 
-        private LuaSymbol Declare(LuaNameDefinition name, LuaSymbolKind kind)
+        private LuaSymbol Declare(LuaNameDefinition name, LuaSymbolKind kind, LuaExpr? initializer = null)
         {
-            var symbol = new LuaSymbol { Name = name.Name, Kind = kind, Definition = name.Span, Scope = _scope?.Region };
+            var symbol = new LuaSymbol
+            {
+                Name = name.Name, Kind = kind, Definition = name.Span,
+                Scope = _scope?.Region, Initializer = initializer,
+            };
             symbol.References.Add(name.Span);
             _scope?.Declared.Add(symbol);
             Locals.Add(symbol);
@@ -146,12 +155,16 @@ public static class LuaScopeResolver
                 case LuaLocalStat s:
                     // Values first: the new bindings are not visible to their own initialisers.
                     foreach (var value in s.Values) VisitExpr(value);
-                    foreach (var name in s.Names) Declare(name, LuaSymbolKind.Local);
+                    for (int i = 0; i < s.Names.Count; i++)
+                        // Positional pairing, as Lua assigns them. A name past the value list has no
+                        // single initialiser (it may take an extra return from the last call), so it
+                        // gets none rather than a wrong one.
+                        Declare(s.Names[i], LuaSymbolKind.Local, i < s.Values.Count ? s.Values[i] : null);
                     break;
 
                 case LuaLocalFunctionStat s:
                     // Declared before the body so the function can call itself.
-                    Declare(s.Name, LuaSymbolKind.Local);
+                    Declare(s.Name, LuaSymbolKind.Local, s.Function);
                     VisitFunction(s.Function);
                     break;
 
@@ -195,7 +208,9 @@ public static class LuaScopeResolver
                     VisitExpr(s.Start);
                     VisitExpr(s.Limit);
                     if (s.Step is { } step) VisitExpr(step);
-                    PushScope(s.Body.Span);
+                    // The statement's span, not the body's: while the body is being typed it has
+                    // no terminator and stops at the last token, which would put the caret outside.
+                    PushScope(s.Span);
                     Declare(s.Variable, LuaSymbolKind.LoopVariable);
                     VisitBlock(s.Body);
                     PopScope();
@@ -203,7 +218,7 @@ public static class LuaScopeResolver
 
                 case LuaGenericForStat s:
                     foreach (var e in s.Expressions) VisitExpr(e);
-                    PushScope(s.Body.Span);
+                    PushScope(s.Span);
                     foreach (var name in s.Names) Declare(name, LuaSymbolKind.LoopVariable);
                     VisitBlock(s.Body);
                     PopScope();
