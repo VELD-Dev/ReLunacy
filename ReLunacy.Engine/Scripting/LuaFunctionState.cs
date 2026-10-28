@@ -27,6 +27,7 @@ public sealed class LuaFunctionState
     private readonly Dictionary<string, int> _constantIndex = new(StringComparer.Ordinal);
     private readonly List<LuaPrototype> _prototypes = [];
     private readonly List<Local> _actives = [];
+    private readonly List<Upvalue> _upvalues = [];
 
     public LuaFunctionState? Parent { get; }
     public byte ParameterCount { get; set; }
@@ -40,9 +41,39 @@ public sealed class LuaFunctionState
 
     public int InstructionCount => _code.Count;
 
+    /// <summary>How many constants are interned. exp2RK tests this, not a constant's own index,
+    /// when deciding whether nil can be an operand.</summary>
+    public int ConstantCount => _constants.Count;
+
     public LuaFunctionState(LuaFunctionState? parent = null) => Parent = parent;
 
     private readonly record struct Local(string Name, int Register);
+
+    /// <summary>
+    /// A name this function reaches out of itself for.
+    ///
+    /// <paramref name="FromParentLocal"/> says whether it binds to a local of the enclosing
+    /// function or to one of ITS upvalues, which is what decides whether CLOSURE is followed by a
+    /// MOVE or a GETUPVAL to bind it.
+    /// </summary>
+    public readonly record struct Upvalue(string Name, bool FromParentLocal, int Info);
+
+    public IReadOnlyList<Upvalue> Upvalues => _upvalues;
+
+    /// <summary>
+    /// Finds or creates the upvalue slot for a binding in an enclosing function - indexupvalue.
+    /// Matched on where it binds rather than on the name, which is Lua's own comparison and means
+    /// two names for the same slot cannot arise.
+    /// </summary>
+    public int IndexUpvalue(string name, bool fromParentLocal, int info)
+    {
+        for (int i = 0; i < _upvalues.Count; i++)
+            if (_upvalues[i].FromParentLocal == fromParentLocal && _upvalues[i].Info == info)
+                return i;
+
+        _upvalues.Add(new Upvalue(name, fromParentLocal, info));
+        return _upvalues.Count - 1;
+    }
 
     // --- emission ------------------------------------------------------------------------------
 
@@ -377,14 +408,18 @@ public sealed class LuaFunctionState
     /// Debug information is left empty because the shipped chunks carry none: no line info, no local
     /// names, no upvalue names, and a source of "=(none)" on the top-level prototype only.
     /// </summary>
-    public LuaPrototype Finish(bool isMainChunk)
+    public LuaPrototype Finish(bool isMainChunk, int lineDefined = 0)
     {
         EmitABC(LuaOpcode.Return, 0, 1, 0);
         return new LuaPrototype
         {
+            // Only the top-level prototype names its source; a nested one carries none, and its
+            // lineDefined is the real line of the `function` that opened it. Upvalue NAMES are
+            // debug information and absent from every shipped chunk, so the count is kept and the
+            // names are not.
             Source = isMainChunk ? LuaText.ToBytes("=(none)") : null,
-            LineDefined = 0,
-            UpvalueCount = 0,
+            LineDefined = lineDefined,
+            UpvalueCount = (byte)_upvalues.Count,
             ParameterCount = ParameterCount,
             IsVararg = IsVararg,
             MaxStackSize = (byte)Math.Min(MaxStackSize, byte.MaxValue),

@@ -112,6 +112,14 @@ public sealed class LuaCompiler
                 CompileReturn(ret);
                 break;
 
+            case LuaFunctionStat declaration:
+                CompileFunctionStat(declaration);
+                break;
+
+            case LuaLocalFunctionStat declaration:
+                CompileLocalFunction(declaration);
+                break;
+
             case LuaIfStat ifStat:
                 CompileIf(ifStat);
                 break;
@@ -140,12 +148,16 @@ public sealed class LuaCompiler
             ExpressionToNextRegister(ref expression);
         }
 
-        // Too few values: the remaining names are nil.
-        for (int i = local.Values.Count; i < local.Names.Count; i++)
+        // Too few values: the remaining names are nil, loaded as ONE range rather than one
+        // instruction each - adjust_assign calls luaK_nil once with the whole count, which also
+        // lets it merge with a LOADNIL the previous statement left behind. Two `local` statements
+        // with no value in a row are one LOADNIL in the reference.
+        int missing = local.Names.Count - local.Values.Count;
+        if (missing > 0)
         {
             int register = _state.FreeRegister;
-            _state.ReserveRegisters(1);
-            _state.EmitABC(LuaOpcode.LoadNil, register, register, 0);
+            _state.ReserveRegisters(missing);
+            _state.LoadNil(register, missing);
         }
         // Too many values: the extras were still evaluated, and their registers are dropped.
         if (local.Values.Count > local.Names.Count)
@@ -172,7 +184,105 @@ public sealed class LuaCompiler
         // index shifted, and gives the value the registers the target should have had.
         var target = CompileExpression(assign.Targets[0]);
         var value = CompileExpression(assign.Values[0]);
+        StoreVariable(target, ref value, assign.Span);
+    }
+    /// <summary>
+    /// Resolves a name to a local, an upvalue or a global - singlevaraux.
+    ///
+    /// A name not bound in this function is looked for in the enclosing ones; when it is found
+    /// there, every function between here and it gains an upvalue slot for it, which is what makes
+    /// a closure over a local two levels up work. A name nothing binds is a global.
+    /// </summary>
+    private Exp ResolveName(string name)
+    {
+        var resolved = ResolveIn(_state, name);
+        // A global's operand is its name in THIS function's constant pool.
+        if (resolved.Kind == ExpKind.Global) resolved.Info = _state.AddStringConstant(name);
+        return resolved;
+    }
 
+    private static Exp ResolveIn(LuaFunctionState? state, string name)
+    {
+        if (state is null) return new Exp { Kind = ExpKind.Global };
+
+        int register = state.FindLocal(name);
+        if (register >= 0) return new Exp { Kind = ExpKind.Local, Info = register };
+
+        var outer = ResolveIn(state.Parent, name);
+        if (outer.Kind == ExpKind.Global) return outer;
+
+        return new Exp
+        {
+            Kind = ExpKind.Upvalue,
+            Info = state.IndexUpvalue(name, outer.Kind == ExpKind.Local, outer.Info),
+        };
+    }
+
+    /// <summary>
+    /// Compiles a function into a nested prototype and emits the CLOSURE that builds it - body()
+    /// followed by pushclosure().
+    ///
+    /// The pseudo-instructions after CLOSURE are not executed: CLOSURE reads them to bind each
+    /// upvalue, a MOVE for one that comes from an enclosing local and a GETUPVAL for one passed
+    /// further down. No CLOSE is emitted on leaving a block that was captured from - the shipped
+    /// chunks contain not one, because everything captured is a main-chunk local and the outermost
+    /// block never closes.
+    /// </summary>
+    private Exp CompileFunctionBody(LuaFunctionExpr function, int lineDefined)
+    {
+        var enclosing = _state;
+        _state = new LuaFunctionState(enclosing) { IsVararg = (byte)(function.IsVararg ? 1 : 0) };
+
+        // A method's receiver is already in the parameter list - the parser puts a real local named
+        // self there so references to it resolve like any other - so it is not added again here.
+        foreach (var parameter in function.Parameters) _state.DeclareLocal(parameter.Name);
+        _state.ParameterCount = (byte)_state.ActiveLocalCount;
+
+        CompileBlock(function.Body);
+        var prototype = _state.Finish(isMainChunk: false, lineDefined: lineDefined);
+        var upvalues = _state.Upvalues.ToArray();
+        _state = enclosing;
+
+        int index = _state.AddPrototype(prototype);
+        var closure = new Exp
+        {
+            Kind = ExpKind.Relocatable,
+            Info = _state.EmitABx(LuaOpcode.Closure, 0, index),
+        };
+        foreach (var upvalue in upvalues)
+            _state.EmitABC(upvalue.FromParentLocal ? LuaOpcode.Move : LuaOpcode.GetUpval,
+                           0, upvalue.Info, 0);
+        return closure;
+    }
+
+    /// <summary>
+    /// <c>function f() end</c>, <c>function a.b.c() end</c> and <c>function a:m() end</c>. The name
+    /// is resolved before the body, as funcstat parses it first, so what it mentions is interned
+    /// ahead of anything inside the function.
+    /// </summary>
+    private void CompileFunctionStat(LuaFunctionStat declaration)
+    {
+        var target = CompileExpression(declaration.Target);
+        var closure = CompileFunctionBody(declaration.Function, declaration.Span.Start.Line + 1);
+        StoreVariable(target, ref closure, declaration.Span);
+    }
+
+    /// <summary>
+    /// <c>local function f() end</c>. The local is declared and given its register BEFORE the body
+    /// is compiled, which is what lets the function call itself - the alternative spelling,
+    /// <c>local f = function() end</c>, cannot, and that is why this is its own statement.
+    /// </summary>
+    private void CompileLocalFunction(LuaLocalFunctionStat declaration)
+    {
+        int register = _state.DeclareLocal(declaration.Name.Name);
+        var target = new Exp { Kind = ExpKind.Local, Info = register };
+        var closure = CompileFunctionBody(declaration.Function, declaration.Span.Start.Line + 1);
+        StoreVariable(target, ref closure, declaration.Span);
+    }
+
+    /// <summary>Stores a value into a resolved target - luaK_storevar.</summary>
+    private void StoreVariable(Exp target, ref Exp value, LuaSpan span)
+    {
         switch (target.Kind)
         {
             case ExpKind.Local:
@@ -192,6 +302,13 @@ public sealed class LuaCompiler
                 break;
             }
 
+            case ExpKind.Upvalue:
+            {
+                int source = ExpressionToAnyRegister(ref value);
+                _state.EmitABC(LuaOpcode.SetUpval, source, target.Info, 0);
+                break;
+            }
+
             case ExpKind.Indexed:
             {
                 int valueRk = ExpressionToRk(ref value);
@@ -200,12 +317,13 @@ public sealed class LuaCompiler
             }
 
             default:
-                Unsupported($"assignment to {assign.Targets[0].GetType().Name}", assign.Span);
+                Unsupported($"assignment to {target.Kind}", span);
                 return;
         }
 
         FreeIfTemporary(ref value);
     }
+
 
     private void CompileReturn(LuaReturnStat ret)
     {
@@ -215,28 +333,39 @@ public sealed class LuaCompiler
             return;
         }
 
-        int baseRegister = _state.FreeRegister;
+        int count = ret.Values.Count;
         var last = default(Exp);
-        for (int i = 0; i < ret.Values.Count; i++)
+        for (int i = 0; i < count; i++)
         {
             var expression = CompileExpression(ret.Values[i]);
-            if (i == ret.Values.Count - 1)
-            {
-                last = expression;
-                // Returning a call returns everything it produced, and when it is the only value
-                // being returned it is a tail call - retstat rewrites the opcode in place.
-                if (SetMultipleReturns(ref last))
-                {
-                    if (ret.Values.Count == 1) _state.SetInstructionOpcode(last.Info, LuaOpcode.TailCall);
-                    _state.EmitABC(LuaOpcode.Return, baseRegister, 0, 0);
-                    _state.SetFreeRegister(baseRegister);
-                    return;
-                }
-            }
-            ExpressionToNextRegister(ref expression);
+            if (i == count - 1) last = expression;
+            else ExpressionToNextRegister(ref expression);
         }
-        _state.EmitABC(LuaOpcode.Return, baseRegister, ret.Values.Count + 1, 0);
-        _state.SetFreeRegister(baseRegister);
+
+        if (SetMultipleReturns(ref last))
+        {
+            // Returning a call returns everything it produced, and when it is the only value being
+            // returned it is a tail call - retstat rewrites the opcode in place.
+            if (count == 1) _state.SetInstructionOpcode(last.Info, LuaOpcode.TailCall);
+            _state.EmitABC(LuaOpcode.Return, _state.ActiveLocalCount, 0, 0);
+            return;
+        }
+
+        int first;
+        if (count == 1)
+        {
+            // A single value is returned from wherever it already sits, so `return shooter` names
+            // the local's own register instead of copying it into a fresh one first. Several values
+            // have to be consecutive, so those do go to new registers.
+            first = ExpressionToAnyRegister(ref last);
+        }
+        else
+        {
+            ExpressionToNextRegister(ref last);
+            first = _state.ActiveLocalCount;
+        }
+
+        _state.EmitABC(LuaOpcode.Return, first, count + 1, 0);
     }
 
     // --- expressions ---------------------------------------------------------------------------
@@ -247,6 +376,8 @@ public sealed class LuaCompiler
         /// <summary>An interned constant: <c>Info</c> is its index in the pool.</summary>
         Constant,
         Local, Global, Indexed, Relocatable, NonReloc,
+        /// <summary>A binding in an enclosing function, reached through this one's upvalue list.</summary>
+        Upvalue,
         /// <summary>
         /// A test and the jump that depends on it - Lua's VJMP. The expression IS the jump: whether
         /// it ever becomes a value in a register depends on what asks for it.
@@ -309,12 +440,7 @@ public sealed class LuaCompiler
                 return new Exp { Kind = ExpKind.Constant, Info = _state.AddStringConstant(s.Value) };
 
             case LuaNameExpr name:
-            {
-                int register = _state.FindLocal(name.Name);
-                return register >= 0
-                    ? new Exp { Kind = ExpKind.Local, Info = register }
-                    : new Exp { Kind = ExpKind.Global, Info = _state.AddStringConstant(name.Name) };
-            }
+                return ResolveName(name.Name);
 
             case LuaIndexExpr index:
             {
@@ -359,6 +485,9 @@ public sealed class LuaCompiler
 
             case LuaTableExpr table:
                 return CompileTable(table);
+
+            case LuaFunctionExpr function:
+                return CompileFunctionBody(function, function.Span.Start.Line + 1);
 
             case LuaUnaryExpr unary when unary.Operator == "-":
                 return CompileNegate(unary);
@@ -453,9 +582,9 @@ public sealed class LuaCompiler
             return _state.EmitJump();
         }
 
-        int register = ExpressionToAnyRegister(ref e);
+        DischargeToAnyRegister(ref e);
         FreeIfTemporary(ref e);
-        _state.EmitABC(LuaOpcode.Test, register, register, whenTrue ? 1 : 0);
+        _state.EmitABC(LuaOpcode.Test, e.Info, e.Info, whenTrue ? 1 : 0);
         return _state.EmitJump();
     }
 
@@ -797,20 +926,54 @@ public sealed class LuaCompiler
     {
         var operand = CompileExpression(expression.Operand);
         DischargeVars(ref operand);
+
         switch (operand.Kind)
         {
-            case ExpKind.Nil or ExpKind.False: return new Exp { Kind = ExpKind.True };
+            case ExpKind.Nil or ExpKind.False:
+                operand.Kind = ExpKind.True;
+                break;
+
             // Any interned constant here is a number or a string, so it is truthy.
-            case ExpKind.True or ExpKind.Constant: return new Exp { Kind = ExpKind.False };
+            case ExpKind.True or ExpKind.Constant:
+                operand.Kind = ExpKind.False;
+                break;
+
+            // Already a test: negate it by flipping what its jump looks for, rather than turning it
+            // into a boolean and testing that. `not (get_num_alive(pod) == 0)` is one comparison in
+            // the reference, where materialising it first costs a LOADBOOL pair and a TEST.
+            case ExpKind.Jump:
+                InvertJump(ref operand);
+                break;
+
+            default:
+            {
+                // Also discharge2anyreg rather than exp2reg: codenot leaves the jump lists for the
+                // swap below, which would be meaningless if they had already been resolved.
+                DischargeToAnyRegister(ref operand);
+                FreeIfTemporary(ref operand);
+                operand.Info = _state.EmitABC(LuaOpcode.Not, 0, operand.Info, 0);
+                operand.Kind = ExpKind.Relocatable;
+                break;
+            }
         }
 
-        ExpressionToAnyRegister(ref operand);
-        FreeIfTemporary(ref operand);
-        return new Exp
-        {
-            Kind = ExpKind.Relocatable,
-            Info = _state.EmitABC(LuaOpcode.Not, 0, operand.Info, 0),
-        };
+        // What made the expression true now makes it false, so the two lists swap - and neither
+        // carries a value any more, since a negated test delivers nothing to a register.
+        (operand.TrueList, operand.FalseList) = (operand.FalseList, operand.TrueList);
+        RemoveValues(operand.TrueList);
+        RemoveValues(operand.FalseList);
+        return operand;
+    }
+
+    /// <summary>
+    /// Clears the destination register on every TEST in a list, so its jump stops delivering a
+    /// value - removevalues. A negated test has nothing meaningful to assign.
+    /// </summary>
+    private void RemoveValues(List<int>? list)
+    {
+        foreach (int jump in list ?? [])
+            if (ControlOf(jump) is { } control && _state.InstructionOpcode(control) == LuaOpcode.Test)
+                _state.SetA(control, _state.InstructionB(control));
     }
 
     /// <summary>
@@ -901,6 +1064,10 @@ public sealed class LuaCompiler
                 break;
             case ExpKind.Global:
                 e.Info = _state.EmitABx(LuaOpcode.GetGlobal, 0, e.Info);
+                e.Kind = ExpKind.Relocatable;
+                break;
+            case ExpKind.Upvalue:
+                e.Info = _state.EmitABC(LuaOpcode.GetUpval, 0, e.Info, 0);
                 e.Kind = ExpKind.Relocatable;
                 break;
             case ExpKind.Indexed:
@@ -1012,6 +1179,21 @@ public sealed class LuaCompiler
         e.Info = register;
     }
 
+    /// <summary>
+    /// Puts an expression in a register WITHOUT resolving its jump lists - discharge2anyreg.
+    ///
+    /// The distinction from the full exp2reg matters: a test still has jumps outstanding whose
+    /// target is decided by whoever consumes the condition, and resolving them here aims them at
+    /// this point instead. That is what sent the first operand of
+    /// `X and not (P or Q)` to the start of Q's test rather than past the whole condition.
+    /// </summary>
+    private void DischargeToAnyRegister(ref Exp e)
+    {
+        if (e.Kind == ExpKind.NonReloc) return;
+        _state.ReserveRegisters(1);
+        DischargeToRegister(ref e, _state.FreeRegister - 1);
+    }
+
     private int ExpressionToAnyRegister(ref Exp e)
     {
         DischargeVars(ref e);
@@ -1028,10 +1210,15 @@ public sealed class LuaCompiler
     {
         DischargeVars(ref e);
         if (e.Kind == ExpKind.Jump || HasJumps(e)) return ExpressionToAnyRegister(ref e);
+        // nil is the one literal still interned on demand, and it is gated differently from the
+        // rest: exp2RK tests the POOL SIZE for it, not nil's own index, because nilK may add a
+        // constant and the question is whether a newly added one would fit. The consequence shows
+        // in a chunk with 300 constants - an early `x == nil` uses the constant operand while a
+        // later one loads nil into a register, even though the index has not moved.
         int? constant = e.Kind switch
         {
-            // nil is the one literal still interned on demand, which is what exp2RK does with VNIL.
-            ExpKind.Nil => _state.AddConstant(LuaConstant.Nil.Instance),
+            ExpKind.Nil when _state.ConstantCount <= LuaFunctionState.MaxRkConstant
+                => _state.AddConstant(LuaConstant.Nil.Instance),
             ExpKind.Constant => e.Info,
             _ => null,
         };
@@ -1166,6 +1353,29 @@ public sealed class LuaCompiler
 
         var value = CompileExpression(condition);
         DischargeVars(ref value);
+
+        // The expression may already BE control flow - a negated comparison, or a logical operator
+        // that reached here through parentheses. goiftrue and goiffalse take its jumps rather than
+        // making a value out of it and testing that: the jump wanted joins the result, and the one
+        // for the opposite outcome lands after the test.
+        if (value.Kind == ExpKind.Jump || HasJumps(value))
+        {
+            List<int> taken;
+            if (value.Kind == ExpKind.Jump)
+            {
+                // Its jump is taken when the comparison holds, so the other sense needs it flipped.
+                if (!jumpWhenTrue) InvertJump(ref value);
+                taken = [.. value.JumpList ?? []];
+            }
+            else
+            {
+                taken = JumpOnCondition(ref value, jumpWhenTrue);
+            }
+
+            Concat(ref taken, jumpWhenTrue ? value.TrueList : value.FalseList);
+            _state.PatchToHere((jumpWhenTrue ? value.FalseList : value.TrueList) ?? []);
+            return taken;
+        }
 
         // A NOT emitted for this condition is taken back and folded into the test's sense, which is
         // what jumponcond does. It works on the INSTRUCTION rather than on the syntax, and that
