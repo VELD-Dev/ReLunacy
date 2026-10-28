@@ -63,6 +63,14 @@ public sealed class CodeEditorControl
     /// </summary>
     public Func<string, TextRange, bool>? WordCompleted { get; set; }
 
+    /// <summary>
+    /// Asked, on Enter, whether the line being left opens a scope and the new line should therefore
+    /// be a level deeper. The question needs to know Lua - whether a trailing <c>then</c> is a
+    /// keyword or just a word inside a comment - so it is answered by the host rather than guessed
+    /// at from the text here.
+    /// </summary>
+    public Func<TextPosition, bool>? OpensScope { get; set; }
+
     public TextRange? Selection => Anchor is { } a && a != Caret ? new TextRange(a, Caret).Ordered : null;
 
     public string SelectedText => Selection is { } s ? Document.GetText(s) : "";
@@ -254,7 +262,7 @@ public sealed class CodeEditorControl
         if (Pressed(ImGuiKey.Backspace)) { Backspace(); return; }
         if (Pressed(ImGuiKey.Delete)) { ForwardDelete(); return; }
         if (Pressed(ImGuiKey.Enter) || Pressed(ImGuiKey.KeypadEnter)) { InsertNewlineKeepingIndent(); return; }
-        if (Pressed(ImGuiKey.Tab)) { Type("\t"); return; }
+        if (Pressed(ImGuiKey.Tab)) { Type(Document.IndentUnit); return; }
 
         // Printable input as the platform delivered it, which is what makes dead keys and any
         // keyboard layout work rather than mapping key codes to characters here. Read from the
@@ -267,17 +275,14 @@ public sealed class CodeEditorControl
             // A space ends a word, which is the moment a snippet trigger can be recognised. If the
             // host expands one, the space is swallowed - "if " becoming "if  then" and then also
             // gaining the typed space would be wrong.
-            if (c == ' ' && WordCompleted is { } wordCompleted && Selection is null)
+            if (c == ' ' && WordCompleted is { } wordCompleted && Selection is null
+                && SnippetTriggerAt(Document[Caret.Line], Caret) is { } trigger)
             {
-                var (wordStart, wordEnd) = WordAt(Caret);
-                if (wordEnd == Caret && wordStart.Column < wordEnd.Column)
+                string word = Document[Caret.Line][trigger.Start.Column..trigger.End.Column];
+                if (wordCompleted(word, trigger))
                 {
-                    string word = Document[Caret.Line][wordStart.Column..wordEnd.Column];
-                    if (wordCompleted(word, new TextRange(wordStart, wordEnd)))
-                    {
-                        TextChanged = true;
-                        continue;
-                    }
+                    TextChanged = true;
+                    continue;
                 }
             }
 
@@ -305,16 +310,25 @@ public sealed class CodeEditorControl
         return new TextPosition(at.Line, at.Column + 1);
     }
 
-    /// <summary>Enter carries the current line's leading whitespace onto the new line. Without it,
-    /// editing indented Lua means re-indenting by hand on every line.</summary>
+    /// <summary>
+    /// Enter carries the current line's indentation onto the new line, and adds a level when that
+    /// line opens a scope - after <c>then</c>, <c>do</c>, <c>else</c>, a function header or an open
+    /// table. Without the first part, editing indented Lua means re-indenting every line by hand;
+    /// without the second, every block body starts at the wrong depth.
+    /// </summary>
     private void InsertNewlineKeepingIndent()
     {
         DeleteSelection();
         string line = Document[Caret.Line];
         int indent = 0;
         while (indent < line.Length && line[indent] is ' ' or '\t') indent++;
+        // Breaking inside the indentation itself carries only what precedes the caret.
         indent = Math.Min(indent, Caret.Column);
-        Caret = Document.Insert(Caret, "\n" + line[..indent]);
+
+        string carried = line[..indent];
+        if (OpensScope?.Invoke(Caret) == true) carried += Document.IndentUnit;
+
+        Caret = Document.Insert(Caret, "\n" + carried);
         Anchor = null;
         TextChanged = true;
     }
@@ -423,6 +437,28 @@ public sealed class CodeEditorControl
     }
 
     private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>
+    /// The word a snippet could expand from, when a space is typed at <paramref name="caret"/>, or
+    /// null when this is not a trigger site.
+    ///
+    /// The word has to END the line. Typing a space inside an <c>if cond then</c> that already
+    /// exists must not expand a second block over it - that destroyed the statement being edited.
+    /// So a trigger is only a trigger with nothing but whitespace after it.
+    /// </summary>
+    public static TextRange? SnippetTriggerAt(string line, TextPosition caret)
+    {
+        if (caret.Column > line.Length) return null;
+        if (!line.AsSpan(caret.Column).Trim().IsEmpty) return null;
+
+        int start = caret.Column;
+        while (start > 0 && IsWordChar(line[start - 1])) start--;
+        // The caret must sit at the word's end, and the word must not be empty.
+        if (start == caret.Column) return null;
+        if (caret.Column < line.Length && IsWordChar(line[caret.Column])) return null;
+
+        return new TextRange(caret with { Column = start }, caret);
+    }
 
     private (TextPosition Start, TextPosition End) WordAt(TextPosition pos)
     {

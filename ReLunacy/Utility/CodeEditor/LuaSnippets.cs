@@ -10,8 +10,9 @@ public sealed record LuaSnippet(string Trigger, string Template, string Descript
 /// <summary>
 /// The snippets offered in the Lua editor.
 ///
-/// Bodies are indented with a tab because the shipped scripts are: 165 of 200 sampled contain tabs,
-/// so expanding with spaces would mix the two inside files that get recompiled and written back.
+/// A tab in a template means one indent level and is written out as whatever the file being edited
+/// uses, so expanding never mixes tabs into a space-indented file or the reverse - which matters
+/// because these sources get recompiled and written back into the archive.
 /// Every template is written against Lua 5.0 - no <c>goto</c>, no integer division - and the
 /// numeric <c>for</c> omits the optional step rather than inserting a stop nobody usually wants.
 /// </summary>
@@ -38,7 +39,8 @@ public static class LuaSnippets
     /// Turns a template into the text to insert plus the offsets of its tab stops, re-indented to
     /// sit under the line it is expanding on.
     /// </summary>
-    public static (string Text, List<TextPosition> Stops) Expand(LuaSnippet snippet, string indent)
+    public static (string Text, List<TextPosition> Stops) Expand(
+        LuaSnippet snippet, string indent, string indentUnit = "\t")
     {
         var text = new System.Text.StringBuilder();
         // Stop number -> position. Sorted so $1, $2 … come out in order and $0 ends up last.
@@ -63,6 +65,14 @@ public static class LuaSnippets
                 text.Append('\n').Append(indent);
                 line++;
                 column = indent.Length;
+                continue;
+            }
+
+            // A tab in a template means "one level deeper", written the way this file indents.
+            if (c == '\t')
+            {
+                text.Append(indentUnit);
+                column += indentUnit.Length;
                 continue;
             }
 
@@ -111,7 +121,7 @@ public sealed class LuaSnippetSession
         TextDocument document, LuaSnippet snippet, TextRange triggerRange, out TextPosition caret)
     {
         string indent = LuaSnippets.IndentOf(document[triggerRange.Ordered.Start.Line]);
-        var (text, stops) = LuaSnippets.Expand(snippet, indent);
+        var (text, stops) = LuaSnippets.Expand(snippet, indent, document.IndentUnit);
 
         var start = triggerRange.Ordered.Start;
         document.Replace(triggerRange, text);

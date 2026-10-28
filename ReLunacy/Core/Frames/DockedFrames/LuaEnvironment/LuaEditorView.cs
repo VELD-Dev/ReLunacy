@@ -50,6 +50,9 @@ public sealed class LuaEditorView
             return HandleSnippetKey(key);
         };
         _editor.WordCompleted = TryExpandSnippet;
+        // Enter indents into a block it is opening. The decision needs the lexer, so it lives in the
+        // Lua layer rather than in the control.
+        _editor.OpensScope = caret => LuaIndentRules.OpensScope(_editor.Document.GetText(), caret);
     }
 
     /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database

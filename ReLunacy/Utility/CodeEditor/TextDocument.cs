@@ -48,6 +48,33 @@ public sealed class TextDocument
     /// <summary>Visual width of a tab stop. Affects rendering and hit-testing only, never the text.</summary>
     public int TabWidth { get; set; } = 4;
 
+    /// <summary>
+    /// One indent level as this file writes it. Detected from the file rather than assumed, so
+    /// auto-indent and snippet expansion match what is already there instead of mixing tabs into a
+    /// space-indented file or the reverse. The shipped scripts are overwhelmingly tabs, which is the
+    /// fallback when a file has no indented lines to learn from.
+    /// </summary>
+    public string IndentUnit { get; private set; } = "\t";
+
+    private void DetectIndentUnit()
+    {
+        int tabs = 0, spaces = 0, narrowestSpaceRun = int.MaxValue;
+        foreach (string line in _lines)
+        {
+            if (line.Length == 0) continue;
+            if (line[0] == '\t') { tabs++; continue; }
+            if (line[0] != ' ') continue;
+            int run = 0;
+            while (run < line.Length && line[run] == ' ') run++;
+            // A continuation line can be indented by any amount; the smallest run is the best guess
+            // at one level.
+            if (run > 0) { spaces++; narrowestSpaceRun = Math.Min(narrowestSpaceRun, run); }
+        }
+        IndentUnit = tabs >= spaces || narrowestSpaceRun == int.MaxValue
+            ? "\t"
+            : new string(' ', Math.Clamp(narrowestSpaceRun, 1, 8));
+    }
+
     /// <summary>Bumped on every change, so a highlighter or parser can tell its cache is stale
     /// without diffing the text.</summary>
     public int Version { get; private set; }
@@ -78,6 +105,7 @@ public sealed class TextDocument
         if (EndsWithNewline && _lines.Count > 1) _lines.RemoveAt(_lines.Count - 1);
         if (_lines.Count == 0) _lines.Add("");
 
+        DetectIndentUnit();
         _undo.Clear();
         _redo.Clear();
         Markers.Clear();
