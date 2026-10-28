@@ -179,7 +179,11 @@ public sealed class CodeEditorControl
         // the platform would never be put into text-input mode - which is why keys arrived (they are
         // polled separately) while typed characters did not. Re-requested every frame so it switches
         // off as soon as focus leaves.
-        if (_focused) ImGuiController.TextInputRequested = true;
+        if (_focused)
+        {
+            ImGuiController.TextInputRequested = true;
+            ClaimKeysFromNav(id);
+        }
 
         // Input runs BEFORE the visible range is worked out, because it edits the document: a
         // backspace that joins two lines, or an accepted completion, changes the line count. Deciding
@@ -214,6 +218,27 @@ public sealed class CodeEditorControl
         if (_focused) DrawCaret(draw, textOrigin, charWidth, lineHeight);
 
         ImGui.EndChild();
+    }
+
+    /// <summary>
+    /// Keys ImGui's keyboard navigation would otherwise act on itself, taken for the editor while it
+    /// has focus.
+    ///
+    /// Escape is the one that shows: with nav enabled ImGui treats it as "cancel", which moves the
+    /// keyboard focus out of the editor and draws focus rings on the surrounding buttons - so
+    /// pressing Escape to dismiss a suggestion also left the editor. Tab is claimed for the same
+    /// reason, since ImGui uses it to cycle focus between widgets.
+    ///
+    /// Ownership is the mechanism ImGui provides for this: a key with an owner is not available to
+    /// callers that pass no owner, which is what nav does. It takes effect from the next frame, so
+    /// it is re-claimed every frame rather than once on gaining focus.
+    /// </summary>
+    private static readonly ImGuiKey[] ClaimedFromNav = [ImGuiKey.Escape, ImGuiKey.Tab];
+
+    private static void ClaimKeysFromNav(string id)
+    {
+        uint owner = ImGui.GetID(id);
+        foreach (var key in ClaimedFromNav) ImGuiP.SetKeyOwner(key, owner);
     }
 
     // --- input --------------------------------------------------------------------------------

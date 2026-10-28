@@ -25,6 +25,16 @@ public sealed class LuaCompletionPopup
     private bool _open;
     private int _lastVersion = -1;
 
+    /// <summary>
+    /// The document version an accepted suggestion produced.
+    ///
+    /// Accepting closes the list, but it also changes the text, and the host refreshes completion on
+    /// every change - so the refresh immediately after an accept would reopen the list on the word
+    /// just inserted, which matches its own prefix exactly. Asking for the list explicitly still
+    /// works; it is only the automatic refresh that is skipped, and only for that one version.
+    /// </summary>
+    private int _acceptedAtVersion = -1;
+
     /// <summary>Same theme the editor uses, so a suggestion is the colour the text will be.</summary>
     public LuaEditorTheme Theme { get; set; } = new LuaEditorTheme().Resolve();
     private TextPosition _lastCaret = new(-1, -1);
@@ -44,6 +54,7 @@ public sealed class LuaCompletionPopup
     {
         var caret = editor.Caret;
         if (!force && _lastVersion == editor.Document.Version && _lastCaret == caret) return;
+        if (!force && editor.Document.Version == _acceptedAtVersion) return;
         _lastVersion = editor.Document.Version;
         _lastCaret = caret;
 
@@ -102,6 +113,7 @@ public sealed class LuaCompletionPopup
             new TextRange(new TextPosition(context.ReplaceFrom.Line, context.ReplaceFrom.Column),
                           new TextPosition(context.ReplaceTo.Line, context.ReplaceTo.Column)),
             item.InsertText);
+        _acceptedAtVersion = editor.Document.Version;
         Close();
     }
 
