@@ -66,6 +66,21 @@ public sealed class LuaFunctionState
     public int EmitAsBx(LuaOpcode op, int a, int sbx) =>
         EmitABx(op, a, sbx + LuaInstructionLayout.MaxArgSBx);
 
+    /// <summary>
+    /// Removes and returns the instructions from <paramref name="start"/> onwards.
+    ///
+    /// This is how Lua 5.0 compiles a while loop: it generates the condition, copies the
+    /// instructions out, rewinds pc, compiles the body, then re-emits the saved code at the bottom.
+    /// The result is body-first code with the condition's CONSTANTS interned in source order -
+    /// compiling the body first gets the layout right and the constant order wrong.
+    /// </summary>
+    public uint[] ExtractFrom(int start)
+    {
+        var extracted = _code.Skip(start).ToArray();
+        _code.RemoveRange(start, _code.Count - start);
+        return extracted;
+    }
+
     public uint InstructionAt(int pc) => _code[pc];
     public void SetInstruction(int pc, uint instruction) => _code[pc] = instruction;
 

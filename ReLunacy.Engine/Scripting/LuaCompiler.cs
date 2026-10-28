@@ -104,6 +104,18 @@ public sealed class LuaCompiler
                 CompileReturn(ret);
                 break;
 
+            case LuaIfStat ifStat:
+                CompileIf(ifStat);
+                break;
+
+            case LuaWhileStat whileStat:
+                CompileWhile(whileStat);
+                break;
+
+            case LuaDoStat doStat:
+                CompileBlock(doStat.Body);
+                break;
+
             default:
                 Unsupported(statement.GetType().Name, statement.Span);
                 break;
@@ -397,6 +409,140 @@ public sealed class LuaCompiler
             return LuaInstructionLayout.EncodeConstant(index);
         return ExpressionToAnyRegister(ref e);
     }
+
+    /// <summary>
+    /// <c>if c then B [elseif...] [else E] end</c>. Each clause tests its condition with a jump
+    /// taken when the condition is FALSE, so falling through enters the body; a body that is not the
+    /// last then jumps past everything after it.
+    /// </summary>
+    private void CompileIf(LuaIfStat ifStat)
+    {
+        var exits = new List<int>();
+
+        for (int i = 0; i < ifStat.Clauses.Count; i++)
+        {
+            var clause = ifStat.Clauses[i];
+            int falseJump = CompileCondition(clause.Condition, jumpWhenTrue: false);
+            CompileBlock(clause.Body);
+
+            // Only needed when something follows this body; the last clause with no else falls
+            // straight out, and emitting a jump to the next instruction is not what the reference
+            // does.
+            bool somethingFollows = i + 1 < ifStat.Clauses.Count || ifStat.ElseBody is not null;
+            if (somethingFollows) exits.Add(_state.EmitJump());
+
+            if (falseJump != NoJump) _state.PatchToHere(falseJump);
+        }
+
+        if (ifStat.ElseBody is { } elseBody) CompileBlock(elseBody);
+        foreach (int exit in exits) _state.PatchToHere(exit);
+    }
+
+    /// <summary>
+    /// <c>while c do B end</c>, with the condition at the bottom: an initial forward jump reaches
+    /// the test, which jumps back into the body while it holds. That costs one jump on entry and
+    /// none per iteration, and it is the shape the reference compiler emits - a top-tested loop
+    /// would be correct and byte-wrong.
+    /// </summary>
+    private void CompileWhile(LuaWhileStat whileStat)
+    {
+        int entryJump = _state.EmitJump();
+
+        // The condition is generated FIRST and then lifted out, as whilestat does. Its code belongs
+        // at the bottom, but its constants have to be interned before the body's: for
+        // `while is_alive(x) do wait() end` the reference pool is is_alive, x, wait, and compiling
+        // the body first puts wait at K0 - identical instructions, every constant index shifted.
+        int conditionStart = _state.InstructionCount;
+        int backJump = CompileCondition(whileStat.Condition, jumpWhenTrue: true);
+        uint[] conditionCode = _state.ExtractFrom(conditionStart);
+
+        int bodyStart = _state.InstructionCount;
+        CompileBlock(whileStat.Body);
+
+        // The lifted condition lands here, so the entry jump targets it and the back jump moves with
+        // it. Only the trailing jump needs relocating - a condition containing its own jumps, which
+        // `and` and `or` would introduce, is not supported yet.
+        _state.PatchToHere(entryJump);
+        int relocated = backJump == NoJump ? NoJump
+            : _state.InstructionCount + (backJump - conditionStart);
+        foreach (uint instruction in conditionCode) _state.Emit(instruction);
+        if (relocated != NoJump) _state.PatchTo(relocated, bodyStart);
+    }
+
+    /// <summary>
+    /// Emits a condition and the jump that depends on it, returning the jump's pc to patch.
+    ///
+    /// A comparison compiles to the comparison opcode itself rather than to a value plus a test:
+    /// Lua 5.0 has no GT or GE, so <c>a &gt; b</c> becomes LT with the operands exchanged, and
+    /// <c>~=</c> is EQ with the expected result flipped. Anything else is materialised into a
+    /// register and tested with TEST, whose A and B are both that register in 5.0 - the opcode still
+    /// assigns, which is what 5.1 split out into TESTSET.
+    /// </summary>
+    /// <summary>Returned when a condition is constant and needs no jump at all.</summary>
+    private const int NoJump = -1;
+
+    private int CompileCondition(LuaExpr condition, bool jumpWhenTrue)
+    {
+        // A literal condition generates no test. Lua 5.0 folds these in goiftrue/goiffalse, so
+        // `while true do` ends in a bare backward JMP with no LOADBOOL and no TEST - emitting the
+        // test anyway is correct code and two instructions longer than the reference.
+        if (ConstantTruth(condition) is { } always)
+            return always == jumpWhenTrue ? _state.EmitJump() : NoJump;
+
+        if (condition is LuaBinaryExpr binary && ComparisonFor(binary.Operator) is { } comparison)
+        {
+            var (opcode, swap, invert) = comparison;
+
+            // Operands are evaluated left then right and released right then left, as codecomp
+            // does; the exchange for > and >= swaps the already-computed operands rather than
+            // re-evaluating them the other way round.
+            var left = CompileExpression(binary.Left);
+            int leftRk = ExpressionToRk(ref left);
+            var right = CompileExpression(binary.Right);
+            int rightRk = ExpressionToRk(ref right);
+            if (right.Kind == ExpKind.NonReloc) _state.FreeRegisterIfTemporary(right.Info);
+            if (left.Kind == ExpKind.NonReloc) _state.FreeRegisterIfTemporary(left.Info);
+            if (swap) (leftRk, rightRk) = (rightRk, leftRk);
+
+            int expected = (jumpWhenTrue ^ invert) ? 1 : 0;
+            _state.EmitABC(opcode, expected, leftRk, rightRk);
+            return _state.EmitJump();
+        }
+
+        var value = CompileExpression(condition);
+        int register = ExpressionToAnyRegister(ref value);
+        _state.FreeRegisterIfTemporary(register);
+        _state.EmitABC(LuaOpcode.Test, register, register, jumpWhenTrue ? 1 : 0);
+        return _state.EmitJump();
+    }
+
+    /// <summary>
+    /// Whether an expression is a literal whose truth is known at compile time. Everything except
+    /// nil and false is true in Lua, so a number or a string literal counts as a true condition.
+    /// Anything that has to be evaluated returns null.
+    /// </summary>
+    private static bool? ConstantTruth(LuaExpr expression) => expression switch
+    {
+        LuaNilExpr => false,
+        LuaBoolExpr b => b.Value,
+        LuaNumberExpr or LuaStringExpr => true,
+        // Parentheses change how many values an expression yields, not whether it is true.
+        LuaParenExpr paren => ConstantTruth(paren.Inner),
+        _ => null,
+    };
+
+    /// <summary>The opcode a comparison compiles to, whether its operands exchange, and whether the
+    /// expected result flips. Lua 5.0 provides only EQ, LT and LE.</summary>
+    private static (LuaOpcode Opcode, bool Swap, bool Invert)? ComparisonFor(string op) => op switch
+    {
+        "==" => (LuaOpcode.Eq, false, false),
+        "~=" => (LuaOpcode.Eq, false, true),
+        "<" => (LuaOpcode.Lt, false, false),
+        "<=" => (LuaOpcode.Le, false, false),
+        ">" => (LuaOpcode.Lt, true, false),
+        ">=" => (LuaOpcode.Le, true, false),
+        _ => null,
+    };
 
     private void Unsupported(string what, LuaSpan span) =>
         _errors.Add(new LuaCompileError($"not implemented yet: {what}", span));
