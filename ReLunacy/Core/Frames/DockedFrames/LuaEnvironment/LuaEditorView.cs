@@ -32,6 +32,17 @@ public sealed class LuaEditorView
     private LuaScopeAnalysis? _scopes;
     private int _scopesVersion = -1;
 
+    /// <summary>The functions this file and the level's other scripts declare, refreshed with the
+    /// text. Only this file is reparsed per edit; the siblings come prebuilt.</summary>
+    private LuaScriptIndex? _scriptIndex;
+    private int _scriptIndexVersion = -1;
+
+    /// <summary>
+    /// Supplies the level's already-indexed scripts. A hook rather than a reference to the browser,
+    /// so the editor does not need to know an archive exists.
+    /// </summary>
+    public Func<LuaScriptIndex?>? SharedScripts { get; set; }
+
     public string Path => _path;
     public TextDocument Document => _editor.Document;
 
@@ -73,6 +84,25 @@ public sealed class LuaEditorView
             if (live.Problems.Count > 0) _status = string.Join("; ", live.Problems);
         }
         return _theme;
+    }
+
+    /// <summary>
+    /// The functions declared in Lua, as opposed to documented in a stub: this file's own, plus
+    /// those of the scripts sharing the level's global table.
+    ///
+    /// Rebuilt when the text changes, so a function declared a moment ago is already known - which
+    /// is the point. The instance is reused between edits because the highlighter and the popup
+    /// both compare it by reference to decide whether to redo their work.
+    /// </summary>
+    private LuaScriptIndex Scripts()
+    {
+        if (_scriptIndex is null || _scriptIndexVersion != _editor.Document.Version)
+        {
+            _scriptIndex = LuaScriptIndex.Build(
+                new LuaScriptSource(_path, _editor.Document.GetText()), SharedScripts?.Invoke());
+            _scriptIndexVersion = _editor.Document.Version;
+        }
+        return _scriptIndex;
     }
 
     /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database
@@ -213,7 +243,7 @@ public sealed class LuaEditorView
 
         // Both feed the highlighter: the theme decides the colours, the API decides which names are
         // functions or classes at all, so a newly documented global recolours without an edit.
-        _highlighter.Configure(Theme(), Api());
+        _highlighter.Configure(Theme(), Api(), Scripts());
 
         var analysis = Scopes();
         ImGui.Text($"{Document.LineCount} lines  {(Document.LineEnding == "\r\n" ? "CRLF" : "LF")}"
@@ -221,7 +251,22 @@ public sealed class LuaEditorView
                  + $"  |  {_editor.Caret}{(_modified ? "  *" : "")}"
                  + $"  |  {analysis.Locals.Count} local(s), {analysis.Globals.Count} global(s)"
                  + $"  |  API: {Api().Functions.Count} fn, {Api().Types.Count} type(s)"
-                 + (Api().Diagnostics.Count > 0 ? $", {Api().Diagnostics.Count} doc issue(s)" : ""));
+                 + (Api().Diagnostics.Count > 0 ? $", {Api().Diagnostics.Count} doc issue(s)" : "")
+                 + $"  |  declared: {Scripts().CallableByName.Count()} fn"
+                 + (Scripts().Files.Count > 1 ? $" over {Scripts().Files.Count} script(s)" : ""));
+
+        // Problems in annotations written in THIS file, on hover. The person writing them needs to
+        // find out from the editor rather than from completion quietly saying nothing.
+        if (Scripts().Diagnostics.Count is var problems and > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.3f, 1f),
+                              string.Format(LM.Get("GUI_LuaEnv_AnnotationIssues"), problems));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(string.Join('\n', Scripts().Diagnostics.Take(10)
+                    .Select(d => $"line {d.Position.Line + 1}: {d.Message}")));
+        }
+
         if (_status is { } s) { ImGui.SameLine(); ImGui.TextDisabled($"|  {s}"); }
 
         _editor.Draw("lua_editor", new Vector2(0f, -ImGui.GetFrameHeightWithSpacing()), deltaTime);
@@ -229,8 +274,8 @@ public sealed class LuaEditorView
         // Ctrl+Space asks for the full list; otherwise it only follows an edit, and the engine
         // decides whether a bare prefix is worth showing.
         bool requested = ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.Space);
-        if (_editor.TextChanged) { _modified = true; _completion.Refresh(_editor, Api(), force: false); }
-        else if (requested) _completion.Refresh(_editor, Api(), force: true);
+        if (_editor.TextChanged) { _modified = true; _completion.Refresh(_editor, Api(), false, Scripts()); }
+        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts());
         _completion.Draw(_editor);
 
         ImGui.TextDisabled(LM.Get("GUI_LuaEnv_Hint"));

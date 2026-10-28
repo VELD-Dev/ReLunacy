@@ -21,14 +21,18 @@ public sealed class LuaSyntaxHighlighter(TextDocument document)
     private int _version = -1;
     private LuaEditorTheme _theme = new LuaEditorTheme().Resolve();
     private LuaApiDatabase _api = new();
+    private LuaScriptIndex? _scripts;
 
-    /// <summary>Swapping either of these invalidates the cache: both change what colour a name gets
-    /// without the text changing at all - a newly documented function should recolour immediately.</summary>
-    public void Configure(LuaEditorTheme theme, LuaApiDatabase api)
+    /// <summary>Swapping any of these invalidates the cache: each changes what colour a name gets
+    /// without the text changing at all - a newly documented function, or one newly declared in a
+    /// sibling script, should recolour immediately.</summary>
+    public void Configure(LuaEditorTheme theme, LuaApiDatabase api, LuaScriptIndex? scripts = null)
     {
-        if (ReferenceEquals(_theme, theme) && ReferenceEquals(_api, api)) return;
+        if (ReferenceEquals(_theme, theme) && ReferenceEquals(_api, api)
+            && ReferenceEquals(_scripts, scripts)) return;
         _theme = theme;
         _api = api;
+        _scripts = scripts;
         _version = -1;
     }
 
@@ -111,6 +115,10 @@ public sealed class LuaSyntaxHighlighter(TextDocument document)
             {
                 LuaSymbolKind.Parameter => LuaEditorThemeRole.Parameter,
                 LuaSymbolKind.LoopVariable => LuaEditorThemeRole.LoopVariable,
+                // `local function f` and `local f = function()` are functions, and reading as one
+                // matters more than reading as a local - the resolver records the function
+                // expression as the initialiser, which is what identifies them.
+                _ when symbol.Initializer is LuaFunctionExpr => LuaEditorThemeRole.Function,
                 _ => LuaEditorThemeRole.Local,
             };
             foreach (var reference in symbol.References) roles[reference.Start] = role;
@@ -118,7 +126,10 @@ public sealed class LuaSyntaxHighlighter(TextDocument document)
 
         foreach (var global in scopes.Globals.Values)
         {
-            var role = _api.Functions.ContainsKey(global.Name) ? LuaEditorThemeRole.Function
+            // A function the scripts declare counts as a function, not as an undocumented global.
+            // Before the API lookup, since a script's own declaration is what would actually run.
+            var role = _scripts?.Find(global.Name) is not null ? LuaEditorThemeRole.Function
+                     : _api.Functions.ContainsKey(global.Name) ? LuaEditorThemeRole.Function
                      : _api.Carriers.ContainsKey(global.Name) || _api.Types.ContainsKey(global.Name)
                          ? LuaEditorThemeRole.Class
                      : _api.Variables.ContainsKey(global.Name) ? LuaEditorThemeRole.Field

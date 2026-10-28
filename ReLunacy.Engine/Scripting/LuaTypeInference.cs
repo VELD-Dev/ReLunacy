@@ -10,7 +10,8 @@ namespace ReLunacy.Engine.Scripting;
 /// something is, the answer is null and completion falls back to offering globals rather than
 /// guessing members.
 /// </summary>
-public sealed class LuaTypeInference(LuaApiDatabase api, LuaScopeAnalysis scopes)
+public sealed class LuaTypeInference(
+    LuaApiDatabase api, LuaScopeAnalysis scopes, LuaScriptIndex? scripts = null)
 {
     // Assignment chains can be circular (`local a = b` / `local b = a`), so recursion is bounded.
     private const int MaxDepth = 8;
@@ -38,7 +39,11 @@ public sealed class LuaTypeInference(LuaApiDatabase api, LuaScopeAnalysis scopes
             }
 
             case LuaCallExpr { Target: LuaNameExpr target }:
-                return api.Functions.TryGetValue(target.Name, out var function) ? FirstReturn(function) : null;
+                // The documentation first, then the scripts' own declarations: a `---@return Moby`
+                // written above a function in the file is what makes `local m = find_moby()` offer
+                // Moby's members afterwards.
+                if (api.Functions.TryGetValue(target.Name, out var function)) return FirstReturn(function);
+                return FirstReturn(scripts?.Find(target.Name)?.Function);
 
             // string.find(...) and the like: a call on a dotted path.
             case LuaCallExpr { Target: LuaIndexExpr { Key: LuaStringExpr key } index }:

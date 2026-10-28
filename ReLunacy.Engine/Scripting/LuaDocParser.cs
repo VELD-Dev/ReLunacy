@@ -26,7 +26,9 @@ public static class LuaDocParser
 
         // Comment blocks, keyed by the line they end on, so a declaration can find the block
         // directly above it.
-        var blocks = GroupComments(LuaLexer.Tokenize(source), sourceFile, database);
+        var diagnostics = new List<LuaDocDiagnostic>();
+        var blocks = ReadBlocks(source, sourceFile, diagnostics, database.AddAlias);
+        foreach (var diagnostic in diagnostics) database.AddDiagnostic(diagnostic);
 
         // Classes first: a method's owner must already exist when the method is attached, and a file
         // may well declare the class after some of its methods.
@@ -60,14 +62,15 @@ public static class LuaDocParser
         database.ValidateTypeReferences();
     }
 
-    private static void Apply(LuaApiDatabase database, LuaStat statement, Annotations annotations, string sourceFile)
+    private static void Apply(LuaApiDatabase database, LuaStat statement, LuaAnnotationBlock annotations, string sourceFile)
     {
         switch (statement)
         {
             case LuaFunctionStat function:
             {
                 var (owner, name, isMethod) = DescribeTarget(function.Target, function.IsMethod);
-                var parameters = MergeParameters(database, annotations, function.Function, sourceFile, name);
+                var parameters = MergeParameters(annotations, function.Function, sourceFile, name,
+                                                 Collect(database), reportUndocumented: true);
                 database.Add(new LuaApiFunction(name, parameters, [.. annotations.Returns],
                     annotations.Description, owner, isMethod, sourceFile, statement.Span.Start));
                 break;
@@ -75,7 +78,9 @@ public static class LuaDocParser
 
             case LuaLocalFunctionStat function:
             {
-                var parameters = MergeParameters(database, annotations, function.Function, sourceFile, function.Name.Name);
+                var parameters = MergeParameters(annotations, function.Function, sourceFile,
+                                                 function.Name.Name, Collect(database),
+                                                 reportUndocumented: true);
                 database.Add(new LuaApiFunction(function.Name.Name, parameters, [.. annotations.Returns],
                     annotations.Description, null, false, sourceFile, statement.Span.Start));
                 break;
@@ -95,13 +100,26 @@ public static class LuaDocParser
         }
     }
 
-    /// <summary>Takes the parameter list from the annotations but checks it against the stub's own
-    /// signature, which is the one cross-check these files allow: a <c>@param</c> naming an argument
-    /// the function does not have, or a missing one, is a mistake worth reporting.</summary>
-    private static List<LuaApiParameter> MergeParameters(
-        LuaApiDatabase database, Annotations annotations, LuaFunctionExpr function,
-        string sourceFile, string functionName)
+    /// <summary>Somewhere to send diagnostics, so the block reader and parameter merger can serve
+    /// both the stub files and the script index without either knowing about a database.</summary>
+    private static Action<LuaDocDiagnostic> Collect(LuaApiDatabase database) => database.AddDiagnostic;
+
+    /// <summary>
+    /// Takes the parameter list from the annotations but checks it against the declaration's own
+    /// signature, which is the one cross-check available: a <c>@param</c> naming an argument the
+    /// function does not have, or a missing one, is a mistake worth reporting.
+    ///
+    /// <paramref name="reportUndocumented"/> is off for ordinary scripts. A stub file exists to
+    /// document, so an undocumented parameter there is an omission; a game script is code that
+    /// happens to be readable, and flagging every parameter in 183 shipped declarations would bury
+    /// the real problems.
+    /// </summary>
+    public static List<LuaApiParameter> MergeParameters(
+        LuaAnnotationBlock? annotations, LuaFunctionExpr function,
+        string sourceFile, string functionName, Action<LuaDocDiagnostic> report,
+        bool reportUndocumented)
     {
+        annotations ??= new LuaAnnotationBlock();
         var declared = function.Parameters.Select(p => p.Name).ToList();
         // A method's implicit self is not annotated.
         if (declared.FirstOrDefault() == "self") declared.RemoveAt(0);
@@ -111,13 +129,14 @@ public static class LuaDocParser
 
         foreach (var annotated in annotations.Parameters)
             if (!declared.Contains(annotated.Name))
-                database.AddDiagnostic(new LuaDocDiagnostic(
+                report(new LuaDocDiagnostic(
                     $"'{functionName}' has no parameter '{annotated.Name}'", sourceFile, function.Span.Start));
 
-        foreach (string name in declared)
-            if (annotations.Parameters.All(p => p.Name != name))
-                database.AddDiagnostic(new LuaDocDiagnostic(
-                    $"parameter '{name}' of '{functionName}' is undocumented", sourceFile, function.Span.Start));
+        if (reportUndocumented)
+            foreach (string name in declared)
+                if (annotations.Parameters.All(p => p.Name != name))
+                    report(new LuaDocDiagnostic(
+                        $"parameter '{name}' of '{functionName}' is undocumented", sourceFile, function.Span.Start));
 
         // Declaration order wins, so the popup lists arguments in call order even if the annotations
         // were written out of order. Anything annotated but not declared is kept so the diagnostic
@@ -146,12 +165,20 @@ public static class LuaDocParser
         return (null, target is LuaNameExpr plain ? plain.Name : "?", isMethod);
     }
 
-    /// <summary>Contiguous <c>---</c> comment runs, parsed into tags, keyed by their last line.</summary>
-    private static Dictionary<int, Annotations> GroupComments(
-        List<LuaToken> tokens, string sourceFile, LuaApiDatabase database)
+    /// <summary>
+    /// Contiguous <c>---</c> comment runs, parsed into tags, keyed by their last line - so a
+    /// declaration finds its block by looking at the line above itself.
+    ///
+    /// Public because the script index reads annotations out of ordinary Lua files too. Both paths
+    /// have to understand exactly the same tags, and two implementations of that would drift.
+    /// </summary>
+    public static Dictionary<int, LuaAnnotationBlock> ReadBlocks(
+        string source, string sourceFile, List<LuaDocDiagnostic> diagnostics,
+        Action<string, string>? onAlias = null)
     {
-        var result = new Dictionary<int, Annotations>();
-        var current = new Annotations();
+        var tokens = LuaLexer.Tokenize(source);
+        var result = new Dictionary<int, LuaAnnotationBlock>();
+        var current = new LuaAnnotationBlock();
         int blockStart = -1, lastLine = -2;
 
         foreach (var token in tokens.Where(t => t.Kind == LuaTokenKind.Comment))
@@ -167,10 +194,11 @@ public static class LuaDocParser
             {
                 Flush();
                 blockStart = token.Start.Line;
-                current = new Annotations();
+                current = new LuaAnnotationBlock();
             }
             lastLine = token.Start.Line;
-            ReadLine(current, token.Text.TrimStart('-').Trim(), token.Start, sourceFile, database);
+            ReadLine(current, token.Text.TrimStart('-').Trim(), token.Start, sourceFile,
+                     diagnostics, onAlias);
         }
         Flush();
         return result;
@@ -183,8 +211,9 @@ public static class LuaDocParser
         }
     }
 
-    private static void ReadLine(Annotations into, string text, LuaPosition at,
-                                 string sourceFile, LuaApiDatabase database)
+    private static void ReadLine(LuaAnnotationBlock into, string text, LuaPosition at,
+                                 string sourceFile, List<LuaDocDiagnostic> diagnostics,
+                                 Action<string, string>? onAlias)
     {
         if (!text.StartsWith('@'))
         {
@@ -199,7 +228,7 @@ public static class LuaDocParser
 
         if (!KnownTags.Contains(tag))
         {
-            database.AddDiagnostic(new LuaDocDiagnostic($"unknown annotation '@{tag}'", sourceFile, at));
+            diagnostics.Add(new LuaDocDiagnostic($"unknown annotation '@{tag}'", sourceFile, at));
             return;
         }
 
@@ -220,7 +249,7 @@ public static class LuaDocParser
             case "field":
             {
                 var (name, type, description) = ReadNameTypeDescription(rest);
-                if (name is null) database.AddDiagnostic(new LuaDocDiagnostic("@field needs a name and a type", sourceFile, at));
+                if (name is null) diagnostics.Add(new LuaDocDiagnostic("@field needs a name and a type", sourceFile, at));
                 else into.Fields.Add(new LuaApiField(name, type, description));
                 break;
             }
@@ -228,7 +257,7 @@ public static class LuaDocParser
             case "param":
             {
                 var (name, type, description) = ReadNameTypeDescription(rest);
-                if (name is null) { database.AddDiagnostic(new LuaDocDiagnostic("@param needs a name and a type", sourceFile, at)); break; }
+                if (name is null) { diagnostics.Add(new LuaDocDiagnostic("@param needs a name and a type", sourceFile, at)); break; }
                 bool optional = name.EndsWith('?');
                 into.Parameters.Add(new LuaApiParameter(name.TrimEnd('?'), type, description, optional));
                 break;
@@ -237,7 +266,7 @@ public static class LuaDocParser
             case "return":
             {
                 string[] halves = rest.Split(' ', 2, StringSplitOptions.TrimEntries);
-                if (halves[0].Length == 0) { database.AddDiagnostic(new LuaDocDiagnostic("@return needs a type", sourceFile, at)); break; }
+                if (halves[0].Length == 0) { diagnostics.Add(new LuaDocDiagnostic("@return needs a type", sourceFile, at)); break; }
                 into.Returns.Add(new LuaApiReturn(halves[0], halves.Length > 1 ? halves[1] : null));
                 break;
             }
@@ -245,8 +274,8 @@ public static class LuaDocParser
             case "alias":
             {
                 string[] halves = rest.Split(' ', 2, StringSplitOptions.TrimEntries);
-                if (halves.Length < 2) database.AddDiagnostic(new LuaDocDiagnostic("@alias needs a name and a target", sourceFile, at));
-                else database.AddAlias(halves[0], halves[1]);
+                if (halves.Length < 2) diagnostics.Add(new LuaDocDiagnostic("@alias needs a name and a target", sourceFile, at));
+                else onAlias?.Invoke(halves[0], halves[1]);
                 break;
             }
 
@@ -263,22 +292,24 @@ public static class LuaDocParser
         return (parts[0], parts[1], parts.Length > 2 ? parts[2] : null);
     }
 
-    /// <summary>Tags collected from one comment block, before being attached to a declaration.</summary>
-    private sealed class Annotations
-    {
-        public string? Class;
-        public string? BaseType;
-        public string? TypeTag;
-        public List<LuaApiField> Fields { get; } = [];
-        public List<LuaApiParameter> Parameters { get; } = [];
-        public List<LuaApiReturn> Returns { get; } = [];
-        public List<string> DescriptionLines { get; } = [];
+}
 
-        public string? Description =>
-            DescriptionLines.Count == 0 ? null : string.Join('\n', DescriptionLines);
+/// <summary>Tags collected from one <c>---</c> comment block, before being attached to a
+/// declaration.</summary>
+public sealed class LuaAnnotationBlock
+{
+    public string? Class;
+    public string? BaseType;
+    public string? TypeTag;
+    public List<LuaApiField> Fields { get; } = [];
+    public List<LuaApiParameter> Parameters { get; } = [];
+    public List<LuaApiReturn> Returns { get; } = [];
+    public List<string> DescriptionLines { get; } = [];
 
-        public bool IsEmpty =>
-            Class is null && TypeTag is null && Fields.Count == 0 && Parameters.Count == 0
-            && Returns.Count == 0 && DescriptionLines.Count == 0;
-    }
+    public string? Description =>
+        DescriptionLines.Count == 0 ? null : string.Join('\n', DescriptionLines);
+
+    public bool IsEmpty =>
+        Class is null && TypeTag is null && Fields.Count == 0 && Parameters.Count == 0
+        && Returns.Count == 0 && DescriptionLines.Count == 0;
 }

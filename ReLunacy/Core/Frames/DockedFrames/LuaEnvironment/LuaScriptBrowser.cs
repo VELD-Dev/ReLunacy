@@ -1,5 +1,6 @@
 using System.Numerics;
 using LibreFios;
+using ReLunacy.Engine.Scripting;
 using ReLunacy.Engine.Games;
 using ReLunacy.Utility.Localization;
 
@@ -38,6 +39,14 @@ public sealed class LuaScriptBrowser
     private readonly List<string> _gameScripts = [];
     private readonly List<string> _configScripts = [];
     private readonly List<string> _otherScripts = [];
+
+    /// <summary>
+    /// Functions declared by the scripts that share this level's global table, indexed once per
+    /// level. Rebuilding it per edit would mean re-parsing every sibling, so the editor merges its
+    /// own file into this rather than rebuilding the whole thing.
+    /// </summary>
+    private LuaScriptIndex? _shared;
+    private string? _sharedFor;
 
     /// <summary>Opens the shared archive for the level currently loaded, if it is not already open.</summary>
     private void EnsureArchive()
@@ -79,6 +88,8 @@ public sealed class LuaScriptBrowser
         _archive = null;
         _archivePath = null;
         _error = null;
+        _shared = null;
+        _sharedFor = null;
         _levelScripts.Clear();
         _gameScripts.Clear();
         _configScripts.Clear();
@@ -121,6 +132,35 @@ public sealed class LuaScriptBrowser
         _gameScripts.Sort(StringComparer.OrdinalIgnoreCase);
         _configScripts.Sort(StringComparer.OrdinalIgnoreCase);
         _otherScripts.Sort(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The level's own scripts and the global game scripts, indexed for their declarations.
+    ///
+    /// Both groups count: these games load a level's scripts into one shared global table, so a
+    /// function in the level's <c>utility.lua</c> or in <c>/scripts/</c> is callable from any of
+    /// them with nothing importing it. Configs and other levels are excluded - they are not loaded
+    /// alongside, and their names would be offered at call sites that cannot reach them.
+    /// </summary>
+    public LuaScriptIndex? SharedScripts()
+    {
+        EnsureArchive();
+        if (_archive is null) return null;
+
+        string key = $"{_archivePath}|{_levelName}";
+        if (_sharedFor == key) return _shared;
+
+        var sources = new List<LuaScriptSource>();
+        foreach (string path in _levelScripts.Concat(_gameScripts))
+        {
+            // One unreadable entry must not cost the whole index.
+            try { sources.Add(new LuaScriptSource(path, ReadText(path))); }
+            catch { }
+        }
+
+        _shared = LuaScriptIndex.BuildShared(sources);
+        _sharedFor = key;
+        return _shared;
     }
 
     /// <summary>The compiled chunk's path for a source path, by the mapping verified over all 524.</summary>

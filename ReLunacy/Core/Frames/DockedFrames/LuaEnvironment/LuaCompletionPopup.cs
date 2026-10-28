@@ -39,7 +39,8 @@ public sealed class LuaCompletionPopup
     }
 
     /// <summary>Opens, or refreshes if already open. Called on every edit and on an explicit request.</summary>
-    public void Refresh(CodeEditorControl editor, LuaApiDatabase api, bool force)
+    public void Refresh(CodeEditorControl editor, LuaApiDatabase api, bool force,
+                        LuaScriptIndex? scripts = null)
     {
         var caret = editor.Caret;
         if (!force && _lastVersion == editor.Document.Version && _lastCaret == caret) return;
@@ -47,7 +48,7 @@ public sealed class LuaCompletionPopup
         _lastCaret = caret;
 
         _items = LuaCompletionEngine.Complete(editor.Document.GetText(),
-            new LuaPosition(caret.Line, caret.Column), api, out var context);
+            new LuaPosition(caret.Line, caret.Column), api, out var context, scripts);
         _context = context;
 
         // Opening on a bare identifier with nothing typed would cover the text with the entire API

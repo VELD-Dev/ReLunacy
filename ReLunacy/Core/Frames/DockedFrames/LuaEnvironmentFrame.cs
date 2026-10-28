@@ -38,6 +38,10 @@ public class LuaEnvironmentFrame : DockedFrame
             _editor.Load(source, path);
             if (compiled is not null) _disassembly.Load(compiled, LuaScriptBrowser.CompiledPathFor(path));
         };
+        // The level's other scripts share one global table at runtime, so a function declared in
+        // any of them is callable from the file being edited. The browser already has the archive
+        // open, so it is what indexes them.
+        _editor.SharedScripts = _scripts.SharedScripts;
     }
 
     /// <summary>Opens source in the editor - how the PSARC browser will hand a script over.</summary>

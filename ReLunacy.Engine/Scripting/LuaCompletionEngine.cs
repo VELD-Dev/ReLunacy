@@ -45,12 +45,13 @@ public static class LuaCompletionEngine
     ];
 
     public static List<LuaCompletionItem> Complete(
-        string source, LuaPosition caret, LuaApiDatabase api, out LuaCompletionContext context)
+        string source, LuaPosition caret, LuaApiDatabase api, out LuaCompletionContext context,
+        LuaScriptIndex? scripts = null)
     {
         var tokens = LuaLexer.Tokenize(source);
         var block = LuaParser.Parse(source, out _);
         var scopes = LuaScopeResolver.Resolve(block);
-        var inference = new LuaTypeInference(api, scopes);
+        var inference = new LuaTypeInference(api, scopes, scripts);
 
         var analyzed = Analyze(tokens, caret, block, inference);
         context = analyzed;
@@ -90,6 +91,14 @@ public static class LuaCompletionEngine
                         null));
                 }
 
+                // Functions the scripts declare, before the documented API: when a level's own
+                // script declares a name the documentation also uses, the script's is the one that
+                // will actually run.
+                foreach (var declared in scripts?.CallableByName ?? [])
+                    items.Add(new LuaCompletionItem(
+                        declared.Function.Name, declared.Function.Name, LuaCompletionKind.Function,
+                        declared.Function.Signature, DescribeOrigin(declared)));
+
                 foreach (var function in api.Functions.Values)
                     items.Add(new LuaCompletionItem(function.Name, function.Name, LuaCompletionKind.Function,
                                                     function.Signature, function.Description));
@@ -107,13 +116,33 @@ public static class LuaCompletionEngine
                 // the undocumented API is still reachable while staying visibly undocumented.
                 foreach (var global in scopes.Globals.Values)
                     if (!api.Functions.ContainsKey(global.Name) && !api.Variables.ContainsKey(global.Name)
-                        && !api.Carriers.ContainsKey(global.Name))
+                        && !api.Carriers.ContainsKey(global.Name)
+                        && scripts?.Find(global.Name) is null)
                         items.Add(new LuaCompletionItem(global.Name, global.Name, LuaCompletionKind.Variable,
                                                         "undocumented", null));
                 break;
         }
 
         return Filter(items, analyzed.Prefix);
+    }
+
+    /// <summary>
+    /// What the popup says under a declared function: its own description when it has one, and
+    /// where it comes from when that is not the file being edited - a name shared through the
+    /// level's global table is worth knowing the origin of.
+    /// </summary>
+    private static string? DescribeOrigin(LuaScriptFunction declared)
+    {
+        string? where = declared.Origin == LuaScriptFunctionOrigin.CurrentFile
+            ? null
+            : $"declared in {Path.GetFileName(declared.Function.SourceFile)}";
+        return (declared.Function.Description, where) switch
+        {
+            ({ } description, { } place) => $"{description}\n\n{place}",
+            ({ } description, null) => description,
+            (null, { } place) => place,
+            _ => null,
+        };
     }
 
     private static LuaCompletionKind KindOf(LuaSymbolKind kind) => kind switch
