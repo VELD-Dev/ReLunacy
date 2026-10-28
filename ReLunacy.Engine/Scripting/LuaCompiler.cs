@@ -251,6 +251,11 @@ public sealed class LuaCompiler
         Constant,
         Local, Global, Indexed, Relocatable, NonReloc,
         /// <summary>
+        /// A test and the jump that depends on it - Lua's VJMP. The expression IS the jump: whether
+        /// it ever becomes a value in a register depends on what asks for it.
+        /// </summary>
+        Jump,
+        /// <summary>
         /// A call whose result count is not settled yet - Lua's VCALL. It matters because a call in
         /// the last position of an argument list, or of a return, passes every value it produces
         /// rather than one, and that is decided after the call has already been emitted.
@@ -267,7 +272,29 @@ public sealed class LuaCompiler
         public int Info;
         /// <summary>For an index: the key's RK operand.</summary>
         public int Aux;
+
+        /// <summary>
+        /// Jumps taken when this expression is true, and when it is false - Lua's <c>t</c> and
+        /// <c>f</c>. A short-circuiting operator leaves them here for whoever consumes the
+        /// expression to resolve, which is what lets <c>a or b</c> be either a condition or a value
+        /// without being compiled differently.
+        /// </summary>
+        public List<int>? TrueList;
+        public List<int>? FalseList;
+
+        /// <summary>For <see cref="ExpKind.Jump"/>: the jump itself, plus anything it absorbed.
+        /// <c>Info</c> is its head, which is the one whose test sits directly before it.</summary>
+        public List<int>? JumpList;
     }
+
+    private static void Concat(ref List<int>? list, IReadOnlyList<int>? extra)
+    {
+        if (extra is null || extra.Count == 0) return;
+        (list ??= []).AddRange(extra);
+    }
+
+    private static bool HasJumps(in Exp e) =>
+        (e.TrueList?.Count ?? 0) + (e.FalseList?.Count ?? 0) > 0;
 
     private Exp CompileExpression(LuaExpr expression)
     {
@@ -307,6 +334,32 @@ public sealed class LuaCompiler
             case LuaBinaryExpr arithmetic when ArithmeticFor(arithmetic.Operator) is { } opcode:
                 return CompileArithmetic(opcode, arithmetic);
 
+            // `a and b` / `a or b` producing a VALUE rather than driving a branch. The left operand
+            // contributes only a jump; the right one is the expression, carrying the left's
+            // short-circuit jumps along with it - luaK_infix then luaK_posfix.
+            case LuaBinaryExpr { Operator: "and" } conjunction:
+            {
+                var left = CompileExpression(conjunction.Left);
+                GoIfTrue(ref left);
+                var right = CompileExpression(conjunction.Right);
+                DischargeVars(ref right);
+                Concat(ref right.FalseList, left.FalseList);
+                return right;
+            }
+
+            case LuaBinaryExpr { Operator: "or" } disjunction:
+            {
+                var left = CompileExpression(disjunction.Left);
+                GoIfFalse(ref left);
+                var right = CompileExpression(disjunction.Right);
+                DischargeVars(ref right);
+                Concat(ref right.TrueList, left.TrueList);
+                return right;
+            }
+
+            case LuaBinaryExpr comparison when ComparisonFor(comparison.Operator) is { } shape:
+                return CompileComparisonValue(shape, comparison);
+
             case LuaUnaryExpr unary when unary.Operator == "-":
                 return CompileNegate(unary);
 
@@ -329,6 +382,161 @@ public sealed class LuaCompiler
                 Unsupported(expression.GetType().Name, expression.Span);
                 return new Exp { Kind = ExpKind.Nil };
         }
+    }
+
+    /// <summary>
+    /// Emits the jump a short-circuiting <c>and</c> needs from its left operand: taken when the
+    /// expression is FALSE, because that already settles the result. Lua's luaK_goiftrue.
+    ///
+    /// The true list is resolved here - if the left operand was itself a logical expression, the
+    /// jumps it had pending for "true" belong at the right operand, which is what comes next.
+    /// </summary>
+    private void GoIfTrue(ref Exp e)
+    {
+        DischargeVars(ref e);
+        List<int> whenFalse = e.Kind switch
+        {
+            // A constant, or true, is never false: no jump at all.
+            ExpKind.Constant or ExpKind.True => [],
+            // nil and false always are: jump unconditionally.
+            ExpKind.Nil or ExpKind.False => _state.EmitJump(),
+            ExpKind.Jump => InvertJump(ref e),
+            _ => JumpOnCondition(ref e, whenTrue: false),
+        };
+        Concat(ref e.FalseList, whenFalse);
+        _state.PatchToHere(e.TrueList ?? []);
+        e.TrueList = null;
+    }
+
+    /// <summary>The mirror of <see cref="GoIfTrue"/> for <c>or</c> - luaK_goiffalse.</summary>
+    private void GoIfFalse(ref Exp e)
+    {
+        DischargeVars(ref e);
+        List<int> whenTrue = e.Kind switch
+        {
+            ExpKind.Nil or ExpKind.False => [],
+            ExpKind.Constant or ExpKind.True => _state.EmitJump(),
+            ExpKind.Jump => [.. e.JumpList ?? []],
+            _ => JumpOnCondition(ref e, whenTrue: true),
+        };
+        Concat(ref e.TrueList, whenTrue);
+        _state.PatchToHere(e.FalseList ?? []);
+        e.FalseList = null;
+    }
+
+    /// <summary>
+    /// Flips the sense of a test whose jump this expression is, so the jump is taken on the opposite
+    /// outcome - invertjump. It rewrites the A operand of the COMPARISON, where A is the result the
+    /// comparison is looking for; a TEST never reaches here, since its sense is chosen when it is
+    /// emitted.
+    /// </summary>
+    private List<int> InvertJump(ref Exp e)
+    {
+        int control = e.Info - 1;
+        _state.SetA(control, _state.InstructionA(control) == 0 ? 1 : 0);
+        return [.. e.JumpList ?? []];
+    }
+
+    /// <summary>
+    /// Tests an expression's value and jumps on the outcome asked for - jumponcond. A NOT emitted
+    /// for it is taken back and folded into the test's sense instead.
+    /// </summary>
+    private List<int> JumpOnCondition(ref Exp e, bool whenTrue)
+    {
+        if (e.Kind == ExpKind.Relocatable
+            && e.Info == _state.InstructionCount - 1
+            && _state.InstructionOpcode(e.Info) == LuaOpcode.Not)
+        {
+            int negated = _state.InstructionB(e.Info);
+            _state.RemoveLastInstruction();
+            _state.EmitABC(LuaOpcode.Test, negated, negated, whenTrue ? 0 : 1);
+            return _state.EmitJump();
+        }
+
+        int register = ExpressionToAnyRegister(ref e);
+        FreeIfTemporary(ref e);
+        _state.EmitABC(LuaOpcode.Test, register, register, whenTrue ? 1 : 0);
+        return _state.EmitJump();
+    }
+
+    /// <summary>
+    /// A comparison used as a value: the instruction plus its jump, left as a jump for whoever
+    /// consumes it - codecomp. Both operands go to RK left-to-right and are released right-to-left,
+    /// and <c>&gt;</c> / <c>&gt;=</c> become LT / LE with the operands exchanged because Lua 5.0 has
+    /// no greater-than opcode.
+    /// </summary>
+    private Exp CompileComparisonValue(
+        (LuaOpcode Opcode, bool Swap, bool Invert) shape, LuaBinaryExpr comparison)
+    {
+        var (opcode, swap, invert) = shape;
+
+        var left = CompileExpression(comparison.Left);
+        int leftRk = ExpressionToRk(ref left);
+        var right = CompileExpression(comparison.Right);
+        int rightRk = ExpressionToRk(ref right);
+        FreeIfTemporary(ref right);
+        FreeIfTemporary(ref left);
+        if (swap) (leftRk, rightRk) = (rightRk, leftRk);
+
+        _state.EmitABC(opcode, invert ? 0 : 1, leftRk, rightRk);
+        var jump = _state.EmitJump();
+        return new Exp { Kind = ExpKind.Jump, Info = jump[0], JumpList = jump };
+    }
+
+    /// <summary>
+    /// Whether any jump in a list arrives without having left a value behind.
+    ///
+    /// TEST both tests and assigns, so a jump it controls carries the value with it and can go
+    /// straight to the end. A comparison assigns nothing, so its jump has to land on a LOADBOOL -
+    /// and the presence of even one such jump is what makes the pair of LOADBOOLs necessary.
+    /// </summary>
+    private bool NeedValue(List<int>? list)
+    {
+        foreach (int jump in list ?? [])
+            if (ControlOf(jump) is { } control && _state.InstructionOpcode(control) != LuaOpcode.Test)
+                return true;
+        return false;
+    }
+
+    /// <summary>The instruction a jump is conditional on, when it has one - getjumpcontrol.</summary>
+    private int? ControlOf(int jump)
+    {
+        if (jump < 1) return null;
+        var opcode = _state.InstructionOpcode(jump - 1);
+        return opcode is LuaOpcode.Eq or LuaOpcode.Lt or LuaOpcode.Le or LuaOpcode.Test
+            ? jump - 1
+            : null;
+    }
+
+    /// <summary>
+    /// Points a list at the end of the expression, or at a LOADBOOL for the jumps that need one.
+    /// A TEST's destination register is set at the same time, since that is how its jump delivers
+    /// the value - patchlistaux with patchtestreg.
+    /// </summary>
+    private void PatchListAux(List<int>? list, int final, int register, int loadBool)
+    {
+        foreach (int jump in list ?? [])
+        {
+            int? control = ControlOf(jump);
+            if (control is { } at && _state.InstructionOpcode(at) == LuaOpcode.Test)
+            {
+                int tested = _state.InstructionB(at);
+                _state.SetA(at, register >= 0 ? register : tested);
+                _state.PatchTo([jump], final);
+            }
+            else
+            {
+                _state.PatchTo([jump], loadBool);
+            }
+        }
+    }
+
+    /// <summary>A LOADBOOL that can be jumped to. <paramref name="skipNext"/> makes it step over the
+    /// instruction after it, which is how the false arm avoids falling into the true one.</summary>
+    private int CodeLabel(int register, bool value, bool skipNext)
+    {
+        _state.MarkLabel();
+        return _state.EmitABC(LuaOpcode.LoadBool, register, value ? 1 : 0, skipNext ? 1 : 0);
     }
 
     /// <summary>Lua 5.0's arithmetic and concatenation opcodes. There is no modulo or integer
@@ -547,6 +755,13 @@ public sealed class LuaCompiler
                 e.Kind = ExpKind.Relocatable;
                 break;
             case ExpKind.Indexed:
+                // BOTH operands are released, the key before the table, as dischargevars does. The
+                // key only occupies a register when its constant was too far along the pool to fit
+                // the instruction's operand field - past index 261 - which is why this only shows
+                // up in a chunk with hundreds of constants: `DialogueSpecs.TALW_R07_x` there loads
+                // its key with LOADK, and leaving that register reserved put the result one slot
+                // too high.
+                if (!LuaInstructionLayout.IsConstant(e.Aux)) _state.FreeRegisterIfTemporary(e.Aux);
                 _state.FreeRegisterIfTemporary(e.Info);
                 e.Info = _state.EmitABC(LuaOpcode.GetTable, 0, e.Info, e.Aux);
                 e.Kind = ExpKind.Relocatable;
@@ -576,6 +791,9 @@ public sealed class LuaCompiler
         DischargeVars(ref e);
         switch (e.Kind)
         {
+            // A jump has no value to move anywhere yet - that is exp2reg's job, not this one.
+            case ExpKind.Jump:
+                return;
             case ExpKind.Nil:
                 _state.LoadNil(register, 1);
                 break;
@@ -603,13 +821,54 @@ public sealed class LuaCompiler
         if (e.Kind == ExpKind.NonReloc) _state.FreeRegisterIfTemporary(e.Info);
         int register = _state.FreeRegister;
         _state.ReserveRegisters(1);
+        ExpressionToRegister(ref e, register);
+    }
+
+    /// <summary>
+    /// Puts an expression in a given register, materialising a short-circuiting one into an actual
+    /// true or false along the way - Lua's exp2reg.
+    ///
+    /// Everything up to here can leave an expression as a set of jumps; this is where <c>a or b</c>
+    /// stops being control flow and becomes a value. Jumps controlled by a TEST already carry the
+    /// value, because TEST assigns as it jumps; a comparison's jump carries nothing, so when one of
+    /// those is present a pair of LOADBOOLs is emitted for the two outcomes to land on. The first
+    /// skips the second, which is why the false arm does not fall into the true one.
+    /// </summary>
+    private void ExpressionToRegister(ref Exp e, int register)
+    {
         DischargeToRegister(ref e, register);
+        if (e.Kind == ExpKind.Jump) Concat(ref e.TrueList, e.JumpList);
+
+        if (HasJumps(e))
+        {
+            int loadFalse = -1, loadTrue = -1;
+            if (NeedValue(e.TrueList) || NeedValue(e.FalseList))
+            {
+                // A jump over the two loads, for the path that fell through with its value already
+                // in place. An expression that IS a jump never falls through, so it needs none.
+                var skip = e.Kind == ExpKind.Jump ? [] : _state.EmitJump();
+                loadFalse = CodeLabel(register, value: false, skipNext: true);
+                loadTrue = CodeLabel(register, value: true, skipNext: false);
+                _state.PatchToHere(skip);
+            }
+
+            _state.MarkLabel();
+            int final = _state.InstructionCount;
+            PatchListAux(e.FalseList, final, register, loadFalse);
+            PatchListAux(e.TrueList, final, register, loadTrue);
+        }
+
+        e.TrueList = e.FalseList = e.JumpList = null;
+        e.Kind = ExpKind.NonReloc;
+        e.Info = register;
     }
 
     private int ExpressionToAnyRegister(ref Exp e)
     {
         DischargeVars(ref e);
-        if (e.Kind == ExpKind.NonReloc) return e.Info;
+        // A value already in a register still needs work when jumps are outstanding: those jumps
+        // have to be given somewhere to land before the register can be read.
+        if (e.Kind == ExpKind.NonReloc && !HasJumps(e)) return e.Info;
         ExpressionToNextRegister(ref e);
         return e.Info;
     }
@@ -619,6 +878,7 @@ public sealed class LuaCompiler
     private int ExpressionToRk(ref Exp e)
     {
         DischargeVars(ref e);
+        if (e.Kind == ExpKind.Jump || HasJumps(e)) return ExpressionToAnyRegister(ref e);
         int? constant = e.Kind switch
         {
             // nil is the one literal still interned on demand, which is what exp2RK does with VNIL.
@@ -720,6 +980,12 @@ public sealed class LuaCompiler
     /// </summary>
     private List<int> CompileCondition(LuaExpr condition, bool jumpWhenTrue)
     {
+        // Parentheses are transparent to a test. In Lua they are transparent for free, because the
+        // true/false lists live on the expression descriptor and survive prefixexp; here the
+        // structural cases below match on the tree, so the wrapper has to come off first or
+        // `if ( a and b )` would be compiled as a value and `and` has no value form yet.
+        while (condition is LuaParenExpr wrapped) condition = wrapped.Inner;
+
         // A literal condition generates no test. Lua 5.0 folds these in goiftrue/goiffalse, so
         // `while true do` ends in a bare backward JMP with no LOADBOOL and no TEST - emitting the
         // test anyway is correct code and two instructions longer than the reference.
