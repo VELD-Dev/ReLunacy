@@ -48,6 +48,9 @@ public sealed class LuaFunctionState
 
     public int Emit(uint instruction)
     {
+        // Anything waiting for "here" now knows where here is. Lua does this in luaK_code for the
+        // same reason: the target of a jump-to-here is only decided once something is emitted.
+        DischargePendingJumps();
         _code.Add(instruction);
         return _code.Count - 1;
     }
@@ -184,23 +187,87 @@ public sealed class LuaFunctionState
         return _prototypes.Count - 1;
     }
 
-    // --- jumps ---------------------------------------------------------------------------------
-
-    /// <summary>Emits a jump with no destination yet, to be patched once the target is known.</summary>
-    public int EmitJump() => EmitAsBx(LuaOpcode.Jmp, 0, 0);
-
-    /// <summary>Points a jump at the current end of the code. Lua jumps are relative to the
-    /// instruction AFTER the jump, which is why the offset subtracts one more.</summary>
-    public void PatchToHere(int jumpPc)
+    /// <summary>
+    /// Rewrites an emitted instruction's C operand. What turning a call into one that returns
+    /// everything it has amounts to - <c>wait(rand(a, b))</c> needs the inner call's result count
+    /// replaced after it has already been emitted.
+    /// </summary>
+    public void SetInstructionC(int pc, int c)
     {
-        var instruction = new LuaInstruction(_code[jumpPc]);
-        int offset = _code.Count - (jumpPc + 1);
-        _code[jumpPc] = (uint)instruction.Opcode
-            | ((uint)instruction.A << LuaInstructionLayout.PosA)
-            | ((uint)(offset + LuaInstructionLayout.MaxArgSBx) << LuaInstructionLayout.PosBx);
+        const uint mask = LuaInstructionLayout.MaxArgC << LuaInstructionLayout.PosC;
+        _code[pc] = (_code[pc] & ~mask) | ((uint)c << LuaInstructionLayout.PosC);
     }
 
-    public void PatchTo(int jumpPc, int target)
+    /// <summary>Rewrites an emitted instruction's B operand.</summary>
+    public void SetInstructionB(int pc, int b)
+    {
+        const uint mask = LuaInstructionLayout.MaxArgB << LuaInstructionLayout.PosB;
+        _code[pc] = (_code[pc] & ~mask) | ((uint)b << LuaInstructionLayout.PosB);
+    }
+
+    /// <summary>Replaces an emitted instruction's opcode, keeping its operands - CALL becoming
+    /// TAILCALL once <c>return f()</c> turns out to be a tail call.</summary>
+    public void SetInstructionOpcode(int pc, LuaOpcode op)
+    {
+        const uint mask = (1u << LuaInstructionLayout.OpBits) - 1;
+        _code[pc] = (_code[pc] & ~mask) | (uint)op;
+    }
+
+    /// <summary>The A operand of an emitted instruction - which register a call left its result in.</summary>
+    public int InstructionA(int pc) => new LuaInstruction(_code[pc]).A;
+
+    // --- jumps ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Jumps waiting to learn where "here" is - Lua's <c>fs->jpc</c>.
+    ///
+    /// A jump to the current end of the code cannot be resolved when it is requested, because what
+    /// ends up there may itself be a jump. Holding them lets <see cref="EmitJump"/> take them over
+    /// instead, which is what turns a jump to a jump into a single jump: at the end of
+    /// <c>if a then if b then X end end</c> the inner test's false jump is waiting, and the outer
+    /// jump over the else absorbs it, so both land past the else rather than one landing on the
+    /// other.
+    /// </summary>
+    private readonly List<int> _pendingJumps = [];
+
+    /// <summary>
+    /// Emits a jump with no destination yet, together with every jump that was waiting for this
+    /// point - they are patched to wherever this one is pointed, not to this instruction.
+    ///
+    /// The waiting list is taken and cleared before emitting, which is what stops the emission from
+    /// discharging them onto this jump: luaK_jump does exactly this.
+    /// </summary>
+    public List<int> EmitJump()
+    {
+        var absorbed = new List<int>(_pendingJumps);
+        _pendingJumps.Clear();
+        int pc = EmitAsBx(LuaOpcode.Jmp, 0, 0);
+        absorbed.Insert(0, pc);
+        return absorbed;
+    }
+
+    /// <summary>Holds jumps until the next emitted instruction settles where they go.</summary>
+    public void PatchToHere(IReadOnlyList<int> jumps) => _pendingJumps.AddRange(jumps);
+
+    /// <summary>Points jumps at an instruction that is already known.</summary>
+    public void PatchTo(IReadOnlyList<int> jumps, int target)
+    {
+        foreach (int jumpPc in jumps) PatchOne(jumpPc, target);
+    }
+
+    private void DischargePendingJumps()
+    {
+        if (_pendingJumps.Count == 0) return;
+        int here = _code.Count;
+        // Cleared first so patching cannot re-enter this through Emit.
+        int[] waiting = [.. _pendingJumps];
+        _pendingJumps.Clear();
+        foreach (int jumpPc in waiting) PatchOne(jumpPc, here);
+    }
+
+    /// <summary>Lua jumps are relative to the instruction AFTER the jump, which is why the offset
+    /// subtracts one more.</summary>
+    private void PatchOne(int jumpPc, int target)
     {
         var instruction = new LuaInstruction(_code[jumpPc]);
         int offset = target - (jumpPc + 1);

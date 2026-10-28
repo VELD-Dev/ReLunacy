@@ -208,9 +208,23 @@ public sealed class LuaCompiler
         }
 
         int baseRegister = _state.FreeRegister;
-        foreach (var value in ret.Values)
+        var last = default(Exp);
+        for (int i = 0; i < ret.Values.Count; i++)
         {
-            var expression = CompileExpression(value);
+            var expression = CompileExpression(ret.Values[i]);
+            if (i == ret.Values.Count - 1)
+            {
+                last = expression;
+                // Returning a call returns everything it produced, and when it is the only value
+                // being returned it is a tail call - retstat rewrites the opcode in place.
+                if (SetMultipleReturns(ref last))
+                {
+                    if (ret.Values.Count == 1) _state.SetInstructionOpcode(last.Info, LuaOpcode.TailCall);
+                    _state.EmitABC(LuaOpcode.Return, baseRegister, 0, 0);
+                    _state.SetFreeRegister(baseRegister);
+                    return;
+                }
+            }
             ExpressionToNextRegister(ref expression);
         }
         _state.EmitABC(LuaOpcode.Return, baseRegister, ret.Values.Count + 1, 0);
@@ -219,7 +233,17 @@ public sealed class LuaCompiler
 
     // --- expressions ---------------------------------------------------------------------------
 
-    private enum ExpKind { Nil, True, False, Number, String, Local, Global, Indexed, Relocatable, NonReloc }
+    private enum ExpKind
+    {
+        Nil, True, False, Number, String, Local, Global, Indexed, Relocatable, NonReloc,
+        /// <summary>
+        /// A call whose result count is not settled yet - Lua's VCALL. It matters because a call in
+        /// the last position of an argument list, or of a return, passes every value it produces
+        /// rather than one, and that is decided after the call has already been emitted.
+        /// <c>Info</c> is the pc of its CALL instruction, not a register.
+        /// </summary>
+        Call,
+    }
 
     /// <summary>An expression that has not been committed to a register yet. Mirrors expdesc.</summary>
     private struct Exp
@@ -277,9 +301,26 @@ public sealed class LuaCompiler
         }
     }
 
+    /// <summary>
+    /// Puts an argument list in consecutive registers, reporting whether it ends in a call that was
+    /// left open. Only the LAST argument can be - anywhere else a call is cut down to one value,
+    /// which is what makes <c>f(g(), h())</c> pass one value from g and all of h's.
+    /// </summary>
+    private bool CompileArguments(List<LuaExpr> arguments)
+    {
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            var value = CompileExpression(arguments[i]);
+            if (i == arguments.Count - 1 && SetMultipleReturns(ref value)) return true;
+            ExpressionToNextRegister(ref value);
+        }
+        return false;
+    }
+
     private Exp CompileCall(LuaExpr call, int resultCount)
     {
         int baseRegister = _state.FreeRegister;
+        int callPc;
 
         switch (call)
         {
@@ -287,12 +328,12 @@ public sealed class LuaCompiler
             {
                 var target = CompileExpression(direct.Target);
                 ExpressionToNextRegister(ref target);
-                foreach (var argument in direct.Arguments)
-                {
-                    var value = CompileExpression(argument);
-                    ExpressionToNextRegister(ref value);
-                }
-                _state.EmitABC(LuaOpcode.Call, baseRegister, direct.Arguments.Count + 1, resultCount + 1);
+                bool openArguments = CompileArguments(direct.Arguments);
+                // An open call takes however many values the last argument produced, which is only
+                // known at run time, so B says "everything above A" rather than a count.
+                callPc = _state.EmitABC(LuaOpcode.Call, baseRegister,
+                                        openArguments ? 0 : direct.Arguments.Count + 1,
+                                        resultCount + 1);
                 break;
             }
 
@@ -306,12 +347,10 @@ public sealed class LuaCompiler
                 _state.ReserveRegisters(2);
                 _state.EmitABC(LuaOpcode.Self, baseRegister, receiverRegister,
                                LuaInstructionLayout.EncodeConstant(_state.AddStringConstant(method.Method)));
-                foreach (var argument in method.Arguments)
-                {
-                    var value = CompileExpression(argument);
-                    ExpressionToNextRegister(ref value);
-                }
-                _state.EmitABC(LuaOpcode.Call, baseRegister, method.Arguments.Count + 2, resultCount + 1);
+                bool openMethodArguments = CompileArguments(method.Arguments);
+                callPc = _state.EmitABC(LuaOpcode.Call, baseRegister,
+                                        openMethodArguments ? 0 : method.Arguments.Count + 2,
+                                        resultCount + 1);
                 break;
             }
 
@@ -322,7 +361,9 @@ public sealed class LuaCompiler
 
         _state.SetFreeRegister(baseRegister);
         if (resultCount > 0) _state.ReserveRegisters(1);
-        return new Exp { Kind = ExpKind.NonReloc, Info = baseRegister };
+        // Returned as a call rather than as its register: whoever receives it decides whether it
+        // keeps one result or hands over all of them.
+        return new Exp { Kind = ExpKind.Call, Info = callPc };
     }
 
     // --- discharge -----------------------------------------------------------------------------
@@ -344,7 +385,24 @@ public sealed class LuaCompiler
                 e.Info = _state.EmitABC(LuaOpcode.GetTable, 0, e.Info, e.Aux);
                 e.Kind = ExpKind.Relocatable;
                 break;
+            case ExpKind.Call:
+                // Nobody asked for every value, so the call keeps the single result it was emitted
+                // with and becomes that register. luaK_setoneret.
+                e.Kind = ExpKind.NonReloc;
+                e.Info = _state.InstructionA(e.Info);
+                break;
         }
+    }
+
+    /// <summary>
+    /// Makes a call produce every value it has, by rewriting the result count of the instruction
+    /// already emitted for it. Lua's luaK_setmultret.
+    /// </summary>
+    private bool SetMultipleReturns(ref Exp e)
+    {
+        if (e.Kind != ExpKind.Call) return false;
+        _state.SetInstructionC(e.Info, 0);
+        return true;
     }
 
     private void DischargeToRegister(ref Exp e, int register)
@@ -422,20 +480,24 @@ public sealed class LuaCompiler
         for (int i = 0; i < ifStat.Clauses.Count; i++)
         {
             var clause = ifStat.Clauses[i];
-            int falseJump = CompileCondition(clause.Condition, jumpWhenTrue: false);
+            var falseJump = CompileCondition(clause.Condition, jumpWhenTrue: false);
             CompileBlock(clause.Body);
 
             // Only needed when something follows this body; the last clause with no else falls
             // straight out, and emitting a jump to the next instruction is not what the reference
             // does.
+            //
+            // The order here is ifstat's and it matters: the jump out is emitted BEFORE the false
+            // jump is held, so it absorbs whatever the body left waiting - a nested if's own false
+            // jump - and those land past the else with it.
             bool somethingFollows = i + 1 < ifStat.Clauses.Count || ifStat.ElseBody is not null;
-            if (somethingFollows) exits.Add(_state.EmitJump());
+            if (somethingFollows) exits.AddRange(_state.EmitJump());
 
-            if (falseJump != NoJump) _state.PatchToHere(falseJump);
+            _state.PatchToHere(falseJump);
         }
 
         if (ifStat.ElseBody is { } elseBody) CompileBlock(elseBody);
-        foreach (int exit in exits) _state.PatchToHere(exit);
+        _state.PatchToHere(exits);
     }
 
     /// <summary>
@@ -446,14 +508,14 @@ public sealed class LuaCompiler
     /// </summary>
     private void CompileWhile(LuaWhileStat whileStat)
     {
-        int entryJump = _state.EmitJump();
+        var entryJump = _state.EmitJump();
 
         // The condition is generated FIRST and then lifted out, as whilestat does. Its code belongs
         // at the bottom, but its constants have to be interned before the body's: for
         // `while is_alive(x) do wait() end` the reference pool is is_alive, x, wait, and compiling
         // the body first puts wait at K0 - identical instructions, every constant index shifted.
         int conditionStart = _state.InstructionCount;
-        int backJump = CompileCondition(whileStat.Condition, jumpWhenTrue: true);
+        var backJump = CompileCondition(whileStat.Condition, jumpWhenTrue: true);
         uint[] conditionCode = _state.ExtractFrom(conditionStart);
 
         int bodyStart = _state.InstructionCount;
@@ -463,10 +525,10 @@ public sealed class LuaCompiler
         // it. Only the trailing jump needs relocating - a condition containing its own jumps, which
         // `and` and `or` would introduce, is not supported yet.
         _state.PatchToHere(entryJump);
-        int relocated = backJump == NoJump ? NoJump
-            : _state.InstructionCount + (backJump - conditionStart);
+        int conditionBase = _state.InstructionCount;
+        var relocated = backJump.Select(pc => conditionBase + (pc - conditionStart)).ToList();
         foreach (uint instruction in conditionCode) _state.Emit(instruction);
-        if (relocated != NoJump) _state.PatchTo(relocated, bodyStart);
+        _state.PatchTo(relocated, bodyStart);
     }
 
     /// <summary>
@@ -478,16 +540,17 @@ public sealed class LuaCompiler
     /// register and tested with TEST, whose A and B are both that register in 5.0 - the opcode still
     /// assigns, which is what 5.1 split out into TESTSET.
     /// </summary>
-    /// <summary>Returned when a condition is constant and needs no jump at all.</summary>
-    private const int NoJump = -1;
-
-    private int CompileCondition(LuaExpr condition, bool jumpWhenTrue)
+    /// <summary>
+    /// Emits a condition and the jump that depends on it, returning the jumps to patch. Empty when
+    /// the condition is constant and needs no jump at all.
+    /// </summary>
+    private List<int> CompileCondition(LuaExpr condition, bool jumpWhenTrue)
     {
         // A literal condition generates no test. Lua 5.0 folds these in goiftrue/goiffalse, so
         // `while true do` ends in a bare backward JMP with no LOADBOOL and no TEST - emitting the
         // test anyway is correct code and two instructions longer than the reference.
         if (ConstantTruth(condition) is { } always)
-            return always == jumpWhenTrue ? _state.EmitJump() : NoJump;
+            return always == jumpWhenTrue ? _state.EmitJump() : [];
 
         if (condition is LuaBinaryExpr binary && ComparisonFor(binary.Operator) is { } comparison)
         {
