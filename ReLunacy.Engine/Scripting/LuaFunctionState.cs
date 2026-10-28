@@ -162,7 +162,12 @@ public sealed class LuaFunctionState
         string key = constant switch
         {
             LuaConstant.Nil => "nil",
-            LuaConstant.Number n => "n:" + n.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            // Negative zero shares an entry with positive zero. Lua's pool is a Lua table, and
+            // -0.0 == 0.0 there, so negating a literal 0 reuses the existing constant instead of
+            // adding one. Only the KEY is normalised - whichever sign arrived first is what gets
+            // stored, which is also what the table would hold.
+            LuaConstant.Number n => "n:" + (n.Value == 0 ? 0d : n.Value)
+                .ToString("R", System.Globalization.CultureInfo.InvariantCulture),
             LuaConstant.Str s => "s:" + s.Text,
             _ => throw new ArgumentException($"cannot intern {constant.GetType().Name}", nameof(constant)),
         };
@@ -178,6 +183,14 @@ public sealed class LuaFunctionState
         AddConstant(new LuaConstant.Str(System.Text.Encoding.UTF8.GetBytes(text)));
 
     public int AddNumberConstant(double value) => AddConstant(new LuaConstant.Number(value));
+
+    /// <summary>The value of an interned numeric constant, or null when that index holds something
+    /// else. Unary minus needs it: Lua 5.0 negates a literal by interning the negated value, which
+    /// means reading back the one already interned.</summary>
+    public double? ConstantNumber(int index) =>
+        index >= 0 && index < _constants.Count && _constants[index] is LuaConstant.Number n
+            ? n.Value
+            : null;
 
     // --- nested prototypes ---------------------------------------------------------------------
 
@@ -215,6 +228,12 @@ public sealed class LuaFunctionState
 
     /// <summary>The A operand of an emitted instruction - which register a call left its result in.</summary>
     public int InstructionA(int pc) => new LuaInstruction(_code[pc]).A;
+
+    /// <summary>The B operand of an emitted instruction - where a CONCAT's register range starts.</summary>
+    public int InstructionB(int pc) => new LuaInstruction(_code[pc]).B;
+
+    /// <summary>The opcode of an emitted instruction, for recognising a CONCAT chain to extend.</summary>
+    public LuaOpcode InstructionOpcode(int pc) => new LuaInstruction(_code[pc]).Opcode;
 
     // --- jumps ---------------------------------------------------------------------------------
 

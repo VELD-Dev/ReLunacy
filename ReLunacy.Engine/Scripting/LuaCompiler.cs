@@ -170,9 +170,20 @@ public sealed class LuaCompiler
         switch (target)
         {
             case LuaNameExpr name when _state.FindLocal(name.Name) is var register && register >= 0:
+            {
                 // Assigning to a local materialises the value straight into its register.
+                //
+                // The temporary holding the value is released FIRST, which is the order
+                // luaK_storevar uses for a local and the only case where it frees before rather
+                // than after. Without it `starting_health = hero_get_health(Ratchet1)` left the
+                // call's result register reserved, so every statement after it in that block
+                // allocated one register too high and the chunk needed one more stack slot than
+                // the reference.
+                DischargeVars(ref value);
+                FreeIfTemporary(ref value);
                 DischargeToRegister(ref value, register);
                 break;
+            }
 
             case LuaNameExpr:
             {
@@ -235,7 +246,10 @@ public sealed class LuaCompiler
 
     private enum ExpKind
     {
-        Nil, True, False, Number, String, Local, Global, Indexed, Relocatable, NonReloc,
+        Nil, True, False,
+        /// <summary>An interned constant: <c>Info</c> is its index in the pool.</summary>
+        Constant,
+        Local, Global, Indexed, Relocatable, NonReloc,
         /// <summary>
         /// A call whose result count is not settled yet - Lua's VCALL. It matters because a call in
         /// the last position of an argument list, or of a return, passes every value it produces
@@ -253,8 +267,6 @@ public sealed class LuaCompiler
         public int Info;
         /// <summary>For an index: the key's RK operand.</summary>
         public int Aux;
-        public double Number;
-        public string Text;
     }
 
     private Exp CompileExpression(LuaExpr expression)
@@ -263,15 +275,21 @@ public sealed class LuaCompiler
         {
             case LuaNilExpr: return new Exp { Kind = ExpKind.Nil };
             case LuaBoolExpr b: return new Exp { Kind = b.Value ? ExpKind.True : ExpKind.False };
-            case LuaNumberExpr n: return new Exp { Kind = ExpKind.Number, Number = n.Value };
-            case LuaStringExpr s: return new Exp { Kind = ExpKind.String, Text = s.Value };
+            // A literal is interned HERE, not when it is finally used. Lua 5.0's simpleexp builds a
+            // VK with the constant already in the pool - there is no deferred numeric kind, that
+            // came with 5.1 - and the timing is observable: it is why a negated literal leaves the
+            // positive value behind in the table as a constant nothing references.
+            case LuaNumberExpr n:
+                return new Exp { Kind = ExpKind.Constant, Info = _state.AddNumberConstant(n.Value) };
+            case LuaStringExpr s:
+                return new Exp { Kind = ExpKind.Constant, Info = _state.AddStringConstant(s.Value) };
 
             case LuaNameExpr name:
             {
                 int register = _state.FindLocal(name.Name);
                 return register >= 0
                     ? new Exp { Kind = ExpKind.Local, Info = register }
-                    : new Exp { Kind = ExpKind.Global, Info = _state.AddStringConstant(name.Name), Text = name.Name };
+                    : new Exp { Kind = ExpKind.Global, Info = _state.AddStringConstant(name.Name) };
             }
 
             case LuaIndexExpr index:
@@ -286,6 +304,15 @@ public sealed class LuaCompiler
             case LuaCallExpr or LuaMethodCallExpr:
                 return CompileCall(expression, resultCount: 1);
 
+            case LuaBinaryExpr arithmetic when ArithmeticFor(arithmetic.Operator) is { } opcode:
+                return CompileArithmetic(opcode, arithmetic);
+
+            case LuaUnaryExpr unary when unary.Operator == "-":
+                return CompileNegate(unary);
+
+            case LuaUnaryExpr unary when unary.Operator == "not":
+                return CompileNot(unary);
+
             case LuaParenExpr paren:
             {
                 // Parentheses truncate to one value, so the inner expression is forced into a
@@ -299,6 +326,142 @@ public sealed class LuaCompiler
                 Unsupported(expression.GetType().Name, expression.Span);
                 return new Exp { Kind = ExpKind.Nil };
         }
+    }
+
+    /// <summary>Lua 5.0's arithmetic and concatenation opcodes. There is no modulo or integer
+    /// division - both arrived in 5.1 - so an operator not here is not arithmetic.</summary>
+    private static LuaOpcode? ArithmeticFor(string op) => op switch
+    {
+        "+" => LuaOpcode.Add,
+        "-" => LuaOpcode.Sub,
+        "*" => LuaOpcode.Mul,
+        "/" => LuaOpcode.Div,
+        "^" => LuaOpcode.Pow,
+        ".." => LuaOpcode.Concat,
+        _ => null,
+    };
+
+    private Exp CompileArithmetic(LuaOpcode opcode, LuaBinaryExpr expression)
+    {
+        if (opcode == LuaOpcode.Concat) return CompileConcat(expression);
+
+        // The left operand is committed to an RK slot BEFORE the right is compiled, which is what
+        // luaK_infix does and what decides the order operands are evaluated in.
+        var left = CompileExpression(expression.Left);
+        ExpressionToRk(ref left);
+
+        var right = CompileExpression(expression.Right);
+        CodeArithmetic(opcode, ref left, ref right);
+        return left;
+    }
+
+    /// <summary>
+    /// Emits an arithmetic instruction, or folds it away when both operands are literals.
+    ///
+    /// The right operand is turned into an RK slot before the left, as codearith does - the reverse
+    /// order would intern the constants the other way round and every operand in the chunk would
+    /// shift. Registers are released highest-first for the same reason.
+    /// </summary>
+    private void CodeArithmetic(LuaOpcode opcode, ref Exp e1, ref Exp e2)
+    {
+        int o2 = ExpressionToRk(ref e2);
+        int o1 = ExpressionToRk(ref e1);
+        if (o1 > o2)
+        {
+            FreeIfTemporary(ref e1);
+            FreeIfTemporary(ref e2);
+        }
+        else
+        {
+            FreeIfTemporary(ref e2);
+            FreeIfTemporary(ref e1);
+        }
+        e1.Info = _state.EmitABC(opcode, 0, o1, o2);
+        e1.Kind = ExpKind.Relocatable;
+    }
+
+    private void FreeIfTemporary(ref Exp e)
+    {
+        if (e.Kind == ExpKind.NonReloc) _state.FreeRegisterIfTemporary(e.Info);
+    }
+
+    /// <summary>
+    /// <c>a .. b</c>. CONCAT takes a register RANGE rather than two operands, so both sides have to
+    /// be on the stack, and a chain is folded into one instruction by widening the range - which is
+    /// why <c>a .. b .. c</c> is one CONCAT over three registers and not two instructions.
+    /// </summary>
+    private Exp CompileConcat(LuaBinaryExpr expression)
+    {
+        var left = CompileExpression(expression.Left);
+        ExpressionToNextRegister(ref left);
+
+        var right = CompileExpression(expression.Right);
+        // `..` is right-associative, so the right side of a chain is itself a concat sitting
+        // directly above this operand; extending its range absorbs this one.
+        if (right.Kind == ExpKind.Relocatable
+            && _state.InstructionOpcode(right.Info) == LuaOpcode.Concat
+            && _state.InstructionB(right.Info) == left.Info + 1)
+        {
+            FreeIfTemporary(ref left);
+            _state.SetInstructionB(right.Info, left.Info);
+            return right;
+        }
+
+        ExpressionToNextRegister(ref right);
+        CodeArithmetic(LuaOpcode.Concat, ref left, ref right);
+        return left;
+    }
+
+    /// <summary>
+    /// Unary minus.
+    ///
+    /// A numeric literal is negated by interning the negated value as a SECOND constant, leaving the
+    /// positive one in the pool unreferenced - exactly what luaK_prefix does, and why the shipped
+    /// chunks contain no UNM at all despite the sources being full of negative numbers. The dead
+    /// constant is not waste to be optimised away: it is part of matching the reference, and a pool
+    /// without it shifts every later index.
+    /// </summary>
+    private Exp CompileNegate(LuaUnaryExpr expression)
+    {
+        var operand = CompileExpression(expression.Operand);
+        if (operand.Kind == ExpKind.Constant && _state.ConstantNumber(operand.Info) is { } value)
+        {
+            operand.Info = _state.AddNumberConstant(-value);
+            return operand;
+        }
+
+        ExpressionToAnyRegister(ref operand);
+        FreeIfTemporary(ref operand);
+        return new Exp
+        {
+            Kind = ExpKind.Relocatable,
+            Info = _state.EmitABC(LuaOpcode.Unm, 0, operand.Info, 0),
+        };
+    }
+
+    /// <summary>
+    /// <c>not x</c> as a VALUE, which is the only place NOT is emitted. In a condition the operator
+    /// is folded into the test's sense instead - see CompileCondition - which is why NOT is rare in
+    /// the chunks even though `not` appears in 253 of the sources.
+    /// </summary>
+    private Exp CompileNot(LuaUnaryExpr expression)
+    {
+        var operand = CompileExpression(expression.Operand);
+        DischargeVars(ref operand);
+        switch (operand.Kind)
+        {
+            case ExpKind.Nil or ExpKind.False: return new Exp { Kind = ExpKind.True };
+            // Any interned constant here is a number or a string, so it is truthy.
+            case ExpKind.True or ExpKind.Constant: return new Exp { Kind = ExpKind.False };
+        }
+
+        ExpressionToAnyRegister(ref operand);
+        FreeIfTemporary(ref operand);
+        return new Exp
+        {
+            Kind = ExpKind.Relocatable,
+            Info = _state.EmitABC(LuaOpcode.Not, 0, operand.Info, 0),
+        };
     }
 
     /// <summary>
@@ -417,11 +580,8 @@ public sealed class LuaCompiler
             case ExpKind.False:
                 _state.EmitABC(LuaOpcode.LoadBool, register, e.Kind == ExpKind.True ? 1 : 0, 0);
                 break;
-            case ExpKind.Number:
-                _state.EmitABx(LuaOpcode.LoadK, register, _state.AddNumberConstant(e.Number));
-                break;
-            case ExpKind.String:
-                _state.EmitABx(LuaOpcode.LoadK, register, _state.AddStringConstant(e.Text));
+            case ExpKind.Constant:
+                _state.EmitABx(LuaOpcode.LoadK, register, e.Info);
                 break;
             case ExpKind.Relocatable:
                 _state.SetA(e.Info, register);
@@ -458,9 +618,9 @@ public sealed class LuaCompiler
         DischargeVars(ref e);
         int? constant = e.Kind switch
         {
+            // nil is the one literal still interned on demand, which is what exp2RK does with VNIL.
             ExpKind.Nil => _state.AddConstant(LuaConstant.Nil.Instance),
-            ExpKind.Number => _state.AddNumberConstant(e.Number),
-            ExpKind.String => _state.AddStringConstant(e.Text),
+            ExpKind.Constant => e.Info,
             _ => null,
         };
         if (constant is { } index && index <= LuaFunctionState.MaxRkConstant)
@@ -552,6 +712,11 @@ public sealed class LuaCompiler
         if (ConstantTruth(condition) is { } always)
             return always == jumpWhenTrue ? _state.EmitJump() : [];
 
+        // `if not x then` tests x with the jump sense inverted and no NOT instruction, which is
+        // what jumponcond does when it finds a NOT it can remove again.
+        if (condition is LuaUnaryExpr { Operator: "not" } negation)
+            return CompileCondition(negation.Operand, !jumpWhenTrue);
+
         if (condition is LuaBinaryExpr binary && ComparisonFor(binary.Operator) is { } comparison)
         {
             var (opcode, swap, invert) = comparison;
@@ -591,6 +756,9 @@ public sealed class LuaCompiler
         LuaNumberExpr or LuaStringExpr => true,
         // Parentheses change how many values an expression yields, not whether it is true.
         LuaParenExpr paren => ConstantTruth(paren.Inner),
+        LuaUnaryExpr { Operator: "not" } negation => ConstantTruth(negation.Operand) is { } inner
+            ? !inner
+            : null,
         _ => null,
     };
 
