@@ -51,14 +51,17 @@ public sealed class LuaEditorView
         _highlighter = new LuaSyntaxHighlighter(_editor.Document);
         _editor.Highlighter = _highlighter.ForLine;
         _editor.RenameRequested = OnRenameRequested;
-        // Key priority: the completion popup first, since it is the thing visibly open and Enter
-        // there means "accept"; then a running snippet, where Tab means "next stop". Anything
-        // neither claims falls through to the editor.
+        // Who gets a key is decided by LuaEditorKeyRouting, so the one priority rule that matters
+        // is testable rather than implicit in the order of these calls.
         _editor.InterceptKey = key =>
-        {
-            if (_completion.HandleKey(key, _editor)) return true;
-            return HandleSnippetKey(key);
-        };
+            LuaEditorKeyRouting.OwnerOf(key, _snippet is { IsActive: true }, _completion.IsOpen) switch
+            {
+                // Moving to the next stop leaves the popup listing matches for the word left
+                // behind, over a caret that is no longer there.
+                LuaEditorKeyOwner.Snippet => CloseCompletionAnd(() => HandleSnippetKey(key)),
+                LuaEditorKeyOwner.Completion => _completion.HandleKey(key, _editor),
+                _ => false,
+            };
         _editor.WordCompleted = TryExpandSnippet;
         // Enter indents into a block it is opening. The decision needs the lexer, so it lives in the
         // Lua layer rather than in the control.
@@ -135,6 +138,12 @@ public sealed class LuaEditorView
             ? string.Format(LM.Get("GUI_LuaEnv_SnippetExpanded"), snippet.Trigger)
             : string.Format(LM.Get("GUI_LuaEnv_SnippetStops"), snippet.Trigger, _snippet.Progress.Count);
         return true;
+    }
+
+    private bool CloseCompletionAnd(Func<bool> action)
+    {
+        _completion.Close();
+        return action();
     }
 
     /// <summary>Tab walks a running snippet's stops; Escape abandons it. Tab past the last stop ends

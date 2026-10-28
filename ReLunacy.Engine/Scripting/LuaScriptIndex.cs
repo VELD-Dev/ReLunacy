@@ -15,8 +15,14 @@ public enum LuaScriptFunctionOrigin
 }
 
 /// <summary>A function declared in Lua source, as opposed to one documented in a stub file.</summary>
+/// <param name="NameSpan">
+/// Where the name itself is written, as opposed to where the statement starts. Completion needs it
+/// to recognise the declaration being typed: at <c>function my_f|</c> the index already holds
+/// <c>my_f</c>, and offering it back is both useless and harmful - it matches the prefix exactly,
+/// so it opens the popup over the stop being filled in.
+/// </param>
 public sealed record LuaScriptFunction(
-    LuaApiFunction Function, LuaScriptFunctionOrigin Origin, bool IsLocal)
+    LuaApiFunction Function, LuaScriptFunctionOrigin Origin, bool IsLocal, LuaSpan NameSpan)
 {
     /// <summary>The name a call site writes: <c>do_thing</c>, or <c>helpers.do_thing</c>.</summary>
     public string QualifiedName => Function.OwnerType is null
@@ -153,7 +159,8 @@ public sealed class LuaScriptIndex
 
                 case LuaLocalFunctionStat declaration:
                     Add(declaration.Name.Name, null, false, declaration.Function,
-                        declaration.Span.Start, source, origin, isLocal: true, blocks);
+                        declaration.Span.Start, source, origin, isLocal: true, blocks,
+                        declaration.Name.Span);
                     break;
 
                 // `Name = function() ... end`, the other spelling of a declaration.
@@ -164,7 +171,7 @@ public sealed class LuaScriptIndex
 
                 case LuaLocalStat { Names: [var name], Values: [LuaFunctionExpr value] } local:
                     Add(name.Name, null, false, value, local.Span.Start, source, origin,
-                        isLocal: true, blocks);
+                        isLocal: true, blocks, name.Span);
                     break;
             }
     }
@@ -178,7 +185,8 @@ public sealed class LuaScriptIndex
         switch (target)
         {
             case LuaNameExpr plain:
-                Add(plain.Name, null, false, function, at, source, origin, isLocal, blocks);
+                Add(plain.Name, null, false, function, at, source, origin, isLocal, blocks,
+                    plain.Span);
                 break;
 
             case LuaIndexExpr { Key: LuaStringExpr key } index:
@@ -190,7 +198,8 @@ public sealed class LuaScriptIndex
                     _ => null,
                 };
                 if (owner is not null)
-                    Add(key.Value, owner, isMethod, function, at, source, origin, isLocal, blocks);
+                    Add(key.Value, owner, isMethod, function, at, source, origin, isLocal, blocks,
+                        index.Key.Span);
                 break;
             }
         }
@@ -199,7 +208,7 @@ public sealed class LuaScriptIndex
     private void Add(
         string name, string? owner, bool isMethod, LuaFunctionExpr function, LuaPosition at,
         LuaScriptSource source, LuaScriptFunctionOrigin origin, bool isLocal,
-        Dictionary<int, LuaAnnotationBlock> blocks)
+        Dictionary<int, LuaAnnotationBlock> blocks, LuaSpan nameSpan)
     {
         // A half-typed `function (((` parses to a declaration with no name. Indexing it would put a
         // blank entry in the completion list, so it is dropped rather than shown.
@@ -215,7 +224,7 @@ public sealed class LuaScriptIndex
         var entry = new LuaScriptFunction(
             new LuaApiFunction(name, parameters, [.. annotations?.Returns ?? []],
                                annotations?.Description, owner, isMethod, source.Path, at),
-            origin, isLocal);
+            origin, isLocal, nameSpan);
 
         // First declaration wins, which given the build order means the current file beats a
         // sibling. A name declared twice in one file is the later one

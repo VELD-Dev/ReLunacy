@@ -95,9 +95,17 @@ public static class LuaCompletionEngine
                 // script declares a name the documentation also uses, the script's is the one that
                 // will actually run.
                 foreach (var declared in scripts?.CallableByName ?? [])
+                {
+                    // `function my_f|` is NAMING a function, so the index already holds the
+                    // half-typed name by the time completion runs. Offering it back matches the
+                    // prefix exactly, which both ranks it first and opens the popup over the
+                    // snippet stop being filled in - the same reason a local being declared is
+                    // skipped just above.
+                    if (declared.NameSpan.Start == analyzed.ReplaceFrom) continue;
                     items.Add(new LuaCompletionItem(
                         declared.Function.Name, declared.Function.Name, LuaCompletionKind.Function,
                         declared.Function.Signature, DescribeOrigin(declared)));
+                }
 
                 foreach (var function in api.Functions.Values)
                     items.Add(new LuaCompletionItem(function.Name, function.Name, LuaCompletionKind.Function,
