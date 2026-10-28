@@ -23,6 +23,7 @@ public class LuaEnvironmentFrame : DockedFrame
 
     private readonly LuaEditorView _editor = new();
     private readonly LuaDisassemblyView _disassembly = new();
+    private readonly LuaThemeEditorView _themeEditor = new();
     private readonly LuaScriptBrowser _scripts = new();
     private bool _split;
     private bool _showScripts = true;
@@ -93,6 +94,11 @@ public class LuaEnvironmentFrame : DockedFrame
         if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabDisassembly")))
         {
             _disassembly.Render(deltaTime);
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabTheme")))
+        {
+            _themeEditor.Draw(deltaTime);
             ImGui.EndTabItem();
         }
         ImGui.EndTabBar();

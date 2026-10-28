@@ -22,7 +22,6 @@ public sealed class LuaEditorView
     private LuaApiDatabase _api = new();
     private ReLunacy.Engine.Games.GameId? _apiGame;
     private LuaEditorTheme _theme = new LuaEditorTheme().Resolve();
-    private string? _themeName;
     private LuaSnippetSession? _snippet;
     private string _path = "";
     private string? _status;
@@ -55,24 +54,29 @@ public sealed class LuaEditorView
         _editor.OpensScope = caret => LuaIndentRules.OpensScope(_editor.Document.GetText(), caret);
     }
 
-    /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database
-    /// is per game, and a session may never open a level at all.</summary>
-    /// <summary>Reloads the theme when the setting changes, and pushes it to everything that
-    /// draws: the editor's chrome, the highlighter's roles and the popup.</summary>
+    /// <summary>
+    /// Pushes the live theme to everything that draws: the editor's chrome, the highlighter's roles
+    /// and the popup.
+    ///
+    /// Compared by reference rather than by name: a colour edited in the theme editor mutates the
+    /// instance in place and needs nothing here, while switching theme replaces the instance and is
+    /// what has to be re-pushed.
+    /// </summary>
     private LuaEditorTheme Theme()
     {
-        string wanted = Program.Settings.CodeEditorTheme;
-        if (_themeName != wanted)
+        var live = LuaEditorThemeStore.Current;
+        if (!ReferenceEquals(_theme, live))
         {
-            _theme = LuaEditorThemeLoader.Load(wanted);
-            _themeName = wanted;
-            _editor.Theme = _theme;
-            _completion.Theme = _theme;
-            if (_theme.Problems.Count > 0) _status = string.Join("; ", _theme.Problems);
+            _theme = live;
+            _editor.Theme = live;
+            _completion.Theme = live;
+            if (live.Problems.Count > 0) _status = string.Join("; ", live.Problems);
         }
         return _theme;
     }
 
+    /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database
+    /// is per game, and a session may never open a level at all.</summary>
     private LuaApiDatabase Api()
     {
         var game = Core.LunaWindow.Instance?.Level?.GameDefinition?.Id;
