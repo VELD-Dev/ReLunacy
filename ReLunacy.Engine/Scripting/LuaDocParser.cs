@@ -57,13 +57,6 @@ public static class LuaDocParser
             Apply(database, statement, annotations, sourceFile);
         }
 
-        // A class can be declared with no carrier statement at all, and a documented variable can
-        // be a bare `---@type` block; neither is attached above, so both are handled by the pass
-        // over blocks rather than the pass over statements.
-        foreach (var (_, annotations) in blocks)
-            if (annotations is { Class: null, TypeTag: { } type, Name: { } name })
-                database.Add(new LuaApiVariable(name, type, annotations.Description, sourceFile));
-
         database.ValidateTypeReferences();
     }
 
@@ -276,7 +269,6 @@ public static class LuaDocParser
         public string? Class;
         public string? BaseType;
         public string? TypeTag;
-        public string? Name;
         public List<LuaApiField> Fields { get; } = [];
         public List<LuaApiParameter> Parameters { get; } = [];
         public List<LuaApiReturn> Returns { get; } = [];

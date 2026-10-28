@@ -120,6 +120,12 @@ public sealed class CodeEditorControl
         CaretScreenPosition = new Vector2(VisualX(textOrigin, charWidth, Caret.Line, Caret.Column),
                                           textOrigin.Y + (Caret.Line + 1) * lineHeight);
 
+        // This editor is not an ImGui text widget, so ImGui never reports WantTextInput for it and
+        // the platform would never be put into text-input mode - which is why keys arrived (they are
+        // polled separately) while typed characters did not. Re-requested every frame so it switches
+        // off as soon as focus leaves.
+        if (_focused) ImGuiController.TextInputRequested = true;
+
         HandleMouse(textOrigin, charWidth, lineHeight);
         if (_focused) HandleKeyboard();
 
@@ -213,13 +219,12 @@ public sealed class CodeEditorControl
         if (Pressed(ImGuiKey.Enter) || Pressed(ImGuiKey.KeypadEnter)) { InsertNewlineKeepingIndent(); return; }
         if (Pressed(ImGuiKey.Tab)) { Type("\t"); return; }
 
-        // Printable input, as ImGui queued it this frame - this is what makes dead keys and any
-        // keyboard layout work, rather than mapping key codes to characters here.
-        for (int i = 0; i < io.InputQueueCharacters.Size; i++)
-        {
-            char c = (char)io.InputQueueCharacters[i];
+        // Printable input as the platform delivered it, which is what makes dead keys and any
+        // keyboard layout work rather than mapping key codes to characters here. Read from the
+        // controller rather than io.InputQueueCharacters: it is the same text one step earlier, and
+        // it does not depend on reading back into ImGui's own vector.
+        foreach (char c in ImGuiController.TypedText)
             if (c >= ' ' && c != 127) Type(c.ToString());
-        }
     }
 
     private static bool Pressed(ImGuiKey key) => ImGui.IsKeyPressed(key, true);
