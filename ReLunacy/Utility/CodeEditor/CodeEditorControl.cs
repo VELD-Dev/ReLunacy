@@ -47,6 +47,39 @@ public sealed class CodeEditorControl
     /// with the blink.</summary>
     public Vector2 CaretScreenPosition { get; private set; }
 
+    /// <summary>Delimiters that close themselves as they are typed.</summary>
+    public IReadOnlyList<AutoPair> AutoPairs { get; set; } = AutoPairRules.Default;
+
+    /// <summary>
+    /// Closers this editor inserted and the caret has not yet passed, innermost last.
+    ///
+    /// Only closers from here are stepped over or taken back, so a bracket the person typed
+    /// themselves is left alone - and so Tab inside a snippet's own <c>f($2)</c> advances the
+    /// snippet rather than jumping over a bracket nobody auto-inserted. Capped because a stack
+    /// entry the caret has wandered away from is harmless but should not accumulate forever.
+    /// </summary>
+    private readonly List<char> _pendingClosers = [];
+
+    private const int MaxPendingClosers = 64;
+
+    /// <summary>Whether Tab has a closer to step out of: one is pending and sits at the caret.</summary>
+    public bool AutoPairExitAvailable =>
+        Selection is null
+        && _pendingClosers.Count > 0
+        && Caret.Column < Document[Caret.Line].Length
+        && Document[Caret.Line][Caret.Column] == _pendingClosers[^1];
+
+    /// <summary>Steps the caret past one pending closer. One level per call, which is what makes
+    /// Tab walk out of <c>f(g(|))</c> a bracket at a time rather than all the way.</summary>
+    public bool ExitAutoPair()
+    {
+        if (!AutoPairExitAvailable) return false;
+        _pendingClosers.RemoveAt(_pendingClosers.Count - 1);
+        Caret = Caret with { Column = Caret.Column + 1 };
+        Anchor = null;
+        return true;
+    }
+
     /// <summary>Lets the host claim a key before the editor acts on it. Returning true consumes it.
     /// This is how the completion popup takes Up/Down/Enter/Tab/Escape while it is open without the
     /// editor also moving the caret or inserting a newline.</summary>
@@ -112,6 +145,7 @@ public sealed class CodeEditorControl
         Document.Load(text);
         Caret = default;
         Anchor = null;
+        _pendingClosers.Clear();
     }
 
     public void Draw(string id, Vector2 size, double deltaTime)
@@ -268,26 +302,77 @@ public sealed class CodeEditorControl
         // keyboard layout work rather than mapping key codes to characters here. Read from the
         // controller rather than io.InputQueueCharacters: it is the same text one step earlier, and
         // it does not depend on reading back into ImGui's own vector.
-        foreach (char c in ImGuiController.TypedText)
+        foreach (char c in ImGuiController.TypedText) TypeCharacter(c);
+    }
+
+    /// <summary>
+    /// Types one character, with the behaviour that depends on what surrounds the caret: a space
+    /// may expand a snippet, and a delimiter may pair up or step over its partner.
+    ///
+    /// Public so the typing rules can be driven without an ImGui frame - these are the rules that
+    /// go wrong in ways nobody notices until they are in the way.
+    /// </summary>
+    public void TypeCharacter(char c)
+    {
+        if (c < ' ' || c == 127) return;
+
+        // A space ends a word, which is the moment a snippet trigger can be recognised. If the
+        // host expands one, the space is swallowed - "if " becoming "if  then" and then also
+        // gaining the typed space would be wrong.
+        if (c == ' ' && WordCompleted is { } wordCompleted && Selection is null
+            && SnippetTriggerAt(Document[Caret.Line], Caret) is { } trigger)
         {
-            if (c < ' ' || c == 127) continue;
-
-            // A space ends a word, which is the moment a snippet trigger can be recognised. If the
-            // host expands one, the space is swallowed - "if " becoming "if  then" and then also
-            // gaining the typed space would be wrong.
-            if (c == ' ' && WordCompleted is { } wordCompleted && Selection is null
-                && SnippetTriggerAt(Document[Caret.Line], Caret) is { } trigger)
+            string word = Document[Caret.Line][trigger.Start.Column..trigger.End.Column];
+            if (wordCompleted(word, trigger))
             {
-                string word = Document[Caret.Line][trigger.Start.Column..trigger.End.Column];
-                if (wordCompleted(word, trigger))
-                {
-                    TextChanged = true;
-                    continue;
-                }
+                TextChanged = true;
+                return;
             }
-
-            Type(c.ToString());
         }
+
+        if (Selection is null && TryAutoPair(c)) { TextChanged = true; return; }
+
+        Type(c.ToString());
+    }
+
+    /// <summary>Types a run of characters one at a time, as if typed.</summary>
+    public void TypeText(string text)
+    {
+        foreach (char c in text) TypeCharacter(c);
+    }
+
+    /// <summary>Backspace, exposed for the same reason as <see cref="TypeCharacter"/>: deleting the
+    /// opener of an empty pair has to take the closer with it.</summary>
+    public void BackspaceOnce() => Backspace();
+
+    /// <summary>
+    /// Handles a typed delimiter: steps over a closer already waiting there, or inserts a pair and
+    /// sits between the two. False means it is an ordinary character.
+    /// </summary>
+    private bool TryAutoPair(char c)
+    {
+        string line = Document[Caret.Line];
+
+        // Typing the closer that is already in front of the caret moves past it instead of
+        // doubling it - otherwise finishing `print("hi")` by hand leaves `print("hi"))`.
+        if (_pendingClosers.Count > 0 && _pendingClosers[^1] == c
+            && Caret.Column < line.Length && line[Caret.Column] == c)
+        {
+            _pendingClosers.RemoveAt(_pendingClosers.Count - 1);
+            Caret = Caret with { Column = Caret.Column + 1 };
+            Anchor = null;
+            return true;
+        }
+
+        if (AutoPairRules.OpenerFor(c, AutoPairs) is not { } pair) return false;
+        if (!AutoPairRules.ShouldClose(pair, line, Caret.Column)) return false;
+
+        // Insert both, then step back between them.
+        Caret = Document.Insert(Caret, string.Concat(pair.Open, pair.Close));
+        Caret = Caret with { Column = Caret.Column - 1 };
+        Anchor = null;
+        if (_pendingClosers.Count < MaxPendingClosers) _pendingClosers.Add(pair.Close);
+        return true;
     }
 
     private static bool Pressed(ImGuiKey key) => ImGui.IsKeyPressed(key, true);
@@ -337,6 +422,23 @@ public sealed class CodeEditorControl
     {
         if (Selection is not null) { DeleteSelection(); return; }
         if (Caret is { Line: 0, Column: 0 }) return;
+
+        // Deleting the opener of a pair that is still empty takes the closer with it, so undoing a
+        // bracket is one keystroke rather than two with a stranded closer in between.
+        string line = Document[Caret.Line];
+        if (_pendingClosers.Count > 0 && Caret.Column > 0 && Caret.Column < line.Length
+            && line[Caret.Column] == _pendingClosers[^1]
+            && AutoPairRules.OpenerFor(line[Caret.Column - 1], AutoPairs) is { } pair
+            && pair.Close == _pendingClosers[^1])
+        {
+            _pendingClosers.RemoveAt(_pendingClosers.Count - 1);
+            var both = new TextPosition(Caret.Line, Caret.Column - 1);
+            Document.Delete(new TextRange(both, new TextPosition(Caret.Line, Caret.Column + 1)));
+            Caret = both;
+            TextChanged = true;
+            return;
+        }
+
         var from = Caret.Column > 0
             ? new TextPosition(Caret.Line, Caret.Column - 1)
             : new TextPosition(Caret.Line - 1, Document[Caret.Line - 1].Length);

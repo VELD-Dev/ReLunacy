@@ -54,8 +54,10 @@ public sealed class LuaEditorView
         // Who gets a key is decided by LuaEditorKeyRouting, so the one priority rule that matters
         // is testable rather than implicit in the order of these calls.
         _editor.InterceptKey = key =>
-            LuaEditorKeyRouting.OwnerOf(key, _snippet is { IsActive: true }, _completion.IsOpen) switch
+            LuaEditorKeyRouting.OwnerOf(key, _snippet is { IsActive: true }, _completion.IsOpen,
+                                        _editor.AutoPairExitAvailable) switch
             {
+                LuaEditorKeyOwner.AutoPair => CloseCompletionAnd(_editor.ExitAutoPair),
                 // Moving to the next stop leaves the popup listing matches for the word left
                 // behind, over a caret that is no longer there.
                 LuaEditorKeyOwner.Snippet => CloseCompletionAnd(() => HandleSnippetKey(key)),
