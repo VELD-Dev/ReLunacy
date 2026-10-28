@@ -29,8 +29,16 @@ public sealed class LuaChunkHeader
 {
     public const byte Lua50 = 0x50;
 
-    /// <summary>Lua 5.0's header check value: PI * 1e8, written in the chunk's own number format.</summary>
-    public const double NumberTestValue = 3.14159265358979323846E8;
+    /// <summary>
+    /// The header check value, written in the chunk's own number format. b4404 uses PI * 1e7, which
+    /// reads back as float32 31415926 - NOT the PI * 1e8 of stock Lua 5.0's lundump.h. Taken from the
+    /// shipped chunks: every one of the 524 carries 3B AF EF 4B here.
+    ///
+    /// The round-trip check could never have found this. The reader keeps these bytes and the writer
+    /// replays them, so a chunk read from disk is reproduced either way; only synthesising a header,
+    /// as the compiler does, depends on the value being right.
+    /// </summary>
+    public const double NumberTestValue = 3.14159265358979323846E7;
 
     public byte Version { get; init; } = Lua50;
     public bool LittleEndian { get; init; } = true;
