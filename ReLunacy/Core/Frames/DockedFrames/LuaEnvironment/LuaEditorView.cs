@@ -18,6 +18,9 @@ public sealed class LuaEditorView
 {
     private readonly CodeEditorControl _editor = new();
     private readonly LuaSyntaxHighlighter _highlighter;
+    private readonly LuaCompletionPopup _completion = new();
+    private LuaApiDatabase _api = new();
+    private ReLunacy.Engine.Games.GameId? _apiGame;
     private string _path = "";
     private string? _status;
     private bool _modified;
@@ -35,6 +38,22 @@ public sealed class LuaEditorView
         _highlighter = new LuaSyntaxHighlighter(_editor.Document);
         _editor.Highlighter = _highlighter.ForLine;
         _editor.RenameRequested = OnRenameRequested;
+        // The popup claims Up/Down/Enter/Tab/Escape only while it is open, so the editor keeps them
+        // the rest of the time.
+        _editor.InterceptKey = key => _completion.HandleKey(key, _editor);
+    }
+
+    /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database
+    /// is per game, and a session may never open a level at all.</summary>
+    private LuaApiDatabase Api()
+    {
+        var game = Core.LunaWindow.Instance?.Level?.GameDefinition?.Id;
+        if (_api.IsEmpty || game != _apiGame)
+        {
+            _api = LuaApiLoader.Load(System.IO.Path.Combine(Program.EditorPath, "LuaApi"), game);
+            _apiGame = game;
+        }
+        return _api;
     }
 
     public void Load(string text, string label)
@@ -113,11 +132,19 @@ public sealed class LuaEditorView
         ImGui.Text($"{Document.LineCount} lines  {(Document.LineEnding == "\r\n" ? "CRLF" : "LF")}"
                  + $"{(Document.EndsWithNewline ? "" : "  no trailing newline")}"
                  + $"  |  {_editor.Caret}{(_modified ? "  *" : "")}"
-                 + $"  |  {analysis.Locals.Count} local(s), {analysis.Globals.Count} global(s)");
+                 + $"  |  {analysis.Locals.Count} local(s), {analysis.Globals.Count} global(s)"
+                 + $"  |  API: {Api().Functions.Count} fn, {Api().Types.Count} type(s)"
+                 + (Api().Diagnostics.Count > 0 ? $", {Api().Diagnostics.Count} doc issue(s)" : ""));
         if (_status is { } s) { ImGui.SameLine(); ImGui.TextDisabled($"|  {s}"); }
 
         _editor.Draw("lua_editor", new Vector2(0f, -ImGui.GetFrameHeightWithSpacing()), deltaTime);
-        if (_editor.TextChanged) _modified = true;
+
+        // Ctrl+Space asks for the full list; otherwise it only follows an edit, and the engine
+        // decides whether a bare prefix is worth showing.
+        bool requested = ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.Space);
+        if (_editor.TextChanged) { _modified = true; _completion.Refresh(_editor, Api(), force: false); }
+        else if (requested) _completion.Refresh(_editor, Api(), force: true);
+        _completion.Draw(_editor);
 
         ImGui.TextDisabled(LM.Get("GUI_LuaEnv_Hint"));
         RenamePopup();

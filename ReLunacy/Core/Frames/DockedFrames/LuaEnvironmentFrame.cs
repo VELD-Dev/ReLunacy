@@ -23,9 +23,21 @@ public class LuaEnvironmentFrame : DockedFrame
 
     private readonly LuaEditorView _editor = new();
     private readonly LuaDisassemblyView _disassembly = new();
+    private readonly LuaScriptBrowser _scripts = new();
     private bool _split;
+    private bool _showScripts = true;
 
-    public LuaEnvironmentFrame() => FrameName = LM.Get("GUI_Frame_LuaEnvironment");
+    public LuaEnvironmentFrame()
+    {
+        FrameName = LM.Get("GUI_Frame_LuaEnvironment");
+        // Picking a script fills both views: the source to edit, and its compiled counterpart to
+        // read beside it. The .lc is found by the path mapping verified across all 524 chunks.
+        _scripts.ScriptSelected = (path, source, compiled) =>
+        {
+            _editor.Load(source, path);
+            if (compiled is not null) _disassembly.Load(compiled, LuaScriptBrowser.CompiledPathFor(path));
+        };
+    }
 
     /// <summary>Opens source in the editor - how the PSARC browser will hand a script over.</summary>
     public void LoadSource(string text, string label) => _editor.Load(text, label);
@@ -35,11 +47,30 @@ public class LuaEnvironmentFrame : DockedFrame
 
     protected override void Render(double deltaTime)
     {
+        ImGui.Checkbox(LM.Get("GUI_LuaEnv_Scripts"), ref _showScripts);
+        ImGui.SameLine();
         ImGui.Checkbox(LM.Get("GUI_LuaEnv_Split"), ref _split);
         ImGui.SameLine();
         ImGui.TextDisabled(LM.Get("GUI_LuaEnv_SplitHint"));
         ImGui.Separator();
 
+        if (_showScripts)
+        {
+            if (ImGui.BeginChild("lua_env_scripts", new Vector2(260f, 0f), ImGuiChildFlags.Borders
+                                                                        | ImGuiChildFlags.ResizeX))
+                _scripts.Render();
+            ImGui.EndChild();
+            ImGui.SameLine();
+        }
+
+        // The remaining width holds the editor and disassembly, as tabs or side by side.
+        if (!ImGui.BeginChild("lua_env_main", new Vector2(0f, 0f))) { ImGui.EndChild(); return; }
+        RenderMain(deltaTime);
+        ImGui.EndChild();
+    }
+
+    private void RenderMain(double deltaTime)
+    {
         if (_split)
         {
             float half = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) * 0.5f;

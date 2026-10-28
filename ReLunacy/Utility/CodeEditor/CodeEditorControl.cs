@@ -39,9 +39,15 @@ public sealed class CodeEditorControl
     /// lands, so the widget is testable on its own.</summary>
     public Func<int, string, IReadOnlyList<TextSpan>>? Highlighter { get; set; }
 
-    /// <summary>Called when the caret moves or the text changes, for the completion popup to decide
-    /// whether to open. The caret's screen position is supplied so the popup can anchor to it.</summary>
-    public Action<TextPosition, Vector2>? CaretMoved { get; set; }
+    /// <summary>Where the caret is on screen, at its baseline bottom-left. Updated every frame the
+    /// editor draws, not only when the caret is visible, so a popup anchored to it does not jump
+    /// with the blink.</summary>
+    public Vector2 CaretScreenPosition { get; private set; }
+
+    /// <summary>Lets the host claim a key before the editor acts on it. Returning true consumes it.
+    /// This is how the completion popup takes Up/Down/Enter/Tab/Escape while it is open without the
+    /// editor also moving the caret or inserting a newline.</summary>
+    public Func<ImGuiKey, bool>? InterceptKey { get; set; }
 
     /// <summary>Raised when F2 is pressed, with the word under the caret - the hook step 3d's
     /// scope-aware rename attaches to, so the key handling does not need to know about scopes.</summary>
@@ -50,6 +56,20 @@ public sealed class CodeEditorControl
     public TextRange? Selection => Anchor is { } a && a != Caret ? new TextRange(a, Caret).Ordered : null;
 
     public string SelectedText => Selection is { } s ? Document.GetText(s) : "";
+
+    /// <summary>Whether the editor currently takes keystrokes; a popup should only show when it does.</summary>
+    public bool HasFocus => _focused;
+
+    /// <summary>Replaces the given range with text and puts the caret after it - how an accepted
+    /// completion is applied, replacing the partial word rather than appending to it.</summary>
+    public void ReplaceWith(TextRange range, string text)
+    {
+        if (ReadOnly) return;
+        Caret = Document.Replace(range, text);
+        Anchor = null;
+        TextChanged = true;
+        _desiredVisualColumn = -1;
+    }
 
     private bool _focused;
     private double _blink;
@@ -96,6 +116,9 @@ public sealed class CodeEditorControl
         float viewHeight = ImGui.GetWindowHeight();
         int firstLine = Math.Max(0, (int)(scrollY / lineHeight) - 1);
         int lastLine = Math.Min(Document.LineCount - 1, (int)((scrollY + viewHeight) / lineHeight) + 1);
+
+        CaretScreenPosition = new Vector2(VisualX(textOrigin, charWidth, Caret.Line, Caret.Column),
+                                          textOrigin.Y + (Caret.Line + 1) * lineHeight);
 
         HandleMouse(textOrigin, charWidth, lineHeight);
         if (_focused) HandleKeyboard();
@@ -151,10 +174,20 @@ public sealed class CodeEditorControl
         return new TextPosition(line, Document.ColumnFromVisual(line, visual));
     }
 
+    /// <summary>Keys a host may want while an overlay is open. Deliberately only these: the host
+    /// has no business intercepting ordinary typing or caret movement by character.</summary>
+    private static readonly ImGuiKey[] Interceptable =
+        [ImGuiKey.UpArrow, ImGuiKey.DownArrow, ImGuiKey.Enter, ImGuiKey.KeypadEnter, ImGuiKey.Tab, ImGuiKey.Escape];
+
     private void HandleKeyboard()
     {
         var io = ImGui.GetIO();
         bool ctrl = io.KeyCtrl, shift = io.KeyShift;
+
+        if (InterceptKey is { } intercept)
+            foreach (var key in Interceptable)
+                if (Pressed(key) && intercept(key))
+                    return;
 
         if (ctrl && Pressed(ImGuiKey.A)) { Anchor = default; MoveCaret(Document.End, keepAnchor: true); return; }
         if (ctrl && Pressed(ImGuiKey.C)) { CopySelection(); return; }
@@ -464,6 +497,5 @@ public sealed class CodeEditorControl
         float x = VisualX(textOrigin, charWidth, Caret.Line, Caret.Column);
         float y = textOrigin.Y + Caret.Line * lineHeight;
         draw.AddLine(new Vector2(x, y), new Vector2(x, y + lineHeight), ImGui.GetColorU32(ImGuiCol.Text), 1f);
-        CaretMoved?.Invoke(Caret, new Vector2(x, y + lineHeight));
     }
 }
