@@ -143,6 +143,16 @@ public sealed class LuaCompiler
         }
 
         var target = assign.Targets[0];
+
+        // The target is resolved first, which matters for more than ordering of work: Lua 5.0's
+        // exprstat parses the left-hand side before it sees the '=', and singlevar interns a
+        // global's name as it resolves it. So in `pterodactyl = moby_handle:new(0)` the reference
+        // compiler's constant table starts with "pterodactyl", not "moby_handle". Compiling the
+        // value first produced correct code with every constant index shifted.
+        int targetGlobal = target is LuaNameExpr targetName && _state.FindLocal(targetName.Name) < 0
+            ? _state.AddStringConstant(targetName.Name)
+            : -1;
+
         var value = CompileExpression(assign.Values[0]);
 
         switch (target)
@@ -152,10 +162,10 @@ public sealed class LuaCompiler
                 DischargeToRegister(ref value, register);
                 break;
 
-            case LuaNameExpr name:
+            case LuaNameExpr:
             {
                 int source = ExpressionToAnyRegister(ref value);
-                _state.EmitABx(LuaOpcode.SetGlobal, source, _state.AddStringConstant(name.Name));
+                _state.EmitABx(LuaOpcode.SetGlobal, source, targetGlobal);
                 _state.FreeRegisterIfTemporary(source);
                 break;
             }
@@ -283,7 +293,7 @@ public sealed class LuaCompiler
                 _state.SetFreeRegister(baseRegister);
                 _state.ReserveRegisters(2);
                 _state.EmitABC(LuaOpcode.Self, baseRegister, receiverRegister,
-                               _state.AddStringConstant(method.Method) | LuaInstructionLayout.BitRk);
+                               LuaInstructionLayout.EncodeConstant(_state.AddStringConstant(method.Method)));
                 foreach (var argument in method.Arguments)
                 {
                     var value = CompileExpression(argument);
@@ -383,8 +393,8 @@ public sealed class LuaCompiler
             ExpKind.String => _state.AddStringConstant(e.Text),
             _ => null,
         };
-        if (constant is { } index && index < LuaFunctionState.MaxRkConstant)
-            return index | LuaInstructionLayout.BitRk;
+        if (constant is { } index && index <= LuaFunctionState.MaxRkConstant)
+            return LuaInstructionLayout.EncodeConstant(index);
         return ExpressionToAnyRegister(ref e);
     }
 

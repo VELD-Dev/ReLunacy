@@ -46,16 +46,31 @@ public static class LuaInstructionLayout
     /// <summary>Signed Bx is stored biased by half its range.</summary>
     public const int MaxArgSBx = MaxArgBx >> 1;
 
-    /// <summary>An RK operand with this bit set names a constant; the rest is the index.
-    /// Lua 5.0 puts it at 1 &lt;&lt; (SIZE_B - 1).</summary>
-    public const int BitRk = 1 << (BBits - 1);
+    /// <summary>
+    /// Lua 5.0's register ceiling, and the split point of an RK operand: a value below this is a
+    /// register, at or above it is constant <c>value - MaxStack</c>.
+    ///
+    /// This is NOT Lua 5.1's scheme, which flags a constant with bit 256 and masks it off. Taken
+    /// from the shipped chunks: in global.lc the methods get_first, is_valid and get_next sit at
+    /// K2, K3 and K5 and their SELF operands are 252, 253 and 255 - index plus 250, not index with
+    /// a bit set. An earlier range check could not tell the two apart, since both decode to indices
+    /// that happen to exist.
+    /// </summary>
+    public const int MaxStack = 250;
+
+    /// <summary>Highest constant index an RK operand can name: the operand is 9 bits, and the low
+    /// 250 values are registers.</summary>
+    public const int MaxRkConstantIndex = MaxArgC - MaxStack;
 
     /// <summary>Lua 5.0 flushes a table constructor every 32 fields, which is how SETLIST's Bx
     /// encodes both the batch and the count.</summary>
     public const int FieldsPerFlush = 32;
 
-    public static bool IsConstant(int rk) => (rk & BitRk) != 0;
-    public static int ConstantIndex(int rk) => rk & ~BitRk;
+    public static bool IsConstant(int rk) => rk >= MaxStack;
+    public static int ConstantIndex(int rk) => rk - MaxStack;
+
+    /// <summary>Encodes a constant index as an RK operand.</summary>
+    public static int EncodeConstant(int index) => index + MaxStack;
 }
 
 /// <summary>One decoded instruction. Operands are raw; interpreting B/C as register-or-constant is

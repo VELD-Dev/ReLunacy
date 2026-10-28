@@ -17,9 +17,10 @@ public sealed class LuaFunctionState
     /// <summary>Registers 0 and 1 are always valid, so every prototype starts here.</summary>
     public const int MinimumStackSize = 2;
 
-    /// <summary>Lua 5.0's limit: an RK operand's constant flag is bit 256, so only the first 256
-    /// constants can be referenced inline; beyond that a constant has to be loaded first.</summary>
-    public const int MaxRkConstant = LuaInstructionLayout.BitRk;
+    /// <summary>Highest constant index that fits in an RK operand. Past it a constant has to be
+    /// loaded into a register first, because the operand's upper range is all that is left once the
+    /// low 250 values are reserved for registers.</summary>
+    public const int MaxRkConstant = LuaInstructionLayout.MaxRkConstantIndex;
 
     private readonly List<uint> _code = [];
     private readonly List<LuaConstant> _constants = [];
