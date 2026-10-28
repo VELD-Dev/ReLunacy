@@ -24,6 +24,9 @@ public sealed class LuaCompletionPopup
     private int _selected;
     private bool _open;
     private int _lastVersion = -1;
+
+    /// <summary>Same theme the editor uses, so a suggestion is the colour the text will be.</summary>
+    public LuaEditorTheme Theme { get; set; } = new LuaEditorTheme().Resolve();
     private TextPosition _lastCaret = new(-1, -1);
 
     public bool IsOpen => _open && _items.Count > 0;
@@ -172,12 +175,16 @@ public sealed class LuaCompletionPopup
         _ => "l",
     };
 
-    private static uint ColourOf(LuaCompletionKind kind) => kind switch
+    private uint ColourOf(LuaCompletionKind kind) => Theme.ColourFor(kind switch
     {
-        LuaCompletionKind.Function or LuaCompletionKind.Method => 0xFFD69C56,
-        LuaCompletionKind.Class => 0xFF4EC9B0,
-        LuaCompletionKind.Keyword => 0xFFD69C56,
-        LuaCompletionKind.Field => 0xFFB5CEA8,
-        _ => ImGui.GetColorU32(ImGuiCol.TextDisabled),
-    };
+        LuaCompletionKind.Function => LuaEditorThemeRole.Function,
+        LuaCompletionKind.Method => LuaEditorThemeRole.Method,
+        LuaCompletionKind.Class => LuaEditorThemeRole.Class,
+        LuaCompletionKind.Keyword => LuaEditorThemeRole.Keyword,
+        LuaCompletionKind.Field => LuaEditorThemeRole.Field,
+        LuaCompletionKind.Parameter => LuaEditorThemeRole.Parameter,
+        LuaCompletionKind.LoopVariable => LuaEditorThemeRole.LoopVariable,
+        LuaCompletionKind.Local => LuaEditorThemeRole.Local,
+        _ => LuaEditorThemeRole.GlobalUndocumented,
+    });
 }

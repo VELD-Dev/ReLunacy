@@ -1,0 +1,23 @@
+{
+  "Name": "Dark",
+  "Keyword": "#569CD6",
+  "String": "#CE9178",
+  "Number": "#B5CEA8",
+  "Comment": "#6A9955",
+  "Operator": "#D4D4D4",
+  "Error": "#F44747",
+  "Function": "#DCDCAA",
+  "Method": "#DCDCAA",
+  "Class": "#4EC9B0",
+  "Field": "#9CDCFE",
+  "Local": "#9CDCFE",
+  "Parameter": "#9A9A9A",
+  "LoopVariable": "#9CDCFE",
+  "GlobalUndocumented": "#C586C0",
+  "Text": "#D4D4D4",
+  "Caret": "#AEAFAD",
+  "Selection": "#264F78",
+  "CurrentLine": "#2A2D2E",
+  "LineNumber": "#858585",
+  "LineNumberCurrent": "#C6C6C6"
+}

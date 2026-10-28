@@ -23,6 +23,9 @@ public readonly record struct TextSpan(int Start, int Length, uint Colour);
 public sealed class CodeEditorControl
 {
     public TextDocument Document { get; } = new();
+
+    /// <summary>Colours for the editor's own chrome. Replaced when the chosen theme changes.</summary>
+    public LuaEditorTheme Theme { get; set; } = new LuaEditorTheme().Resolve();
     public TextPosition Caret { get; private set; }
 
     /// <summary>Where a selection started, or null when there is no selection.</summary>
@@ -140,6 +143,13 @@ public sealed class CodeEditorControl
                                           textOrigin.Y + (Caret.Line + 1) * lineHeight);
 
         var draw = ImGui.GetWindowDrawList();
+        if (_focused && Selection is null && Caret.Line >= firstLine && Caret.Line <= lastLine)
+        {
+            float y = textOrigin.Y + Caret.Line * lineHeight;
+            draw.AddRectFilled(new Vector2(origin.X, y),
+                               new Vector2(origin.X + ImGui.GetWindowWidth(), y + lineHeight),
+                               Theme.CurrentLineColour);
+        }
         DrawSelection(draw, textOrigin, charWidth, lineHeight, firstLine, lastLine);
         DrawText(draw, origin, textOrigin, charWidth, lineHeight, gutterWidth, firstLine, lastLine);
         if (_focused) DrawCaret(draw, textOrigin, charWidth, lineHeight);
@@ -423,7 +433,7 @@ public sealed class CodeEditorControl
                                int firstLine, int lastLine)
     {
         if (Selection is not { } sel) return;
-        uint colour = ImGui.GetColorU32(ImGuiCol.TextSelectedBg);
+        uint colour = Theme.SelectionColour;
 
         int selFirst = Math.Max(sel.Start.Line, firstLine);
         int selLast = Math.Min(Math.Min(sel.End.Line, lastLine), Document.LineCount - 1);
@@ -444,8 +454,7 @@ public sealed class CodeEditorControl
     private void DrawText(ImDrawListPtr draw, Vector2 origin, Vector2 textOrigin, float charWidth,
                           float lineHeight, float gutterWidth, int firstLine, int lastLine)
     {
-        uint defaultColour = ImGui.GetColorU32(ImGuiCol.Text);
-        uint gutterColour = ImGui.GetColorU32(ImGuiCol.TextDisabled);
+        uint defaultColour = Theme.TextColour;
 
         for (int line = firstLine; line <= lastLine && line < Document.LineCount; line++)
         {
@@ -453,8 +462,12 @@ public sealed class CodeEditorControl
             if (ShowLineNumbers)
             {
                 string number = (line + 1).ToString();
+                // The caret's own line is brighter, which is the cheapest way to keep track of where
+                // you are in a deeply indented script.
                 draw.AddText(new Vector2(origin.X + gutterWidth - ImGui.CalcTextSize(number).X
-                                         - ImGui.GetStyle().ItemSpacing.X, y), gutterColour, number);
+                                         - ImGui.GetStyle().ItemSpacing.X, y),
+                             line == Caret.Line ? Theme.LineNumberCurrentColour : Theme.LineNumberColour,
+                             number);
             }
 
             string text = Document[line];
@@ -513,6 +526,6 @@ public sealed class CodeEditorControl
         if (_blink % 1.0 > 0.5) return;
         float x = VisualX(textOrigin, charWidth, Caret.Line, Caret.Column);
         float y = textOrigin.Y + Caret.Line * lineHeight;
-        draw.AddLine(new Vector2(x, y), new Vector2(x, y + lineHeight), ImGui.GetColorU32(ImGuiCol.Text), 1f);
+        draw.AddLine(new Vector2(x, y), new Vector2(x, y + lineHeight), Theme.CaretColour, 1f);
     }
 }

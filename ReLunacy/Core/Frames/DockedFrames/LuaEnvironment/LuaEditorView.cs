@@ -21,6 +21,8 @@ public sealed class LuaEditorView
     private readonly LuaCompletionPopup _completion = new();
     private LuaApiDatabase _api = new();
     private ReLunacy.Engine.Games.GameId? _apiGame;
+    private LuaEditorTheme _theme = new LuaEditorTheme().Resolve();
+    private string? _themeName;
     private string _path = "";
     private string? _status;
     private bool _modified;
@@ -45,6 +47,22 @@ public sealed class LuaEditorView
 
     /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database
     /// is per game, and a session may never open a level at all.</summary>
+    /// <summary>Reloads the theme when the setting changes, and pushes it to everything that
+    /// draws: the editor's chrome, the highlighter's roles and the popup.</summary>
+    private LuaEditorTheme Theme()
+    {
+        string wanted = Program.Settings.CodeEditorTheme;
+        if (_themeName != wanted)
+        {
+            _theme = LuaEditorThemeLoader.Load(wanted);
+            _themeName = wanted;
+            _editor.Theme = _theme;
+            _completion.Theme = _theme;
+            if (_theme.Problems.Count > 0) _status = string.Join("; ", _theme.Problems);
+        }
+        return _theme;
+    }
+
     private LuaApiDatabase Api()
     {
         var game = Core.LunaWindow.Instance?.Level?.GameDefinition?.Id;
@@ -127,6 +145,10 @@ public sealed class LuaEditorView
             }
             catch (Exception e) { _status = e.Message; }
         }
+
+        // Both feed the highlighter: the theme decides the colours, the API decides which names are
+        // functions or classes at all, so a newly documented global recolours without an edit.
+        _highlighter.Configure(Theme(), Api());
 
         var analysis = Scopes();
         ImGui.Text($"{Document.LineCount} lines  {(Document.LineEnding == "\r\n" ? "CRLF" : "LF")}"

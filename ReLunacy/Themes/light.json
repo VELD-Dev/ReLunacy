@@ -1,0 +1,23 @@
+{
+  "Name": "Light",
+  "Keyword": "#0000FF",
+  "String": "#A31515",
+  "Number": "#098658",
+  "Comment": "#008000",
+  "Operator": "#000000",
+  "Error": "#CD3131",
+  "Function": "#795E26",
+  "Method": "#795E26",
+  "Class": "#267F99",
+  "Field": "#001080",
+  "Local": "#001080",
+  "Parameter": "#505050",
+  "LoopVariable": "#001080",
+  "GlobalUndocumented": "#AF00DB",
+  "Text": "#000000",
+  "Caret": "#000000",
+  "Selection": "#ADD6FF",
+  "CurrentLine": "#F0F0F0",
+  "LineNumber": "#237893",
+  "LineNumberCurrent": "#0B216F"
+}

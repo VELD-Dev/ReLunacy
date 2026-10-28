@@ -69,6 +69,7 @@ internal class EditorSettingsFrame : Frame
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
                     Program.Settings.TextureFiltering = (ReLunacy.Engine.Rendering.TextureFiltering)currentFiltering;
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_EnableLighting"), ref Program.Settings.EnableLighting);
+                DrawCodeEditorThemePicker();
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
                 // Light direction/colour/ambient controls live in the Level Data frame instead,
@@ -184,5 +185,18 @@ internal class EditorSettingsFrame : Frame
         ImGui.SetNextWindowSize(new Vector2(800, 600));
         ImGui.SetNextWindowPos(ImGui.GetWorkCenter(ImGui.GetMainViewport()), ImGuiCond.Once, new Vector2(0.5f));
         base.RenderAsWindow(deltaTime);
+    }
+
+    /// <summary>Theme list for the Lua code editor, read from Themes/*.json so a file dropped in
+    /// next to the executable shows up without a rebuild.</summary>
+    private static void DrawCodeEditorThemePicker()
+    {
+        var names = Utility.CodeEditor.LuaEditorThemeLoader.Available();
+        int current = Math.Max(0, names.FindIndex(n =>
+            string.Equals(n, Program.Settings.CodeEditorTheme, StringComparison.OrdinalIgnoreCase)));
+        if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_CodeEditorTheme"), ref current, [.. names], names.Count))
+            Program.Settings.CodeEditorTheme = names[current];
+        ImGui.SameLine();
+        ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_CodeEditorThemeHelp"));
     }
 }
