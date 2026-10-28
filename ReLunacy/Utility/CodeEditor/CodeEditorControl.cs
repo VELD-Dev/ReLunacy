@@ -91,6 +91,11 @@ public sealed class CodeEditorControl
         TextChanged = false;
         _blink += deltaTime;
 
+        // The caret indexes lines for its own position and for the visual column maths, so it has to
+        // be valid for the document as it is NOW - SetText or an external edit can shorten it.
+        Caret = Document.Clamp(Caret);
+        if (Anchor is { } anchor) Anchor = Document.Clamp(anchor);
+
         var style = ImGui.GetStyle();
         float charWidth = ImGui.CalcTextSize("0").X;
         float lineHeight = ImGui.GetTextLineHeight();
@@ -108,26 +113,31 @@ public sealed class CodeEditorControl
         Vector2 origin = ImGui.GetCursorScreenPos();
         Vector2 textOrigin = origin with { X = origin.X + gutterWidth };
 
-        // Establishes the scroll extent. Done before drawing so GetScrollY() below is this frame's.
-        ImGui.Dummy(new Vector2(gutterWidth + (Document.MaxVisualWidth() + 2) * charWidth,
-                                Document.LineCount * lineHeight));
-
-        float scrollY = ImGui.GetScrollY();
-        float viewHeight = ImGui.GetWindowHeight();
-        int firstLine = Math.Max(0, (int)(scrollY / lineHeight) - 1);
-        int lastLine = Math.Min(Document.LineCount - 1, (int)((scrollY + viewHeight) / lineHeight) + 1);
-
-        CaretScreenPosition = new Vector2(VisualX(textOrigin, charWidth, Caret.Line, Caret.Column),
-                                          textOrigin.Y + (Caret.Line + 1) * lineHeight);
-
         // This editor is not an ImGui text widget, so ImGui never reports WantTextInput for it and
         // the platform would never be put into text-input mode - which is why keys arrived (they are
         // polled separately) while typed characters did not. Re-requested every frame so it switches
         // off as soon as focus leaves.
         if (_focused) ImGuiController.TextInputRequested = true;
 
+        // Input runs BEFORE the visible range is worked out, because it edits the document: a
+        // backspace that joins two lines, or an accepted completion, changes the line count. Deciding
+        // which lines to draw first and mutating afterwards indexed past the end of the document.
         HandleMouse(textOrigin, charWidth, lineHeight);
         if (_focused) HandleKeyboard();
+
+        // Establishes the scroll extent, from the post-edit document so the scrollbar matches what
+        // is about to be drawn.
+        ImGui.Dummy(new Vector2(gutterWidth + (Document.MaxVisualWidth() + 2) * charWidth,
+                                Document.LineCount * lineHeight));
+
+        float scrollY = ImGui.GetScrollY();
+        float viewHeight = ImGui.GetWindowHeight();
+        int firstLine = Math.Clamp((int)(scrollY / lineHeight) - 1, 0, Math.Max(0, Document.LineCount - 1));
+        int lastLine = Math.Clamp((int)((scrollY + viewHeight) / lineHeight) + 1, firstLine,
+                                  Document.LineCount - 1);
+
+        CaretScreenPosition = new Vector2(VisualX(textOrigin, charWidth, Caret.Line, Caret.Column),
+                                          textOrigin.Y + (Caret.Line + 1) * lineHeight);
 
         var draw = ImGui.GetWindowDrawList();
         DrawSelection(draw, textOrigin, charWidth, lineHeight, firstLine, lastLine);
@@ -415,7 +425,9 @@ public sealed class CodeEditorControl
         if (Selection is not { } sel) return;
         uint colour = ImGui.GetColorU32(ImGuiCol.TextSelectedBg);
 
-        for (int line = Math.Max(sel.Start.Line, firstLine); line <= Math.Min(sel.End.Line, lastLine); line++)
+        int selFirst = Math.Max(sel.Start.Line, firstLine);
+        int selLast = Math.Min(Math.Min(sel.End.Line, lastLine), Document.LineCount - 1);
+        for (int line = selFirst; line <= selLast; line++)
         {
             int from = line == sel.Start.Line ? sel.Start.Column : 0;
             int to = line == sel.End.Line ? sel.End.Column : Document[line].Length;
@@ -435,7 +447,7 @@ public sealed class CodeEditorControl
         uint defaultColour = ImGui.GetColorU32(ImGuiCol.Text);
         uint gutterColour = ImGui.GetColorU32(ImGuiCol.TextDisabled);
 
-        for (int line = firstLine; line <= lastLine; line++)
+        for (int line = firstLine; line <= lastLine && line < Document.LineCount; line++)
         {
             float y = textOrigin.Y + line * lineHeight;
             if (ShowLineNumbers)
