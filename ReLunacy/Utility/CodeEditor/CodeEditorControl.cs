@@ -56,12 +56,29 @@ public sealed class CodeEditorControl
     /// scope-aware rename attaches to, so the key handling does not need to know about scopes.</summary>
     public Action<TextPosition, string>? RenameRequested { get; set; }
 
+    /// <summary>
+    /// Offered the word just typed, and the range it occupies, the moment a space ends it. Returning
+    /// true means the host consumed it - it expanded a snippet over that range - so the space itself
+    /// is not inserted.
+    /// </summary>
+    public Func<string, TextRange, bool>? WordCompleted { get; set; }
+
     public TextRange? Selection => Anchor is { } a && a != Caret ? new TextRange(a, Caret).Ordered : null;
 
     public string SelectedText => Selection is { } s ? Document.GetText(s) : "";
 
     /// <summary>Whether the editor currently takes keystrokes; a popup should only show when it does.</summary>
     public bool HasFocus => _focused;
+
+    /// <summary>Moves the caret, clearing any selection. Used by a host that decides where the
+    /// caret belongs - jumping to a snippet's next tab stop.</summary>
+    public void MoveCaretTo(TextPosition position)
+    {
+        Caret = Document.Clamp(position);
+        Anchor = null;
+        _desiredVisualColumn = -1;
+        _blink = 0;
+    }
 
     /// <summary>Replaces the given range with text and puts the caret after it - how an accepted
     /// completion is applied, replacing the partial word rather than appending to it.</summary>
@@ -244,7 +261,28 @@ public sealed class CodeEditorControl
         // controller rather than io.InputQueueCharacters: it is the same text one step earlier, and
         // it does not depend on reading back into ImGui's own vector.
         foreach (char c in ImGuiController.TypedText)
-            if (c >= ' ' && c != 127) Type(c.ToString());
+        {
+            if (c < ' ' || c == 127) continue;
+
+            // A space ends a word, which is the moment a snippet trigger can be recognised. If the
+            // host expands one, the space is swallowed - "if " becoming "if  then" and then also
+            // gaining the typed space would be wrong.
+            if (c == ' ' && WordCompleted is { } wordCompleted && Selection is null)
+            {
+                var (wordStart, wordEnd) = WordAt(Caret);
+                if (wordEnd == Caret && wordStart.Column < wordEnd.Column)
+                {
+                    string word = Document[Caret.Line][wordStart.Column..wordEnd.Column];
+                    if (wordCompleted(word, new TextRange(wordStart, wordEnd)))
+                    {
+                        TextChanged = true;
+                        continue;
+                    }
+                }
+            }
+
+            Type(c.ToString());
+        }
     }
 
     private static bool Pressed(ImGuiKey key) => ImGui.IsKeyPressed(key, true);

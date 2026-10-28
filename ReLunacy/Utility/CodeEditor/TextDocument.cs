@@ -52,6 +52,15 @@ public sealed class TextDocument
     /// without diffing the text.</summary>
     public int Version { get; private set; }
 
+    /// <summary>
+    /// Positions the document keeps up to date as it is edited. A snippet's tab stops are markers:
+    /// typing into the first one moves the ones after it, and without that they would point at
+    /// wherever the text used to be.
+    ///
+    /// Held by index, so a caller stores an int and reads the current position back.
+    /// </summary>
+    public List<TextPosition> Markers { get; } = [];
+
     public int LineCount => _lines.Count;
     public string this[int line] => _lines[line];
 
@@ -71,6 +80,7 @@ public sealed class TextDocument
 
         _undo.Clear();
         _redo.Clear();
+        Markers.Clear();
         Version++;
     }
 
@@ -119,6 +129,7 @@ public sealed class TextDocument
         if (parts.Length == 1)
         {
             _lines[at.Line] = before + parts[0] + after;
+            ShiftMarkersForInsert(at, 0, parts[0].Length, at.Column + parts[0].Length);
             Version++;
             return new TextPosition(at.Line, at.Column + parts[0].Length);
         }
@@ -128,6 +139,7 @@ public sealed class TextDocument
         int lastLine = at.Line + parts.Length - 1;
         int lastColumn = _lines[lastLine].Length;
         _lines[lastLine] += after;
+        ShiftMarkersForInsert(at, parts.Length - 1, 0, lastColumn);
         Version++;
         return new TextPosition(lastLine, lastColumn);
     }
@@ -148,7 +160,48 @@ public sealed class TextDocument
         var (start, end) = (range.Start, range.End);
         _lines[start.Line] = _lines[start.Line][..start.Column] + _lines[end.Line][end.Column..];
         if (end.Line > start.Line) _lines.RemoveRange(start.Line + 1, end.Line - start.Line);
+        ShiftMarkersForDelete(start, end);
         Version++;
+    }
+
+    /// <summary>Moves markers at or after an insertion point. A marker exactly at the point moves
+    /// with the inserted text rather than staying put, which is what a tab stop after the one being
+    /// typed into needs.</summary>
+    private void ShiftMarkersForInsert(TextPosition at, int addedLines, int addedColumns, int endColumn)
+    {
+        for (int i = 0; i < Markers.Count; i++)
+        {
+            var marker = Markers[i];
+            if (marker.Line < at.Line || (marker.Line == at.Line && marker.Column < at.Column)) continue;
+
+            if (marker.Line == at.Line)
+                Markers[i] = addedLines == 0
+                    ? marker with { Column = marker.Column + addedColumns }
+                    : new TextPosition(marker.Line + addedLines, endColumn + (marker.Column - at.Column));
+            else
+                Markers[i] = marker with { Line = marker.Line + addedLines };
+        }
+    }
+
+    /// <summary>Moves markers after a deleted range back, and collapses any inside it onto its
+    /// start - a stop whose text was deleted has nowhere else to be.</summary>
+    private void ShiftMarkersForDelete(TextPosition start, TextPosition end)
+    {
+        int removedLines = end.Line - start.Line;
+        for (int i = 0; i < Markers.Count; i++)
+        {
+            var marker = Markers[i];
+            if (marker.Line < start.Line || (marker.Line == start.Line && marker.Column <= start.Column)) continue;
+
+            if (marker.Line < end.Line || (marker.Line == end.Line && marker.Column <= end.Column))
+            {
+                Markers[i] = start;
+                continue;
+            }
+            Markers[i] = marker.Line == end.Line
+                ? new TextPosition(start.Line, start.Column + (marker.Column - end.Column))
+                : marker with { Line = marker.Line - removedLines };
+        }
     }
 
     /// <summary>Replaces a range in one undo step, which is what a rename needs per occurrence.</summary>

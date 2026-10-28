@@ -23,6 +23,7 @@ public sealed class LuaEditorView
     private ReLunacy.Engine.Games.GameId? _apiGame;
     private LuaEditorTheme _theme = new LuaEditorTheme().Resolve();
     private string? _themeName;
+    private LuaSnippetSession? _snippet;
     private string _path = "";
     private string? _status;
     private bool _modified;
@@ -40,9 +41,15 @@ public sealed class LuaEditorView
         _highlighter = new LuaSyntaxHighlighter(_editor.Document);
         _editor.Highlighter = _highlighter.ForLine;
         _editor.RenameRequested = OnRenameRequested;
-        // The popup claims Up/Down/Enter/Tab/Escape only while it is open, so the editor keeps them
-        // the rest of the time.
-        _editor.InterceptKey = key => _completion.HandleKey(key, _editor);
+        // Key priority: the completion popup first, since it is the thing visibly open and Enter
+        // there means "accept"; then a running snippet, where Tab means "next stop". Anything
+        // neither claims falls through to the editor.
+        _editor.InterceptKey = key =>
+        {
+            if (_completion.HandleKey(key, _editor)) return true;
+            return HandleSnippetKey(key);
+        };
+        _editor.WordCompleted = TryExpandSnippet;
     }
 
     /// <summary>Reloads the API documentation when the loaded game changes. Kept lazy: the database
@@ -74,6 +81,56 @@ public sealed class LuaEditorView
         return _api;
     }
 
+    /// <summary>A space just ended a word: expand it if it names a snippet. Returning true swallows
+    /// the space, which is what makes "if " become the full block rather than the block plus a
+    /// stray space.</summary>
+    private bool TryExpandSnippet(string word, TextRange range)
+    {
+        if (LuaSnippets.ForTrigger(word) is not { } snippet) return false;
+
+        // An expansion supersedes whatever was being suggested, and leaving the popup open over the
+        // new block would cover it.
+        _completion.Close();
+        _snippet?.Finish();
+        _snippet = LuaSnippetSession.Expand(_editor.Document, snippet, range, out var caret);
+        _editor.MoveCaretTo(caret);
+        _status = _snippet is null
+            ? string.Format(LM.Get("GUI_LuaEnv_SnippetExpanded"), snippet.Trigger)
+            : string.Format(LM.Get("GUI_LuaEnv_SnippetStops"), snippet.Trigger, _snippet.Progress.Count);
+        return true;
+    }
+
+    /// <summary>Tab walks a running snippet's stops; Escape abandons it. Tab past the last stop ends
+    /// the session and is handed back, so it indents as usual from then on.</summary>
+    private bool HandleSnippetKey(ImGuiKey key)
+    {
+        if (_snippet is not { IsActive: true } session) return false;
+
+        switch (key)
+        {
+            case ImGuiKey.Tab:
+                if (session.MoveNext(out var next))
+                {
+                    _editor.MoveCaretTo(next);
+                    var (index, count) = session.Progress;
+                    _status = string.Format(LM.Get("GUI_LuaEnv_SnippetAt"), index, count);
+                    return true;
+                }
+                _snippet = null;
+                _status = null;
+                return false;
+
+            case ImGuiKey.Escape:
+                session.Finish();
+                _snippet = null;
+                _status = null;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
     public void Load(string text, string label)
     {
         _editor.SetText(text);
@@ -81,6 +138,7 @@ public sealed class LuaEditorView
         _modified = false;
         _status = null;
         _scopesVersion = -1;
+        _snippet = null;
     }
 
     private LuaScopeAnalysis Scopes()
