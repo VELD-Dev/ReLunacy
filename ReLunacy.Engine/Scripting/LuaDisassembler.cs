@@ -77,7 +77,7 @@ public static class LuaDisassembler
                     LuaOpcode.Move or LuaOpcode.LoadNil or LuaOpcode.Unm or LuaOpcode.Not => $"R{ins.A} {b}",
                     LuaOpcode.GetUpval or LuaOpcode.SetUpval => $"R{ins.A} U{ins.B}"
                         + (ins.B < proto.Upvalues.Length && proto.Upvalues[ins.B] is { } n
-                            ? $"  ; {Encoding.UTF8.GetString(n)}" : ""),
+                            ? $"  ; {LuaText.FromBytes(n)}" : ""),
 
                     // The rest carry values, counts or flags in B/C rather than register numbers, so
                     // rendering those as R<n> actively misleads - LOADBOOL's B is the boolean itself.

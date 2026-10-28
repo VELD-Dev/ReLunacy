@@ -180,7 +180,7 @@ public sealed class LuaFunctionState
     }
 
     public int AddStringConstant(string text) =>
-        AddConstant(new LuaConstant.Str(System.Text.Encoding.UTF8.GetBytes(text)));
+        AddConstant(new LuaConstant.Str(LuaText.ToBytes(text)));
 
     public int AddNumberConstant(double value) => AddConstant(new LuaConstant.Number(value));
 
@@ -235,6 +235,20 @@ public sealed class LuaFunctionState
     /// <summary>The opcode of an emitted instruction, for recognising a CONCAT chain to extend.</summary>
     public LuaOpcode InstructionOpcode(int pc) => new LuaInstruction(_code[pc]).Opcode;
 
+    /// <summary>
+    /// Drops the instruction just emitted - Lua's <c>fs->pc--</c>.
+    ///
+    /// Used to take back a NOT that turned out to be feeding a test, which can then carry the
+    /// negation in its own operand instead. Refuses while jumps are waiting, since those would be
+    /// left pointing at an instruction that no longer exists.
+    /// </summary>
+    public void RemoveLastInstruction()
+    {
+        if (_pendingJumps.Count > 0)
+            throw new InvalidOperationException("cannot remove an instruction with jumps pending on it");
+        _code.RemoveAt(_code.Count - 1);
+    }
+
     // --- jumps ---------------------------------------------------------------------------------
 
     /// <summary>
@@ -248,6 +262,17 @@ public sealed class LuaFunctionState
     /// other.
     /// </summary>
     private readonly List<int> _pendingJumps = [];
+
+    /// <summary>
+    /// The highest pc any jump has been aimed at - Lua's <c>fs->lasttarget</c>.
+    ///
+    /// It exists to stop peephole merging across a label: an instruction that something jumps to
+    /// cannot be folded into the one before it, because arriving by the jump would skip the fold.
+    /// </summary>
+    private int _lastTarget = -1;
+
+    /// <summary>Records that the current position is somewhere a jump can land - luaK_getlabel.</summary>
+    public void MarkLabel() => _lastTarget = _code.Count;
 
     /// <summary>
     /// Emits a jump with no destination yet, together with every jump that was waiting for this
@@ -266,7 +291,56 @@ public sealed class LuaFunctionState
     }
 
     /// <summary>Holds jumps until the next emitted instruction settles where they go.</summary>
-    public void PatchToHere(IReadOnlyList<int> jumps) => _pendingJumps.AddRange(jumps);
+    public void PatchToHere(IReadOnlyList<int> jumps)
+    {
+        // Marked unconditionally, as luaK_patchtohere does: the position becomes a label whether or
+        // not this particular list turns out to be empty.
+        MarkLabel();
+        _pendingJumps.AddRange(jumps);
+    }
+
+    /// <summary>
+    /// Loads nil into a run of registers, extending the previous LOADNIL when it is adjacent.
+    ///
+    /// Lua does this in luaK_nil, and it shows: a call taking two nil arguments in a row gets one
+    /// LOADNIL over both registers, not two instructions. The merge is refused at a label, since
+    /// code arriving by a jump would otherwise skip past the widened load.
+    /// </summary>
+    public void LoadNil(int from, int count)
+    {
+        int to = from + count - 1;
+        if (_code.Count > _lastTarget && _code.Count > 0)
+        {
+            int previous = _code.Count - 1;
+            var instruction = new LuaInstruction(_code[previous]);
+            if (instruction.Opcode == LuaOpcode.LoadNil)
+            {
+                int previousFrom = instruction.A, previousTo = instruction.B;
+                if (previousFrom <= from && from <= previousTo + 1)
+                {
+                    if (to > previousTo) SetInstructionB(previous, to);
+                    return;
+                }
+            }
+        }
+        EmitABC(LuaOpcode.LoadNil, from, to, 0);
+    }
+
+    /// <summary>
+    /// Removes the waiting jumps and hands them back, for a caller that is about to move the code
+    /// they point into.
+    ///
+    /// whilestat needs this: it saves the condition's instructions and rewinds the code to drop
+    /// them, so a jump still waiting inside that range would be left pointing past the end of the
+    /// function. Lua folds jpc into the condition's false list at the same point and for the same
+    /// reason.
+    /// </summary>
+    public List<int> TakePendingJumps()
+    {
+        var waiting = new List<int>(_pendingJumps);
+        _pendingJumps.Clear();
+        return waiting;
+    }
 
     /// <summary>Points jumps at an instruction that is already known.</summary>
     public void PatchTo(IReadOnlyList<int> jumps, int target)
@@ -308,7 +382,7 @@ public sealed class LuaFunctionState
         EmitABC(LuaOpcode.Return, 0, 1, 0);
         return new LuaPrototype
         {
-            Source = isMainChunk ? System.Text.Encoding.UTF8.GetBytes("=(none)") : null,
+            Source = isMainChunk ? LuaText.ToBytes("=(none)") : null,
             LineDefined = 0,
             UpvalueCount = 0,
             ParameterCount = ParameterCount,

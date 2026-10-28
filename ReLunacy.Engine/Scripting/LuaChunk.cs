@@ -152,7 +152,7 @@ public abstract record LuaConstant
     /// as bytes rather than decoded, both to round-trip exactly and because nothing guarantees UTF-8.</summary>
     public sealed record Str(byte[] Bytes) : LuaConstant
     {
-        public string Text => System.Text.Encoding.UTF8.GetString(Bytes);
+        public string Text => LuaText.FromBytes(Bytes);
         public override string ToString() => $"\"{Text}\"";
     }
 }

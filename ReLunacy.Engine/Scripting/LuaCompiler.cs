@@ -315,11 +315,14 @@ public sealed class LuaCompiler
 
             case LuaParenExpr paren:
             {
-                // Parentheses truncate to one value, so the inner expression is forced into a
-                // single register rather than being left able to yield several.
+                // Parentheses truncate to one value, which is what discharging the variable forms
+                // does - a call becomes its single result. They do NOT force a register: prefixexp
+                // calls luaK_dischargevars and nothing more, so an expression still held as an
+                // instruction stays that way. Forcing one here hid the NOT in `if (not x)` from the
+                // fold in CompileCondition, and the parentheses alone changed the code emitted.
                 var inner = CompileExpression(paren.Inner);
-                int register = ExpressionToAnyRegister(ref inner);
-                return new Exp { Kind = ExpKind.NonReloc, Info = register };
+                DischargeVars(ref inner);
+                return inner;
             }
 
             default:
@@ -574,7 +577,7 @@ public sealed class LuaCompiler
         switch (e.Kind)
         {
             case ExpKind.Nil:
-                _state.EmitABC(LuaOpcode.LoadNil, register, register, 0);
+                _state.LoadNil(register, 1);
                 break;
             case ExpKind.True:
             case ExpKind.False:
@@ -674,10 +677,17 @@ public sealed class LuaCompiler
         // at the bottom, but its constants have to be interned before the body's: for
         // `while is_alive(x) do wait() end` the reference pool is is_alive, x, wait, and compiling
         // the body first puts wait at K0 - identical instructions, every constant index shifted.
+        _state.MarkLabel();
         int conditionStart = _state.InstructionCount;
         var backJump = CompileCondition(whileStat.Condition, jumpWhenTrue: true);
+        // A short-circuiting condition - `while a and b do` - leaves the jumps that skip the rest of
+        // the test waiting for the instruction after it. That instruction is the loop exit, but the
+        // code they sit in is about to be lifted out, so they have to be collected and relocated
+        // with it rather than left pointing past the end of the function.
+        var exitJumps = _state.TakePendingJumps();
         uint[] conditionCode = _state.ExtractFrom(conditionStart);
 
+        _state.MarkLabel();
         int bodyStart = _state.InstructionCount;
         CompileBlock(whileStat.Body);
 
@@ -686,9 +696,13 @@ public sealed class LuaCompiler
         // `and` and `or` would introduce, is not supported yet.
         _state.PatchToHere(entryJump);
         int conditionBase = _state.InstructionCount;
-        var relocated = backJump.Select(pc => conditionBase + (pc - conditionStart)).ToList();
+        int Relocate(int pc) => conditionBase + (pc - conditionStart);
+        var relocatedBack = backJump.Select(Relocate).ToList();
+        var relocatedExit = exitJumps.Select(Relocate).ToList();
         foreach (uint instruction in conditionCode) _state.Emit(instruction);
-        _state.PatchTo(relocated, bodyStart);
+        _state.PatchTo(relocatedBack, bodyStart);
+        // The short circuits mean the condition failed, so they leave the loop.
+        _state.PatchToHere(relocatedExit);
     }
 
     /// <summary>
@@ -712,10 +726,8 @@ public sealed class LuaCompiler
         if (ConstantTruth(condition) is { } always)
             return always == jumpWhenTrue ? _state.EmitJump() : [];
 
-        // `if not x then` tests x with the jump sense inverted and no NOT instruction, which is
-        // what jumponcond does when it finds a NOT it can remove again.
-        if (condition is LuaUnaryExpr { Operator: "not" } negation)
-            return CompileCondition(negation.Operand, !jumpWhenTrue);
+        if (condition is LuaBinaryExpr { Operator: "and" or "or" } logical)
+            return CompileLogicalCondition(logical, jumpWhenTrue);
 
         if (condition is LuaBinaryExpr binary && ComparisonFor(binary.Operator) is { } comparison)
         {
@@ -738,10 +750,65 @@ public sealed class LuaCompiler
         }
 
         var value = CompileExpression(condition);
+        DischargeVars(ref value);
+
+        // A NOT emitted for this condition is taken back and folded into the test's sense, which is
+        // what jumponcond does. It works on the INSTRUCTION rather than on the syntax, and that
+        // distinction is the whole point: `if (not move2D)` is a parenthesised expression, so a
+        // check for a negation in the tree never sees it, while the NOT sitting at the top of the
+        // code is as plain either way.
+        if (value.Kind == ExpKind.Relocatable
+            && value.Info == _state.InstructionCount - 1
+            && _state.InstructionOpcode(value.Info) == LuaOpcode.Not)
+        {
+            int negated = _state.InstructionB(value.Info);
+            _state.RemoveLastInstruction();
+            _state.EmitABC(LuaOpcode.Test, negated, negated, jumpWhenTrue ? 0 : 1);
+            return _state.EmitJump();
+        }
+
         int register = ExpressionToAnyRegister(ref value);
         _state.FreeRegisterIfTemporary(register);
         _state.EmitABC(LuaOpcode.Test, register, register, jumpWhenTrue ? 1 : 0);
         return _state.EmitJump();
+    }
+
+    /// <summary>
+    /// <c>a and b</c> / <c>a or b</c> as a condition, short-circuiting.
+    ///
+    /// Only one of the two operands' jumps survives as the result; the other operand's jumps are the
+    /// short circuit and land here, on the instruction after this condition. That handing-over is
+    /// what luaK_infix and luaK_posfix do between them - goiftrue for <c>and</c>, goiffalse for
+    /// <c>or</c>, then the surviving list concatenated - and holding the short-circuit jumps rather
+    /// than resolving them is what lets the jump that follows absorb them.
+    ///
+    /// The four cases are the two operators times the two senses a condition can be asked for. An
+    /// <c>and</c> wanted TRUE still needs its left operand's FALSE jump, because a false left means
+    /// the whole thing is false and the true jump must not be taken - which is why this cannot just
+    /// recurse with the same sense on both sides.
+    /// </summary>
+    private List<int> CompileLogicalCondition(LuaBinaryExpr logical, bool jumpWhenTrue)
+    {
+        bool isAnd = logical.Operator == "and";
+
+        // The left operand is tested for the sense that lets the right one decide: `and` carries on
+        // only while the left is true, `or` only while it is false.
+        var shortCircuit = CompileCondition(logical.Left, jumpWhenTrue: !isAnd);
+
+        // Taking the short circuit means the answer is already known. When that answer is the one
+        // being jumped on, those jumps ARE part of the result; otherwise they skip the right
+        // operand entirely and land after it.
+        bool shortCircuitDecides = isAnd != jumpWhenTrue;
+
+        var fromRight = CompileCondition(logical.Right, jumpWhenTrue);
+        if (shortCircuitDecides)
+        {
+            fromRight.AddRange(shortCircuit);
+            return fromRight;
+        }
+
+        _state.PatchToHere(shortCircuit);
+        return fromRight;
     }
 
     /// <summary>

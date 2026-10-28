@@ -233,7 +233,7 @@ public sealed class LuaScriptBrowser
     private string ReadText(string path)
     {
         using var buffer = _archive!.OpenFile(path);
-        return System.Text.Encoding.UTF8.GetString(buffer.Data);
+        return LuaText.FromBytes(buffer.Data);
     }
 
     /// <summary>The compiled chunk, or null when this source has none. Presence is checked against
