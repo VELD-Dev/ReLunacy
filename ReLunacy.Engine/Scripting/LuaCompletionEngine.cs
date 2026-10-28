@@ -83,7 +83,8 @@ public static class LuaCompletionEngine
                 {
                     // `local c|` is naming a NEW variable, so the half-typed name is already a
                     // binding by the time the resolver sees it. Suggesting it back is noise, and it
-                    // outranks everything useful because it matches the prefix exactly.
+                    // outranks everything useful because it matches the prefix exactly - which,
+                    // with Tab accepting before anything else, would replace the name being typed.
                     if (local.Definition is { } definition && definition.Start == analyzed.ReplaceFrom)
                         continue;
                     items.Add(new LuaCompletionItem(local.Name, local.Name, KindOf(local.Kind),
