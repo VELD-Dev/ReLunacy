@@ -74,7 +74,15 @@ public sealed class LuaCompiler
     private void CompileBlock(LuaBlock block)
     {
         int localMark = _state.ActiveLocalCount;
-        foreach (var statement in block.Statements) CompileStatement(statement);
+        foreach (var statement in block.Statements)
+        {
+            CompileStatement(statement);
+            // Every temporary a statement used is released at its end - chunk() does this after
+            // each one, and it is what keeps a register from leaking statement after statement.
+            // `DialogueSpecs.X = "y"` repeated 3700 times climbed to 255 stack slots without it,
+            // where the reference reuses one.
+            _state.SetFreeRegister(_state.ActiveLocalCount);
+        }
         _state.RemoveLocalsAfter(localMark);
     }
 
@@ -154,60 +162,49 @@ public sealed class LuaCompiler
             return;
         }
 
-        var target = assign.Targets[0];
-
-        // The target is resolved first, which matters for more than ordering of work: Lua 5.0's
-        // exprstat parses the left-hand side before it sees the '=', and singlevar interns a
-        // global's name as it resolves it. So in `pterodactyl = moby_handle:new(0)` the reference
-        // compiler's constant table starts with "pterodactyl", not "moby_handle". Compiling the
-        // value first produced correct code with every constant index shifted.
-        int targetGlobal = target is LuaNameExpr targetName && _state.FindLocal(targetName.Name) < 0
-            ? _state.AddStringConstant(targetName.Name)
-            : -1;
-
+        // The target is compiled FIRST, and all of it - not just a global's name.
+        //
+        // exprstat parses the whole left-hand side before it sees the '=', so everything the target
+        // mentions is interned and placed before the value is touched. In
+        // `pterodactyl = moby_handle:new(0)` that puts "pterodactyl" at the head of the constant
+        // table rather than "moby_handle"; in `arena_challenge_7.active = f(x.id) > 0` it puts
+        // "active" before "f". Compiling the value first produces correct code with every constant
+        // index shifted, and gives the value the registers the target should have had.
+        var target = CompileExpression(assign.Targets[0]);
         var value = CompileExpression(assign.Values[0]);
 
-        switch (target)
+        switch (target.Kind)
         {
-            case LuaNameExpr name when _state.FindLocal(name.Name) is var register && register >= 0:
-            {
-                // Assigning to a local materialises the value straight into its register.
-                //
-                // The temporary holding the value is released FIRST, which is the order
-                // luaK_storevar uses for a local and the only case where it frees before rather
-                // than after. Without it `starting_health = hero_get_health(Ratchet1)` left the
-                // call's result register reserved, so every statement after it in that block
-                // allocated one register too high and the chunk needed one more stack slot than
-                // the reference.
+            case ExpKind.Local:
+                // The temporary holding the value is released BEFORE it is moved into the local -
+                // the one case where luaK_storevar frees first rather than last. Without it
+                // `starting_health = hero_get_health(Ratchet1)` left the call's result register
+                // reserved, so the rest of that block allocated one register too high.
                 DischargeVars(ref value);
                 FreeIfTemporary(ref value);
-                DischargeToRegister(ref value, register);
-                break;
-            }
+                ExpressionToRegister(ref value, target.Info);
+                return;
 
-            case LuaNameExpr:
+            case ExpKind.Global:
             {
                 int source = ExpressionToAnyRegister(ref value);
-                _state.EmitABx(LuaOpcode.SetGlobal, source, targetGlobal);
-                _state.FreeRegisterIfTemporary(source);
+                _state.EmitABx(LuaOpcode.SetGlobal, source, target.Info);
                 break;
             }
 
-            case LuaIndexExpr index:
+            case ExpKind.Indexed:
             {
-                var table = CompileExpression(index.Target);
-                int tableRegister = ExpressionToAnyRegister(ref table);
-                var key = CompileExpression(index.Key);
-                int keyRk = ExpressionToRk(ref key);
                 int valueRk = ExpressionToRk(ref value);
-                _state.EmitABC(LuaOpcode.SetTable, tableRegister, keyRk, valueRk);
+                _state.EmitABC(LuaOpcode.SetTable, target.Info, target.Aux, valueRk);
                 break;
             }
 
             default:
-                Unsupported($"assignment to {target.GetType().Name}", assign.Span);
-                break;
+                Unsupported($"assignment to {assign.Targets[0].GetType().Name}", assign.Span);
+                return;
         }
+
+        FreeIfTemporary(ref value);
     }
 
     private void CompileReturn(LuaReturnStat ret)
@@ -359,6 +356,9 @@ public sealed class LuaCompiler
 
             case LuaBinaryExpr comparison when ComparisonFor(comparison.Operator) is { } shape:
                 return CompileComparisonValue(shape, comparison);
+
+            case LuaTableExpr table:
+                return CompileTable(table);
 
             case LuaUnaryExpr unary when unary.Operator == "-":
                 return CompileNegate(unary);
@@ -537,6 +537,144 @@ public sealed class LuaCompiler
     {
         _state.MarkLabel();
         return _state.EmitABC(LuaOpcode.LoadBool, register, value ? 1 : 0, skipNext ? 1 : 0);
+    }
+
+    /// <summary>
+    /// How many pending array items are flushed with one SETLIST - LFIELDS_PER_FLUSH.
+    /// </summary>
+    private const int FieldsPerFlush = 32;
+
+    /// <summary>
+    /// A table constructor: NEWTABLE, then the record fields with SETTABLE and the array items in
+    /// consecutive registers flushed with SETLIST.
+    ///
+    /// The sizes go into NEWTABLE's operands only at the end, once both are counted, so the
+    /// instruction is emitted blank and patched - which is what the reference does, and the reason
+    /// it can be done at all is that the operands are not needed until the table is built.
+    /// </summary>
+    private Exp CompileTable(LuaTableExpr table)
+    {
+        int newTable = _state.EmitABC(LuaOpcode.NewTable, 0, 0, 0);
+        var constructed = new Exp { Kind = ExpKind.Relocatable, Info = newTable };
+        // Fixed at the top of the stack straight away: the collector can run during the
+        // constructor, and the table has to be reachable from a register while it is being filled.
+        ExpressionToNextRegister(ref constructed);
+        int register = constructed.Info;
+
+        int arrayCount = 0, recordCount = 0, pending = 0;
+        Exp? heldItem = null;
+
+        foreach (var item in table.Items)
+        {
+            // closelistfield: the item read last goes to its register now, and a full batch is
+            // flushed before another one starts.
+            if (heldItem is { } held)
+            {
+                var value = held;
+                ExpressionToNextRegister(ref value);
+                heldItem = null;
+                if (pending == FieldsPerFlush)
+                {
+                    EmitSetList(register, arrayCount, pending);
+                    pending = 0;
+                }
+            }
+
+            if (item.Key is { } key)
+            {
+                // recfield. The registers it borrows are given back afterwards, so a constructor of
+                // record fields does not grow the stack with every entry.
+                int mark = _state.FreeRegister;
+                var keyExp = CompileExpression(key);
+                int keyRk = ExpressionToRk(ref keyExp);
+                recordCount++;
+                var valueExp = CompileExpression(item.Value);
+                int valueRk = ExpressionToRk(ref valueExp);
+                _state.EmitABC(LuaOpcode.SetTable, register, keyRk, valueRk);
+                _state.SetFreeRegister(mark);
+            }
+            else
+            {
+                // listfield: held rather than stored, because only the LAST one can turn out to be
+                // a call whose results all belong to the table.
+                heldItem = CompileExpression(item.Value);
+                arrayCount++;
+                pending++;
+            }
+        }
+
+        // lastlistfield
+        if (pending > 0)
+        {
+            if (heldItem is { } last && last.Kind == ExpKind.Call)
+            {
+                var open = last;
+                SetMultipleReturns(ref open);
+                EmitSetList(register, arrayCount, multipleReturns: true);
+                // The call's own results are not a known count, so it stops being one element.
+                arrayCount--;
+            }
+            else
+            {
+                if (heldItem is { } value)
+                {
+                    var stored = value;
+                    ExpressionToNextRegister(ref stored);
+                }
+                EmitSetList(register, arrayCount, pending);
+            }
+        }
+
+        _state.SetInstructionB(newTable, FloatingByte(arrayCount));
+        _state.SetInstructionC(newTable, BitLength(recordCount));
+        return new Exp { Kind = ExpKind.NonReloc, Info = register };
+    }
+
+    /// <summary>
+    /// Stores the pending array items. Bx counts every element placed so far, less one, which is
+    /// how one operand carries both which batch this is and how many it holds; the registers the
+    /// items occupied are released.
+    /// </summary>
+    private void EmitSetList(int register, int elements, int pending = 0, bool multipleReturns = false)
+    {
+        _state.EmitABx(multipleReturns ? LuaOpcode.SetListO : LuaOpcode.SetList,
+                       register, elements - 1);
+        _state.SetFreeRegister(register + 1);
+    }
+
+    /// <summary>
+    /// NEWTABLE's array-size operand: a three-bit mantissa with an exponent, rounding up to the
+    /// next representable size - Lua's luaO_int2fb.
+    ///
+    /// Read off the shipped chunks rather than from memory, because 5.0 and 5.1 differ: 8 encodes
+    /// as 12, 11 and 12 both as 14, 13 as 15, 18 and 19 both as 21, 26 as 23, and anything under 8
+    /// as itself. All 14 distinct counts in the corpus fit this and only this. Lua 5.1 raised the
+    /// loop's threshold to 16, which would give 8 for 8 and 17 for 18.
+    /// </summary>
+    private static int FloatingByte(int size)
+    {
+        int exponent = 0;
+        while (size >= 8)
+        {
+            size = (size + 1) >> 1;
+            exponent++;
+        }
+        return (exponent << 3) | size;
+    }
+
+    /// <summary>
+    /// NEWTABLE's record-size operand, which is NOT the same encoding: it is the number of bits the
+    /// count needs - luaO_log2 plus one. 5 and 6 both give 3, 2 gives 2, 1 gives 1.
+    /// </summary>
+    private static int BitLength(int size)
+    {
+        int bits = 0;
+        while (size > 0)
+        {
+            size >>= 1;
+            bits++;
+        }
+        return bits;
     }
 
     /// <summary>Lua 5.0's arithmetic and concatenation opcodes. There is no modulo or integer
@@ -719,8 +857,19 @@ public sealed class LuaCompiler
                 int receiverRegister = ExpressionToAnyRegister(ref receiver);
                 _state.SetFreeRegister(baseRegister);
                 _state.ReserveRegisters(2);
-                _state.EmitABC(LuaOpcode.Self, baseRegister, receiverRegister,
-                               LuaInstructionLayout.EncodeConstant(_state.AddStringConstant(method.Method)));
+                // The method name goes through the same RK choice as any other operand instead of
+                // being assumed to fit as a constant. Past index 261 it does not, and the reference
+                // loads it into a register first - which is what `obj:get_first()` needs in a chunk
+                // with 391 constants. Encoding it as a constant regardless overflowed C and
+                // produced two unrelated register numbers.
+                var methodName = new Exp
+                {
+                    Kind = ExpKind.Constant,
+                    Info = _state.AddStringConstant(method.Method),
+                };
+                int nameRk = ExpressionToRk(ref methodName);
+                _state.EmitABC(LuaOpcode.Self, baseRegister, receiverRegister, nameRk);
+                FreeIfTemporary(ref methodName);
                 bool openMethodArguments = CompileArguments(method.Arguments);
                 callPc = _state.EmitABC(LuaOpcode.Call, baseRegister,
                                         openMethodArguments ? 0 : method.Arguments.Count + 2,
