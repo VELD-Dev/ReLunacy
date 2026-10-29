@@ -1,6 +1,5 @@
-using System.Buffers;
 using LibreFios;
-using LibreFios.Structures;
+using ReLunacy.Engine.Packing;
 
 namespace ReLunacy.Engine.Scripting;
 
@@ -22,9 +21,13 @@ public sealed record LuaScriptSaveResult(
 /// Three things make this safe enough to point at a real game file. Nothing is written unless the
 /// source compiles, so a syntax error cannot leave a half-updated archive. The rebuilt archive is
 /// verified in full before it replaces anything - every entry read back and compared, which takes
-/// about three seconds for a 222MB archive, so there is no reason to check less. And the original
-/// is copied aside the first time, once, so the backup is always the pristine file rather than the
+/// seconds even for a 222MB archive, so there is no reason to check less. And the original is
+/// copied aside the first time, once, so the backup is always the pristine file rather than the
 /// previous edit.
+///
+/// The writing itself goes through <see cref="PsarcPatcher"/> rather than LibreFios's builder, so
+/// that every file this edit does not touch keeps the exact bytes it shipped with. LibreFios stays
+/// a read-only dependency.
 /// </summary>
 public static class LuaScriptPackWriter
 {
@@ -58,10 +61,6 @@ public static class LuaScriptPackWriter
         string temporaryPath = archivePath + ".new";
         var expected = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         int originalCount;
-        byte[] originalManifest;
-        int blockSize;
-        PSARCCompressionType compression;
-        PSARCArchiveFlags flags;
 
         try
         {
@@ -78,12 +77,8 @@ public static class LuaScriptPackWriter
                       + "table of contents updated, which this does not do yet");
 
                 originalCount = archive.FileEntries.Count;
-                blockSize = archive.BlockSize;
-                compression = archive.CompressionType;
-                flags = archive.ArchiveFlags;
-                using (var manifest = archive.OpenManifest()) originalManifest = manifest.Data.ToArray();
 
-                // What the rebuilt archive has to contain, with the two edited entries swapped in.
+                // What the patched archive has to contain, with the two edited entries swapped in.
                 foreach (string path in archive.Manifest.Keys)
                 {
                     using var buffer = archive.OpenFile(path);
@@ -91,20 +86,16 @@ public static class LuaScriptPackWriter
                 }
                 expected[scriptPath] = sourceBytes;
                 expected[compiledPath] = compiledBytes;
-
-                using var builder = new PSARCBuilder(archive);
-                builder.AddFile(scriptPath, Wrap(sourceBytes));
-                builder.AddFile(compiledPath, Wrap(compiledBytes));
-
-                using var output = File.Create(temporaryPath);
-                // Everything structural comes from the original: a rebuilt archive that re-derives
-                // its block size or regenerates its manifest is a different archive.
-                builder.Build(output, archive.Version, compression, flags, blockSize, originalManifest);
             }
 
+            PsarcPatcher.Patch(archivePath, temporaryPath, new Dictionary<string, byte[]>
+            {
+                [scriptPath] = sourceBytes,
+                [compiledPath] = compiledBytes,
+            });
+
             // 2. Verify before anything irreversible happens.
-            var problems = Verify(temporaryPath, expected, originalCount, originalManifest,
-                                  blockSize, compression, flags);
+            var problems = Verify(temporaryPath, expected, originalCount);
             if (problems.Count > 0)
             {
                 File.Delete(temporaryPath);
@@ -140,24 +131,13 @@ public static class LuaScriptPackWriter
     /// a mis-sized block table corrupts everything after it rather than one file.
     /// </summary>
     private static List<string> Verify(
-        string path, Dictionary<string, byte[]> expected, int originalCount, byte[] originalManifest,
-        int blockSize, PSARCCompressionType compression, PSARCArchiveFlags flags)
+        string path, Dictionary<string, byte[]> expected, int originalCount)
     {
         var problems = new List<string>();
         using var rebuilt = new PSARC(File.OpenRead(path));
 
         if (rebuilt.FileEntries.Count != originalCount)
             problems.Add($"entry count changed: {rebuilt.FileEntries.Count} instead of {originalCount}");
-        if (rebuilt.BlockSize != blockSize)
-            problems.Add($"block size changed: 0x{rebuilt.BlockSize:X} instead of 0x{blockSize:X}");
-        if (rebuilt.CompressionType != compression)
-            problems.Add($"compression changed: {rebuilt.CompressionType} instead of {compression}");
-        if (rebuilt.ArchiveFlags != flags)
-            problems.Add($"archive flags changed: 0x{(uint)rebuilt.ArchiveFlags:X} instead of 0x{(uint)flags:X}");
-
-        using (var manifest = rebuilt.OpenManifest())
-            if (!manifest.Data.SequenceEqual(originalManifest))
-                problems.Add($"manifest changed: {manifest.Length} bytes instead of {originalManifest.Length}");
 
         int differing = 0;
         foreach (var (entryPath, contents) in expected)
@@ -171,12 +151,5 @@ public static class LuaScriptPackWriter
         if (differing > 3) problems.Add($"...and {differing - 3} more entries differ");
 
         return problems;
-    }
-
-    private static PSARCMemoryBuffer Wrap(byte[] bytes)
-    {
-        var owner = MemoryPool<byte>.Shared.Rent(bytes.Length);
-        bytes.CopyTo(owner.Memory.Span);
-        return new PSARCMemoryBuffer(owner, bytes.Length);
     }
 }
