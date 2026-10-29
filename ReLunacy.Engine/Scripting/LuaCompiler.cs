@@ -23,6 +23,15 @@ public readonly record struct LuaCompileError(string Message, LuaSpan Span)
 public sealed class LuaCompiler
 {
     private readonly List<LuaCompileError> _errors = [];
+
+    /// <summary>
+    /// The jumps each enclosing loop's <c>break</c> statements have produced, innermost last.
+    ///
+    /// A break cannot be resolved where it is written - the loop's end is not known yet - so it
+    /// joins a list the loop patches to just past itself on the way out, which is what
+    /// breakstat and leaveblock do between them.
+    /// </summary>
+    private readonly List<List<int>> _breakLists = [];
     private LuaFunctionState _state = null!;
 
     public IReadOnlyList<LuaCompileError> Errors => _errors;
@@ -120,8 +129,21 @@ public sealed class LuaCompiler
                 CompileLocalFunction(declaration);
                 break;
 
+            case LuaNumericForStat numericFor:
+                CompileNumericFor(numericFor);
+                break;
+
+            case LuaGenericForStat genericFor:
+                CompileGenericFor(genericFor);
+                break;
+
             case LuaIfStat ifStat:
                 CompileIf(ifStat);
+                break;
+
+            case LuaBreakStat breakStat:
+                if (_breakLists.Count == 0) Unsupported("break outside a loop", breakStat.Span);
+                else _breakLists[^1].AddRange(_state.EmitJump());
                 break;
 
             case LuaWhileStat whileStat:
@@ -142,27 +164,7 @@ public sealed class LuaCompiler
     {
         // Values are evaluated before the names come into scope, which is what makes
         // `local x = x` read the outer x.
-        foreach (var value in local.Values)
-        {
-            var expression = CompileExpression(value);
-            ExpressionToNextRegister(ref expression);
-        }
-
-        // Too few values: the remaining names are nil, loaded as ONE range rather than one
-        // instruction each - adjust_assign calls luaK_nil once with the whole count, which also
-        // lets it merge with a LOADNIL the previous statement left behind. Two `local` statements
-        // with no value in a row are one LOADNIL in the reference.
-        int missing = local.Names.Count - local.Values.Count;
-        if (missing > 0)
-        {
-            int register = _state.FreeRegister;
-            _state.ReserveRegisters(missing);
-            _state.LoadNil(register, missing);
-        }
-        // Too many values: the extras were still evaluated, and their registers are dropped.
-        if (local.Values.Count > local.Names.Count)
-            _state.SetFreeRegister(_state.FreeRegister - (local.Values.Count - local.Names.Count));
-
+        AdjustAssign(local.Names.Count, local.Values);
         foreach (var name in local.Names) _state.DeclareLocal(name.Name);
     }
 
@@ -170,7 +172,7 @@ public sealed class LuaCompiler
     {
         if (assign.Targets.Count != 1 || assign.Values.Count != 1)
         {
-            Unsupported("multiple assignment", assign.Span);
+            CompileMultipleAssign(assign);
             return;
         }
 
@@ -186,6 +188,168 @@ public sealed class LuaCompiler
         var value = CompileExpression(assign.Values[0]);
         StoreVariable(target, ref value, assign.Span);
     }
+
+    /// <summary>
+    /// <c>a, b, c = f(x)</c>. All the targets are resolved left to right, then the values, and the
+    /// stores happen in REVERSE - each taking the register at the top of the stack - because that
+    /// is the order assignment()'s recursion unwinds in. The reference shows it plainly: three
+    /// results land in consecutive registers and are moved out highest-first.
+    /// </summary>
+    private void CompileMultipleAssign(LuaAssignStat assign)
+    {
+        var targets = assign.Targets.Select(CompileExpression).ToList();
+        AdjustAssign(targets.Count, assign.Values);
+
+        for (int i = targets.Count - 1; i >= 0; i--)
+        {
+            var value = new Exp { Kind = ExpKind.NonReloc, Info = _state.FreeRegister - 1 };
+            StoreVariable(targets[i], ref value, assign.Span);
+        }
+    }
+    /// <summary>Resolves the innermost loop's break jumps to just past it - leaveblock.</summary>
+    private void CloseLoop()
+    {
+        var breaks = _breakLists[^1];
+        _breakLists.RemoveAt(_breakLists.Count - 1);
+        _state.PatchToHere(breaks);
+    }
+
+    /// <summary>
+    /// Spreads a value list across a known number of targets - adjust_assign.
+    ///
+    /// Shared by local declarations, multiple assignment and the generic for's iterator triple,
+    /// because all three have to reconcile a count of names with a count of expressions. A call in
+    /// last place supplies however many are left over; otherwise the shortfall is nil.
+    /// </summary>
+    private void AdjustAssign(int wantedCount, List<LuaExpr> values)
+    {
+        var last = default(Exp);
+        bool haveLast = false;
+        for (int i = 0; i < values.Count; i++)
+        {
+            var value = CompileExpression(values[i]);
+            if (i == values.Count - 1) { last = value; haveLast = true; }
+            else ExpressionToNextRegister(ref value);
+        }
+
+        int extra = wantedCount - values.Count;
+        if (haveLast && last.Kind == ExpKind.Call)
+        {
+            // The call itself counts as one of the values it provides, which is why this is one
+            // more than the shortfall.
+            int wanted = Math.Max(0, extra + 1);
+            _state.SetInstructionC(last.Info, wanted + 1);
+            if (wanted > 1) _state.ReserveRegisters(wanted - 1);
+            return;
+        }
+
+        if (haveLast) ExpressionToNextRegister(ref last);
+        if (extra > 0)
+        {
+            // One LOADNIL over the whole shortfall, not one each - and it merges with a LOADNIL the
+            // previous statement left behind.
+            int register = _state.FreeRegister;
+            _state.ReserveRegisters(extra);
+            _state.LoadNil(register, extra);
+        }
+        else if (extra < 0)
+        {
+            // More values than names: they were still evaluated, and their registers are dropped.
+            _state.SetFreeRegister(_state.FreeRegister + extra);
+        }
+    }
+
+    /// <summary>
+    /// <c>for i = a, b [, step] do</c>.
+    ///
+    /// Three registers: the index, the limit and the step. In Lua 5.0 the loop variable IS the
+    /// index register - the separate external copy arrived with 5.1 - and there is no FORPREP
+    /// either, so the prologue subtracts the step by hand. FORLOOP adds it back before testing,
+    /// which is why the index has to start one step behind.
+    /// </summary>
+    private void CompileNumericFor(LuaNumericForStat loop)
+    {
+        _breakLists.Add([]);
+        int baseRegister = _state.FreeRegister;
+
+        var start = CompileExpression(loop.Start);
+        ExpressionToNextRegister(ref start);
+        var limit = CompileExpression(loop.Limit);
+        ExpressionToNextRegister(ref limit);
+        if (loop.Step is { } declaredStep)
+        {
+            var step = CompileExpression(declaredStep);
+            ExpressionToNextRegister(ref step);
+        }
+        else
+        {
+            // The default step is a real constant 1, interned like any other - so `for i = 1, 19`
+            // has ONE constant serving both the initial value and the step.
+            _state.EmitABx(LuaOpcode.LoadK, _state.FreeRegister, _state.AddNumberConstant(1));
+            _state.ReserveRegisters(1);
+        }
+
+        _state.EmitABC(LuaOpcode.Sub, baseRegister, baseRegister, baseRegister + 2);
+
+        // The names come into scope only now: the bounds are evaluated outside the loop, so
+        // `for i = i, 10` reads the enclosing i.
+        int localMark = _state.ActiveLocalCount;
+        _state.DeclareLocal(loop.Variable.Name);
+        _state.DeclareLocal("(for limit)");
+        _state.DeclareLocal("(for step)");
+
+        var prep = _state.EmitJump();
+        _state.MarkLabel();
+        int bodyStart = _state.InstructionCount;
+        CompileBlock(loop.Body);
+
+        // The prep jump lands on FORLOOP, which carries the backward jump itself.
+        _state.PatchToHere(prep);
+        int forLoop = _state.EmitAsBx(LuaOpcode.ForLoop, baseRegister, 0);
+        _state.PatchTo([forLoop], bodyStart);
+
+        _state.RemoveLocalsAfter(localMark);
+        CloseLoop();
+    }
+
+    /// <summary>
+    /// <c>for a, b in f(x) do</c>.
+    ///
+    /// Two hidden registers hold the iterator and its state, and the named variables follow,
+    /// receiving the iterator's results each round. TFORLOOP does the calling and the nil test but
+    /// not the branch, so it is followed by a jump back to the body that it skips to leave the
+    /// loop; TFORPREP at the top jumps straight to it.
+    /// </summary>
+    private void CompileGenericFor(LuaGenericForStat loop)
+    {
+        _breakLists.Add([]);
+        int baseRegister = _state.FreeRegister;
+
+        // The iterator triple is produced before any name is in scope.
+        AdjustAssign(2 + loop.Names.Count, loop.Expressions);
+
+        int localMark = _state.ActiveLocalCount;
+        _state.DeclareLocal("(for generator)");
+        _state.DeclareLocal("(for state)");
+        foreach (var name in loop.Names) _state.DeclareLocal(name.Name);
+        // Room for TFORLOOP to set up the call to the generator.
+        _state.CheckStack(3);
+
+        var prep = new List<int> { _state.EmitAsBx(LuaOpcode.TForPrep, baseRegister, 0) };
+        _state.MarkLabel();
+        int bodyStart = _state.InstructionCount;
+        CompileBlock(loop.Body);
+
+        _state.PatchToHere(prep);
+        // C is one less than the number of named variables: TFORLOOP asks the generator for C+1
+        // results.
+        _state.EmitABC(LuaOpcode.TForLoop, baseRegister, 0, loop.Names.Count - 1);
+        _state.PatchTo(_state.EmitJump(), bodyStart);
+
+        _state.RemoveLocalsAfter(localMark);
+        CloseLoop();
+    }
+
     /// <summary>
     /// Resolves a name to a local, an upvalue or a global - singlevaraux.
     ///
@@ -716,7 +880,11 @@ public sealed class LuaCompiler
                 int mark = _state.FreeRegister;
                 var keyExp = CompileExpression(key);
                 int keyRk = ExpressionToRk(ref keyExp);
-                recordCount++;
+                // Only a NAME key counts towards the size hint. recfield increments nh inside the
+                // NAME branch and not the `[expr]` one, so `{ a = 1 }` asks for room while
+                // `{ ['a'] = 1 }` asks for none - a table of 20 bracketed keys really does get
+                // NEWTABLE 0 0 in the reference.
+                if (item.KeyIsName) recordCount++;
                 var valueExp = CompileExpression(item.Value);
                 int valueRk = ExpressionToRk(ref valueExp);
                 _state.EmitABC(LuaOpcode.SetTable, register, keyRk, valueRk);
@@ -1267,6 +1435,7 @@ public sealed class LuaCompiler
     /// </summary>
     private void CompileWhile(LuaWhileStat whileStat)
     {
+        _breakLists.Add([]);
         var entryJump = _state.EmitJump();
 
         // The condition is generated FIRST and then lifted out, as whilestat does. Its code belongs
@@ -1297,8 +1466,10 @@ public sealed class LuaCompiler
         var relocatedExit = exitJumps.Select(Relocate).ToList();
         foreach (uint instruction in conditionCode) _state.Emit(instruction);
         _state.PatchTo(relocatedBack, bodyStart);
-        // The short circuits mean the condition failed, so they leave the loop.
+        // The short circuits mean the condition failed, so they leave the loop - and so does any
+        // break, which lands in the same place.
         _state.PatchToHere(relocatedExit);
+        CloseLoop();
     }
 
     /// <summary>
