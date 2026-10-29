@@ -135,6 +135,16 @@ public sealed class LuaScriptBrowser
     }
 
     /// <summary>
+    /// The archive the scripts came from, so the editor can write one back into it. Null until a
+    /// level is loaded and the archive has been found.
+    /// </summary>
+    public string? ArchivePath()
+    {
+        EnsureArchive();
+        return _archive is null ? null : _archivePath;
+    }
+
+    /// <summary>
     /// The level's own scripts and the global game scripts, indexed for their declarations.
     ///
     /// Both groups count: these games load a level's scripts into one shared global table, so a

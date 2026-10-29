@@ -27,6 +27,10 @@ public sealed class LuaEditorView
     private string? _status;
     private bool _modified;
 
+    /// <summary>Why an install was refused, shown under the status line so a compile error is
+    /// readable rather than summarised away.</summary>
+    private IReadOnlyList<string> _installProblems = [];
+
     /// <summary>Scope analysis of the current text, refreshed when it changes. F2 and completion
     /// read this; it is recomputed lazily so typing does not reparse on every keystroke.</summary>
     private LuaScopeAnalysis? _scopes;
@@ -42,6 +46,16 @@ public sealed class LuaEditorView
     /// so the editor does not need to know an archive exists.
     /// </summary>
     public Func<LuaScriptIndex?>? SharedScripts { get; set; }
+
+    /// <summary>
+    /// The archive a script came from, for writing one back. A hook for the same reason as
+    /// <see cref="SharedScripts"/>: the editor does not need to know how an archive is found.
+    /// </summary>
+    public Func<string?>? ArchivePath { get; set; }
+
+    /// <summary>Whether the archive holds this path, which is to say the script came from one
+    /// rather than from the filesystem.</summary>
+    private bool CameFromArchive => _path.StartsWith('/');
 
     public string Path => _path;
     public TextDocument Document => _editor.Document;
@@ -235,7 +249,7 @@ public sealed class LuaEditorView
         {
             if (File.Exists(_path))
             {
-                Load(File.ReadAllText(_path), _path);
+                Load(LuaText.ReadFile(_path), _path);
                 _status = string.Format(LM.Get("GUI_LuaEnv_Opened"), Document.LineCount);
             }
             else _status = string.Format(LM.Get("GUI_LuaEnv_NoFile"), _path);
@@ -245,12 +259,36 @@ public sealed class LuaEditorView
         {
             try
             {
-                File.WriteAllText(_path, Document.GetText());
+                // Written as bytes, not as text: a script may hold bytes that are not valid UTF-8 -
+                // 28 of the shipped ones do - and re-encoding them changes the file.
+                File.WriteAllBytes(_path, LuaText.ToBytes(Document.GetText()));
                 _modified = false;
                 _status = string.Format(LM.Get("GUI_LuaEnv_Saved"), _path);
             }
             catch (Exception e) { _status = e.Message; }
         }
+
+        // Writing into the game is deliberately a separate action from saving a file, and only
+        // offered for a script that came out of the archive in the first place.
+        ImGui.SameLine();
+        string? archivePath = ArchivePath?.Invoke();
+        ImGui.BeginDisabled(archivePath is null || !CameFromArchive);
+        if (ImGui.Button(LM.Get("GUI_LuaEnv_Install")) && archivePath is not null)
+        {
+            var result = LuaScriptPackWriter.Save(archivePath, _path, Document.GetText());
+            _installProblems = result.Problems;
+            if (result.Succeeded)
+            {
+                _modified = false;
+                _status = result.BackupPath is { } backup
+                    ? string.Format(LM.Get("GUI_LuaEnv_InstalledWithBackup"), result.Summary,
+                                    System.IO.Path.GetFileName(backup))
+                    : result.Summary;
+            }
+            else _status = result.Summary;
+        }
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_InstallHelp"));
 
         // Both feed the highlighter: the theme decides the colours, the API decides which names are
         // functions or classes at all, so a newly documented global recolours without an edit.
@@ -279,6 +317,9 @@ public sealed class LuaEditorView
         }
 
         if (_status is { } s) { ImGui.SameLine(); ImGui.TextDisabled($"|  {s}"); }
+
+        foreach (string problem in _installProblems.Take(6))
+            ImGui.TextColored(new Vector4(0.9f, 0.5f, 0.4f, 1f), problem);
 
         _editor.Draw("lua_editor", new Vector2(0f, -ImGui.GetFrameHeightWithSpacing()), deltaTime);
 

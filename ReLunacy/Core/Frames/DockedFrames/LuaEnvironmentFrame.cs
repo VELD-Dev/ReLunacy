@@ -42,6 +42,7 @@ public class LuaEnvironmentFrame : DockedFrame
         // any of them is callable from the file being edited. The browser already has the archive
         // open, so it is what indexes them.
         _editor.SharedScripts = _scripts.SharedScripts;
+        _editor.ArchivePath = _scripts.ArchivePath;
     }
 
     /// <summary>Opens source in the editor - how the PSARC browser will hand a script over.</summary>
