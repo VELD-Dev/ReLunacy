@@ -72,14 +72,26 @@ public sealed class LuaSearchBar
         }
     }
 
-    /// <summary>Goes to the next or previous hit, wrapping. Nothing to do with no hits, which is
-    /// better than jumping the caret to the top of the file.</summary>
+    /// <summary>
+    /// Goes to the next or previous hit, wrapping. Nothing to do with no hits, which is better than
+    /// jumping the caret to the top of the file.
+    ///
+    /// Stepping walks the LIST when the editor is still showing the hit this bar put there, and
+    /// only searches from the caret when it is not. Searching from the caret both ways does not
+    /// work: revealing a hit leaves the caret at its end, and "the last hit ending at or before the
+    /// caret" is then that same hit - so going back never moved.
+    /// </summary>
     public void Step(CodeEditorControl editor, bool forward)
     {
         Sync(editor);
         if (_matches.Count == 0) { _current = -1; return; }
 
-        _current = TextSearch.Nearest(_matches, editor.Caret, forward);
+        bool showingCurrent = _current >= 0 && _current < _matches.Count
+                           && editor.Caret == _matches[_current].End;
+        _current = showingCurrent
+            ? (_current + (forward ? 1 : -1) + _matches.Count) % _matches.Count
+            : TextSearch.Nearest(_matches, editor.Caret, forward);
+
         editor.Reveal(_matches[_current]);
     }
 

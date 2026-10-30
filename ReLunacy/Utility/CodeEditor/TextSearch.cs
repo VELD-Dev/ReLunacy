@@ -47,6 +47,11 @@ public static class TextSearch
     /// Forwards takes the first match that STARTS after the position, so pressing next from inside
     /// a hit moves on rather than finding the same one again. Backwards takes the last that ends at
     /// or before it, by the same reasoning. -1 when there are no matches at all.
+    ///
+    /// Note what this means for a caret sitting at a hit's end, which is where revealing one leaves
+    /// it: backwards returns that hit. That is the right answer to the question asked here - it IS
+    /// the nearest hit behind the caret - and the wrong behaviour for a "previous" button, so
+    /// walking the hits is the caller's job rather than this one's.
     /// </summary>
     public static int Nearest(List<TextRange> matches, TextPosition from, bool forward)
     {
