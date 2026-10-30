@@ -55,6 +55,20 @@ public sealed class LuaEditorTheme
     public string LineNumber { get; set; } = "#858585";
     public string LineNumberCurrent { get; set; } = "#C6C6C6";
 
+    // --- decoration: backgrounds that follow the caret rather than the text --------------------
+    // Semi-transparent on purpose. These paint UNDER the glyphs and can land on top of one
+    // another - a name under the caret inside a bracket pair gets both - so an opaque colour would
+    // hide whichever was drawn first and change the text's contrast as the caret moves.
+    /// <summary>The innermost pair of brackets or quotes the caret is inside.</summary>
+    public string MatchingDelimiter { get; set; } = "#60569CD6";
+    /// <summary>The snippet stop being filled in.</summary>
+    public string SnippetStop { get; set; } = "#70C08A3E";
+    /// <summary>The name the caret is on.</summary>
+    public string CaretWord { get; set; } = "#50646464";
+    /// <summary>That name's other mentions, deliberately fainter: they are context, not the thing
+    /// being edited.</summary>
+    public string Occurrence { get; set; } = "#404E9A6B";
+
     /// <summary>
     /// Every editable colour: which role it paints, how to show it, and how to read and write it.
     ///
@@ -110,6 +124,20 @@ public sealed class LuaEditorTheme
         new(LuaEditorThemeRole.LineNumberCurrent, LuaEditorThemeGroup.Chrome,
             nameof(LineNumberCurrent), "Current line number", "The gutter, on the caret's line",
             t => t.LineNumberCurrent, (t, v) => t.LineNumberCurrent = v),
+
+        new(LuaEditorThemeRole.MatchingDelimiter, LuaEditorThemeGroup.Decoration,
+            nameof(MatchingDelimiter), "Enclosing pair",
+            "The innermost brackets or quotes around the caret",
+            t => t.MatchingDelimiter, (t, v) => t.MatchingDelimiter = v),
+        new(LuaEditorThemeRole.SnippetStop, LuaEditorThemeGroup.Decoration, nameof(SnippetStop),
+            "Snippet stop", "The placeholder being filled in",
+            t => t.SnippetStop, (t, v) => t.SnippetStop = v),
+        new(LuaEditorThemeRole.CaretWord, LuaEditorThemeGroup.Decoration, nameof(CaretWord),
+            "Name under caret", "The name the caret is on",
+            t => t.CaretWord, (t, v) => t.CaretWord = v),
+        new(LuaEditorThemeRole.Occurrence, LuaEditorThemeGroup.Decoration, nameof(Occurrence),
+            "Other mentions", "Where else that same binding is mentioned",
+            t => t.Occurrence, (t, v) => t.Occurrence = v),
     ];
 
     /// <summary>Packed ImGui colours by role, resolved once per load rather than per glyph.</summary>
@@ -135,10 +163,21 @@ public sealed class LuaEditorTheme
     [JsonIgnore] public uint CurrentLineColour => ColourFor(LuaEditorThemeRole.CurrentLine);
     [JsonIgnore] public uint LineNumberColour => ColourFor(LuaEditorThemeRole.LineNumber);
     [JsonIgnore] public uint LineNumberCurrentColour => ColourFor(LuaEditorThemeRole.LineNumberCurrent);
+    [JsonIgnore] public uint MatchingDelimiterColour => ColourFor(LuaEditorThemeRole.MatchingDelimiter);
+    [JsonIgnore] public uint SnippetStopColour => ColourFor(LuaEditorThemeRole.SnippetStop);
+    [JsonIgnore] public uint CaretWordColour => ColourFor(LuaEditorThemeRole.CaretWord);
+    [JsonIgnore] public uint OccurrenceColour => ColourFor(LuaEditorThemeRole.Occurrence);
 
     /// <summary>Problems found while loading, so a mistyped colour is reported rather than silently
     /// becoming magenta.</summary>
     [JsonIgnore] public List<string> Problems { get; } = [];
+
+    /// <summary>
+    /// Bumped every time the colours are resolved, so anything holding a packed colour can tell
+    /// that it is stale. The theme editor edits this very instance to preview live, which means a
+    /// cache keyed only on the text and the caret would keep showing the colour before the drag.
+    /// </summary>
+    [JsonIgnore] public int Revision { get; private set; }
 
     /// <summary>
     /// Converts every string to its packed form. Must be called after deserialising, and again
@@ -149,6 +188,7 @@ public sealed class LuaEditorTheme
     {
         Problems.Clear();
         foreach (var slot in Slots) _packed[(int)slot.Role] = Pack(slot.Get(this), slot.Key);
+        Revision++;
         return this;
     }
 
@@ -234,7 +274,7 @@ public sealed record LuaEditorThemeSlot(
     Action<LuaEditorTheme, string> Set);
 
 /// <summary>How a colour is decided, which is also how the theme editor groups its rows.</summary>
-public enum LuaEditorThemeGroup { Lexical, Semantic, Chrome }
+public enum LuaEditorThemeGroup { Lexical, Semantic, Chrome, Decoration }
 
 /// <summary>What a run of text is, for colouring. Lexical roles come from the lexer; the semantic
 /// ones need scope resolution and the documented API; the rest paint the editor itself.</summary>
@@ -244,4 +284,5 @@ public enum LuaEditorThemeRole
     Keyword, String, Number, Comment, Operator, Error,
     Function, Method, Class, Field, Local, Parameter, LoopVariable, GlobalUndocumented,
     Caret, Selection, CurrentLine, LineNumber, LineNumberCurrent,
+    MatchingDelimiter, SnippetStop, CaretWord, Occurrence,
 }

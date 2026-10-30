@@ -107,6 +107,17 @@ public sealed class LuaSnippetSession
     /// <summary>Which stop the caret is on, and how many there are - for a status line.</summary>
     public (int Index, int Count) Progress => (_current + 1, _markerIndices.Count);
 
+    /// <summary>
+    /// Where the stop being filled in is, or null once the session is over.
+    ///
+    /// Read from the marker rather than remembered, so it is still right after the text around it
+    /// has been edited - which is the normal case, since filling in a stop is editing.
+    /// </summary>
+    public TextPosition? CurrentStop =>
+        IsActive && _current < _markerIndices.Count
+            ? _document.Clamp(_document.Markers[_markerIndices[_current]])
+            : null;
+
     private LuaSnippetSession(TextDocument document, List<int> markerIndices)
     {
         _document = document;

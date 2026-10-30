@@ -82,6 +82,30 @@ public sealed class LuaEditorView
         // Enter indents into a block it is opening. The decision needs the lexer, so it lives in the
         // Lua layer rather than in the control.
         _editor.OpensScope = caret => LuaIndentRules.OpensScope(_editor.Document.GetText(), caret);
+        _editor.Backgrounds = Decorations;
+    }
+
+    /// <summary>
+    /// What to paint behind the text, recomputed only when something it depends on moved.
+    ///
+    /// Finding the enclosing pair lexes the whole file, and the biggest shipped script is 211KB, so
+    /// this cannot run per frame. The theme's revision is part of the key because the theme editor
+    /// previews by editing the live instance: keyed on the text and the caret alone, a colour drag
+    /// would not show until the caret moved.
+    /// </summary>
+    private List<TextHighlight> _decorations = [];
+    private (int Version, TextPosition Caret, TextPosition? Stop, int Theme) _decoratedFor = (-1, default, null, -1);
+
+    private IReadOnlyList<TextHighlight> Decorations()
+    {
+        var stop = _snippet?.CurrentStop;
+        var key = (_editor.Document.Version, _editor.Caret, stop, Theme().Revision);
+        if (_decoratedFor == key) return _decorations;
+
+        _decorations = LuaEditorDecorations.Build(
+            _editor.Document, _editor.Caret, Theme(), stop, Scopes());
+        _decoratedFor = key;
+        return _decorations;
     }
 
     /// <summary>

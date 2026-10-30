@@ -6,6 +6,18 @@ namespace ReLunacy.Utility.CodeEditor;
 public readonly record struct TextSpan(int Start, int Length, uint Colour);
 
 /// <summary>
+/// A background-coloured region of one line, in character indices.
+///
+/// Separate from <see cref="TextSpan"/> because the two answer different questions and change at
+/// different rates: a span is what a stretch of text IS, decided by the lexer and cached per line,
+/// while a highlight is what is going on around the caret right now - the pair of brackets it sits
+/// inside, the snippet stop it is filling in, the other mentions of the name it is on. Those move
+/// every time the caret does, and overlap each other, which a single foreground colour per
+/// character cannot express.
+/// </summary>
+public readonly record struct TextHighlight(int Line, int Start, int Length, uint Colour);
+
+/// <summary>
 /// A code editor drawn on ImGui draw lists: its own caret, selection, mouse hit-testing, scrolling,
 /// keyboard handling and clipboard, with per-token colouring.
 ///
@@ -41,6 +53,16 @@ public sealed class CodeEditorControl
     /// Null draws everything in the default colour - which is how this ships before the Lua lexer
     /// lands, so the widget is testable on its own.</summary>
     public Func<int, string, IReadOnlyList<TextSpan>>? Highlighter { get; set; }
+
+    /// <summary>
+    /// Background decoration hook, asked once per frame for the whole document rather than per
+    /// line, because what it returns depends on the caret and not on any one line: the brackets
+    /// enclosing the caret are on two different lines, and a name's other mentions are anywhere.
+    ///
+    /// Called after input has been handled, so it sees the caret where this frame left it instead
+    /// of lagging a frame behind every keystroke.
+    /// </summary>
+    public Func<IReadOnlyList<TextHighlight>>? Backgrounds { get; set; }
 
     /// <summary>Where the caret is on screen, at its baseline bottom-left. Updated every frame the
     /// editor draws, not only when the caret is visible, so a popup anchored to it does not jump
@@ -213,6 +235,7 @@ public sealed class CodeEditorControl
                                new Vector2(origin.X + ImGui.GetWindowWidth(), y + lineHeight),
                                Theme.CurrentLineColour);
         }
+        DrawBackgrounds(draw, textOrigin, charWidth, lineHeight, firstLine, lastLine);
         DrawSelection(draw, textOrigin, charWidth, lineHeight, firstLine, lastLine);
         DrawText(draw, origin, textOrigin, charWidth, lineHeight, gutterWidth, firstLine, lastLine);
         if (_focused) DrawCaret(draw, textOrigin, charWidth, lineHeight);
@@ -294,21 +317,26 @@ public sealed class CodeEditorControl
         var io = ImGui.GetIO();
         bool ctrl = io.KeyCtrl, shift = io.KeyShift;
 
+        // Ctrl WITHOUT Alt is a command; Ctrl with Alt is AltGr producing a character. Shortcuts
+        // have to test for the former, or AltGr+Z fires undo on a Polish layout while also typing
+        // the character it was meant to produce.
+        bool command = ctrl && !io.KeyAlt && !io.KeySuper;
+
         if (InterceptKey is { } intercept)
             foreach (var key in Interceptable)
                 if (Pressed(key) && intercept(key))
                     return;
 
-        if (ctrl && Pressed(ImGuiKey.A)) { Anchor = default; MoveCaret(Document.End, keepAnchor: true); return; }
-        if (ctrl && Pressed(ImGuiKey.C)) { CopySelection(); return; }
-        if (ctrl && Pressed(ImGuiKey.X)) { CopySelection(); DeleteSelection(); return; }
-        if (ctrl && Pressed(ImGuiKey.V)) { Paste(); return; }
-        if (ctrl && Pressed(ImGuiKey.Z)) { ApplyHistory(Document.Undo()); return; }
-        if (ctrl && Pressed(ImGuiKey.Y)) { ApplyHistory(Document.Redo()); return; }
+        if (command && Pressed(ImGuiKey.A)) { Anchor = default; MoveCaret(Document.End, keepAnchor: true); return; }
+        if (command && Pressed(ImGuiKey.C)) { CopySelection(); return; }
+        if (command && Pressed(ImGuiKey.X)) { CopySelection(); DeleteSelection(); return; }
+        if (command && Pressed(ImGuiKey.V)) { Paste(); return; }
+        if (command && Pressed(ImGuiKey.Z)) { ApplyHistory(Document.Undo()); return; }
+        if (command && Pressed(ImGuiKey.Y)) { ApplyHistory(Document.Redo()); return; }
         if (Pressed(ImGuiKey.F2)) { RenameRequested?.Invoke(Caret, WordTextAt(Caret)); return; }
 
-        if (Pressed(ImGuiKey.LeftArrow)) { MoveHorizontal(-1, shift, ctrl); return; }
-        if (Pressed(ImGuiKey.RightArrow)) { MoveHorizontal(1, shift, ctrl); return; }
+        if (Pressed(ImGuiKey.LeftArrow)) { MoveHorizontal(-1, shift, command); return; }
+        if (Pressed(ImGuiKey.RightArrow)) { MoveHorizontal(1, shift, command); return; }
         if (Pressed(ImGuiKey.UpArrow)) { MoveVertical(-1, shift); return; }
         if (Pressed(ImGuiKey.DownArrow)) { MoveVertical(1, shift); return; }
         if (Pressed(ImGuiKey.PageUp)) { MoveVertical(-20, shift); return; }
@@ -327,8 +355,27 @@ public sealed class CodeEditorControl
         // keyboard layout work rather than mapping key codes to characters here. Read from the
         // controller rather than io.InputQueueCharacters: it is the same text one step earlier, and
         // it does not depend on reading back into ImGui's own vector.
-        foreach (char c in ImGuiController.TypedText) TypeCharacter(c);
+        //
+        // Suppressed under a command modifier, because the platform hands over the letter of a
+        // shortcut as text as well as a key: Ctrl+W typed a 'w', and any combination this editor
+        // does not handle typed its letter rather than doing nothing.
+        if (TypingAllowed(ctrl, io.KeyAlt, io.KeySuper))
+            foreach (char c in ImGuiController.TypedText) TypeCharacter(c);
     }
+
+    /// <summary>
+    /// Whether text the platform delivered should be typed, given the modifiers held with it.
+    ///
+    /// Ctrl means a shortcut, so its letter must not reach the document - EXCEPT with Alt, because
+    /// that is how AltGr arrives on Windows. On a French, German or Polish layout AltGr is the only
+    /// way to type <c>@ # { } [ ] \ | ~</c>, every one of which a Lua script needs, so treating
+    /// Ctrl+Alt as a shortcut would make the editor unusable on those keyboards. Super is a
+    /// shortcut everywhere and has no such double life.
+    ///
+    /// Separate from the ImGui call so the rule can be checked without a frame: it is a truth table
+    /// whose wrong answers are either a stray letter or a keyboard that cannot type braces.
+    /// </summary>
+    public static bool TypingAllowed(bool ctrl, bool alt, bool super) => (!ctrl || alt) && !super;
 
     /// <summary>
     /// Types one character, with the behaviour that depends on what surrounds the caret: a space
@@ -629,6 +676,34 @@ public sealed class CodeEditorControl
 
     private float VisualX(Vector2 textOrigin, float charWidth, int line, int column) =>
         textOrigin.X + Document.VisualColumn(line, column) * charWidth;
+
+    /// <summary>
+    /// Paints the decorations under the text. Drawn beneath the selection so that selecting over a
+    /// decorated region still reads as selected - the selection is the thing being acted on, and
+    /// has to win.
+    /// </summary>
+    private void DrawBackgrounds(ImDrawListPtr draw, Vector2 textOrigin, float charWidth,
+                                 float lineHeight, int firstLine, int lastLine)
+    {
+        if (Backgrounds?.Invoke() is not { Count: > 0 } highlights) return;
+
+        foreach (var highlight in highlights)
+        {
+            if (highlight.Line < firstLine || highlight.Line > lastLine) continue;
+            if (highlight.Line < 0 || highlight.Line >= Document.LineCount) continue;
+            if (highlight.Length < 0) continue;
+
+            int length = Document[highlight.Line].Length;
+            int from = Math.Clamp(highlight.Start, 0, length);
+            int to = Math.Clamp(highlight.Start + highlight.Length, from, length);
+            float x0 = VisualX(textOrigin, charWidth, highlight.Line, from);
+            // An empty region at the end of a line - an unfilled snippet stop, typically - still
+            // needs to be visible, so it is drawn a character wide rather than not at all.
+            float x1 = to > from ? VisualX(textOrigin, charWidth, highlight.Line, to) : x0 + charWidth;
+            float y = textOrigin.Y + highlight.Line * lineHeight;
+            draw.AddRectFilled(new Vector2(x0, y), new Vector2(x1, y + lineHeight), highlight.Colour);
+        }
+    }
 
     private void DrawSelection(ImDrawListPtr draw, Vector2 textOrigin, float charWidth, float lineHeight,
                                int firstLine, int lastLine)

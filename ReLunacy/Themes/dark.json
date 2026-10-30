@@ -19,5 +19,9 @@
   "Selection": "#264F78",
   "CurrentLine": "#2A2D2E",
   "LineNumber": "#858585",
-  "LineNumberCurrent": "#C6C6C6"
+  "LineNumberCurrent": "#C6C6C6",
+  "MatchingDelimiter": "#60569CD6",
+  "SnippetStop": "#70C08A3E",
+  "CaretWord": "#50646464",
+  "Occurrence": "#404E9A6B"
 }

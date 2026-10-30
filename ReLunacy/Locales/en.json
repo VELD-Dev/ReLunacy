@@ -207,6 +207,7 @@
         "GUI_LuaEnv_ThemeLexical": "Lexical (from the lexer)",
         "GUI_LuaEnv_ThemeSemantic": "Semantic (from scope and docs)",
         "GUI_LuaEnv_ThemeChrome": "Editor chrome",
+        "GUI_LuaEnv_ThemeDecoration": "Caret decorations",
         "GUI_LuaEnv_ThemeSave": "Save",
         "GUI_LuaEnv_ThemeSaveAs": "Save as",
         "GUI_LuaEnv_ThemeSaveAsName": "New name",

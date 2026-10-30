@@ -85,6 +85,7 @@ public sealed class LuaThemeEditorView
             DrawGroup(theme, LuaEditorThemeGroup.Lexical, LM.Get("GUI_LuaEnv_ThemeLexical"));
             DrawGroup(theme, LuaEditorThemeGroup.Semantic, LM.Get("GUI_LuaEnv_ThemeSemantic"));
             DrawGroup(theme, LuaEditorThemeGroup.Chrome, LM.Get("GUI_LuaEnv_ThemeChrome"));
+            DrawGroup(theme, LuaEditorThemeGroup.Decoration, LM.Get("GUI_LuaEnv_ThemeDecoration"));
         }
         ImGui.EndChild();
 
