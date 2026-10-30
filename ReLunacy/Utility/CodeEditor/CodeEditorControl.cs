@@ -389,7 +389,7 @@ public sealed class CodeEditorControl
 
         if (ReadOnly) return;
 
-        if (Pressed(ImGuiKey.Backspace)) { Backspace(); return; }
+        if (Pressed(ImGuiKey.Backspace)) { if (command) BackspaceWord(); else Backspace(); return; }
         if (Pressed(ImGuiKey.Delete)) { ForwardDelete(); return; }
         if (Pressed(ImGuiKey.Enter) || Pressed(ImGuiKey.KeypadEnter)) { InsertNewlineKeepingIndent(); return; }
         if (Pressed(ImGuiKey.Tab)) { Type(Document.IndentUnit); return; }
@@ -562,6 +562,26 @@ public sealed class CodeEditorControl
         TextChanged = true;
     }
 
+    /// <summary>
+    /// Deletes back to the previous word boundary. One keystroke per part of a statement, which is
+    /// the point: the boundaries are fine enough that a correction stays local.
+    /// </summary>
+    private void BackspaceWord()
+    {
+        if (Selection is not null) { DeleteSelection(); return; }
+
+        var from = WordStartBefore(Caret);
+        if (from == Caret) return;
+
+        // A pending closer only tracks a pair the caret is still sitting inside, and deleting a
+        // word's worth of text leaves that no longer true.
+        _pendingClosers.Clear();
+        Document.Delete(new TextRange(from, Caret));
+        Caret = from;
+        Anchor = null;
+        TextChanged = true;
+    }
+
     private void ForwardDelete()
     {
         if (Selection is not null) { DeleteSelection(); return; }
@@ -693,15 +713,16 @@ public sealed class CodeEditorControl
         return start.Column == end.Column ? "" : Document[start.Line][start.Column..end.Column];
     }
 
+    /// <summary>
+    /// The previous word boundary, which is where Ctrl+Left goes and what Ctrl+Backspace deletes
+    /// back to. The rules live in <see cref="WordBoundaries"/>; what belongs here is only the line
+    /// crossing, since a boundary at column 0 is the end of the line above.
+    /// </summary>
     private TextPosition WordStartBefore(TextPosition pos)
     {
         if (pos.Column == 0)
             return pos.Line > 0 ? new TextPosition(pos.Line - 1, Document[pos.Line - 1].Length) : pos;
-        string line = Document[pos.Line];
-        int i = pos.Column - 1;
-        while (i > 0 && !IsWordChar(line[i])) i--;
-        while (i > 0 && IsWordChar(line[i - 1])) i--;
-        return pos with { Column = i };
+        return pos with { Column = WordBoundaries.StartBefore(Document[pos.Line], pos.Column) };
     }
 
     private TextPosition WordEndAfter(TextPosition pos)
@@ -709,10 +730,7 @@ public sealed class CodeEditorControl
         string line = Document[pos.Line];
         if (pos.Column >= line.Length)
             return pos.Line + 1 < Document.LineCount ? new TextPosition(pos.Line + 1, 0) : pos;
-        int i = pos.Column;
-        while (i < line.Length && !IsWordChar(line[i])) i++;
-        while (i < line.Length && IsWordChar(line[i])) i++;
-        return pos with { Column = i };
+        return pos with { Column = WordBoundaries.EndAfter(line, pos.Column) };
     }
 
     // --- rendering ----------------------------------------------------------------------------
