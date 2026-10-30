@@ -69,6 +69,20 @@ public sealed class CodeEditorControl
     /// with the blink.</summary>
     public Vector2 CaretScreenPosition { get; private set; }
 
+    /// <summary>
+    /// Where the pointer is resting in the document and for how long, or null when it is moving or
+    /// outside. The dwell is counted here rather than by the host because the host cannot tell a
+    /// pointer that stopped from one that is being dragged through the text.
+    /// </summary>
+    public (TextPosition Position, double Seconds)? Hover { get; private set; }
+
+    /// <summary>How far the pointer may drift and still count as resting. One character: smaller
+    /// and a trackpad never settles, larger and a tooltip follows the pointer onto the next word.
+    /// </summary>
+    private const float HoverSlack = 1f;
+
+    private Vector2 _hoverScreen;
+
     /// <summary>Delimiters that close themselves as they are typed.</summary>
     public IReadOnlyList<AutoPair> AutoPairs { get; set; } = AutoPairRules.Default;
 
@@ -210,7 +224,7 @@ public sealed class CodeEditorControl
         // Input runs BEFORE the visible range is worked out, because it edits the document: a
         // backspace that joins two lines, or an accepted completion, changes the line count. Deciding
         // which lines to draw first and mutating afterwards indexed past the end of the document.
-        HandleMouse(textOrigin, charWidth, lineHeight);
+        HandleMouse(textOrigin, charWidth, lineHeight, deltaTime);
         if (_focused) HandleKeyboard();
 
         // Establishes the scroll extent, from the post-edit document so the scrollbar matches what
@@ -266,10 +280,21 @@ public sealed class CodeEditorControl
 
     // --- input --------------------------------------------------------------------------------
 
-    private void HandleMouse(Vector2 textOrigin, float charWidth, float lineHeight)
+    private void HandleMouse(Vector2 textOrigin, float charWidth, float lineHeight, double deltaTime)
     {
         bool hovered = ImGui.IsWindowHovered();
-        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        TrackHover(hovered, textOrigin, charWidth, lineHeight, deltaTime);
+
+        // Double click is tested FIRST because the second press reports as a click too, so a
+        // plain-click branch ahead of it just moves the caret and word selection never happens.
+        if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+        {
+            var (start, end) = WordAt(PositionAt(ImGui.GetMousePos(), textOrigin, charWidth, lineHeight));
+            Anchor = start;
+            MoveCaret(end, keepAnchor: true);
+            _dragging = false;
+        }
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
             _focused = true;
             _dragging = true;
@@ -277,12 +302,6 @@ public sealed class CodeEditorControl
             if (ImGui.GetIO().KeyShift) Anchor ??= Caret;
             else Anchor = pos;
             MoveCaret(pos, keepAnchor: true);
-        }
-        else if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
-        {
-            var (start, end) = WordAt(Caret);
-            Anchor = start;
-            MoveCaret(end, keepAnchor: true);
         }
         else if (!hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
@@ -298,6 +317,30 @@ public sealed class CodeEditorControl
 
         // Without this, arrow keys and typing go to ImGui's navigation instead of the editor.
         if (_focused) ImGui.SetNextFrameWantCaptureKeyboard(true);
+    }
+
+    /// <summary>
+    /// Accumulates how long the pointer has rested where it is. Cleared while a button is down, so
+    /// dragging out a selection never raises a tooltip over the text being selected.
+    /// </summary>
+    private void TrackHover(bool hovered, Vector2 textOrigin, float charWidth, float lineHeight,
+                            double deltaTime)
+    {
+        var mouse = ImGui.GetMousePos();
+        if (!hovered || ImGui.IsMouseDown(ImGuiMouseButton.Left) || _dragging)
+        {
+            Hover = null;
+            _hoverScreen = mouse;
+            return;
+        }
+
+        double resting = Hover is { } previous
+                      && Vector2.Distance(mouse, _hoverScreen) <= charWidth * HoverSlack
+            ? previous.Seconds + deltaTime
+            : 0;
+        if (resting == 0) _hoverScreen = mouse;
+
+        Hover = (PositionAt(mouse, textOrigin, charWidth, lineHeight), resting);
     }
 
     private TextPosition PositionAt(Vector2 mouse, Vector2 textOrigin, float charWidth, float lineHeight)

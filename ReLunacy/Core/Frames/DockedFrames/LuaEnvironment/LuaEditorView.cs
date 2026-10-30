@@ -354,9 +354,58 @@ public sealed class LuaEditorView
         if (_editor.TextChanged) { _modified = true; _completion.Refresh(_editor, Api(), false, Scripts()); }
         else if (requested) _completion.Refresh(_editor, Api(), true, Scripts());
         _completion.Draw(_editor);
+        HoverTooltip();
 
         ImGui.TextDisabled(LM.Get("GUI_LuaEnv_Hint"));
         RenamePopup();
+    }
+
+    /// <summary>How long the pointer has to rest on a word before it is documented.</summary>
+    private const double HoverDelay = 0.45;
+
+    private LuaHover? _hover;
+    private (int Version, TextPosition Position) _hoveredFor = (-1, default);
+
+    /// <summary>
+    /// Documents the word the pointer is resting on.
+    ///
+    /// Suppressed while the completion popup is open: both would be anchored a few pixels apart and
+    /// describe different words, which reads as a glitch rather than as two features. The lookup is
+    /// cached on the text and the position because it parses the file, and the pointer sits still
+    /// for many frames by definition - that being what a hover is.
+    /// </summary>
+    private void HoverTooltip()
+    {
+        if (_completion.IsOpen) return;
+        if (_editor.Hover is not { } hover || hover.Seconds < HoverDelay) return;
+
+        var key = (_editor.Document.Version, hover.Position);
+        if (_hoveredFor != key)
+        {
+            _hover = LuaHoverEngine.At(_editor.Document.GetText(),
+                                       new LuaPosition(hover.Position.Line, hover.Position.Column),
+                                       Api(), Scripts());
+            _hoveredFor = key;
+        }
+        if (_hover is not { } documented) return;
+
+        ImGui.BeginTooltip();
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(Theme().FunctionColour), documented.Label);
+        ImGui.SameLine();
+        ImGui.TextDisabled(documented.Kind);
+        if (documented.Detail is { } detail)
+        {
+            ImGui.Separator();
+            ImGui.TextWrapped(detail);
+        }
+        if (documented.Description is { } description)
+        {
+            ImGui.Separator();
+            ImGui.TextWrapped(description);
+        }
+        ImGui.PopTextWrapPos();
+        ImGui.EndTooltip();
     }
 
     private void RenamePopup()
