@@ -146,6 +146,18 @@ public sealed class LuaEditorView
 
     private LuaPosition CaretPosition => new(_editor.Caret.Line, _editor.Caret.Column);
 
+    /// <summary>
+    /// A script's text for colouring a result row. The file being edited comes from the document
+    /// rather than the archive, so a row reflects unsaved edits instead of the shipped bytes.
+    /// </summary>
+    private string? SourceOf(string path)
+    {
+        if (string.Equals(path, _path, StringComparison.OrdinalIgnoreCase)) return _editor.Document.GetText();
+        foreach (var sibling in SiblingSources?.Invoke() ?? [])
+            if (string.Equals(sibling.Path, path, StringComparison.OrdinalIgnoreCase)) return sibling.Text;
+        return null;
+    }
+
     private void GoToDeclaration()
     {
         string word = _editor.WordTextAt(_editor.Caret);
@@ -476,7 +488,8 @@ public sealed class LuaEditorView
         else if (requested) _completion.Refresh(_editor, Api(), true, Scripts());
         _completion.Draw(_editor);
         HoverTooltip();
-        if (_references.HasResults) _references.Render(ReferencesHeight);
+        if (_references.HasResults)
+            _references.Render(ReferencesHeight, Theme(), Api(), Scripts(), SourceOf);
 
         ImGui.TextDisabled(LM.Get("GUI_LuaEnv_Hint"));
         RenamePopup();
