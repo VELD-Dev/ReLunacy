@@ -23,5 +23,7 @@
   "MatchingDelimiter": "#60569CD6",
   "SnippetStop": "#70C08A3E",
   "CaretWord": "#50646464",
-  "Occurrence": "#404E9A6B"
+  "Occurrence": "#404E9A6B",
+  "SearchMatch": "#60A08030",
+  "SearchCurrent": "#A0D7BA1E"
 }

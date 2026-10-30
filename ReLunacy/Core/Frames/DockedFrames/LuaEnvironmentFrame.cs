@@ -43,6 +43,10 @@ public class LuaEnvironmentFrame : DockedFrame
         // open, so it is what indexes them.
         _editor.SharedScripts = _scripts.SharedScripts;
         _editor.ArchivePath = _scripts.ArchivePath;
+        // Searching for references reads the siblings' text, and jumping to a declaration in one
+        // of them means opening it - both of which the browser is already holding the archive for.
+        _editor.SiblingSources = _scripts.SharedSources;
+        _editor.OpenScript = _scripts.Open;
     }
 
     /// <summary>Opens source in the editor - how the PSARC browser will hand a script over.</summary>

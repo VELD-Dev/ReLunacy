@@ -83,6 +83,23 @@ public sealed class CodeEditorControl
 
     private Vector2 _hoverScreen;
 
+    /// <summary>
+    /// Set whenever the caret is moved, so the next frame brings it back into view.
+    ///
+    /// Requested rather than applied on the spot because scrolling is only meaningful inside the
+    /// child window, which is not open when a host calls <see cref="MoveCaretTo"/> - jumping to a
+    /// declaration or a search hit happens while the editor is not drawing.
+    /// </summary>
+    private bool _scrollToCaret;
+
+    /// <summary>Lines of context kept between the caret and the edge it is approaching, so a jump
+    /// does not land on the very first visible row with no idea what is above it.</summary>
+    private const int ScrollMargin = 2;
+
+    /// <summary>Raised on a right click, after the caret has been moved there. The host opens
+    /// whatever menu it wants; the control has no business knowing what is on it.</summary>
+    public Action<TextPosition>? ContextMenuRequested { get; set; }
+
     /// <summary>Delimiters that close themselves as they are typed.</summary>
     public IReadOnlyList<AutoPair> AutoPairs { get; set; } = AutoPairRules.Default;
 
@@ -155,6 +172,18 @@ public sealed class CodeEditorControl
         Anchor = null;
         _desiredVisualColumn = -1;
         _blink = 0;
+        _scrollToCaret = true;
+    }
+
+    /// <summary>Selects a range and shows it - what a search hit or a picked reference wants.</summary>
+    public void Reveal(TextRange range)
+    {
+        var ordered = range.Ordered;
+        Anchor = Document.Clamp(ordered.Start);
+        Caret = Document.Clamp(ordered.End);
+        _desiredVisualColumn = -1;
+        _blink = 0;
+        _scrollToCaret = true;
     }
 
     /// <summary>Replaces the given range with text and puts the caret after it - how an accepted
@@ -232,6 +261,12 @@ public sealed class CodeEditorControl
         ImGui.Dummy(new Vector2(gutterWidth + (Document.MaxVisualWidth() + 2) * charWidth,
                                 Document.LineCount * lineHeight));
 
+        if (_scrollToCaret)
+        {
+            _scrollToCaret = false;
+            KeepCaretVisible(charWidth, lineHeight, gutterWidth);
+        }
+
         float scrollY = ImGui.GetScrollY();
         float viewHeight = ImGui.GetWindowHeight();
         int firstLine = Math.Clamp((int)(scrollY / lineHeight) - 1, 0, Math.Max(0, Document.LineCount - 1));
@@ -308,6 +343,19 @@ public sealed class CodeEditorControl
             _focused = false;
         }
 
+        // A right click moves the caret before the menu opens, so whatever the menu offers acts on
+        // what was clicked rather than on wherever the caret happened to be.
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        {
+            _focused = true;
+            var pos = PositionAt(ImGui.GetMousePos(), textOrigin, charWidth, lineHeight);
+            // A click inside an existing selection keeps it: acting on a selected range is the
+            // common reason to right-click one.
+            if (Selection is not { } selection || pos < selection.Start || pos > selection.End)
+                MoveCaretTo(pos);
+            ContextMenuRequested?.Invoke(pos);
+        }
+
         if (_dragging)
         {
             if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
@@ -353,7 +401,10 @@ public sealed class CodeEditorControl
     /// <summary>Keys a host may want while an overlay is open. Deliberately only these: the host
     /// has no business intercepting ordinary typing or caret movement by character.</summary>
     private static readonly ImGuiKey[] Interceptable =
-        [ImGuiKey.UpArrow, ImGuiKey.DownArrow, ImGuiKey.Enter, ImGuiKey.KeypadEnter, ImGuiKey.Tab, ImGuiKey.Escape];
+    [
+        ImGuiKey.UpArrow, ImGuiKey.DownArrow, ImGuiKey.Enter, ImGuiKey.KeypadEnter, ImGuiKey.Tab,
+        ImGuiKey.Escape, ImGuiKey.F3,
+    ];
 
     private void HandleKeyboard()
     {
@@ -649,6 +700,34 @@ public sealed class CodeEditorControl
         if (!keepAnchor) Anchor = null;
         Caret = Document.Clamp(pos);
         _blink = 0;
+        _scrollToCaret = true;
+    }
+
+    /// <summary>
+    /// Scrolls just enough to bring the caret back into view, in both directions - a long line
+    /// scrolls sideways as readily as a distant line scrolls down.
+    ///
+    /// It only moves when the caret is actually outside, so ordinary typing in the middle of the
+    /// view does not drag the text around under it.
+    /// </summary>
+    private void KeepCaretVisible(float charWidth, float lineHeight, float gutterWidth)
+    {
+        float margin = ScrollMargin * lineHeight;
+        float top = Caret.Line * lineHeight;
+        float bottom = top + lineHeight;
+        float scrollY = ImGui.GetScrollY();
+        float height = ImGui.GetWindowHeight();
+
+        if (top - margin < scrollY) ImGui.SetScrollY(MathF.Max(0f, top - margin));
+        else if (bottom + margin > scrollY + height) ImGui.SetScrollY(bottom + margin - height);
+
+        float x = Document.VisualColumn(Caret.Line, Caret.Column) * charWidth;
+        float scrollX = ImGui.GetScrollX();
+        float width = MathF.Max(1f, ImGui.GetWindowWidth() - gutterWidth);
+        float side = ScrollMargin * charWidth;
+
+        if (x - side < scrollX) ImGui.SetScrollX(MathF.Max(0f, x - side));
+        else if (x + side > scrollX + width) ImGui.SetScrollX(x + side - width);
     }
 
     private void MoveHorizontal(int direction, bool shift, bool byWord)

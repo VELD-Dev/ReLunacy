@@ -19,6 +19,8 @@ public sealed class LuaEditorView
     private readonly CodeEditorControl _editor = new();
     private readonly LuaSyntaxHighlighter _highlighter;
     private readonly LuaCompletionPopup _completion = new();
+    private readonly LuaSearchBar _search = new();
+    private readonly LuaReferencesView _references = new();
     private LuaApiDatabase _api = new();
     private ReLunacy.Engine.Games.GameId? _apiGame;
     private LuaEditorTheme _theme = new LuaEditorTheme().Resolve();
@@ -53,6 +55,15 @@ public sealed class LuaEditorView
     /// </summary>
     public Func<string?>? ArchivePath { get; set; }
 
+    /// <summary>The level's sibling sources, for searching them. Separate from
+    /// <see cref="SharedScripts"/> because that one hands over declarations, and a reference search
+    /// needs the text they were read from.</summary>
+    public Func<IReadOnlyList<LuaScriptSource>>? SiblingSources { get; set; }
+
+    /// <summary>Opens another script, for a declaration or a reference that is not in this file.
+    /// Null means there is nowhere to go, and the view says so rather than doing nothing.</summary>
+    public Action<string>? OpenScript { get; set; }
+
     /// <summary>Whether the archive holds this path, which is to say the script came from one
     /// rather than from the filesystem.</summary>
     private bool CameFromArchive => _path.StartsWith('/');
@@ -69,13 +80,14 @@ public sealed class LuaEditorView
         // is testable rather than implicit in the order of these calls.
         _editor.InterceptKey = key =>
             LuaEditorKeyRouting.OwnerOf(key, _snippet is { IsActive: true }, _completion.IsOpen,
-                                        _editor.AutoPairExitAvailable) switch
+                                        _editor.AutoPairExitAvailable, _search.IsOpen) switch
             {
                 LuaEditorKeyOwner.AutoPair => CloseCompletionAnd(_editor.ExitAutoPair),
                 // Moving to the next stop leaves the popup listing matches for the word left
                 // behind, over a caret that is no longer there.
                 LuaEditorKeyOwner.Snippet => CloseCompletionAnd(() => HandleSnippetKey(key)),
                 LuaEditorKeyOwner.Completion => _completion.HandleKey(key, _editor),
+                LuaEditorKeyOwner.Search => _search.HandleKey(key, _editor),
                 _ => false,
             };
         _editor.WordCompleted = TryExpandSnippet;
@@ -83,6 +95,96 @@ public sealed class LuaEditorView
         // Lua layer rather than in the control.
         _editor.OpensScope = caret => LuaIndentRules.OpensScope(_editor.Document.GetText(), caret);
         _editor.Backgrounds = Decorations;
+        _editor.ContextMenuRequested = _ => _openContextMenu = true;
+
+        // Picking a result moves the caret to it, opening the script first when it is elsewhere.
+        _references.Activated = hit =>
+        {
+            if (!string.Equals(hit.Path, _path, StringComparison.OrdinalIgnoreCase))
+            {
+                if (OpenScript is null) { _status = string.Format(LM.Get("GUI_LuaEnv_DeclNone"), hit.Path); return; }
+                OpenScript(hit.Path);
+            }
+            Reveal(hit.Span);
+        };
+    }
+
+    private bool _openContextMenu;
+
+    /// <summary>Selects a span and brings it into view - what a declaration or a reference wants.
+    /// The span's end is exclusive, which is what <see cref="TextRange"/> already means.</summary>
+    private void Reveal(LuaSpan span) =>
+        _editor.Reveal(new TextRange(new TextPosition(span.Start.Line, span.Start.Column),
+                                     new TextPosition(span.End.Line, span.End.Column)));
+
+    /// <summary>
+    /// The right-click menu. Only the things that need the caret's position are here; anything
+    /// reachable from a key is listed with its key so the menu teaches it rather than replacing it.
+    /// </summary>
+    private void ContextMenu()
+    {
+        if (_openContextMenu) { ImGui.OpenPopup("lua_context"); _openContextMenu = false; }
+        if (!ImGui.BeginPopup("lua_context")) return;
+
+        string word = _editor.WordTextAt(_editor.Caret);
+        if (word.Length > 0) ImGui.TextDisabled(word);
+        else ImGui.TextDisabled(LM.Get("GUI_LuaEnv_MenuFind"));
+        ImGui.Separator();
+
+        ImGui.BeginDisabled(word.Length == 0);
+        if (ImGui.MenuItem(LM.Get("GUI_LuaEnv_MenuDeclaration"))) GoToDeclaration();
+        if (ImGui.MenuItem(LM.Get("GUI_LuaEnv_MenuReferences"))) FindReferences();
+        if (ImGui.MenuItem(LM.Get("GUI_LuaEnv_MenuRename")))
+            OnRenameRequested(_editor.Caret, word);
+        ImGui.EndDisabled();
+
+        ImGui.Separator();
+        if (ImGui.MenuItem(LM.Get("GUI_LuaEnv_MenuFind"))) _search.Open(_editor);
+
+        ImGui.EndPopup();
+    }
+
+    private LuaPosition CaretPosition => new(_editor.Caret.Line, _editor.Caret.Column);
+
+    private void GoToDeclaration()
+    {
+        string word = _editor.WordTextAt(_editor.Caret);
+        var declaration = LuaReferenceSearch.Declaration(
+            _path, _editor.Document.GetText(), CaretPosition, Api(), Scripts());
+
+        if (declaration is null)
+        {
+            _status = string.Format(LM.Get("GUI_LuaEnv_DeclNone"), word);
+            return;
+        }
+        if (!declaration.InArchive)
+        {
+            _status = string.Format(LM.Get("GUI_LuaEnv_DeclDocumented"), word,
+                                    System.IO.Path.GetFileName(declaration.Path));
+            return;
+        }
+
+        if (!string.Equals(declaration.Path, _path, StringComparison.OrdinalIgnoreCase))
+        {
+            if (OpenScript is null)
+            {
+                _status = string.Format(LM.Get("GUI_LuaEnv_DeclDocumented"), word,
+                                        System.IO.Path.GetFileName(declaration.Path));
+                return;
+            }
+            OpenScript(declaration.Path);
+        }
+        Reveal(declaration.Span);
+        _status = null;
+    }
+
+    private void FindReferences()
+    {
+        string word = _editor.WordTextAt(_editor.Caret);
+        var hits = LuaReferenceSearch.Find(_path, _editor.Document.GetText(), CaretPosition,
+                                           SiblingSources?.Invoke());
+        if (hits.Count == 0) _references.ShowMessage(string.Format(LM.Get("GUI_LuaEnv_RefsNone"), word));
+        else _references.Show(word, hits);
     }
 
     /// <summary>
@@ -94,16 +196,21 @@ public sealed class LuaEditorView
     /// would not show until the caret moved.
     /// </summary>
     private List<TextHighlight> _decorations = [];
-    private (int Version, TextPosition Caret, TextPosition? Stop, int Theme) _decoratedFor = (-1, default, null, -1);
+    private (int Version, TextPosition Caret, TextPosition? Stop, int Theme,
+             (bool, string, int, bool, bool) Search) _decoratedFor =
+        (-1, default, null, -1, default);
 
     private IReadOnlyList<TextHighlight> Decorations()
     {
         var stop = _snippet?.CurrentStop;
-        var key = (_editor.Document.Version, _editor.Caret, stop, Theme().Revision);
+        var key = (_editor.Document.Version, _editor.Caret, stop, Theme().Revision, _search.State);
         if (_decoratedFor == key) return _decorations;
 
         _decorations = LuaEditorDecorations.Build(
             _editor.Document, _editor.Caret, Theme(), stop, Scopes());
+        // Search hits go on last so they are drawn over the rest: while a search is open, finding
+        // the hits is what the person is doing.
+        _decorations.AddRange(_search.Highlights(Theme()));
         _decoratedFor = key;
         return _decorations;
     }
@@ -346,7 +453,21 @@ public sealed class LuaEditorView
         foreach (string problem in _installProblems.Take(6))
             ImGui.TextColored(new Vector4(0.9f, 0.5f, 0.4f, 1f), problem);
 
-        _editor.Draw("lua_editor", new Vector2(0f, -ImGui.GetFrameHeightWithSpacing()), deltaTime);
+        // Ctrl+F before the editor draws, so the bar is up on the same frame it is asked for.
+        if (ImGui.GetIO().KeyCtrl && !ImGui.GetIO().KeyAlt && ImGui.IsKeyPressed(ImGuiKey.F))
+            _search.Open(_editor);
+        _search.Render(_editor);
+
+        // The editor gives up the bottom of the panel while results are showing.
+        float reserved = ImGui.GetFrameHeightWithSpacing()
+                       + (_references.HasResults ? ReferencesHeight + ImGui.GetFrameHeightWithSpacing() : 0f);
+        _editor.Draw("lua_editor", new Vector2(0f, -reserved), deltaTime);
+        ContextMenu();
+
+        // Escape while the query field has focus: the editor is not focused then, so its own key
+        // routing never runs and the bar would be stuck open.
+        if (_search.IsOpen && !_editor.HasFocus && ImGui.IsKeyPressed(ImGuiKey.Escape))
+            _search.Close();
 
         // Ctrl+Space asks for the full list; otherwise it only follows an edit, and the engine
         // decides whether a bare prefix is worth showing.
@@ -355,6 +476,7 @@ public sealed class LuaEditorView
         else if (requested) _completion.Refresh(_editor, Api(), true, Scripts());
         _completion.Draw(_editor);
         HoverTooltip();
+        if (_references.HasResults) _references.Render(ReferencesHeight);
 
         ImGui.TextDisabled(LM.Get("GUI_LuaEnv_Hint"));
         RenamePopup();
@@ -362,6 +484,9 @@ public sealed class LuaEditorView
 
     /// <summary>How long the pointer has to rest on a word before it is documented.</summary>
     private const double HoverDelay = 0.45;
+
+    /// <summary>How much of the panel the results list takes when it is showing.</summary>
+    private const float ReferencesHeight = 140f;
 
     private LuaHover? _hover;
     private (int Version, TextPosition Position) _hoveredFor = (-1, default);

@@ -47,6 +47,7 @@ public sealed class LuaScriptBrowser
     /// </summary>
     private LuaScriptIndex? _shared;
     private string? _sharedFor;
+    private List<LuaScriptSource> _sharedSources = [];
 
     /// <summary>Opens the shared archive for the level currently loaded, if it is not already open.</summary>
     private void EnsureArchive()
@@ -168,9 +169,22 @@ public sealed class LuaScriptBrowser
             catch { }
         }
 
+        _sharedSources = sources;
         _shared = LuaScriptIndex.BuildShared(sources);
         _sharedFor = key;
         return _shared;
+    }
+
+    /// <summary>
+    /// The texts the shared index was built from, so a reference search can read them.
+    ///
+    /// Kept rather than re-read: searching every sibling means opening every sibling, and these are
+    /// the same entries already decompressed to build the index.
+    /// </summary>
+    public IReadOnlyList<LuaScriptSource> SharedSources()
+    {
+        SharedScripts();
+        return _sharedSources;
     }
 
     /// <summary>The compiled chunk's path for a source path, by the mapping verified over all 524.</summary>
@@ -228,8 +242,13 @@ public sealed class LuaScriptBrowser
         ImGui.TreePop();
     }
 
-    private void Open(string path)
+    /// <summary>
+    /// Opens a script by its archive path, as if it had been clicked. Public so a jump to a
+    /// declaration in another file can get there - the browser is what holds the archive.
+    /// </summary>
+    public void Open(string path)
     {
+        EnsureArchive();
         if (_archive is null) return;
         try
         {

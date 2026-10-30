@@ -68,6 +68,10 @@ public sealed class LuaEditorTheme
     /// <summary>That name's other mentions, deliberately fainter: they are context, not the thing
     /// being edited.</summary>
     public string Occurrence { get; set; } = "#404E9A6B";
+    /// <summary>Every hit the find bar matched.</summary>
+    public string SearchMatch { get; set; } = "#60A08030";
+    /// <summary>The hit the caret is on, brighter so it is findable among the rest.</summary>
+    public string SearchCurrent { get; set; } = "#A0D7BA1E";
 
     /// <summary>
     /// Every editable colour: which role it paints, how to show it, and how to read and write it.
@@ -138,6 +142,12 @@ public sealed class LuaEditorTheme
         new(LuaEditorThemeRole.Occurrence, LuaEditorThemeGroup.Decoration, nameof(Occurrence),
             "Other mentions", "Where else that same binding is mentioned",
             t => t.Occurrence, (t, v) => t.Occurrence = v),
+        new(LuaEditorThemeRole.SearchMatch, LuaEditorThemeGroup.Decoration, nameof(SearchMatch),
+            "Search hit", "Everything the find bar matched",
+            t => t.SearchMatch, (t, v) => t.SearchMatch = v),
+        new(LuaEditorThemeRole.SearchCurrent, LuaEditorThemeGroup.Decoration, nameof(SearchCurrent),
+            "Current search hit", "The one the caret is on",
+            t => t.SearchCurrent, (t, v) => t.SearchCurrent = v),
     ];
 
     /// <summary>Packed ImGui colours by role, resolved once per load rather than per glyph.</summary>
@@ -167,6 +177,8 @@ public sealed class LuaEditorTheme
     [JsonIgnore] public uint SnippetStopColour => ColourFor(LuaEditorThemeRole.SnippetStop);
     [JsonIgnore] public uint CaretWordColour => ColourFor(LuaEditorThemeRole.CaretWord);
     [JsonIgnore] public uint OccurrenceColour => ColourFor(LuaEditorThemeRole.Occurrence);
+    [JsonIgnore] public uint SearchMatchColour => ColourFor(LuaEditorThemeRole.SearchMatch);
+    [JsonIgnore] public uint SearchCurrentColour => ColourFor(LuaEditorThemeRole.SearchCurrent);
 
     /// <summary>Problems found while loading, so a mistyped colour is reported rather than silently
     /// becoming magenta.</summary>
@@ -284,5 +296,5 @@ public enum LuaEditorThemeRole
     Keyword, String, Number, Comment, Operator, Error,
     Function, Method, Class, Field, Local, Parameter, LoopVariable, GlobalUndocumented,
     Caret, Selection, CurrentLine, LineNumber, LineNumberCurrent,
-    MatchingDelimiter, SnippetStop, CaretWord, Occurrence,
+    MatchingDelimiter, SnippetStop, CaretWord, Occurrence, SearchMatch, SearchCurrent,
 }

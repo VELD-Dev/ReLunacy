@@ -9,6 +9,8 @@ public enum LuaEditorKeyOwner
     Snippet,
     /// <summary>The completion popup: arrows navigate, Enter accepts, Escape closes.</summary>
     Completion,
+    /// <summary>The find bar: F3 walks the hits, Escape closes it.</summary>
+    Search,
     /// <summary>Neither claimed it, so the editor types or moves as usual.</summary>
     Editor,
 }
@@ -31,7 +33,8 @@ public enum LuaEditorKeyOwner
 public static class LuaEditorKeyRouting
 {
     public static LuaEditorKeyOwner OwnerOf(
-        ImGuiKey key, bool snippetActive, bool popupOpen, bool pairPending = false) => key switch
+        ImGuiKey key, bool snippetActive, bool popupOpen, bool pairPending = false,
+        bool searchOpen = false) => key switch
     {
         // Accepting a suggestion comes first: it finishes the word under the caret, which is more
         // immediate than anything enclosing it.
@@ -44,6 +47,13 @@ public static class LuaEditorKeyRouting
         // suggestion does not also throw away the expansion being filled in.
         ImGuiKey.Escape when popupOpen => LuaEditorKeyOwner.Completion,
         ImGuiKey.Escape when snippetActive => LuaEditorKeyOwner.Snippet,
+        // The find bar is the outermost of the three, so Escape closes it only once there is no
+        // suggestion to dismiss and no snippet to abandon.
+        ImGuiKey.Escape when searchOpen => LuaEditorKeyOwner.Search,
+
+        // F3 is the find bar's alone, and Enter deliberately is NOT: with the caret in the
+        // document, Enter has to keep inserting a newline while a search is open.
+        ImGuiKey.F3 when searchOpen => LuaEditorKeyOwner.Search,
 
         ImGuiKey.UpArrow or ImGuiKey.DownArrow or ImGuiKey.Enter or ImGuiKey.KeypadEnter
             when popupOpen => LuaEditorKeyOwner.Completion,
