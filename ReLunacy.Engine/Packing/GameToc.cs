@@ -122,6 +122,60 @@ public sealed class GameToc
     }
 
     /// <summary>
+    /// Appends a file entry: a name, a 16-byte record carrying its uncompressed size, and an index
+    /// entry for the two.
+    ///
+    /// Appending rather than inserting is deliberate. The index is in ascending record-offset order
+    /// in all 64 shipped ToD TOCs, so putting the new record after every existing one and its index
+    /// entry at the end is the only placement that keeps that invariant without moving anything
+    /// else - no existing offset changes at all.
+    ///
+    /// What this CANNOT establish is whether the engine accepts an entry added this way. The
+    /// ordering invariant is evidence, not proof: if the big TOCs' directory entries imply a
+    /// traversal that expects a directory's files to sit together, a file appended at the end would
+    /// satisfy every structural check here and still not be found. That needs the game to say so.
+    /// </summary>
+    /// <returns>The index of the entry that was added.</returns>
+    public int AddFile(string path, long size)
+    {
+        if (string.IsNullOrEmpty(path)) throw new ArgumentException("a path is required", nameof(path));
+        if (size < 0 || size > uint.MaxValue) throw new ArgumentOutOfRangeException(nameof(size));
+
+        // Names are NUL-terminated and 4-aligned.
+        byte[] ascii = Encoding.ASCII.GetBytes(path);
+        var name = new byte[(ascii.Length + 4) & ~3];
+        ascii.CopyTo(name, 0);
+
+        var record = new byte[16];
+        BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(4), (uint)size);
+
+        Spans.Add(new Span { Bytes = name, OriginalOffset = -1 });
+        int nameSpan = Spans.Count - 1;
+        Spans.Add(new Span { Bytes = record, OriginalOffset = -1 });
+        int recordSpan = Spans.Count - 1;
+
+        // Match whatever this file does with a record's first word: the simple TOCs put the entry's
+        // own name offset there, the big ones leave it zero. Nothing is known to read it, so the
+        // conservative choice is to look like the neighbours rather than to pick.
+        if (MostRecordsCarryTheirNameOffset()) Spans[recordSpan].NameSpanForWord0 = nameSpan;
+
+        Index.Add(new Entry(recordSpan, nameSpan));
+        return Index.Count - 1;
+    }
+
+    private bool MostRecordsCarryTheirNameOffset()
+    {
+        int carrying = 0, total = 0;
+        foreach (var entry in Index)
+        {
+            if (Spans[entry.RecordSpan].Bytes.Length < 16) continue;
+            total++;
+            if (Spans[entry.RecordSpan].NameSpanForWord0 is not null) carrying++;
+        }
+        return total > 0 && carrying * 2 > total;
+    }
+
+    /// <summary>
     /// Writes the file back out, re-deriving every offset from the spans' order and lengths rather
     /// than reusing the ones it was read with. That is what makes an unchanged round trip meaningful.
     /// </summary>

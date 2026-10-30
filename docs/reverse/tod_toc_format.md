@@ -56,8 +56,13 @@ out where the record region ends or how records are strided.
 Both offsets are absolute from the start of the file, and both are always 4-aligned
 (12,383/12,383 entries).
 
-The index is **not** sorted by path. What orders it is unknown; it appears to follow the
-layout order of the records.
+The index is **not** sorted by path, but it is ordered: entries are in ascending
+**record-offset** order in all 64 shipped ToD TOCs, which is to say the index follows the
+layout. 61 of the 64 are also in ascending name-offset order — the three that are not are
+the big interleaved ones, where names do not run monotonically.
+
+That invariant is what makes appending an entry safe to attempt: a record placed after
+every existing one, with its index entry last, preserves the order without moving anything.
 
 ### Record
 
@@ -181,17 +186,25 @@ exact size on disk.
 
 ## Notes for writing one
 
+`ReLunacy.Engine/Packing/GameToc.cs` implements reading, writing and appending, and
+`psarcprobe --toc` is the harness described below.
+
 1. **Re-emit before inserting.** Parse to a model, write it back out, require the bytes to
    be identical. Reproducing the interleaving means keeping records and name blocks in
-   their original document order.
-2. **Offsets are absolute.** Inserting a record shifts everything after it, so the index
-   and every later name offset have to be recomputed. The index is not sorted, so a new
-   entry's position is a free choice — appending is probably safe, but that is an
-   assumption to test rather than rely on.
-3. **Both copies** of a level TOC, as above.
-4. **Sizes must be real.** They match the archive exactly everywhere, and the engine most
+   their original document order. Verified on 125 files: all re-emit byte for byte, and all
+   survive having the whole layout shifted four bytes with their contents intact — the
+   second check being the one that proves offsets are re-derived rather than reused.
+2. **Append, do not insert.** Offsets are absolute, so a record placed mid-file shifts
+   every later offset. Appending the record after all the others, with its index entry
+   last, keeps the ascending-record-offset invariant and moves nothing.
+3. **Structural checks are not acceptance.** An appended entry can satisfy every property
+   above and still not be found by the engine — if the directory entries imply a traversal
+   that expects a directory's files to sit together, appending puts a file outside its
+   group. Only running the game settles that.
+4. **Both copies** of a level TOC, as above.
+5. **Sizes must be real.** They match the archive exactly everywhere, and the engine most
    likely allocates from them.
-5. **The self-size problem.** `global_cached.toc` records
+6. **The self-size problem.** `global_cached.toc` records
    `global_cached.psarc`'s own size, so any edit to that archive makes the entry stale.
    It is also self-referential, and the TOC entry is compressed (4 blocks:
    6438/5161/8139/24360 bytes), so correcting the value changes the archive's length again.
@@ -206,7 +219,6 @@ exact size on disk.
   TOCs and zero in most records of the big ones, with no observed effect on anything else.
 - The 4-byte field after a simple TOC's record run.
 - `debug.toc` entry 1: empty name, 8-byte extent, `word1` of 6.
-- What orders the index.
 - The 82 entries that fit neither extent cleanly: 59 with a full path but a 4-byte gap to
   the next record, 18 bare names whose following word is non-zero, and a handful with
   larger gaps. Small enough to be mis-parses of an interleaving case rather than a third
