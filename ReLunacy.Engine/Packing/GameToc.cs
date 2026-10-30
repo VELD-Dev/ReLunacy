@@ -66,6 +66,29 @@ public sealed class GameToc
         return bytes.Length >= 8 ? BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(4)) : null;
     }
 
+    /// <summary>The entry naming this path, or -1. Paths are compared case-insensitively, as the
+    /// archives' own hashing does.</summary>
+    public int Find(string path)
+    {
+        for (int i = 0; i < Index.Count; i++)
+            if (string.Equals(NameOf(Index[i].NameSpan), path, StringComparison.OrdinalIgnoreCase))
+                return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Changes an entry's recorded size. Only valid on a record long enough to hold one - a
+    /// directory's 4 bytes have nowhere to put it, and writing there would land in the next record.
+    /// </summary>
+    public void SetSize(int entry, long size)
+    {
+        if (size < 0 || size > uint.MaxValue) throw new ArgumentOutOfRangeException(nameof(size));
+        var bytes = Spans[Index[entry].RecordSpan].Bytes;
+        if (bytes.Length < 8)
+            throw new InvalidOperationException($"entry {entry} has no size field to set");
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(4), (uint)size);
+    }
+
     public static GameToc Read(byte[] data)
     {
         if (data.Length < 8) throw new InvalidDataException("too short to be a .toc");

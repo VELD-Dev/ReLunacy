@@ -10,15 +10,25 @@ and are listed as observations, not guesses.
 
 ## Where they live
 
-Inside the archives, never loose on disk in a retail install.
+Inside the archives, never loose on disk in a retail install. There are 64 distinct TOCs
+in 125 copies.
 
-- `global_cached.psarc` carries **all 64** of them: its own, plus all three
-  (`level_cached`, `level_uncached`, `level_textures`) for each of the 20 levels.
-- Each level archive **also** carries its own copy.
+- `global_cached.psarc` carries **61**: its own, plus all three (`level_cached`,
+  `level_uncached`, `level_textures`) for each of the 20 levels.
+- Each level archive **also** carries its own copy of its three.
+- The remaining three sit alone in their own archives: `global_uncached.toc` in
+  `global_uncached.psarc`, and `game.toc` and `debug.toc` in the two small archives
+  `game.psarc` (67KB) and `debug.psarc` (780 bytes) beside them.
 
-Those two copies are byte-identical in all 61 cases checked, so anything that edits a
-level's TOC has to write both — the copy in `global_cached.psarc` and the copy in the
-level's own archive.
+Those two copies of a level TOC are byte-identical in all 61 cases checked, so anything
+that edits a level's TOC has to write both — the copy in `global_cached.psarc` and the
+copy in the level's own archive.
+
+Which TOC to edit follows from what is being added, and for scripts the answer is narrow:
+**only `global_cached.toc` names a script**, all 525 of them, and both halves of every
+script (`/levels/x/scripts/y.lua` and `/built/levels/x/scripts/y.lc`) live in
+`global_cached.psarc` beside that index. No level TOC names a single `.lua` or `.lc`. So
+adding a script touches one archive and one index inside it.
 
 A TOC's own path inside the archive mirrors the archive's: `global_cached.psarc` holds
 `/packed/game/global_cached.toc`, and `levels/cobalia/level_cached.psarc` holds
@@ -180,9 +190,10 @@ That total is the figure to trust. An earlier pass that classified by `word0` ch
 1,723 of them and silently skipped 3,057 real files — the sizes it did check all matched,
 which is exactly why a validation that quietly narrows its own scope is worth distrusting.
 
-An independent confirmation: `global_cached.toc` lists
-`/packed/game/global_cached.psarc` — itself — at 233,666,474 bytes, which is that file's
-exact size on disk.
+An independent confirmation: `game.toc` lists `/packed/game/global_cached.psarc` at
+233,666,474 bytes, which is that file's exact size on disk. (An earlier draft of this
+document attributed that entry to `global_cached.toc`, which does not record any archive's
+size — `game.toc` is the one place the game writes archive lengths down.)
 
 ## Notes for writing one
 
@@ -204,14 +215,18 @@ exact size on disk.
 4. **Both copies** of a level TOC, as above.
 5. **Sizes must be real.** They match the archive exactly everywhere, and the engine most
    likely allocates from them.
-6. **The self-size problem.** `global_cached.toc` records
-   `global_cached.psarc`'s own size, so any edit to that archive makes the entry stale.
-   It is also self-referential, and the TOC entry is compressed (4 blocks:
-   6438/5161/8139/24360 bytes), so correcting the value changes the archive's length again.
-   A fixed point is reachable if the TOC is rewritten as stored blocks, which `PsarcPatcher`
-   already does for the files it replaces. Whether the engine reads that field at all is
-   unknown and worth establishing first — note that replacing a script, which needs no TOC
-   edit, already leaves it stale.
+6. **Archive sizes live somewhere else.** `game.toc`, inside `game.psarc`, records the
+   length of 62 archives — `global_cached`, `global_uncached`, and each level's three — so
+   editing *any* archive makes a number in a *different* one stale. No TOC records the
+   archive it lives in, and `game.toc` does not record `game.psarc`, so rewriting it needs
+   only one pass and chases nothing. `GameArchiveSizes.Refresh` does this; it has to run
+   after the edit, since it reads the lengths from disk.
+
+   Whether the engine reads those numbers is still unknown, and one observation bears on
+   it: in a working install, a level archive repacked uncompressed came out 137,711,709
+   bytes larger than `game.toc` records, and nothing in the format noticed. That is
+   evidence the field is not validated, not proof — it only proves the file can be wrong,
+   not that the level still loads.
 
 ## Open questions
 
@@ -223,4 +238,6 @@ exact size on disk.
   the next record, 18 bare names whose following word is non-zero, and a handful with
   larger gaps. Small enough to be mis-parses of an interleaving case rather than a third
   record kind, but unconfirmed.
-- Whether the engine validates the self-size entry.
+- Whether the engine validates the archive sizes in `game.toc`. The cheapest experiment:
+  load a level whose archive has been repacked to a different length without refreshing
+  them.

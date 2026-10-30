@@ -269,7 +269,8 @@ public sealed class LuaEditorView
         }
 
         // Writing into the game is deliberately a separate action from saving a file, and only
-        // offered for a script that came out of the archive in the first place.
+        // offered for an archive path - one starting with '/'. The script need not already be in
+        // the archive: a path that is not there yet is added, index entries and all.
         ImGui.SameLine();
         string? archivePath = ArchivePath?.Invoke();
         ImGui.BeginDisabled(archivePath is null || !CameFromArchive);
