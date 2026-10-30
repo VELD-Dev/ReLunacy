@@ -11,7 +11,8 @@ namespace ReLunacy.Engine.Scripting;
 /// guessing members.
 /// </summary>
 public sealed class LuaTypeInference(
-    LuaApiDatabase api, LuaScopeAnalysis scopes, LuaScriptIndex? scripts = null)
+    LuaApiDatabase api, LuaScopeAnalysis scopes, LuaScriptIndex? scripts = null,
+    LuaTableShapes? shapes = null)
 {
     // Assignment chains can be circular (`local a = b` / `local b = a`), so recursion is bounded.
     private const int MaxDepth = 8;
@@ -55,11 +56,18 @@ public sealed class LuaTypeInference(
             case LuaIndexExpr { Dotted: true, Key: LuaStringExpr field } dotted:
             {
                 string? owner = TypeOf(dotted.Target, depth + 1);
-                if (owner is null) return null;
-                // A field, or a dot-called method on the type.
-                var match = api.FieldsOf(owner).FirstOrDefault(f => f.Name == field.Value);
-                return match is not null ? api.ResolveAlias(match.Type)
-                     : FirstReturn(FindMethod(owner, field.Value));
+                if (owner is not null)
+                {
+                    // A field, or a dot-called method on the type.
+                    var match = api.FieldsOf(owner).FirstOrDefault(f => f.Name == field.Value);
+                    if (match is not null) return api.ResolveAlias(match.Type);
+                    if (FirstReturn(FindMethod(owner, field.Value)) is { } returned) return returned;
+                }
+
+                // Nothing documented says what it is, so try a table the script declared: this is
+                // what carries a documented handle through a key, making `state.boss:` work after
+                // `state.boss = moby_handle:new(7)`.
+                return TypeOfShapeMember(dotted, field.Value, depth);
             }
 
             default: return null;
@@ -82,6 +90,29 @@ public sealed class LuaTypeInference(
         if (api.Carriers.TryGetValue(name.Name, out string? carried)) return carried;
         if (api.Types.ContainsKey(name.Name)) return name.Name;
         return null;
+    }
+
+    /// <summary>
+    /// The type of a key of a declared table, by typing whatever that key was assigned. The path
+    /// is rebuilt from the expression rather than passed in, because inference is also handed
+    /// reconstructed nodes from a half-typed line.
+    /// </summary>
+    private string? TypeOfShapeMember(LuaIndexExpr expression, string key, int depth)
+    {
+        if (shapes is null) return null;
+
+        var keys = new List<string>();
+        LuaExpr current = expression.Target;
+        while (current is LuaIndexExpr index)
+        {
+            if (index.Key is not LuaStringExpr literal) return null;
+            keys.Insert(0, literal.Value);
+            current = index.Target;
+        }
+        if (current is not LuaNameExpr root) return null;
+
+        var shape = shapes.For(root.Name, root.Span.Start, keys);
+        return shape?.Find(key) is { Value: { } assigned } ? TypeOf(assigned, depth + 1) : null;
     }
 
     private LuaApiFunction? FindMethod(string type, string name) =>

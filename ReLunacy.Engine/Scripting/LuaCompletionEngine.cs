@@ -24,7 +24,7 @@ public enum LuaCompletionTrigger
 /// <summary>Where completion is happening and what it replaces when accepted.</summary>
 public sealed record LuaCompletionContext(
     LuaCompletionTrigger Trigger, string Prefix, LuaPosition ReplaceFrom, LuaPosition ReplaceTo,
-    string? ReceiverType);
+    string? ReceiverType, LuaTableShape? ReceiverShape = null);
 
 /// <summary>
 /// Turns a caret position into a list of suggestions, from the locals in scope and the documented
@@ -51,29 +51,39 @@ public static class LuaCompletionEngine
         var tokens = LuaLexer.Tokenize(source);
         var block = LuaParser.Parse(source, out _);
         var scopes = LuaScopeResolver.Resolve(block);
-        var inference = new LuaTypeInference(api, scopes, scripts);
+        var shapes = LuaTableShapes.Build(block, scopes);
+        var inference = new LuaTypeInference(api, scopes, scripts, shapes);
 
-        var analyzed = Analyze(tokens, caret, block, inference);
+        var analyzed = Analyze(tokens, caret, block, inference, shapes);
         context = analyzed;
         var items = new List<LuaCompletionItem>();
 
         switch (analyzed.Trigger)
         {
-            case LuaCompletionTrigger.Method when analyzed.ReceiverType is { } methodType:
-                foreach (var method in api.MethodsOf(methodType))
-                    items.Add(new LuaCompletionItem(method.Name, method.Name, LuaCompletionKind.Method,
-                                                    method.Signature, method.Description));
+            case LuaCompletionTrigger.Method:
+                if (analyzed.ReceiverType is { } methodType)
+                    foreach (var method in api.MethodsOf(methodType))
+                        items.Add(new LuaCompletionItem(method.Name, method.Name, LuaCompletionKind.Method,
+                                                        method.Signature, method.Description));
+                // A table the script declared: only the keys written with ':', since those are the
+                // ones expecting a receiver. A plain function reached through ':' would silently
+                // take the table as its first argument.
+                AddShapeMembers(items, analyzed.ReceiverShape, inference, methodsOnly: true);
                 break;
 
-            case LuaCompletionTrigger.Member when analyzed.ReceiverType is { } memberType:
-                foreach (var field in api.FieldsOf(memberType))
-                    items.Add(new LuaCompletionItem(field.Name, field.Name, LuaCompletionKind.Field,
-                                                    field.Type, field.Description));
-                // Dot access also reaches the type's functions, which is how the standard library
-                // is called: string.len(s) rather than s:len().
-                foreach (var method in api.MethodsOf(memberType))
-                    items.Add(new LuaCompletionItem(method.Name, method.Name, LuaCompletionKind.Method,
-                                                    method.Signature, method.Description));
+            case LuaCompletionTrigger.Member:
+                if (analyzed.ReceiverType is { } memberType)
+                {
+                    foreach (var field in api.FieldsOf(memberType))
+                        items.Add(new LuaCompletionItem(field.Name, field.Name, LuaCompletionKind.Field,
+                                                        field.Type, field.Description));
+                    // Dot access also reaches the type's functions, which is how the standard
+                    // library is called: string.len(s) rather than s:len().
+                    foreach (var method in api.MethodsOf(memberType))
+                        items.Add(new LuaCompletionItem(method.Name, method.Name, LuaCompletionKind.Method,
+                                                        method.Signature, method.Description));
+                }
+                AddShapeMembers(items, analyzed.ReceiverShape, inference, methodsOnly: false);
                 break;
 
             case LuaCompletionTrigger.Identifier:
@@ -136,6 +146,30 @@ public static class LuaCompletionEngine
     }
 
     /// <summary>
+    /// The keys of a table the script itself declared, after whatever the documented API had to
+    /// say. Anything the API already offered wins, since a documented description beats a key read
+    /// off an assignment.
+    /// </summary>
+    private static void AddShapeMembers(List<LuaCompletionItem> items, LuaTableShape? shape,
+                                        LuaTypeInference inference, bool methodsOnly)
+    {
+        if (shape is null) return;
+        foreach (var member in shape.Members)
+        {
+            if (methodsOnly && !member.IsMethod) continue;
+            if (items.Any(i => i.Label == member.Name)) continue;
+
+            string? detail = member.Signature ?? inference.TypeOf(member.Value);
+            items.Add(new LuaCompletionItem(
+                member.Name, member.Name,
+                member.Function is not null
+                    ? member.IsMethod ? LuaCompletionKind.Method : LuaCompletionKind.Function
+                    : LuaCompletionKind.Field,
+                detail, $"a key of {shape.Path}, declared in this script"));
+        }
+    }
+
+    /// <summary>
     /// What the popup says under a declared function: its own description when it has one, and
     /// where it comes from when that is not the file being edited - a name shared through the
     /// level's global table is worth knowing the origin of.
@@ -182,7 +216,8 @@ public static class LuaCompletionEngine
     /// <c>:</c> before it with the receiver chain behind that.
     /// </summary>
     private static LuaCompletionContext Analyze(
-        List<LuaToken> tokens, LuaPosition caret, LuaBlock block, LuaTypeInference inference)
+        List<LuaToken> tokens, LuaPosition caret, LuaBlock block, LuaTypeInference inference,
+        LuaTableShapes shapes)
     {
         // Tokens strictly before the caret, comments excluded.
         var before = tokens
@@ -207,8 +242,12 @@ public static class LuaCompletionEngine
         if (index >= 0 && before[index].Kind == LuaTokenKind.Symbol && before[index].Text is "." or ":")
         {
             var trigger = before[index].Text == ":" ? LuaCompletionTrigger.Method : LuaCompletionTrigger.Member;
-            string? receiverType = ResolveReceiver(before, index - 1, block, inference);
-            return new LuaCompletionContext(trigger, prefix, replaceFrom, caret, receiverType);
+            var chain = ChainBefore(before, index - 1);
+            string? receiverType = ResolveReceiver(chain, block, inference);
+            var receiverShape = chain.Count > 0
+                ? shapes.For(chain[0].Text, chain[0].Start, [.. chain.Skip(1).Select(t => t.Text)])
+                : null;
+            return new LuaCompletionContext(trigger, prefix, replaceFrom, caret, receiverType, receiverShape);
         }
 
         return new LuaCompletionContext(LuaCompletionTrigger.Identifier, prefix, replaceFrom, caret, null);
@@ -220,17 +259,8 @@ public static class LuaCompletionEngine
     /// documented members. A head that no longer parses - because the line is mid-edit - still
     /// resolves when it is a documented global, which covers <c>moby_handle:</c>.
     /// </summary>
-    private static string? ResolveReceiver(
-        List<LuaToken> before, int index, LuaBlock block, LuaTypeInference inference)
+    private static string? ResolveReceiver(List<LuaToken> chain, LuaBlock block, LuaTypeInference inference)
     {
-        var chain = new List<LuaToken>();
-        while (index >= 0)
-        {
-            if (before[index].Kind != LuaTokenKind.Name) break;
-            chain.Insert(0, before[index--]);
-            if (index >= 0 && before[index].Kind == LuaTokenKind.Symbol && before[index].Text == ".") index--;
-            else break;
-        }
         if (chain.Count == 0) return null;
 
         // The head, resolved through the tree where it exists so locals work.
@@ -246,6 +276,23 @@ public static class LuaCompletionEngine
                 true, new LuaSpan(chain[0].Start, chain[i].End)));
 
         return type;
+    }
+
+    /// <summary>
+    /// The <c>a.b.c</c> chain of names ending at <paramref name="index"/>, in source order. Shared
+    /// by type resolution and shape lookup so the two cannot disagree about what the receiver is.
+    /// </summary>
+    private static List<LuaToken> ChainBefore(List<LuaToken> before, int index)
+    {
+        var chain = new List<LuaToken>();
+        while (index >= 0)
+        {
+            if (before[index].Kind != LuaTokenKind.Name) break;
+            chain.Insert(0, before[index--]);
+            if (index >= 0 && before[index].Kind == LuaTokenKind.Symbol && before[index].Text == ".") index--;
+            else break;
+        }
+        return chain;
     }
 
     /// <summary>The parsed name expression at a position, so inference can use the resolved local
