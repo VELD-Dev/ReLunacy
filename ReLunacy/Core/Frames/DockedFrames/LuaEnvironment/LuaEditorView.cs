@@ -64,6 +64,16 @@ public sealed class LuaEditorView
     /// Null means there is nowhere to go, and the view says so rather than doing nothing.</summary>
     public Action<string>? OpenScript { get; set; }
 
+    /// <summary>
+    /// Script names to offer inside a string argument - what <c>load_level_script("</c> completes
+    /// to. A hook because only whatever holds the archive knows which scripts exist.
+    /// </summary>
+    public Func<LuaScriptNameKind, IEnumerable<string>>? ScriptNames { get; set; }
+
+    /// <summary>Raised after the archive has been written, so whatever holds it open can reopen it
+    /// - a handle kept across the write keeps reading the file as it was.</summary>
+    public Action? Installed { get; set; }
+
     /// <summary>Whether the archive holds this path, which is to say the script came from one
     /// rather than from the filesystem.</summary>
     private bool CameFromArchive => _path.StartsWith('/');
@@ -424,6 +434,7 @@ public sealed class LuaEditorView
             if (result.Succeeded)
             {
                 _modified = false;
+                Installed?.Invoke();
                 _status = result.BackupPath is { } backup
                     ? string.Format(LM.Get("GUI_LuaEnv_InstalledWithBackup"), result.Summary,
                                     System.IO.Path.GetFileName(backup))
@@ -484,8 +495,12 @@ public sealed class LuaEditorView
         // Ctrl+Space asks for the full list; otherwise it only follows an edit, and the engine
         // decides whether a bare prefix is worth showing.
         bool requested = ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.Space);
-        if (_editor.TextChanged) { _modified = true; _completion.Refresh(_editor, Api(), false, Scripts()); }
-        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts());
+        if (_editor.TextChanged)
+        {
+            _modified = true;
+            _completion.Refresh(_editor, Api(), false, Scripts(), ScriptNames);
+        }
+        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts(), ScriptNames);
         _completion.Draw(_editor);
         HoverTooltip();
         if (_references.HasResults)

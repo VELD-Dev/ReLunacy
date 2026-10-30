@@ -34,6 +34,8 @@ public sealed class LuaScriptBrowser
     private string? _error;
     private string _levelName = "";
     private string _filter = "";
+    private string _newScript = "";
+    private string? _newScriptStatus;
 
     private readonly List<string> _levelScripts = [];
     private readonly List<string> _gameScripts = [];
@@ -79,6 +81,19 @@ public sealed class LuaScriptBrowser
             Categorise();
         }
         catch (Exception e) { _error = e.Message; }
+    }
+
+    /// <summary>
+    /// Closes and reopens the archive, after something has rewritten it.
+    ///
+    /// Necessary because installing replaces the file on disk: the handle held here keeps reading
+    /// the version that was there when it was opened, so without this an edit appears not to have
+    /// happened and a newly added script never shows up in the list.
+    /// </summary>
+    public void Reload()
+    {
+        Reset();
+        EnsureArchive();
     }
 
     private void Reset()
@@ -187,6 +202,73 @@ public sealed class LuaScriptBrowser
         return _sharedSources;
     }
 
+    /// <summary>
+    /// The bare names a script-name argument can take: this level's scripts, or the game-wide ones.
+    ///
+    /// Bare names, because that is what the loaders take - <c>load_level_script("music")</c>, no
+    /// folder and no extension. The 310 and 20 call sites in the shipped corpus agree on that
+    /// shape, which is what the entries in LuaStringArguments rest on.
+    /// </summary>
+    public IEnumerable<string> ScriptNames(LuaScriptNameKind kind)
+    {
+        EnsureArchive();
+        var paths = kind switch
+        {
+            LuaScriptNameKind.LevelScript => _levelScripts,
+            LuaScriptNameKind.GameScript => _gameScripts,
+            _ => [],
+        };
+        return paths.Select(Path.GetFileNameWithoutExtension)
+                    .Where(name => !string.IsNullOrEmpty(name))
+                    .Select(name => name!);
+    }
+
+    /// <summary>
+    /// Creates a script in this level and opens it.
+    ///
+    /// The file goes into the archive and into the game's file index together, which is what
+    /// <see cref="LuaScriptPackWriter"/> does for a path the archive does not hold yet - so this is
+    /// the same write the Install button performs, with a starter body instead of an edit.
+    ///
+    /// The archive is closed first and reopened after. The write replaces the file on disk, and a
+    /// handle held across it keeps reading the version that was there before - so the new script
+    /// would be invisible until the level was reloaded.
+    /// </summary>
+    /// <returns>What happened, for the caller to show.</returns>
+    public LuaScriptSaveResult CreateLevelScript(string name)
+    {
+        EnsureArchive();
+        if (_archive is null || _archivePath is null)
+            return LuaScriptSaveResult.Refused(LM.Get("GUI_LuaEnv_ScriptsNoLevel"));
+        if (!IsUsableName(name))
+            return LuaScriptSaveResult.Refused(string.Format(LM.Get("GUI_LuaEnv_NewScriptBadName"), name));
+
+        string path = $"/levels/{_levelName}/scripts/{name}.lua";
+        if (_archive.Manifest.ContainsKey(path))
+            return LuaScriptSaveResult.Refused(string.Format(LM.Get("GUI_LuaEnv_NewScriptExists"), path));
+
+        // A comment-only file compiles to a valid chunk, so the pair that lands in the archive is
+        // real from the start rather than something that has to be fixed before it will build.
+        string source = $"-- {name}.lua\n-- Run with load_level_script(\"{name}\")\n";
+        string archivePath = _archivePath;
+
+        Reset();
+        var result = LuaScriptPackWriter.Save(archivePath, path, source);
+        EnsureArchive();
+
+        if (result.Succeeded) Open(path);
+        return result;
+    }
+
+    /// <summary>
+    /// Whether a name can be a script. The loaders take a bare name, so anything with a folder or
+    /// an extension in it would be a name no call site could write.
+    /// </summary>
+    private static bool IsUsableName(string name) =>
+        name.Length > 0 && name.Length <= 64
+        && (char.IsLetter(name[0]) || name[0] == '_')
+        && name.All(c => char.IsLetterOrDigit(c) || c is '_' or '-');
+
     /// <summary>The compiled chunk's path for a source path, by the mapping verified over all 524.</summary>
     public static string CompiledPathFor(string sourcePath)
     {
@@ -210,6 +292,8 @@ public sealed class LuaScriptBrowser
         ImGui.TextDisabled(Path.GetFileName(_archivePath));
         ImGui.SetNextItemWidth(-1f);
         ImGui.InputTextWithHint("##script_filter", LM.Get("GUI_LuaEnv_ScriptsFilter"), ref _filter, 128);
+
+        NewScriptRow();
         ImGui.Separator();
 
         if (!ImGui.BeginChild("script_list", new Vector2(0f, 0f))) { ImGui.EndChild(); return; }
@@ -222,6 +306,41 @@ public sealed class LuaScriptBrowser
         Group(string.Format(LM.Get("GUI_LuaEnv_ScriptsOther"), _otherScripts.Count), _otherScripts, defaultOpen: false);
 
         ImGui.EndChild();
+    }
+
+    /// <summary>
+    /// Creating a script in this level: a name, and the button that writes it.
+    ///
+    /// Deliberately not a confirmation-free one-click action - it writes a game archive and the
+    /// game's file index. The name is typed first, the button says what it will make, and the
+    /// result is reported including where the backup went.
+    /// </summary>
+    private void NewScriptRow()
+    {
+        ImGui.SetNextItemWidth(-ImGui.CalcTextSize(LM.Get("GUI_LuaEnv_NewScript")).X
+                               - ImGui.GetStyle().FramePadding.X * 4f - ImGui.GetStyle().ItemSpacing.X);
+        ImGui.InputTextWithHint("##new_script", LM.Get("GUI_LuaEnv_NewScriptHint"), ref _newScript, 64);
+        ImGui.SameLine();
+
+        bool usable = IsUsableName(_newScript);
+        ImGui.BeginDisabled(!usable);
+        if (ImGui.Button(LM.Get("GUI_LuaEnv_NewScript")))
+        {
+            var result = CreateLevelScript(_newScript);
+            _newScriptStatus = result.Succeeded
+                ? result.BackupPath is { } backup
+                    ? $"{result.Summary} (backup: {Path.GetFileName(backup)})"
+                    : result.Summary
+                : result.Summary;
+            if (result.Succeeded) _newScript = "";
+        }
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(usable
+                ? string.Format(LM.Get("GUI_LuaEnv_NewScriptTooltip"), _levelName, _newScript)
+                : LM.Get("GUI_LuaEnv_NewScriptHint"));
+
+        if (_newScriptStatus is { } status) ImGui.TextWrapped(status);
     }
 
     private void Group(string label, List<string> paths, bool defaultOpen)

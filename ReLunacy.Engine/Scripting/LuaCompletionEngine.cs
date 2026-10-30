@@ -19,12 +19,15 @@ public enum LuaCompletionTrigger
     Member,
     /// <summary>After <c>:</c> - methods of the receiver only.</summary>
     Method,
+    /// <summary>Inside a string literal that a known function takes a script's name in.</summary>
+    StringArgument,
 }
 
 /// <summary>Where completion is happening and what it replaces when accepted.</summary>
 public sealed record LuaCompletionContext(
     LuaCompletionTrigger Trigger, string Prefix, LuaPosition ReplaceFrom, LuaPosition ReplaceTo,
-    string? ReceiverType, LuaTableShape? ReceiverShape = null);
+    string? ReceiverType, LuaTableShape? ReceiverShape = null,
+    LuaScriptNameKind ScriptNames = LuaScriptNameKind.None, string? Function = null);
 
 /// <summary>
 /// Turns a caret position into a list of suggestions, from the locals in scope and the documented
@@ -44,9 +47,15 @@ public static class LuaCompletionEngine
         "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
     ];
 
+    /// <param name="scriptNames">
+    /// Names to offer inside a string a function takes a script name in. A hook because only the
+    /// host knows what the archive holds - the engine would have to open it to find out, and it has
+    /// no business doing that from a completion call.
+    /// </param>
     public static List<LuaCompletionItem> Complete(
         string source, LuaPosition caret, LuaApiDatabase api, out LuaCompletionContext context,
-        LuaScriptIndex? scripts = null)
+        LuaScriptIndex? scripts = null,
+        Func<LuaScriptNameKind, IEnumerable<string>>? scriptNames = null)
     {
         var tokens = LuaLexer.Tokenize(source);
         var block = LuaParser.Parse(source, out _);
@@ -54,12 +63,18 @@ public static class LuaCompletionEngine
         var shapes = LuaTableShapes.Build(block, scopes);
         var inference = new LuaTypeInference(api, scopes, scripts, shapes);
 
-        var analyzed = Analyze(tokens, caret, block, inference, shapes);
+        var analyzed = Analyze(source, tokens, caret, block, inference, shapes);
         context = analyzed;
         var items = new List<LuaCompletionItem>();
 
         switch (analyzed.Trigger)
         {
+            case LuaCompletionTrigger.StringArgument:
+                foreach (string name in scriptNames?.Invoke(analyzed.ScriptNames) ?? [])
+                    items.Add(new LuaCompletionItem(name, name, LuaCompletionKind.Variable, null,
+                        string.Format(ScriptNameDescription(analyzed.ScriptNames), analyzed.Function)));
+                break;
+
             case LuaCompletionTrigger.Method:
                 if (analyzed.ReceiverType is { } methodType)
                     foreach (var method in api.MethodsOf(methodType))
@@ -145,6 +160,13 @@ public static class LuaCompletionEngine
         return Filter(items, analyzed.Prefix);
     }
 
+    private static string ScriptNameDescription(LuaScriptNameKind kind) => kind switch
+    {
+        LuaScriptNameKind.LevelScript => "a script in this level, loadable with {0}",
+        LuaScriptNameKind.GameScript => "a game-wide script, loadable with {0}",
+        _ => "{0}",
+    };
+
     /// <summary>
     /// The keys of a table the script itself declared, after whatever the documented API had to
     /// say. Anything the API already offered wins, since a documented description beats a key read
@@ -216,14 +238,17 @@ public static class LuaCompletionEngine
     /// <c>:</c> before it with the receiver chain behind that.
     /// </summary>
     private static LuaCompletionContext Analyze(
-        List<LuaToken> tokens, LuaPosition caret, LuaBlock block, LuaTypeInference inference,
-        LuaTableShapes shapes)
+        string source, List<LuaToken> tokens, LuaPosition caret, LuaBlock block,
+        LuaTypeInference inference, LuaTableShapes shapes)
     {
         // Tokens strictly before the caret, comments excluded.
         var before = tokens
             .Where(t => t.Kind is not (LuaTokenKind.Comment or LuaTokenKind.EndOfFile))
             .Where(t => t.End.Line < caret.Line || (t.End.Line == caret.Line && t.End.Column <= caret.Column))
             .ToList();
+
+        // A caret inside a string literal cannot be completing a name, so this comes first.
+        if (StringArgumentAt(source, tokens, caret) is { } inString) return inString;
 
         string prefix = "";
         var replaceFrom = caret;
@@ -276,6 +301,114 @@ public static class LuaCompletionEngine
                 true, new LuaSpan(chain[0].Start, chain[i].End)));
 
         return type;
+    }
+
+    /// <summary>
+    /// The context for a caret inside a string literal that a known function takes a script name
+    /// in, or null when it is not in one - or is in one nothing is known about.
+    ///
+    /// The literal is usually unterminated while it is being typed, which the lexer reports as an
+    /// error rather than a string. Both shapes count: refusing the unterminated one would mean
+    /// completion worked only after the closing quote was already there, which with auto-pairing is
+    /// the common case but not the only one.
+    /// </summary>
+    private static LuaCompletionContext? StringArgumentAt(
+        string source, List<LuaToken> tokens, LuaPosition caret)
+    {
+        string[] lines = source.Split('\n');
+        int index = tokens.FindIndex(t => IsQuoted(lines, t) && Within(t, caret));
+        if (index < 0) return null;
+
+        var token = tokens[index];
+        // Just inside the opening quote: where the replacement starts, and where the prefix does.
+        var from = new LuaPosition(token.Start.Line, token.Start.Column + 1);
+        if (caret.Line != from.Line || caret.Column < from.Column) return null;
+
+        if (EnclosingCall(tokens, index) is not var (function, argument)) return null;
+        var kind = LuaStringArguments.KindFor(function, argument);
+        if (kind == LuaScriptNameKind.None) return null;
+
+        // Read from the SOURCE, not from the token. An unterminated literal - which is what a
+        // string being typed is - comes back as an error token whose text is the lexer's message,
+        // so slicing that would complete against the words "unterminated string".
+        string line = caret.Line < lines.Length ? lines[caret.Line].TrimEnd('\r') : "";
+        string prefix = line[from.Column..Math.Min(caret.Column, line.Length)];
+
+        return new LuaCompletionContext(LuaCompletionTrigger.StringArgument, prefix, from, caret,
+                                        null, null, kind, function);
+    }
+
+    /// <summary>
+    /// Whether a token is a quoted string, finished or not.
+    ///
+    /// Decided by the character the token starts with rather than by its kind, because the two
+    /// states have different kinds - String once closed, Error while it is still being typed - and
+    /// because not every error is an unterminated string. A long-bracket string fails this for the
+    /// right reason too: nothing takes a script name in one.
+    /// </summary>
+    private static bool IsQuoted(string[] lines, LuaToken token)
+    {
+        if (token.Kind is not (LuaTokenKind.String or LuaTokenKind.Error)) return false;
+        if (token.Start.Line >= lines.Length) return false;
+        string line = lines[token.Start.Line];
+        return token.Start.Column < line.Length && line[token.Start.Column] is '"' or '\'';
+    }
+
+    /// <summary>
+    /// Whether the caret is INSIDE a literal: past its opening quote, and not out the other side.
+    ///
+    /// Where the other side is depends on whether the literal is finished. A closed one ends just
+    /// past its closing quote, so the caret has to stop short of that - immediately after the quote
+    /// it has left the string, and completing script names there would offer them in the middle of
+    /// ordinary code. An unterminated one has no closing quote and ends at the line's end, which is
+    /// exactly where it is being typed, so that position counts as inside.
+    /// </summary>
+    private static bool Within(LuaToken token, LuaPosition caret)
+    {
+        if (caret.Line != token.Start.Line || caret.Column <= token.Start.Column) return false;
+        return token.Kind == LuaTokenKind.String
+            ? caret.Line < token.End.Line || caret.Column < token.End.Column
+            : caret.Line < token.End.Line || caret.Column <= token.End.Column;
+    }
+
+    /// <summary>
+    /// The call a token is an argument of: the function's name and which argument this is.
+    ///
+    /// Walks back counting nesting, so a string inside a nested call belongs to the inner one and
+    /// commas in a nested argument list do not shift the index.
+    /// </summary>
+    private static (string Function, int Argument)? EnclosingCall(List<LuaToken> tokens, int from)
+    {
+        int depth = 0, argument = 0;
+        for (int i = from - 1; i >= 0; i--)
+        {
+            var token = tokens[i];
+            if (token.Kind is LuaTokenKind.Comment or LuaTokenKind.EndOfFile) continue;
+            if (token.Kind != LuaTokenKind.Symbol) continue;
+
+            switch (token.Text)
+            {
+                case ")" or "]" or "}":
+                    depth++;
+                    break;
+                case "[" or "{":
+                    if (depth == 0) return null;   // inside a table or an index, not an argument list
+                    depth--;
+                    break;
+                case "(":
+                    if (depth > 0) { depth--; break; }
+                    // The name being called has to be the token immediately before the bracket.
+                    int name = i - 1;
+                    while (name >= 0 && tokens[name].Kind is LuaTokenKind.Comment) name--;
+                    return name >= 0 && tokens[name].Kind == LuaTokenKind.Name
+                        ? (tokens[name].Text, argument)
+                        : null;
+                case "," when depth == 0:
+                    argument++;
+                    break;
+            }
+        }
+        return null;
     }
 
     /// <summary>

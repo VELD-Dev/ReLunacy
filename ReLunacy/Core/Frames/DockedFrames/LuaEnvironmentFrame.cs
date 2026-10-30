@@ -47,6 +47,10 @@ public class LuaEnvironmentFrame : DockedFrame
         // of them means opening it - both of which the browser is already holding the archive for.
         _editor.SiblingSources = _scripts.SharedSources;
         _editor.OpenScript = _scripts.Open;
+        // What load_level_script(" and load_global_script(" complete to. The browser is what knows
+        // which scripts the archive holds.
+        _editor.ScriptNames = _scripts.ScriptNames;
+        _editor.Installed = _scripts.Reload;
     }
 
     /// <summary>Opens source in the editor - how the PSARC browser will hand a script over.</summary>
