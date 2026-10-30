@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Security.Cryptography;
 
 namespace ReLunacy.Engine.Packing;
@@ -29,7 +30,19 @@ namespace ReLunacy.Engine.Packing;
 ///   then  the block-size table, one entry per block, width following the block size
 /// Entry 0 is the archive's own path manifest; manifest line i names entry i+1, which is why
 /// replacing a file must never renumber the entries.
+///
+/// Adding one is possible because of what the shipped archives turn out NOT to do. Their entries
+/// are not sorted by path hash (checked on six archives across two games), so nothing depends on
+/// an ordering a new entry could break; offsets and first-block indices are ascending, which an
+/// append preserves; and the manifest is newline-separated with no trailing newline, so a new path
+/// is one '\n' and a line. A path appended to the manifest and an entry appended to the FAT stay
+/// aligned, because both land last.
 /// </summary>
+/// <summary>What a patch did. Replacements and additions are counted apart because they carry
+/// different consequences: replacing changes bytes, adding changes the archive's own file list and
+/// obliges the caller to update the game's table of contents too.</summary>
+public sealed record PsarcPatchResult(int Replaced, int Added);
+
 public static class PsarcPatcher
 {
     private const int HeaderSize = 0x20;
@@ -40,11 +53,16 @@ public static class PsarcPatcher
 
     /// <summary>
     /// Writes <paramref name="outputPath"/> as <paramref name="archivePath"/> with the named paths'
-    /// contents replaced. Paths are the archive's own, e.g. <c>/scripts/tags.lua</c>.
+    /// contents replaced, and any <paramref name="additions"/> appended as new entries. Paths are
+    /// the archive's own, e.g. <c>/scripts/tags.lua</c>.
+    ///
+    /// An addition appends its path to the manifest and its entry to the FAT, so every existing
+    /// entry keeps its index and the engine's file-by-position addressing is undisturbed. The
+    /// manifest itself is an entry, so adding rewrites entry 0 as stored blocks.
     /// </summary>
-    /// <returns>How many entries were replaced.</returns>
-    public static int Patch(string archivePath, string outputPath,
-                            IReadOnlyDictionary<string, byte[]> replacements)
+    public static PsarcPatchResult Patch(string archivePath, string outputPath,
+                                         IReadOnlyDictionary<string, byte[]> replacements,
+                                         IReadOnlyDictionary<string, byte[]>? additions = null)
     {
         using var source = File.OpenRead(archivePath);
 
@@ -70,16 +88,37 @@ public static class PsarcPatcher
         // instead of a silently wrong file.
         var wanted = new Dictionary<int, byte[]>();
         foreach (var (path, contents) in replacements)
+            wanted[RequireEntry(entries, path, flags)] = contents;
+
+        // An addition needs the manifest extended, which makes entry 0 a replacement as well - so
+        // this has to happen before the layout pass, and after the replacements are resolved so a
+        // caller cannot ask to replace the manifest and add to it at the same time.
+        var appended = new List<(byte[] Hash, byte[] Contents)>();
+        if (additions is { Count: > 0 })
         {
-            byte[] hash = HashPath(path, flags);
-            int index = Array.FindIndex(entries, e => e.Hash.AsSpan().SequenceEqual(hash));
-            if (index < 0) throw new InvalidDataException($"{path} is not in the archive");
-            wanted[index] = contents;
+            if (wanted.ContainsKey(0))
+                throw new InvalidOperationException("the manifest cannot be replaced and added to at once");
+
+            var paths = new List<string>();
+            foreach (var (path, contents) in additions)
+            {
+                byte[] hash = HashPath(path, flags);
+                if (Array.Exists(entries, e => e.Hash.AsSpan().SequenceEqual(hash)))
+                    throw new InvalidDataException($"{path} is already in the archive; replace it instead");
+                if (appended.Exists(a => a.Hash.AsSpan().SequenceEqual(hash)))
+                    throw new InvalidDataException($"{path} was added twice");
+                paths.Add(path);
+                appended.Add((hash, contents));
+            }
+
+            wanted[0] = ExtendManifest(source, entries[0], blocks, blockSize, count, paths);
         }
+
+        int newCount = count + appended.Count;
 
         // Pass one: lay out the new blocks and entries, so the table's size - and with it where data
         // begins - is known before anything is written.
-        var newEntries = new List<Entry>(count);
+        var newEntries = new List<Entry>(newCount);
         var newBlocks = new List<int>(blocks.Length);
         foreach (var (entry, index) in entries.Select((e, i) => (e, i)))
         {
@@ -97,9 +136,14 @@ public static class PsarcPatcher
             }
             newEntries.Add(new Entry(entry.Hash, firstBlock, size, 0));
         }
+        foreach (var (hash, contents) in appended)
+        {
+            newEntries.Add(new Entry(hash, newBlocks.Count, contents.Length, 0));
+            AppendStoredBlockSizes(newBlocks, contents.Length, blockSize);
+        }
 
         int blockWidth = BlockWidth(blockSize);
-        long dataStart = HeaderSize + (long)count * entrySize + (long)newBlocks.Count * blockWidth;
+        long dataStart = HeaderSize + (long)newCount * entrySize + (long)newBlocks.Count * blockWidth;
 
         // Pass two: write the data, recording where each entry landed.
         using var output = File.Create(outputPath);
@@ -107,7 +151,8 @@ public static class PsarcPatcher
         for (int i = 0; i < newEntries.Count; i++)
         {
             long offset = output.Position;
-            if (wanted.TryGetValue(i, out byte[]? contents)) output.Write(contents);
+            if (i >= count) output.Write(appended[i - count].Contents);
+            else if (wanted.TryGetValue(i, out byte[]? contents)) output.Write(contents);
             else CopyBlocks(source, output, entries[i], blocks, blockSize);
             newEntries[i] = newEntries[i] with { Offset = offset };
         }
@@ -115,6 +160,7 @@ public static class PsarcPatcher
         // Pass three: the header and tables, now that every offset is known.
         output.Position = 0;
         BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(0x0C), checked((int)dataStart));
+        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(0x14), newCount);
         output.Write(header);
         foreach (var entry in newEntries) output.Write(EncodeEntry(entry));
         var blockBytes = new byte[blockWidth];
@@ -128,7 +174,72 @@ public static class PsarcPatcher
             throw new InvalidDataException(
                 $"the tables ended at {output.Position} but data begins at {dataStart}");
 
-        return wanted.Count;
+        return new PsarcPatchResult(replacements.Count, appended.Count);
+    }
+
+    private static int RequireEntry(Entry[] entries, string path, uint flags)
+    {
+        byte[] hash = HashPath(path, flags);
+        int index = Array.FindIndex(entries, e => e.Hash.AsSpan().SequenceEqual(hash));
+        if (index < 0) throw new InvalidDataException($"{path} is not in the archive");
+        return index;
+    }
+
+    /// <summary>
+    /// The manifest with the given paths appended: newline-separated, no trailing newline, each
+    /// path exactly as the entries hash it. The decoded original is checked to hold one line per
+    /// named entry before anything is appended, because a manifest decoded wrongly would otherwise
+    /// be rewritten wrongly - and that single number is enough to catch it.
+    /// </summary>
+    private static byte[] ExtendManifest(
+        Stream source, Entry manifest, int[] blocks, int blockSize, int count,
+        IReadOnlyList<string> paths)
+    {
+        byte[] current = ReadEntry(source, manifest, blocks, blockSize);
+        int lines = current.Length == 0 ? 0 : current.Count(b => b == (byte)'\n') + 1;
+        if (lines != count - 1)
+            throw new InvalidDataException(
+                $"the manifest holds {lines} lines for {count - 1} named entries, so it was not read correctly");
+
+        var text = new MemoryStream();
+        text.Write(current);
+        foreach (string path in paths)
+        {
+            if (text.Length > 0) text.WriteByte((byte)'\n');
+            text.Write(System.Text.Encoding.ASCII.GetBytes(path.Replace('\\', '/')));
+        }
+        return text.ToArray();
+    }
+
+    /// <summary>
+    /// One entry's contents. This is the only place the patcher decompresses anything - it exists
+    /// for the manifest, which has to be understood rather than copied when a file is added.
+    /// </summary>
+    private static byte[] ReadEntry(Stream source, Entry entry, int[] blocks, int blockSize)
+    {
+        source.Position = entry.Offset;
+        var output = new MemoryStream((int)entry.Size);
+        var buffer = new byte[blockSize];
+        foreach (int length in BlockLengths(entry, blocks, blockSize))
+        {
+            int onDisk = length == 0 ? blockSize : length;
+            source.ReadExactly(buffer, 0, onDisk);
+
+            // A table length of zero is a whole stored block. Otherwise the block is compressed
+            // unless it did not compress smaller, which the zlib header distinguishes.
+            if (length != 0 && onDisk >= 2 && buffer[0] == 0x78)
+            {
+                using var deflated = new ZLibStream(
+                    new MemoryStream(buffer, 0, onDisk), CompressionMode.Decompress);
+                deflated.CopyTo(output);
+            }
+            else output.Write(buffer, 0, onDisk);
+        }
+
+        byte[] bytes = output.ToArray();
+        if (bytes.Length < entry.Size)
+            throw new InvalidDataException($"an entry decoded to {bytes.Length} of {entry.Size} bytes");
+        return bytes[..(int)entry.Size];
     }
 
     private static Entry[] ReadEntries(Stream source, int count, int entrySize)
