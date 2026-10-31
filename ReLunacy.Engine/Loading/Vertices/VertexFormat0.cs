@@ -23,13 +23,13 @@ public record struct VertexFormat0
     public readonly float VertexAlpha => Math.Clamp((0xC000 - (ushort)boneIndex) / 127f, 0f, 1f);
 
     // RETAIL DECODE, 2026-09-16 (Tools/Reverse/evidence/TOD_Retail_Shader_Programs_2026-09-16.md).
-    // The NPUA80965 TIE vertex programs compute
+    // The NPUA80965 Tie vertex shaders compute
     //     TEX1.x = fract(|pos.w| * c[3].z) * c[20].z
     //     TEX1.y = fract(|pos.w| * c[3].w) * c[20].w
-    // and every baked TIE fragment program multiplies ALL of its light by TEX1.x. c[20] is PROVEN:
-    // the TIE render shell at 0x598B00 uploads c[20] = (2, 2, 2, 1). c[3].zw = (1/32768, 1/128) is
+    // and every baked Tie fragment shader multiplies ALL of its light by TEX1.x. c[20] is PROVEN:
+    // the Tie render shell at 0x598B00 uploads c[20] = (2, 2, 2, 1). c[3].zw = (1/32768, 1/128) is
     // PROVEN too (09-10-2026): the frame constants 0x004F58C4 load c[1..3] from 0x10078944, c[3] =
-    // (1/255, 1/32768, 1/32768, 1/128). Over all 7,012,751 retail TIE vertices it puts 87.8% of vertices at exactly
+    // (1/255, 1/32768, 1/32768, 1/128). Over all 7,012,751 retail Tie vertices it puts 87.8% of vertices at exactly
     // 1.0, never reaches 2.0 (the fract * 2 ceiling), and makes TEX1.y equal to the low seven bits /
     // 128 - which is the user-confirmed vertex alpha decode above. So this field is not a bone index
     // and not a detail UV: it packs a per-vertex baked light multiplier (high bits) and vertex alpha

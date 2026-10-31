@@ -20,7 +20,7 @@ public static class GameDefinitions
     /// <summary>The game whose <see cref="GameDefinition.KnownLevels"/> lists the level at
     /// <paramref name="levelPath"/> (a level folder, or an archive inside one), or null when no
     /// game knows it. Some rendering paths differ per game (A Crack in Time's data layout, which
-    /// EBOOT's programs a level is drawn with).</summary>
+    /// EBOOT's shaders a level is drawn with).</summary>
     public static GameDefinition? FromLevelPath(string? levelPath)
     {
         if (string.IsNullOrWhiteSpace(levelPath)) return null;

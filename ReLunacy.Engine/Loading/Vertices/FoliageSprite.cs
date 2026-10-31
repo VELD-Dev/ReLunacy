@@ -3,7 +3,7 @@ using ReLunacy.Engine.Loading.IO;
 namespace ReLunacy.Engine.Loading.Vertices;
 
 /// <summary>One corner of a foliage sprite card: four big-endian half floats (offsetX, offsetY,
-/// u, v), 8 bytes, one per vertex. RSX attribute location 0 of the foliage vertex program.
+/// u, v), 8 bytes, one per vertex. RSX attribute location 0 of the foliage vertex shader.
 ///
 /// The offset is added to the transformed anchor, scaled by a vertex constant, so
 /// <see cref="OffsetX"/>/<see cref="OffsetY"/> are in the card's own 2D plane and become world

@@ -18,19 +18,26 @@ Because the European date format is better, please keep date format like this: `
 - Added animation support by @Fianshoo in PRs #58, #59 and #60
 - Added sky rendering on both engines (`Render menu > Sky`) by @Fianshoo: the dome and its gradient, the two scrolling cloud layers and the authored sky shells (panoramas, stars, planets), drawn in the game's pass order with each texture's own RSX sampler. Tools of Destruction reads main.dat 0x8150/0x8160/0x8170 and the shell mesh in vertices.dat 0x9000/0x9100; the new engine reads every sky of the region (region.dat 0x81B0, textures in sky.dat), so All 4 One's seaside (3 skies) and polar_sea (2) can show each one. The clear colour comes from the sky, as in game. Bloom shells stay off for now.
 - Old-engine textures now keep their whole 0x5200 RSX descriptor (`TextureMetadataOld` fields 0x08-0x1C, `Texture.OldDescriptor`) instead of 16 unnamed bytes.
-- Rendering closer to the games, on both engines, by @Fianshoo. Every item below was checked against the game's own code (EBOOT, RSX programs, RPCS3 shader cache) or measured over the retail files:
+- Rendering closer to the games, on both engines, by @Fianshoo. Every item below was checked against the game's own code (EBOOT, RSX shaders, RPCS3 shader cache) or measured over the retail files:
   - Textures are sampled the way the RSX samples them: each texture's own descriptor drives wrap, filter, LOD, channel remap (CONTROL1), gamma and signed/biased decoding, on both engines.
-  - The game's own fragment programs: materials draw with the programs they ship (holograms, shields, veils...) and, when a decrypted EBOOT (*.elf) lies in the level's install, with the game's standard programs (QForce, All 4 One, Into the Nexus; A Crack in Time borrows a sibling's) and Tools of Destruction's TIE programs. `Render > Game shaders` turns them off.
+  - The game's own fragment shaders: materials draw with the shaders they ship (holograms, shields, veils...) and, when a decrypted EBOOT (*.elf) lies in the level's install, with the game's standard shaders (QForce, All 4 One, Into the Nexus; A Crack in Time borrows a sibling's) and Tools of Destruction's Tie shaders. `Render > Game shaders` turns them off.
   - Bloom as the games run it (the level's own parameters: region.dat 0x34000 on the new engine, main.dat 0x7100 on ToD), with the sky writing its glow mask.
   - Fog: ToD's per-level fog (main.dat 0x7100), and the new engine's fog tables and atmosphere (Henyey-Greenstein sun scattering). `Render > Fog` hides ToD's.
-  - Baked lighting: new-engine zone lightmaps from lighting.dat with their high-resolution half from highlight.dat, the per-placement baked-light constant, the unbaked TIEs' prelight (both engines), ToD's per-vertex baked light multiplier, lightmap indices sanitized the way the game does.
-  - Reflections: the new engine's cubemaps.dat cubes picked per placement, ToD's cube decoded as the console does (sRGB on all four channels, HDR exponent base 2) with the TIE programs' distance fade. `Render > Reflections` hides ToD's.
-  - Two-layer surfaces (grass, snow, moss over stone): the second material and its blend mask on TIEs and terrain, both engines.
+  - Baked lighting: new-engine zone lightmaps from lighting.dat with their high-resolution half from highlight.dat, the per-placement baked-light constant, the unbaked Ties' prelight (both engines), ToD's per-vertex baked light multiplier, lightmap indices sanitized the way the game does.
+  - Reflections: the new engine's cubemaps.dat cubes picked per placement, ToD's cube decoded as the console does (sRGB on all four channels, HDR exponent base 2) with the Tie shaders' distance fade. `Render > Reflections` hides ToD's.
+  - Two-layer surfaces (grass, snow, moss over stone): the second material and its blend mask on Ties and UFrags, both engines.
   - Animated UVs (section 0x5C00): scrolling and turning textures move, stepped at the game's frame rate (60 on ToD, 30 on the new engine).
   - ToD back faces culled as the game culls them, its non-opaque polygon offset, the new engine's normal/reflection/detail fade distances.
   - Known level names tell the game apart (`GameDefinitions.FromLevelPath`), which selects A Crack in Time's data layout.
   - The skinning added in #60 is kept: the lit, picking and outline vertex shaders still skin, the bone palette now sits at bindings 9 and 11.
-- 
+- Added a Lua environment (`Lua Environment` panel): browse a level's scripts, read them, edit them, and write them back into the game.
+  - A Lua 5.0 reader, disassembler and compiler for the bytecode Tools of Destruction actually runs. All 524 scripts it ships recompile byte for byte from their own sources, which is what the compiler is checked against.
+  - A code editor with syntax colouring, completion, snippets, auto-closing brackets, rename, go to declaration, find references (results listed under the editor, as coloured code), Ctrl+F, and documentation on hover.
+  - LuaLS annotations (`---@param`, `---@class`, `---@cast`...) are coloured and completed, with the parameter names of the function below offered after `---@param`. `---@cast` narrows a variable's type for everything after it. The documentation is under `ReLunacy/LuaApi/<game name>/api.lua`. Please follow `ReLunacy/LuaApi/README.md` before editing the docs.
+  - Documentation is markdown, as LuaLS writes it, and is rendered as such - Lua examples included, coloured by the editor itself.
+  - Editable colour themes, with the real editor as a live preview. Color themes can be easily shared across installs under `ReLunacy/Themes/`.
+  - Saving writes the source and the compiled chunk back into `global_cached.psarc`, adds them to the game's file index when they are new, and keeps `game.toc`'s record of each archive's length in step. The original is backed up first, and the rebuilt archive is verified in full before anything is replaced; files the edit does not touch keep the exact compressed bytes they shipped with.
+  - Adding new scripts. Not established yet, and worth knowing before relying on it: whether the engine accepts a file added through ReLunacy. Replacing an existing script needs none of that and is the safer path.
 
 ## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026
 
@@ -99,8 +106,8 @@ Destruction running in RPCS3, so it's not an approximation of "what looks nice",
 actual maths. **It's a first step to a replica of ToD** *(and QfB)* **visuals !**
 
 - Added an optional **lit renderer**, off by default: enable it in `Editor Settings` > `Lighting (experimental)`.
-- **Baked lightmaps on terrain (UFrags)**: the game's baked light colour and light direction atlases are
-  now loaded, bound and sampled, through the terrain's own second UV set. This is what carries all of
+- **Baked lightmaps on UFrags**: the game's baked light colour and light direction atlases are
+  now loaded, bound and sampled, through the UFrags' own second UV set. This is what carries all of
   the level's baked shadows and coloured bounce light.
 - **Normal maps** are now composed the way the game does it (as partial derivatives, added together
   rather than blended), and their inverted orientation has been fixed, in the renderer *and* in glTF export.
@@ -109,7 +116,7 @@ actual maths. **It's a first step to a replica of ToD** *(and QfB)* **visuals !*
   tiling factor read from the shader metadata. Worth noting that the detail map is still experimental and might look
   very weird in some cases.
 - **Environment/ambient approximation** averaged from the level's own cubemap. (very experimental)
-- Materials are now cached per instance rather than per shader, so terrain fragments that share a
+- Materials are now cached per instance rather than per shader, so UFrags that share a
   shader but have different bakes no longer collapse onto one shared lightmap.
 
 #### Lighting limitations, please read
@@ -118,7 +125,7 @@ actual maths. **It's a first step to a replica of ToD** *(and QfB)* **visuals !*
   Post-ACiT levels store their baked lighting data somewhere else, which hasn't been reversed yet, so
   using lighting on them will definitely look wrong. Resistance: Fall of Man is untested but should work.
 - **Ties are not lightmapped yet.** Tie instances do carry a bake index, but their lightmap UVs haven't
-  been located yet (they live outside the tie vertex record, in a separate vertex stream), so ties
+  been located yet (they live outside the Tie vertex record, in a separate vertex stream), so Ties
   currently render without their baked lighting. Work in progress.
 - **There are still a very few artifacts on UFrag lightmaps.** Some UFrags might be rendered unlit or with weird
   colors. I'm still investigating this.
@@ -137,13 +144,13 @@ actual maths. **It's a first step to a replica of ToD** *(and QfB)* **visuals !*
   shader metadata hex dump with a big-endian float view, to help reverse the remaining unknown fields.
 - `Asset View`: added export buttons for **Moby and Tie** assets, and a separate `.gltf` export option
   (writing the `.gltf` + `.bin` + textures into its own folder) alongside the existing single-file `.glb`.
-- `Asset View`: added a new **UFrags** tab. Terrain fragments can now be browsed, previewed, exported, and
+- `Asset View`: added a new **UFrags** tab. UFrags can now be browsed, previewed, exported, and
   their baked lighting inspected individually; lightmap index, UV rectangle, and both atlases with the
   fragment's UV island drawn on top of them. UFrags are the only asset type whose bake can be inspected
   out of context, since each one is its own single placement.
 - `Instance Properties`: "teleport camera to entity" now places the camera just short of the selected
   entity instead of pushing it past/away from it.
-- Fixed tie instance data not being read at all on old-engine levels, which silently discarded each
+- Fixed Tie instance data not being read at all on old-engine levels, which silently discarded each
   instance's baked lighting index.
 
 ## [v0.04](https://github.com/VELD-Dev/ReLunacy/releases/0.04) - 26-07-2026
@@ -177,7 +184,7 @@ actual maths. **It's a first step to a replica of ToD** *(and QfB)* **visuals !*
 - Merged LibLunacy (asset-format library) and its archive I/O directly into ReLunacy.Engine instead of referencing them as separate assemblies, fully retargeted to Bliss 1.6.15/Veldrith; reorganized loading/asset code under clearer `Loading`/`Assets`/`Scene`/`Rendering`/`Games` namespaces and removed unused legacy engine code left over from the old architecture.
 - Added `.gltf`/`.glb` and `.obj` model export (with `.mtl`/`.png`), including a new whole-level export (`Export Level`) that bundles every placed instance into a single scene file. Export runs in the background with a progress modal and an "open containing folder" action when done. Mobys with skeletons now always export as static/rigid meshes at level scope (this avoids a crash from colliding bone names across placed instances) and the exported level file is named after the level's own folder instead of the raw `level_cached`/`level_uncached` archive filename.
 - Added skinned-mesh/skeleton export support (joint extraction, bone-weighted meshes) for single-asset exports.
-- Implemented a custom `DecalAwareForwardRenderer`, fixing z-fighting on alpha-blended decal textures (moss/vines painted onto terrain) by disabling depth *writes* (while keeping depth *testing*) for translucent geometry instead of Bliss's default renderer, which hardcoded depth writes for everything.
+- Implemented a custom `DecalAwareForwardRenderer`, fixing z-fighting on alpha-blended decal textures (moss/vines painted onto UFrags) by disabling depth *writes* (while keeping depth *testing*) for translucent geometry instead of Bliss's default renderer, which hardcoded depth writes for everything.
 - Implemented Moby per-instance render/display distance culling (reverse-engineered from real gameplay data), toggleable from the Render menu - off by default since the free-fly editor camera doesn't share the game's player-anchored camera assumptions.
 - Added Volume selection in the 3D viewport: proper GPU-buffer picking against the volume's actual wireframe edges (not a solid hitbox, so clicking empty interior space no longer selects a volume), with configurable wire thickness and unselected/selected colors in Editor Settings, and volume metadata (ID/group) now shown in the Property Inspector.
 - Added a configurable Selection Outline color in Editor Settings.

@@ -125,6 +125,21 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>The Lua development environment: source editor and bytecode disassembly in one
+    /// window. Grouped with the file inspectors rather than the level views, since it works on
+    /// scripts rather than on the loaded level.</summary>
+    internal static void ShowLuaEnvironment()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaEnvironmentFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaEnvironment"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<LuaEnvironmentFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new LuaEnvironmentFrame());
+    }
+
     internal static void ShowPSArcExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();

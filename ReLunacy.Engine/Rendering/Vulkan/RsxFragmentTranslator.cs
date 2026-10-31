@@ -4,7 +4,7 @@ using System.Text;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// RSX (NV47) fragment microcode -> GLSL, so a class-0x13 material draws with the game's own program
+/// RSX (NV47) fragment microcode -> GLSL, so a class-0x13 material draws with the game's own shader
 /// instead of the editor's generic one (Docs/reverse/NEW_ENGINE_EMBEDDED_PROGRAMS_2026-10-07.md).
 ///
 /// Encoding: 16-byte instructions, each word (b2 &lt;&lt; 24) | (b3 &lt;&lt; 16) | (b0 &lt;&lt; 8) | b1; a source of
@@ -12,13 +12,13 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// FragmentProgramDecompiler (RSXFragmentProgram.h): src0 bit 29 = abs, bit 30 = the condition register a
 /// SETCOND writes, bit 31 = the one a conditional instruction tests; src1 bits 19-21 = src0's input clamp,
 /// 28-30 = result scale; IFE else / end offsets are in 4-byte words. Measured on the 204 distinct QForce
-/// embedded programs: src0 bit 29 is set on 125 unconditional instructions (so it is abs, not a condition
+/// embedded shaders: src0 bit 29 is set on 125 unconditional instructions (so it is abs, not a condition
 /// register), and the IFE end offsets land on instruction boundaries.
 ///
-/// The output is a function body: `vec4 rsxProgram()` reading the interpolants (WPOS, TEX0..TEX9),
+/// The output is a function body: `vec4 rsxShader()` reading the interpolants (WPOS, TEX0..TEX9),
 /// the texture functions rsxTex0..rsxTex15 and the patch-group vectors G0..G22, all supplied by the caller.
 /// h and r registers are kept apart, like RPCS3 before register aliasing and like the reverse tools: the
-/// Cg-compiled programs never read a register through the other view.
+/// Cg-compiled shaders never read a register through the other view.
 /// </summary>
 public static class RsxFragmentTranslator
 {
@@ -39,16 +39,16 @@ public static class RsxFragmentTranslator
     private readonly record struct Instruction(int Offset, int Index, uint D0, uint S0, uint S1, uint S2, int Op, float[]? Constant);
 
     /// <summary>
-    /// Translates one program. <paramref name="slotGroups"/> maps a constant slot (byte offset / 16) to its
+    /// Translates one shader. <paramref name="slotGroups"/> maps a constant slot (byte offset / 16) to its
     /// patch group; those constants read G&lt;group&gt; instead of their stored value. <paramref name="exports32"/>
     /// is the shader-control 32-bit-exports bit: r0 is then the colour, else h0. Null with a reason when the
-    /// program uses something the translator does not implement.
+    /// shader uses something the translator does not implement.
     /// </summary>
     public static Result? Translate(ReadOnlySpan<byte> microcode, IReadOnlyDictionary<int, int> slotGroups, bool exports32, out string? failure)
     {
         failure = null;
-        var program = Decode(microcode);
-        if (program.Count == 0 || (program[^1].D0 & 1) == 0)
+        var shader = Decode(microcode);
+        if (shader.Count == 0 || (shader[^1].D0 & 1) == 0)
         {
             failure = "no end instruction";
             return null;
@@ -65,7 +65,7 @@ public static class RsxFragmentTranslator
 
         void Line(string text) => body.Append(' ', 4 * depth).Append(text).Append('\n');
 
-        foreach (Instruction ins in program)
+        foreach (Instruction ins in shader)
         {
             // RPCS3 order: close the blocks that end here, then open the else of the ones that branch here.
             for (int at = endOffsets.IndexOf(ins.Offset); at >= 0; at = endOffsets.IndexOf(ins.Offset))
@@ -103,7 +103,7 @@ public static class RsxFragmentTranslator
         }
 
         var text = new StringBuilder();
-        text.Append("vec4 rsxProgram() {\n");
+        text.Append("vec4 rsxShader() {\n");
         foreach (string reg in registers)
             text.Append("    vec4 ").Append(reg).Append(" = vec4(0.0);\n");
         text.Append("    vec4 cc0 = vec4(0.0);\n    vec4 cc1 = vec4(0.0);\n");
@@ -119,7 +119,7 @@ public static class RsxFragmentTranslator
             TextureUnits = units,
             Inputs = inputs,
             Groups = groups,
-            InstructionCount = program.Count,
+            InstructionCount = shader.Count,
         };
     }
 

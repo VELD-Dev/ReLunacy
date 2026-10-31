@@ -50,7 +50,7 @@ public sealed class LevelReader
         progressCallback?.Invoke("Loading Textures & Shaders...", 0.0f);
         _textureShaderLoader.LoadAll();
 
-        // Old-engine animation metadata is independent of geometry and must exist before mobys are
+        // Old-engine animation metadata is independent of geometry and must exist before Mobys are
         // converted so each D100 record can resolve its own +0x16/+0x24 clip list. New engine
         // intentionally receives an empty list from AnimationReader.
         progressCallback?.Invoke("Loading Animations...", 0.02f);
@@ -98,7 +98,7 @@ public sealed class LevelReader
             _region.Zones = [.. _zones!.Values];
         }
 
-        // Foliage has its own asset + instance sections, so it loads regardless of the mobys/ties/
+        // Foliage has its own asset + instance sections, so it loads regardless of the Mobys/Ties/
         // zones flags. Old engine only - FoliageReader returns empty on new-engine files.
         progressCallback?.Invoke("Loading Foliage...", 0.9f);
         // MaterialReader resolves each foliage asset's atlas from A200+0x08, a direct index into

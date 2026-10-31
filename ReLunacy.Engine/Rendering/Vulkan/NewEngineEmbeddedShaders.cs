@@ -1,17 +1,17 @@
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// A class-0x13 material's own fragment program, when the lit shader knows its equation. Pushed as
+/// A class-0x13 material's own fragment shader, when the lit shader knows its equation. Pushed as
 /// uMat1.x; 0 keeps the generic standard-class path.
 /// </summary>
-public enum EmbeddedProgram : byte
+public enum EmbeddedShader : byte
 {
     Generic = 0,
 
     /// <summary>
     /// Family be10f7bae86f (Tools/Reverse/evidence/newengine_fp_dataflow_qforce/be10f7bae86f.txt): the
     /// translucent veil of jungle_ruins (pre/post/boss/pvp) and plasma_harvester_pre. Read off the retail
-    /// program, its output is
+    /// shader, its output is
     ///   rgb = (tex2.z + 0.25) * 4, then the fog mix
     ///   a   = saturate(pow(saturate(N.V), 5) * T0.z * mix(T0.x, T0'.y, cos(t / 2) / 2 + 1/2))
     ///         * saturate((depth - 15) / 15)
@@ -23,19 +23,19 @@ public enum EmbeddedProgram : byte
     ScrollingVeil = 1,
 }
 
-public static class NewEngineEmbeddedPrograms
+public static class NewEngineEmbeddedShaders
 {
-    private static readonly Dictionary<string, EmbeddedProgram> Families = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, EmbeddedShader> Families = new(StringComparer.Ordinal)
     {
-        ["be10f7bae86f"] = EmbeddedProgram.ScrollingVeil,
+        ["be10f7bae86f"] = EmbeddedShader.ScrollingVeil,
     };
 
-    /// <summary>The decoded family among a material's embedded programs (Material.NewEngineProgramKeys).</summary>
-    public static EmbeddedProgram Classify(IReadOnlyList<string> programKeys)
+    /// <summary>The decoded family among a material's embedded shaders (Material.NewEngineShaderKeys).</summary>
+    public static EmbeddedShader Classify(IReadOnlyList<string> shaderKeys)
     {
-        foreach (string key in programKeys)
-            if (Families.TryGetValue(key, out EmbeddedProgram program))
-                return program;
-        return EmbeddedProgram.Generic;
+        foreach (string key in shaderKeys)
+            if (Families.TryGetValue(key, out EmbeddedShader shader))
+                return shader;
+        return EmbeddedShader.Generic;
     }
 }

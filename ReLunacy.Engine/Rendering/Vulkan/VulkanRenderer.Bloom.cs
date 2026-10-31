@@ -6,12 +6,12 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
 /// The new engine's bloom, as the QForce post function runs it (EBOOT <c>0x006BD8C0</c>,
-/// Docs/reverse/NEW_ENGINE_POSTPROCESS_2026-10-07.md): the world programs write a glow mask to alpha;
+/// Docs/reverse/NEW_ENGINE_POSTPROCESS_2026-10-07.md): the world shaders write a glow mask to alpha;
 /// a quarter-size extract scales the colour by (k x a)^e; three levels (1/4, 1/8, 1/16) are blurred by a
 /// 3-tap horizontal + vertical kernel, combined (s', 1/3, 2/3 - s'), mixed with last frame's result (h),
 /// blurred twice more by a 5-tap Gaussian and added to the scene, x I. k, e, s, h, I come from region.dat
 /// 0x34000 (<see cref="Assets.Lighting.BloomParameters"/>). Drawn when the level carries them and the
-/// game's programs are on; the glow mask then lives in the colour target's alpha until the composite
+/// game's shaders are on; the glow mask then lives in the colour target's alpha until the composite
 /// writes it back to 1.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
@@ -51,7 +51,7 @@ public sealed unsafe partial class VulkanRenderer
     private static readonly bool BloomAllowed = Environment.GetEnvironmentVariable("RELUNACY_BLOOM") != "0";
 
     private bool BloomWanted =>
-        BloomAllowed && UseRetailEmbeddedPrograms && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
+        BloomAllowed && UseRetailEmbeddedShaders && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
 
     /// <summary>The bloom is on and its glow mask is the old engine's destination alpha, which only the Sky
     /// writes: the Dome its colour's alpha, the Color shells and Clouds attenuate it, the Bloom shells add

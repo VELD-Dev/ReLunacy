@@ -45,7 +45,7 @@ public class EntityManager : IDisposable
     public List<EntityFoliage> Foliage { get; } = [];
 
     /// <summary>Mobys currently animating in the 3D View, driven once per frame (see View3D's render
-    /// loop) rather than scanned for out of every entity - a level can have thousands of mobys, but
+    /// loop) rather than scanned for out of every entity - a level can have thousands of Mobys, but
     /// only a handful ever play at once. Add on Play, remove on Stop or when a non-looping clip
     /// finishes.</summary>
     public List<EntityMoby> PlayingMobyAnimations { get; } = [];

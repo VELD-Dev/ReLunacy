@@ -131,6 +131,9 @@ public class EditorSettings
     // First real lighting pass for the live renderer (see LitModelShaderSource); everything else
     // is unlit. Opt-in, off by default as experimental.
     public bool EnableLighting;
+    // Name of a Themes/<name>.json file for the Lua code editor. Missing or unreadable falls back
+    // to the built-in defaults rather than leaving the editor unreadable.
+    public string CodeEditorTheme = "dark";
     // Scene-wide default texture filtering for the 3D view (AssetManager also supports per-texture
     // overrides, see AssetManager.SetTextureFiltering).
     public ReLunacy.Engine.Rendering.TextureFiltering TextureFiltering;
@@ -197,6 +200,7 @@ public class EditorSettings
         BackfaceCulling = false;
         UpdateChannel = UpdateChannel.Stable;
         EnableLighting = false;
+        CodeEditorTheme = "dark";
         AssetViewerFarPlane = 100f;
         // Bilinear by default, matching the game's own PS3 behavior; Point is selectable for raw texel data.
         TextureFiltering = ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;

@@ -39,7 +39,7 @@ public class Shader
 
     // New-engine 0x5000 carries six AUTHORITATIVE local texture indices. Slots 4/5 are genuine
     // auxiliaries on 21/666 and 1/666 acid_refinery_pvp materials respectively; the embedded
-    // fragment programs correlate them with RSX texture units 8 and 9. 0x5D00 supplies source
+    // fragment shaders correlate them with RSX texture units 8 and 9. 0x5D00 supplies source
     // names/hash lookups, but does not decide whether a slot exists.
     public Texture? Auxiliary4;
     public Texture? Auxiliary5;
@@ -51,8 +51,8 @@ public class Shader
     public ReLunacy.Engine.Assets.Textures.OldTextureDescriptorState?[] NewTextureDescriptors { get; } =
         new ReLunacy.Engine.Assets.Textures.OldTextureDescriptorState?[NewTextureSlotCount];
 
-    /// <summary>Retail 0x33001/0x33002/0x33003 fragment-program bundle, when this material owns one.</summary>
-    public NewEngineShaderProgramBundle? ProgramBundle { get; internal set; }
+    /// <summary>Retail 0x33001/0x33002/0x33003 fragment-shader bundle, when this material owns one.</summary>
+    public NewEngineShaderBundle? ShaderBundle { get; internal set; }
 
     public RenderingMode RenderingMode => (RenderingMode)(isOld ? metadataOld!.Value.renderingMode : metadataNew!.Value.renderingMode);
 

@@ -27,7 +27,7 @@ public class Tie : IDisposable
 
     /// <summary>RAW lightmap UV channel, flat [u0,v0,u1,v1,...], or null when the read isn't even in
     /// bounds. See <see cref="TieLightmapUV"/> - this is RSX attribute location 4, which the game's tie
-    /// vertex program routes into tc0.zw. A primitive's window starts at its +0x06 entry on both
+    /// vertex shader routes into tc0.zw. A primitive's window starts at its +0x06 entry on both
     /// engines; the new engine stores the array packed (see ReadLightmapUVsNew). Not every window in
     /// here is real UV data; decide PER MESH before use, as TieReader does.</summary>
     public float[]? LightmapUVs { get; private set; }
@@ -235,7 +235,7 @@ public class Tie : IDisposable
     /// Picks where this tie's meshes store their shader index. ACiT uses +0x2A; All 4 One / QForce
     /// use +0x26 and leave +0x2A zero (see TieMesh.newShaderIndexA4O). Reading +0x2A on a QForce
     /// tie gave EVERY mesh of a multi-material tie shader 0, i.e. the first material's textures on
-    /// all of its parts - the "wrong textures on TIEs". The +0x26 layout is chosen only when it is
+    /// all of its parts - the "wrong textures on Ties". The +0x26 layout is chosen only when it is
     /// unambiguous for this tie: +0x2A all zero, +0x26 not all zero, and every +0x26 in range.
     /// </summary>
     private void ResolveNewShaderIndices(int shaderCount)
@@ -280,7 +280,7 @@ public class Tie : IDisposable
             return null;
         }
 
-        // No V flip - the game's vertex program passes location 4 into tc0.zw untransformed, so
+        // No V flip - the game's vertex shader passes location 4 into tc0.zw untransformed, so
         // these bytes are already in the sampler's convention.
         return uvs;
     }
@@ -289,7 +289,7 @@ public class Tie : IDisposable
     /// New-engine counterpart of <see cref="ReadLightmapUVsRaw"/>: the same per-vertex Half2 array,
     /// packed right after the tie's vertex block INSIDE its own 0x3000 section.
     ///
-    /// Measured 2026-09-19 on acid_refinery_pre: for 76 of 86 ties the 0x3000 section is exactly
+    /// Measured 2026-09-19 on acid_refinery_pre: for 76 of 86 Ties the 0x3000 section is exactly
     /// vertexCount * (20 + 4) bytes, 524 of 534 meshes decode inside [0,1] there, and their UV area
     /// tracks their 3D area per triangle (median r = 0.76, 285 meshes above 0.7) - the same unwrap
     /// signature as the old-engine array. The control (the same read shifted into the vertex block)

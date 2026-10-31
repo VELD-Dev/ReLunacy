@@ -252,9 +252,9 @@ public class LunaWindow : IDisposable
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
         Program.ProvidedPath = path;
 
-        // The game's own fragment programs live in its EBOOT: a decrypted one (*.elf) in this level's
-        // install is read when the scene is built (NewEngineStandardPrograms, TodTiePrograms).
-        Engine.Loading.Shaders.NewEngineStandardPrograms.SearchRoots = [(path, null)];
+        // The game's own fragment shaders live in its EBOOT: a decrypted one (*.elf) in this level's
+        // install is read when the scene is built (NewEngineStandardShaders, TodTieShaders).
+        Engine.Loading.Shaders.NewEngineStandardShaders.SearchRoots = [(path, null)];
 
         await Task.Run(() =>
         {
@@ -381,8 +381,14 @@ public class LunaWindow : IDisposable
             _finalizingLevelLoad = true;
         }
 
-        if (!_finalizingLevelLoad || AssetManager is null) return;
+        if (AssetManager is null) return;
 
+        // Draining is NOT tied to _finalizingLevelLoad: textures are also requested long after a level
+        // has finished loading. The Sky builds its own the first time View3D calls PrepareScene, which
+        // happens after finalization has already cleared the flag - so while this was gated on it, those
+        // uploads sat in the queue forever, PrepareScene saw HasPendingUploads on every frame, and the
+        // sky packet was never built ("Sky: not drawn - waiting on texture uploads", then silence).
+        // Anything queued later (asset previews, lazily built materials) was stuck the same way.
         if (AssetManager.HasPendingUploads)
         {
             // GraphicsDevice.UpdateTexture work, spread across as many AfterUpdate calls as it takes,
@@ -391,11 +397,15 @@ public class LunaWindow : IDisposable
             while (AssetManager.HasPendingUploads && uploadSw.Elapsed.TotalMilliseconds < UploadBudgetMs)
                 AssetManager.UploadOnePendingTexture();
 
+            // Only meaningful while the loading modal is up; null once the level has finalized.
             if (_uploadProgress != null)
                 _uploadProgress.current = (uint)(AssetManager.TotalQueuedUploads - AssetManager.PendingUploadCount);
 
             if (AssetManager.HasPendingUploads) return; // more queued - resume next frame
         }
+
+        // Everything below is the one-shot level-finalization tail.
+        if (!_finalizingLevelLoad) return;
 
         _finalizingLevelLoad = false;
         _uploadProgress = null;
@@ -536,6 +546,7 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();
             ViewMenuDraw.ShowPSArcExplorer();
+            ViewMenuDraw.ShowLuaEnvironment();
             ImGui.Separator();
             ViewMenuDraw.LayoutPresets();
             ImGui.EndMenu();
@@ -652,9 +663,9 @@ public class LunaWindow : IDisposable
         // EntityManager is engine-layer and deliberately doesn't read Program.Settings, so the
         // persisted setting is pushed in here every frame instead of being read where it's consumed.
         EntityManager.Singleton.FrustumCullingEnabled = EditorSettings.FrustrumCulling;
-        // Lighting is pushed straight to the renderer every frame (View3D passes
-        // EditorSettings.EnableLighting to VulkanRenderer.Frame), and backface culling is baked into
-        // the renderer's pipelines, so neither goes through the asset manager.
+        // Lighting and backface culling are pushed straight to the renderer every frame (View3D
+        // passes EditorSettings.EnableLighting to VulkanRenderer.Frame and assigns
+        // RetailBackfaceCulling), so neither goes through the asset manager.
         AssetManager?.SetTextureFiltering(EditorSettings.TextureFiltering);
 
         // Captured here rather than at the point isOpen flips false (TryCloseFirstFrame, or the

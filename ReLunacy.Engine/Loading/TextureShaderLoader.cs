@@ -419,8 +419,8 @@ public sealed class TextureShaderLoader
             }
 
             shader.name = shadstream.ReadString(sref.namePointer);
-            shader.ProgramBundle = NewEngineShaderProgramBundle.TryRead(
-                igshader, shadstream, meta.fragmentProgramBaseTuid, shader.name);
+            shader.ShaderBundle = NewEngineShaderBundle.TryRead(
+                igshader, shadstream, meta.fragmentShaderBaseTuid, shader.name);
             if (fromPatchLayer)
             {
                 Shaders[ptr.TUID] = shader;

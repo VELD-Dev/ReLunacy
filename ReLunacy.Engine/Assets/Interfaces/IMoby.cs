@@ -8,9 +8,9 @@ public interface IMoby : IAsset
     IReadOnlyList<IBangle> Bangles { get; }
     float Scale { get; }
     (Vector3 center, float radius) GetBoundingSphere();
-    /// <summary>Null for mobys with no skeleton (static props, etc.).</summary>
+    /// <summary>Null for Mobys with no skeleton (static props, etc.).</summary>
     ISkeleton? Skeleton { get; }
-    /// <summary>Null for mobys with no animations.</summary>
+    /// <summary>Null for Mobys with no animations.</summary>
     AnimationSet? AnimationSet { get; }
     IReadOnlyList<AnimationClip> Animations { get; }
 

@@ -22,6 +22,12 @@ public class Program
         // ImGuiController all call CreateFromSpirv) - see NativeLibraryPreloader's remarks.
         NativeLibraryPreloader.PreloadShaderCompilers();
 
+        // Engine-side diagnostics (the Sky packet, the Vulkan sampler compat path) default to the
+        // console, which LunaLog captures as Debug - and Debug is dropped in Release. Route them to
+        // Info/Warning so they survive the default Logging Level.
+        Engine.Rendering.Vulkan.LunaLog.InfoSink = message => LunaLog.LogInfo(message);
+        Engine.Rendering.Vulkan.LunaLog.WarningSink = message => LunaLog.LogWarn(message);
+
         if (args.Length > 0)
             ProvidedPath = args[0];
 

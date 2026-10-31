@@ -1,7 +1,7 @@
 using System.Numerics;
 using ReLunacy.Engine.Assets.Geometry;
 using ReLunacy.Engine.Assets.Interfaces;
-using ReLunacy.Engine.Assets.Terrain;
+using ReLunacy.Engine.Assets.UFrags;
 using ReLunacy.Engine.Assets.Ties;
 using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Objects;
@@ -26,12 +26,12 @@ public sealed class ZoneReader
     /// A Crack in Time's baked-light scales. A UFrag record keeps ONE float at +0x68 where All 4 One, QForce
     /// and Into the Nexus keep the u16 pair (c[4].x, c[4].y): 40 A5 CA 30 = 5.18 on krell_canyon, one value
     /// per lightmap atlas (345 groups, 0 conflicts over the 22 levels), p10 3.8 / p50 5.0 on krell_canyon,
-    /// 7.1 / 12.1 on zolar_forest - read as u16s they made a scale of ~64 and white terrain (STRONG). A TIE
+    /// 7.1 / 12.1 on zolar_forest - read as u16s they made a scale of ~64 and white UFrags (STRONG). A Tie
     /// placement fills the flat scale +0x66 and leaves the RNM one (+0x64) at 0 on 31,523 of its 46,161
-    /// baked placements, which drew every normal-mapped baked TIE black; its +0x68 is a float (1.0 / 0.2,
+    /// baked placements, which drew every normal-mapped baked Tie black; its +0x68 is a float (1.0 / 0.2,
     /// three values in a level), not the u16 c[4].z. ACiT's 0x5410 is a direction, not RNM weights (the
     /// renderer converts it, uMat2.x), so the flat scale is the one that applies to both permutations
-    /// (INFERRED: ACiT's own programs are in its encrypted EBOOT).
+    /// (INFERRED: ACiT's own shaders are in its encrypted EBOOT).
     /// </summary>
     public bool CrackInTimeLayout { get; init; }
 
@@ -46,10 +46,10 @@ public sealed class ZoneReader
     public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones() => _fileManager.isOld ? ReadZonesOld() : ReadZonesNew();
 
     /// <summary>
-    /// ToD: the prelight an unbaked TIE placement's vertex programs read as attribute 4 - one UB256 x4
-    /// word per vertex of the TIE (its meshes' <c>SourceVertexBase</c> index it), at textures.dat
-    /// <paramref name="offset"/> (record +0x54). Consecutive placements of a TIE sit 4 x its vertex count
-    /// apart (Metropolis 0xCFD14, 0xD0CD0 for a 1,007-vertex TIE). A word's (z, w) is a chroma with
+    /// ToD: the prelight an unbaked Tie placement's vertex shaders read as attribute 4 - one UB256 x4
+    /// word per vertex of the Tie (its meshes' <c>SourceVertexBase</c> index it), at textures.dat
+    /// <paramref name="offset"/> (record +0x54). Consecutive placements of a Tie sit 4 x its vertex count
+    /// apart (Metropolis 0xCFD14, 0xD0CD0 for a 1,007-vertex Tie). A word's (z, w) is a chroma with
     /// z + w &lt;= 255; a window where that fails is not prelight and is refused.
     /// </summary>
     private byte[]? ReadOldEnginePrelight(ITie tie, uint offset)
@@ -202,10 +202,10 @@ public sealed class ZoneReader
     }
 
     /// <summary>
-    /// New engine: a zone's reflection-cube palette - 0x72C1 for TIE placements (indexed by record +0x5D),
+    /// New engine: a zone's reflection-cube palette - 0x72C1 for Tie placements (indexed by record +0x5D),
     /// 0x71C0 for UFrags (record +0x59). Each entry is a cubemaps.dat resource TUID, 0 for the region's
     /// default. PROVEN (QForce EBOOT 0x006B6714 / 0x006B6858 resolve the palettes, 0x006B7128 / 0x006B7314
-    /// rewrite the record bytes into table indices, 0x0073DFD4 reflects with the TIE's).
+    /// rewrite the record bytes into table indices, 0x0073DFD4 reflects with the Tie's).
     /// </summary>
     private static ulong[]? ReadCubePalette(Objects.Zone legacyZone, uint section)
     {
@@ -258,11 +258,11 @@ public sealed class ZoneReader
     }
 
     /// <summary>
-    /// Tools of Destruction's two-layer terrain (Docs/reverse/tod_catchup_2026-10-10/02_textures_manquantes.md,
+    /// Tools of Destruction's two-layer UFrags (Docs/reverse/tod_catchup_2026-10-10/02_textures_manquantes.md,
     /// PROVEN on the 23 readable levels): main.dat 0x6400, parallel to 0x6200, holds at +0x06 the UFrag's
     /// second material (a 0x5000 ordinal, 0xFFFF = none) - ml_grass_c, dc_iris_snow_main, yy_sargasso_swamp_grass_c
     /// ... on 1 278 UFrags of 12 levels - and 0x6200 +0x58 its mask in 0x5700 (always in range or 0xFF).
-    /// The game draws them with the two-layer TIE programs (FP aa00291718be: w = TEX1.y x mask(lightmap uv),
+    /// The game draws them with the two-layer Tie shaders (FP aa00291718be: w = TEX1.y x mask(lightmap uv),
     /// albedo / normal mixed by w). Null when the level has none.
     /// </summary>
     private static ushort[]? ReadOldSecondMaterials(Objects.Zone legacyZone)
@@ -324,7 +324,7 @@ public sealed class ZoneReader
                 (ulong)i,
                 shaderTuids,
                 newEngineLightmapRemap);
-            if (ufrag is Assets.Terrain.OldUFrag oldUFrag)
+            if (ufrag is Assets.UFrags.OldUFrag oldUFrag)
             {
                 if (uvAnimations != null && uvAnimations.TryGetValue((uint)i, out var oldUvAnimation))
                     oldUFrag.UvAnimation = oldUvAnimation;
@@ -460,7 +460,7 @@ public sealed class ZoneReader
             : new NewUFrag(id: id, positions: positions, uvs: uvs, indices: indices, material: material, anchor: anchor, boundingCenter: boundingCenter, boundingRadius: boundingRadius, normals: normals, tangents: tangents, lightmapUVs: lightmapUVs, vertexAlpha: vertexAlpha, lightmapIndex: lightmapIndex, metadata: legacyUFrag.metadata, rawVertices: rawVertices);
     }
 
-    /// <summary>c[4] of a TIE placement; on A Crack in Time the flat scale +0x66 for both permutations and
+    /// <summary>c[4] of a Tie placement; on A Crack in Time the flat scale +0x66 for both permutations and
     /// the float +0x68 as c[4].z (see <see cref="CrackInTimeLayout"/>).</summary>
     private System.Numerics.Vector4? CrackInTimeTieBake(TieInstance instance)
     {
@@ -552,7 +552,7 @@ public sealed class ZoneReader
                         : TieInstance.NoLightmap;
                 }
 
-                // New engine: the prelight words the unbaked programs (VPs 52-59) read. Only placements
+                // New engine: the prelight words the unbaked shaders (VPs 52-59) read. Only placements
                 // with a scale (+0x68 = c[4].z) use them - retail's 523 unbaked placements at 0xFFFFFFFF
                 // have none - and a baked placement only for its primitives that are not baked.
                 bool prelightBaked = legacyInstance.LightmapIndex != TieInstance.NoLightmap;

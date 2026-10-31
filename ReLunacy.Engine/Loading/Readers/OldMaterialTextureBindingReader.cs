@@ -5,7 +5,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>
 /// Reads the three old-engine material/texture binding tables from main.dat:
-/// 0x3500 (per TIE definition), 0x6400 (per UFrag) and 0xD800 (per Moby prototype).
+/// 0x3500 (per Tie definition), 0x6400 (per UFrag) and 0xD800 (per Moby prototype).
 ///
 /// All three are the same 0x10-byte record and all three are handed to the same retail consumer;
 /// see <see cref="OldMaterialTextureBinding"/> for the native route. This reader deliberately
@@ -70,7 +70,7 @@ public sealed class OldMaterialTextureBindingReader
     /// UFrag's four physical texture slots from its +0x08 material index. Editor writes that changed one
     /// array without the other (a duplicate that did not append the companion, a delete that did not
     /// remove it) leave records describing the wrong UFrag, which is not visible in the editor - it
-    /// shows up in game as terrain sampling another material's textures. Report it at load; the repair
+    /// shows up in game as UFrags sampling another material's textures. Report it at load; the repair
     /// itself lives in OldUFragCompanionRepairWriter.
     /// </summary>
     private static void ReportUFragCompanionParity(IGFile main, OldMaterialTextureBindingTable uFrag)

@@ -4,7 +4,7 @@ using Vortice.Vulkan;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// New-engine unbaked TIE prelight: one 4-byte word per vertex and per PLACEMENT, so it cannot live in
+/// New-engine unbaked Tie prelight: one 4-byte word per vertex and per PLACEMENT, so it cannot live in
 /// the shared mesh vertices. Every placement's words go into one storage buffer (set 0 binding 8), and
 /// each draw carries the word index of its first vertex minus its base vertex, so the vertex shader
 /// reads uPrelight[gl_VertexIndex + delta]. Format and lighting: Docs/reverse/
@@ -15,7 +15,7 @@ public sealed unsafe partial class VulkanRenderer
     private VkBuffer _prelightBuffer;
     private VkDeviceMemory _plMemory;
 
-    /// <summary>ToD: each old TIE draw's program key (its primitive's effective use bits, the shell's
+    /// <summary>ToD: each old Tie draw's shader key (its primitive's effective use bits, the shell's
     /// route key with secondary bit 15 clear), -1 for every other draw.</summary>
     private static int[] BuildTodKeys(
         List<float[]> geomVerts,
@@ -24,7 +24,7 @@ public sealed unsafe partial class VulkanRenderer
     {
         var keys = new int[order.Length];
         Array.Fill(keys, -1);
-        if (TodPrograms == null)
+        if (TodShaders == null)
             return keys;
         var captureIndex = new Dictionary<float[], int>(ReferenceEqualityComparer.Instance);
         for (int k = 0; k < VulkanSceneCapture.VertexData.Count; k++)
@@ -61,7 +61,7 @@ public sealed unsafe partial class VulkanRenderer
         for (int i = 0; i < order.Length; i++)
         {
             var (g, _, _, _, owner, _, _) = instances[order[i]];
-            // ToD: the unbaked placement's words, indexed by the primitive's first vertex in its TIE.
+            // ToD: the unbaked placement's words, indexed by the primitive's first vertex in its Tie.
             if (owner is Scene.EntityTie { OldEnginePrelight: { } oldBytes, OldBakedLightScale: { } f } oldTie && f > 0f)
             {
                 if ((uint)g >= (uint)geomVerts.Count ||
@@ -111,14 +111,14 @@ public sealed unsafe partial class VulkanRenderer
         }
 
         if (baseOf.Count > 0)
-            Console.WriteLine($"[VkRenderer] TIE prelight: {baseOf.Count} placement(s) ({oldPrelit} old-engine), {words.Count} vertex word(s).");
+            Console.WriteLine($"[VkRenderer] Tie prelight: {baseOf.Count} placement(s) ({oldPrelit} old-engine), {words.Count} vertex word(s).");
         return words.Count > 0 ? [.. words] : [0u];
     }
 
     /// <summary>
     /// New-engine distance fades (c[19] = K / d, Docs/reverse/NEW_ENGINE_SHADER_SECTIONS_EBOOT_2026-09-27.md
     /// section 6): a UFrag draw takes its record's +0x60 distances, any other draw its primitive's +0x30
-    /// (TIE primitive, Moby frag).
+    /// (Tie primitive, Moby frag).
     /// Runs after BuildNewEnginePrelight, which replaces the instance light of prelit draws.
     /// </summary>
     private static void ApplyNewEngineFades(
@@ -162,8 +162,8 @@ public sealed unsafe partial class VulkanRenderer
                 lights[i].UvScroll = new Vector4(uv.ScrollPerSecond, uv.FrameRate, 0f);
             }
 
-            // Feature mask ANDed with the material's +0x20 at load: TIE primitive +0x20 (0x006AE85C),
-            // UFrag record +0x54 (0x006B7380). Mobys pick their programs from other key bits: no mask.
+            // Feature mask ANDed with the material's +0x20 at load: Tie primitive +0x20 (0x006AE85C),
+            // UFrag record +0x54 (0x006B7380). Mobys pick their shaders from other key bits: no mask.
             byte? mask = owner switch
             {
                 Scene.EntityUFrag { UFrag.NewEngineFeatureMask: { } ufragMask } => ufragMask,

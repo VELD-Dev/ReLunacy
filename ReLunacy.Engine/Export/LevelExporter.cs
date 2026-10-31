@@ -14,7 +14,7 @@ public readonly record struct LevelExportOptions(bool ExportMobys, bool ExportTi
 /// <summary>Exports an entire loaded level as a single .glb. Builds each unique Moby/Tie asset's
 /// mesh once and references it from every placed instance's node (true glTF mesh instancing).
 /// Nodes are organized as Mobys/AssetName/Instance and Zones/ZoneName/{Ties/AssetName,UFrags}/Instance.
-/// UFrags are unique per-placement terrain geometry, so they're exported flat under their zone.</summary>
+/// UFrags are unique per-placement geometry, so they're exported flat under their zone.</summary>
 public static class LevelExporter
 {
     public static void Export(string filePath, string levelName, EntityManager entityManager, LevelExportOptions options, Action<float>? onProgress = null)
@@ -164,7 +164,7 @@ public static class LevelExporter
     }
 
     /// <summary>Adapts IUFrag (which carries geometry+material directly) to IMesh/IGeometry so
-    /// GltfExporter.BuildMeshBuilder can build UFrag terrain through the same code path.</summary>
+    /// GltfExporter.BuildMeshBuilder can build UFrags through the same code path.</summary>
     private sealed class UFragMeshAdapter(IUFrag ufrag, string name) : IMesh, IGeometry
     {
         public IGeometry Geometry => this;
@@ -181,7 +181,7 @@ public static class LevelExporter
         public float[]? GetNormals() => ufrag.GetNormals();
         public float[]? GetLightmapUVs() => ufrag.GetLightmapUVs();
 
-        // UFrag terrain carries no baked tangent (or, on some readers, normal) data - compute both.
+        // UFrags carry no baked tangent (or, on some readers, normal) data - compute both.
         public float[]? GetTangents()
         {
             var positions = ufrag.GetVertexPositions();

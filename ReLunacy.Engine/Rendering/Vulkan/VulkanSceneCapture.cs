@@ -24,7 +24,7 @@ public struct VkMaterialDesc
     public NeoTexture? Detail;
     public NeoTexture? AuxiliaryA;
     public NeoTexture? AuxiliaryB;
-    // Two-layer TIE primitives (AssetManager.GetOrBuildMaterial with a second layer): the second
+    // Two-layer Tie primitives (AssetManager.GetOrBuildMaterial with a second layer): the second
     // material's albedo / normal / properties / detail and the blend mask - RSX units 8..12.
     public NeoTexture? Albedo2;
     public NeoTexture? Normal2;
@@ -87,7 +87,7 @@ public struct VkMaterialDesc
     public float LightColourGamma;
 
     /// <summary>1 for a new-engine baked draw: 0x5410 holds three Radiosity-Normal-Mapping basis
-    /// weights, not a direction (decoded from the retail QForce TIE fragment programs).</summary>
+    /// weights, not a direction (decoded from the retail QForce Tie fragment shaders).</summary>
     public float NewEngineRnm;
 
     /// <summary>ShaderMetadataOld +0x40 reflection tint (rgb) and albedo mix factor (w).</summary>
@@ -106,10 +106,10 @@ public struct VkMaterialDesc
     public System.Numerics.Vector4 MaterialPermutation;
     /// <summary>New-engine Moby tint (rgb, 1 when it applies). See AssetManager.GetVkMobyTint.</summary>
     public System.Numerics.Vector4 MobyTint;
-    /// <summary>Class 0x13: the embedded program family the lit shader emulates, 0 for the generic path.</summary>
-    public float EmbeddedProgram;
-    /// <summary>Class 0x13: the material's program bundle, drawn through RsxFragmentTranslator when it translates.</summary>
-    public ReLunacy.Engine.Loading.Shaders.NewEngineShaderProgramBundle? ProgramBundle;
+    /// <summary>Class 0x13: the embedded shader family the lit shader emulates, 0 for the generic path.</summary>
+    public float EmbeddedShader;
+    /// <summary>Class 0x13: the material's shader bundle, drawn through RsxFragmentTranslator when it translates.</summary>
+    public ReLunacy.Engine.Loading.Shaders.NewEngineShaderBundle? ShaderBundle;
 }
 
 /// <summary>Which kind of scene object an instance came from, so the Render menu's per-type toggles can
@@ -154,14 +154,14 @@ public static class VulkanSceneCapture
     public static readonly List<float[]> VertexData = new();
     public static readonly List<uint[]> Indices = new();
     /// <summary>
-    /// Source-authoritative old-engine TIE shader-use state parallel to <see cref="VertexData"/>.
+    /// Source-authoritative old-engine Tie shader-use state parallel to <see cref="VertexData"/>.
     /// Keeping it per geometry is important: two primitives sharing one material may carry different
     /// authored use bytes, so material-level inference is not an acceptable substitute.
     /// </summary>
     public static readonly List<VkOldTieDrawState> OldTieDrawStates = new();
-    /// <summary>Per captured geometry: its new-engine TIE primitive window, or null.</summary>
+    /// <summary>Per captured geometry: its new-engine Tie primitive window, or null.</summary>
     public static readonly List<Assets.Geometry.NewEngineTiePrimitive?> NewEngineTiePrimitives = new();
-    /// <summary>Per captured geometry: its new-engine fade distances (TIE primitive, Moby frag), or null.</summary>
+    /// <summary>Per captured geometry: its new-engine fade distances (Tie primitive, Moby frag), or null.</summary>
     public static readonly List<System.Numerics.Vector3?> NewEngineFadeDistances = new();
     /// <summary>Per captured geometry: its animated UVs (section 0x5C00), or null.</summary>
     public static readonly List<Assets.Geometry.UvAnimation?> UvAnimations = new();

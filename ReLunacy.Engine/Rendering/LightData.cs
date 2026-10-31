@@ -54,7 +54,7 @@ public struct LightData
     public float MaterialEmissiveEnabled;
 
     // Fog. Colour and scale/bias/amount come from the proven 0x7100 record / 0x572774 CPU
-    // precomputation. The coordinate is now closed as well: the retail TIE and Moby VPs compute
+    // precomputation. The coordinate is now closed as well: the retail Tie and Moby VPs compute
     // min(HPOS.w * c5.x + c5.y, c5.w), i.e. clip-space w, saturated in the FP. FogEnabled still gates it.
     public Vector3 FogColour;
     public float FogScale;
@@ -71,11 +71,11 @@ public struct LightData
     // +0x90/+0x94, LightingEnvironment.ReflectionOcclusion); a = 0 disables it. Written by Frame.
     public float NewEngineReflectionFloor;
     public float NewEngineReflectionFullLuminance;
-    // Seconds since the renderer was built: the time constant of the new-engine embedded programs that
-    // animate (NewEngineEmbeddedPrograms). Written by Frame.
+    // Seconds since the renderer was built: the time constant of the new-engine embedded shaders that
+    // animate (NewEngineEmbeddedShaders). Written by Frame.
     public float SceneTime;
 
-    // x = 1 while the new-engine bloom runs (VulkanRenderer.Bloom.cs): the game's programs then write
+    // x = 1 while the new-engine bloom runs (VulkanRenderer.Bloom.cs): the game's shaders then write
     // their glow mask to alpha and every other draw writes 0. Written by Frame.
     public Vector4 PostParams;
 

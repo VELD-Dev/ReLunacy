@@ -47,6 +47,12 @@ public class PerformanceProfiler
 
     private void UpdateProfiler(object? _)
     {
+        // Read here rather than pushed from the UI, matching ProfilerFrameSampleSize in SampleStat.
+        // Clamped because the slider's own range starts at 0, which is not a legal timer period, and
+        // only reassigned on an actual change so the timer isn't re-armed on every tick.
+        uint wanted = (uint)Math.Clamp(Program.Settings.ProfilerRefreshRate, 1, 10000);
+        if (wanted != fetchInterval) FetchInterval = wanted;
+
         RAMUsage = (ulong)lunaProcess.PrivateMemorySize64;
         GCRAMUsage = (ulong)GC.GetTotalMemory(true);
         Framerate = 1f / (float)Time.Delta;

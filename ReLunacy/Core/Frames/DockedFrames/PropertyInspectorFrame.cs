@@ -177,7 +177,7 @@ public class PropertyInspectorFrame : DockedFrame
         {
             for (int i = 0; i < clips.Count; i++)
             {
-                // ##anim_{i} disambiguates the ImGui ID from the label text: some mobys have several
+                // ##anim_{i} disambiguates the ImGui ID from the label text: some Mobys have several
                 // clips sharing the same name, and Selectable's ID is derived from the label alone -
                 // without a unique suffix, duplicate names collide and corrupt the ID stack (visible
                 // as PopID errors in the dropdown).

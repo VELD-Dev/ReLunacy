@@ -1,6 +1,7 @@
 using System.Numerics;
 using ReLunacy.Engine.Rendering.Resources;
 using Hexa.NET.ImGuizmo;
+using ReLunacy.Core;
 using ReLunacy.Engine.Scene;
 
 namespace ReLunacy.Utility;
@@ -40,6 +41,9 @@ public class GizmoController
 
         ImGuizmo.SetDrawlist();
         ImGuizmo.SetRect(viewportPos.X, viewportPos.Y, viewportSize.X, viewportSize.Y);
+        // Clip-space size, so the gizmo keeps its on-screen scale at any distance. Pushed per frame
+        // rather than in EnsureInitialized so the Editor Settings slider takes effect live.
+        ImGuizmo.SetGizmoSizeClipSpace(Program.Settings.ToolsGizmoSize);
 
         var view = camera.GetView();
         var projection = camera.GetProjection();

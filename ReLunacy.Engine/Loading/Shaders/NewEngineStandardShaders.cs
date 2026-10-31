@@ -3,25 +3,25 @@ using System.Buffers.Binary;
 namespace ReLunacy.Engine.Loading.Shaders;
 
 /// <summary>
-/// The fragment programs the new engine draws its standard (class 0x00) materials with. They are not in
+/// The fragment shaders the new engine draws its standard (class 0x00) materials with. They are not in
 /// the level files: the EBOOT carries them, behind a table of pointers that the draw code indexes
 /// (Docs/reverse/NEW_ENGINE_STANDARD_PROGRAMS_2026-10-07.md, PROVEN on QForce):
 /// <code>
-///   program = table[base + (twoLayer ? 64 : 0) + (translucent ? 32 : 0) + (key &amp; 0x1D)]
+///   shader = table[base + (twoLayer ? 64 : 0) + (translucent ? 32 : 0) + (key &amp; 0x1D)]
 /// </code>
 /// key = the draw's permutation bits (material +0x20 AND the primitive's mask: 0x01 parallax, 0x04
 /// specular, 0x08 normal map, 0x10 detail), translucent = a non-opaque pass (render modes 1/2/3/6),
-/// twoLayer = a second material blended in (TIE / UFrag second material slot). base: 0xB3 for the
-/// lightmapped TIEs and the UFrags (<c>0x00B4E164</c>, <c>0x0074DC98</c>), 0x133 for the prelit TIEs
-/// (<c>0x00740930</c>), 0x1B3 for the probe-lit draws: Mobys (<c>0x0078C4F0</c>) and TIEs with neither
+/// twoLayer = a second material blended in (Tie / UFrag second material slot). base: 0xB3 for the
+/// lightmapped Ties and the UFrags (<c>0x00B4E164</c>, <c>0x0074DC98</c>), 0x133 for the prelit Ties
+/// (<c>0x00740930</c>), 0x1B3 for the probe-lit draws: Mobys (<c>0x0078C4F0</c>) and Ties with neither
 /// lightmap nor prelight (pass 0x25, <c>0x007416B4</c>).
 ///
 /// Retail EBOOT.BIN is an encrypted SELF; this reads a decrypted ELF lying in the install's USRDIR (an
 /// RPCS3 "Decrypt PS3 binaries" output, or a mod's own build). The table's address differs between
 /// builds, so it is found by its shape: 128-entry blocks in which exactly the twelve reachable keys
-/// (0, 4, 8, 9, 12, 13, 16, 20, 24, 25, 28, 29 of every 32) point at a program wrapper.
+/// (0, 4, 8, 9, 12, 13, 16, 20, 24, 25, 28, 29 of every 32) point at a shader wrapper.
 /// </summary>
-public sealed class NewEngineStandardPrograms
+public sealed class NewEngineStandardShaders
 {
     public enum Block { Lightmapped = 0, Prelit = 1, Probe = 2 }
 
@@ -29,25 +29,25 @@ public sealed class NewEngineStandardPrograms
     private static readonly int[] BlockBases = [0xB3, 0x133, 0x1B3];
     private static readonly bool[] ReachableKey = BuildReachable();
 
-    private readonly NewEngineShaderProgramVariant?[][] _programs;
+    private readonly NewEngineShaderVariant?[][] _shaders;
 
     public string SourcePath { get; }
     public uint TableAddress { get; }
-    public int ProgramCount { get; }
+    public int ShaderCount { get; }
 
-    private NewEngineStandardPrograms(string sourcePath, uint tableAddress, NewEngineShaderProgramVariant?[][] programs)
+    private NewEngineStandardShaders(string sourcePath, uint tableAddress, NewEngineShaderVariant?[][] shaders)
     {
         SourcePath = sourcePath;
         TableAddress = tableAddress;
-        _programs = programs;
-        ProgramCount = programs.Sum(b => b.Count(p => p != null));
+        _shaders = shaders;
+        ShaderCount = shaders.Sum(b => b.Count(p => p != null));
     }
 
-    /// <summary>The program a draw uses, or null when the table has none there.</summary>
-    public NewEngineShaderProgramVariant? Get(Block block, bool twoLayer, bool translucent, int key)
+    /// <summary>The shader a draw uses, or null when the table has none there.</summary>
+    public NewEngineShaderVariant? Get(Block block, bool twoLayer, bool translucent, int key)
     {
         int index = (twoLayer ? 64 : 0) + (translucent ? 32 : 0) + (key & 0x1D);
-        return _programs[(int)block][index];
+        return _shaders[(int)block][index];
     }
 
     /// <summary>Folders the app knows the games in - the opened level's path (game unknown: whatever
@@ -56,14 +56,14 @@ public sealed class NewEngineStandardPrograms
     public static IReadOnlyList<(string Path, Games.GameId? Game)> SearchRoots { get; set; } = [];
 
     private static readonly object CacheLock = new();
-    private static (string Path, DateTime Stamp, NewEngineStandardPrograms? Programs)? _cache;
+    private static (string Path, DateTime Stamp, NewEngineStandardShaders? Shaders)? _cache;
 
-    /// <summary>The standard programs of the first decrypted EBOOT found under <see cref="SearchRoots"/>,
+    /// <summary>The standard shaders of the first decrypted EBOOT found under <see cref="SearchRoots"/>,
     /// read once per file; null when there is none (the renderer keeps its generic shading).</summary>
-    public static NewEngineStandardPrograms? Find(Games.GameId? game = null) =>
+    public static NewEngineStandardShaders? Find(Games.GameId? game = null) =>
         FindFor(game, strict: true) ?? FindFor(game, strict: false);
 
-    private static NewEngineStandardPrograms? FindFor(Games.GameId? game, bool strict)
+    private static NewEngineStandardShaders? FindFor(Games.GameId? game, bool strict)
     {
         foreach (string elf in CandidateElves(strict ? game : null))
         {
@@ -74,25 +74,25 @@ public sealed class NewEngineStandardPrograms
             {
                 if (_cache is { } c && string.Equals(c.Path, elf, StringComparison.OrdinalIgnoreCase) && c.Stamp == stamp)
                 {
-                    if (c.Programs != null) return c.Programs;
+                    if (c.Shaders != null) return c.Shaders;
                     continue;
                 }
             }
-            NewEngineStandardPrograms? programs = null;
+            NewEngineStandardShaders? shaders = null;
             try
             {
-                programs = TryRead(elf);
+                shaders = TryRead(elf);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
             {
-                Console.WriteLine($"[StandardPrograms] {elf}: {e.Message}");
+                Console.WriteLine($"[StandardShaders] {elf}: {e.Message}");
             }
             lock (CacheLock)
-                _cache = (elf, stamp, programs);
-            if (programs != null)
+                _cache = (elf, stamp, shaders);
+            if (shaders != null)
             {
-                Console.WriteLine($"[StandardPrograms] {programs.ProgramCount} programs from {Path.GetFileName(elf)} (table 0x{programs.TableAddress:X8}).");
-                return programs;
+                Console.WriteLine($"[StandardShaders] {shaders.ShaderCount} shaders from {Path.GetFileName(elf)} (table 0x{shaders.TableAddress:X8}).");
+                return shaders;
             }
         }
         return null;
@@ -101,7 +101,7 @@ public sealed class NewEngineStandardPrograms
     private static IEnumerable<string> CandidateElves(Games.GameId? game)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // Another game's EBOOT would hand this level the wrong programs: only roots of the level's game,
+        // Another game's EBOOT would hand this level the wrong shaders: only roots of the level's game,
         // or of unknown game (the level's own install).
         foreach (var (root, rootGame) in SearchRoots)
         {
@@ -155,9 +155,9 @@ public sealed class NewEngineStandardPrograms
 
     private readonly record struct Segment(ulong Vaddr, ulong Offset, ulong Size);
 
-    /// <summary>Reads the program table out of one ELF; null when it is not a PS3 PPU ELF or holds no
+    /// <summary>Reads the shader table out of one ELF; null when it is not a PS3 PPU ELF or holds no
     /// such table.</summary>
-    public static NewEngineStandardPrograms? TryRead(string elfPath)
+    public static NewEngineStandardShaders? TryRead(string elfPath)
     {
         byte[] d = File.ReadAllBytes(elfPath);
         // ELF64, big-endian, PowerPC64.
@@ -227,10 +227,10 @@ public sealed class NewEngineStandardPrograms
                 if (!all)
                     continue;
 
-                var programs = new NewEngineShaderProgramVariant?[3][];
+                var shaders = new NewEngineShaderVariant?[3][];
                 for (int b = 0; b < 3; b++)
                 {
-                    programs[b] = new NewEngineShaderProgramVariant?[BlockEntries];
+                    shaders[b] = new NewEngineShaderVariant?[BlockEntries];
                     for (int i = 0; i < BlockEntries; i++)
                     {
                         uint va = Word(at + (BlockBases[b] - BlockBases[0] + i) * 4);
@@ -238,12 +238,12 @@ public sealed class NewEngineStandardPrograms
                         int o = FileOffset(va);
                         if (o < 0) continue;
                         int length = Math.Min(0x4000, d.Length - o);
-                        programs[b][i] = NewEngineShaderProgramBundle.ParseProgram(
+                        shaders[b][i] = NewEngineShaderBundle.ParseShader(
                             d.AsSpan(o, length), va, (uint)length, va, registerCountInSize: true, out _);
                     }
                 }
                 uint tableVa = (uint)(s.Vaddr + (ulong)(at - start)) - (uint)(BlockBases[0] * 4);
-                return new NewEngineStandardPrograms(elfPath, tableVa, programs);
+                return new NewEngineStandardShaders(elfPath, tableVa, shaders);
             }
         }
         return null;
