@@ -19,8 +19,29 @@ public record struct VertexFormat0
     public readonly Vector3 Normal => PackedNormal.Decode(normal);
     public readonly Vector3 Tangent => PackedNormal.Decode(tangent);
 
-    // Old-engine vertex alpha: raw = 0xC000 - round(127*alpha).
-    public readonly float VertexAlpha => Math.Clamp((0xC000 - (ushort)boneIndex) / 127f, 0f, 1f);
+    // Old-engine vertex alpha. Two bands are known, both 127 wide and both descending - the value
+    // counts DOWN from the band's top as alpha rises:
+    //   A: 0xC000 -> 0.0, 0xBF81 -> 1.0   (raw = 0xC000 - round(127*alpha))
+    //   B: 0x8080 -> 0.0, 0x8001 -> 1.0   (reported 2026-10-31; the same shape 0x4000 lower)
+    // Band B matters because of how a miss fails: a value in it is far below band A's floor, so
+    // band A's formula yields well over 1 and clamps to fully opaque - indistinguishable from a
+    // vertex carrying no alpha at all, which is how the new-engine bands were found to be missing.
+    public readonly float VertexAlphaOldEngineA => Math.Clamp((0xC000 - (ushort)boneIndex) / 127f, 0f, 1f);
+    public readonly float VertexAlphaOldEngineB => Math.Clamp((0x8080 - (ushort)boneIndex) / 127f, 0f, 1f);
+
+    /// <summary>Picks whichever old-engine band the raw value falls into; outside both, opaque.</summary>
+    public readonly float VertexAlpha
+    {
+        get
+        {
+            ushort raw = (ushort)boneIndex;
+            if (raw is >= 0xBF81 and <= 0xC000) return VertexAlphaOldEngineA;
+            if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaOldEngineB;
+            // Band A's formula is kept as the fallback rather than returning 1: values below its
+            // floor already clamped to opaque there, so nothing that used to decode changes.
+            return VertexAlphaOldEngineA;
+        }
+    }
 
     // RETAIL DECODE, 2026-09-16 (Tools/Reverse/evidence/TOD_Retail_Shader_Programs_2026-09-16.md).
     // The NPUA80965 Tie vertex shaders compute
