@@ -33,7 +33,11 @@ public static class LuaHoverEngine
         var scopes = LuaScopeResolver.Resolve(block);
 
         if (scopes.FindAt(name.Start) is { IsGlobal: false } local)
-            return DescribeLocal(local, new LuaTypeInference(api, scopes, scripts));
+        {
+            var inference = new LuaTypeInference(api, scopes, scripts, null,
+                                                 LuaCasts.Find(source, scopes));
+            return DescribeLocal(local, inference, name.Start);
+        }
 
         // The caret goes at the name's END so the prefix is the whole word, which is what makes an
         // exact label match meaningful rather than a word that merely starts the same.
@@ -60,7 +64,7 @@ public static class LuaHoverEngine
     /// inferred, and how widely it is used - a count being the thing a reader cannot see at a
     /// glance and the reason to resolve scopes at all.
     /// </summary>
-    private static LuaHover DescribeLocal(LuaSymbol symbol, LuaTypeInference inference)
+    private static LuaHover DescribeLocal(LuaSymbol symbol, LuaTypeInference inference, LuaPosition at)
     {
         string kind = symbol.Kind switch
         {
@@ -78,7 +82,9 @@ public static class LuaHoverEngine
             _ => $"mentioned {mentions - 1} more times",
         };
 
-        return new LuaHover(symbol.Name, kind, inference.TypeOf(symbol.Initializer),
+        // Asked at the hovered position, not in general: a cast above it changes the answer, and
+        // the same name can be one type above the cast and another below.
+        return new LuaHover(symbol.Name, kind, inference.TypeOfSymbolAt(symbol, at),
                             where.Length > 0 ? $"{where}, {used}" : used);
     }
 

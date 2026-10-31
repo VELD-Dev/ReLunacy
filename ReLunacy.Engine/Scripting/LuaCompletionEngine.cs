@@ -64,7 +64,8 @@ public static class LuaCompletionEngine
         var block = LuaParser.Parse(source, out _);
         var scopes = LuaScopeResolver.Resolve(block);
         var shapes = LuaTableShapes.Build(block, scopes);
-        var inference = new LuaTypeInference(api, scopes, scripts, shapes);
+        var casts = LuaCasts.Find(source, scopes);
+        var inference = new LuaTypeInference(api, scopes, scripts, shapes, casts);
 
         var analyzed = Analyze(source, tokens, caret, block, inference, shapes);
         context = analyzed;
@@ -73,7 +74,7 @@ public static class LuaCompletionEngine
         switch (analyzed.Trigger)
         {
             case LuaCompletionTrigger.Annotation:
-                AddAnnotationItems(items, analyzed, source, api);
+                AddAnnotationItems(items, analyzed, source, api, scopes, block);
                 break;
 
             case LuaCompletionTrigger.StringArgument:
@@ -177,7 +178,8 @@ public static class LuaCompletionEngine
     /// </summary>
     private static void AddAnnotationItems(List<LuaCompletionItem> items,
                                            LuaCompletionContext context, string source,
-                                           LuaApiDatabase api)
+                                           LuaApiDatabase api, LuaScopeAnalysis scopes,
+                                           LuaBlock block)
     {
         switch (context.Annotation)
         {
@@ -205,11 +207,39 @@ public static class LuaCompletionEngine
                                                     "parameter", "of the function below"));
                 break;
 
+            case LuaAnnotationSuggestion.VariableName:
+                // What a cast can narrow: the locals in scope where the cast is written. Innermost
+                // first, as elsewhere, and only those already declared - there is nothing to cast
+                // about a binding that does not exist yet.
+                foreach (var local in scopes.VisibleAt(WithinBlock(context.ReplaceFrom, block)))
+                    items.Add(new LuaCompletionItem(local.Name, local.Name, KindOf(local.Kind),
+                                                    local.Kind.ToString().ToLowerInvariant(),
+                                                    "in scope here"));
+                foreach (var global in scopes.Globals.Values)
+                    items.Add(new LuaCompletionItem(global.Name, global.Name,
+                                                    LuaCompletionKind.Variable, "global", null));
+                break;
+
             case LuaAnnotationSuggestion.DiagnosticAction:
                 foreach (string action in LuaAnnotations.DiagnosticActions)
                     items.Add(new LuaCompletionItem(action, action, LuaCompletionKind.Keyword, null, null));
                 break;
         }
+    }
+
+    /// <summary>
+    /// A position pulled back inside the file's outermost block.
+    ///
+    /// An annotation written after the last statement is outside it - a comment is not a statement,
+    /// so the block ends above it - and asking what is in scope out there answers nothing. Which
+    /// is wrong in the one place a cast is most likely to be typed: at the end of what has been
+    /// written so far.
+    /// </summary>
+    private static LuaPosition WithinBlock(LuaPosition at, LuaBlock block)
+    {
+        var end = block.Span.End;
+        bool past = at.Line > end.Line || (at.Line == end.Line && at.Column > end.Column);
+        return past ? end : at;
     }
 
     /// <summary>How a tag's completion entry describes what comes after it.</summary>

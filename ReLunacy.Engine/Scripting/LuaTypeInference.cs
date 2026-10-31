@@ -12,7 +12,7 @@ namespace ReLunacy.Engine.Scripting;
 /// </summary>
 public sealed class LuaTypeInference(
     LuaApiDatabase api, LuaScopeAnalysis scopes, LuaScriptIndex? scripts = null,
-    LuaTableShapes? shapes = null)
+    LuaTableShapes? shapes = null, IReadOnlyList<LuaCast>? casts = null)
 {
     // Assignment chains can be circular (`local a = b` / `local b = a`), so recursion is bounded.
     private const int MaxDepth = 8;
@@ -76,8 +76,13 @@ public sealed class LuaTypeInference(
 
     private string? TypeOfName(LuaNameExpr name, int depth)
     {
-        // A local: follow what it was assigned, one hop.
         var symbol = scopes.Locals.FirstOrDefault(s => s.References.Any(r => r == name.Span));
+
+        // A cast outranks everything: it is someone stating what they know about an API that
+        // documents nothing, which is more than anything here can work out for itself.
+        if (CastFor(symbol, name.Name, name.Span.Start) is { } cast) return api.ResolveAlias(cast);
+
+        // A local: follow what it was assigned, one hop.
         if (symbol is { Initializer: { } initializer }) return TypeOf(initializer, depth + 1);
         if (symbol is not null) return null; // a local with no initialiser says nothing
 
@@ -113,6 +118,39 @@ public sealed class LuaTypeInference(
 
         var shape = shapes.For(root.Name, root.Span.Start, keys);
         return shape?.Find(key) is { Value: { } assigned } ? TypeOf(assigned, depth + 1) : null;
+    }
+
+    /// <summary>
+    /// A binding's type at a position: what a cast says, or what it was initialised from.
+    ///
+    /// Takes the position because a cast only applies after it is written - the same name can be
+    /// one thing above the cast and another below it, which is the point of casting.
+    /// </summary>
+    public string? TypeOfSymbolAt(LuaSymbol symbol, LuaPosition at) =>
+        CastFor(symbol, symbol.Name, at) is { } cast ? api.ResolveAlias(cast)
+                                                     : TypeOf(symbol.Initializer);
+
+    /// <summary>
+    /// The nearest cast above a position for this name, or null.
+    ///
+    /// Matched by binding when both ends resolved to one, and by name otherwise - the fallback
+    /// being for a half-typed line, which does not parse and so has no binding to resolve against.
+    /// </summary>
+    private string? CastFor(LuaSymbol? symbol, string name, LuaPosition at)
+    {
+        string? type = null;
+        int nearest = -1;
+        foreach (var cast in casts ?? [])
+        {
+            if (cast.At.Line >= at.Line || cast.At.Line <= nearest) continue;
+            bool matches = symbol is not null && cast.Binding is not null
+                ? ReferenceEquals(cast.Binding, symbol)
+                : cast.Name == name;
+            if (!matches) continue;
+            type = cast.Type;
+            nearest = cast.At.Line;
+        }
+        return type;
     }
 
     private LuaApiFunction? FindMethod(string type, string name) =>

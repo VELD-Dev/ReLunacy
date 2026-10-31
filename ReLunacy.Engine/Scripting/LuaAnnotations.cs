@@ -34,7 +34,7 @@ public enum LuaAnnotationPart { Marker, Tag, Name, Type, Text, Unknown }
 public readonly record struct LuaAnnotationSpan(int Start, int Length, LuaAnnotationPart Part);
 
 /// <summary>What can be suggested at a position inside an annotation.</summary>
-public enum LuaAnnotationSuggestion { None, Tag, Type, ParameterName, DiagnosticAction }
+public enum LuaAnnotationSuggestion { None, Tag, Type, ParameterName, VariableName, DiagnosticAction }
 
 /// <summary>A place something can be suggested, and what is already typed there.</summary>
 public readonly record struct LuaAnnotationContext(
@@ -206,7 +206,7 @@ public static class LuaAnnotations
             if (end == cursor) break;
             if (column >= cursor && column <= end)
             {
-                var suggestion = SuggestionFor(tag.Shape, word);
+                var suggestion = SuggestionFor(tag, word);
                 return suggestion == LuaAnnotationSuggestion.None
                     ? default
                     : new LuaAnnotationContext(suggestion, cursor, line[cursor..column], tag.Name);
@@ -217,21 +217,32 @@ public static class LuaAnnotations
         }
 
         // Past the last word, so the caret is starting the next one.
-        var next = SuggestionFor(tag.Shape, word);
+        var next = SuggestionFor(tag, word);
         return next == LuaAnnotationSuggestion.None
             ? default
             : new LuaAnnotationContext(next, column, "", tag.Name);
     }
 
-    private static LuaAnnotationSuggestion SuggestionFor(LuaAnnotationShape shape, int word) =>
-        (shape, word) switch
+    /// <summary>
+    /// What can be suggested for a given word of a given tag.
+    ///
+    /// The shape alone is not enough for the first word, because the tags that share a shape do
+    /// not share a meaning: <c>@param</c> names a parameter of the function below, <c>@cast</c>
+    /// names a variable already in scope above, and <c>@field</c> and <c>@alias</c> are DECLARING
+    /// a name, which nothing can suggest because it does not exist yet.
+    /// </summary>
+    private static LuaAnnotationSuggestion SuggestionFor(LuaAnnotationTag tag, int word) =>
+        (tag.Name, tag.Shape, word) switch
         {
-            (LuaAnnotationShape.Type, 0) => LuaAnnotationSuggestion.Type,
-            (LuaAnnotationShape.NameThenType, 0) => LuaAnnotationSuggestion.ParameterName,
-            (LuaAnnotationShape.NameThenType, 1) => LuaAnnotationSuggestion.Type,
+            ("param", _, 0) => LuaAnnotationSuggestion.ParameterName,
+            ("cast", _, 0) => LuaAnnotationSuggestion.VariableName,
+            (_, LuaAnnotationShape.NameThenType, 0) => LuaAnnotationSuggestion.None,
+
+            (_, LuaAnnotationShape.Type, 0) => LuaAnnotationSuggestion.Type,
+            (_, LuaAnnotationShape.NameThenType, 1) => LuaAnnotationSuggestion.Type,
             // A class's parents are types; its own name is new, so nothing can suggest it.
-            (LuaAnnotationShape.Name, > 0) => LuaAnnotationSuggestion.Type,
-            (LuaAnnotationShape.Diagnostic, 0) => LuaAnnotationSuggestion.DiagnosticAction,
+            (_, LuaAnnotationShape.Name, > 0) => LuaAnnotationSuggestion.Type,
+            (_, LuaAnnotationShape.Diagnostic, 0) => LuaAnnotationSuggestion.DiagnosticAction,
             _ => LuaAnnotationSuggestion.None,
         };
 
