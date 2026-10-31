@@ -13,7 +13,13 @@ public sealed class Tie : ITie
     public IReadOnlyList<IMesh> Meshes { get; init; }
     public float Scale { get; init; }
 
-    /// <summary>Backing store for <see cref="GetLightmapUVs"/>; nothing sets it yet.</summary>
+    /// <summary>
+    /// Backing store for <see cref="GetLightmapUVs"/>: the tie-wide aggregate TieReader builds.
+    ///
+    /// For debugging and export only. Whether a MESH receives baked lighting is a per-mesh
+    /// decision - its own slice may be absent while the aggregate is not - so do not read this to
+    /// answer that question (see EntityTie.HasLightmapUVs).
+    /// </summary>
     private readonly float[]? _lightmapUVs;
 
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;
