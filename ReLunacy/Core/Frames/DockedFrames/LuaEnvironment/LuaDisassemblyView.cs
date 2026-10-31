@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Scripting;
+using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
@@ -19,6 +20,10 @@ public sealed class LuaDisassemblyView
 
     /// <summary>Flattened prototype tree: the listing is per prototype, and a chunk nests them.</summary>
     private readonly List<(string Path, LuaPrototype Proto, int Depth)> _protos = [];
+
+    /// <summary>The prototype tree's width. A nested closure's path can be long, so how much room
+    /// it needs is not something to decide here.</summary>
+    private readonly ResizablePane _protosPane = new(260f);
     private int _selected;
     private List<LuaDisassembler.Line> _lines = [];
 
@@ -88,7 +93,7 @@ public sealed class LuaDisassemblyView
 
         // Left: the prototype tree. Right: the selected prototype's code. A chunk's prototypes are
         // what the compiler emits one at a time, so this split matches how it will be debugged.
-        if (ImGui.BeginChild("lua_protos", new Vector2(260f, 0f), ImGuiChildFlags.Borders))
+        if (_protosPane.Begin("lua_protos"))
         {
             for (int i = 0; i < _protos.Count; i++)
             {
@@ -99,7 +104,7 @@ public sealed class LuaDisassemblyView
                 ImGui.Unindent(depth * 10f);
             }
         }
-        ImGui.EndChild();
+        ResizablePane.End();
 
         ImGui.SameLine();
         if (ImGui.BeginChild("lua_code", new Vector2(0f, 0f), ImGuiChildFlags.Borders))

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
+using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
@@ -27,6 +28,12 @@ public class LuaEnvironmentFrame : DockedFrame
     private readonly LuaScriptBrowser _scripts = new();
     private bool _split;
     private bool _showScripts = true;
+
+    /// <summary>The script list's width, and the editor's share of a split. Both are dragged by
+    /// their own border rather than fixed, since how much of each is wanted depends entirely on
+    /// what is being read.</summary>
+    private readonly ResizablePane _scriptsPane = new(260f);
+    private readonly ResizablePane _editorPane = new(0f, minimum: 200f);
 
     public LuaEnvironmentFrame()
     {
@@ -70,10 +77,8 @@ public class LuaEnvironmentFrame : DockedFrame
 
         if (_showScripts)
         {
-            if (ImGui.BeginChild("lua_env_scripts", new Vector2(260f, 0f), ImGuiChildFlags.Borders
-                                                                        | ImGuiChildFlags.ResizeX))
-                _scripts.Render();
-            ImGui.EndChild();
+            if (_scriptsPane.Begin("lua_env_scripts")) _scripts.Render();
+            ResizablePane.End();
             ImGui.SameLine();
         }
 
@@ -87,10 +92,10 @@ public class LuaEnvironmentFrame : DockedFrame
     {
         if (_split)
         {
-            float half = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) * 0.5f;
-            if (ImGui.BeginChild("lua_env_left", new Vector2(half, 0f)))
-                _editor.Render(deltaTime);
-            ImGui.EndChild();
+            // Half and half to begin with, then wherever it is dragged to: reading a source
+            // against its compiled output rarely wants the two the same width.
+            if (_editorPane.Begin("lua_env_left")) _editor.Render(deltaTime);
+            ResizablePane.End();
             ImGui.SameLine();
             if (ImGui.BeginChild("lua_env_right", new Vector2(0f, 0f)))
                 _disassembly.Render(deltaTime);

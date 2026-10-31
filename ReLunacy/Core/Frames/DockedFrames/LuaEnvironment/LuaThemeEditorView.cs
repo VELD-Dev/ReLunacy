@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Scripting;
+using ReLunacy.Utility;
 using ReLunacy.Utility.CodeEditor;
 using ReLunacy.Utility.Localization;
 
@@ -20,6 +21,10 @@ namespace ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 public sealed class LuaThemeEditorView
 {
     private readonly CodeEditorControl _preview = new();
+
+    /// <summary>The colour list's width. Dragged rather than a fraction of the frame: the rows are
+    /// as wide as their labels, and the preview wants whatever is left.</summary>
+    private readonly ResizablePane _slotsPane = new(340f);
     private readonly LuaSyntaxHighlighter _highlighter;
     private LuaApiDatabase _api = new();
     private ReLunacy.Engine.Games.GameId? _apiGame;
@@ -79,15 +84,14 @@ public sealed class LuaThemeEditorView
 
         // Colours left, preview right: a colour has to be judged against the code, so changing one
         // and looking at the result should not need scrolling or a tab switch.
-        float listWidth = Math.Min(360f, ImGui.GetContentRegionAvail().X * 0.45f);
-        if (ImGui.BeginChild("theme_slots", new Vector2(listWidth, 0f), ImGuiChildFlags.Borders))
+        if (_slotsPane.Begin("theme_slots"))
         {
             DrawGroup(theme, LuaEditorThemeGroup.Lexical, LM.Get("GUI_LuaEnv_ThemeLexical"));
             DrawGroup(theme, LuaEditorThemeGroup.Semantic, LM.Get("GUI_LuaEnv_ThemeSemantic"));
             DrawGroup(theme, LuaEditorThemeGroup.Chrome, LM.Get("GUI_LuaEnv_ThemeChrome"));
             DrawGroup(theme, LuaEditorThemeGroup.Decoration, LM.Get("GUI_LuaEnv_ThemeDecoration"));
         }
-        ImGui.EndChild();
+        ResizablePane.End();
 
         ImGui.SameLine();
         if (ImGui.BeginChild("theme_preview", new Vector2(0f, 0f), ImGuiChildFlags.Borders))
