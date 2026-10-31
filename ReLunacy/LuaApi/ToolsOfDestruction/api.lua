@@ -20,6 +20,6 @@ function load_level_script(name) end
 ---@param name string The script's file name, without folder or extension.
 function load_global_script(name) end
 
----Suspends the dedicated SPU worker thread for `duration`
----@param duration number The duration in seconds.
+---Suspends the dedicated SPU worker thread for `duration`. Passing no parameter will sleep for a tick.
+---@param duration? number The duration in seconds.
 function wait(duration) end
