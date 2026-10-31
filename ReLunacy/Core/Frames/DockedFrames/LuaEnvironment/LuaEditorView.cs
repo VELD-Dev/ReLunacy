@@ -544,7 +544,8 @@ public sealed class LuaEditorView
         if (_hover is not { } documented) return;
 
         ImGui.BeginTooltip();
-        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        float wrap = ImGui.GetFontSize() * 28f;
+        ImGui.PushTextWrapPos(wrap);
         ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(Theme().FunctionColour), documented.Label);
         ImGui.SameLine();
         ImGui.TextDisabled(documented.Kind);
@@ -556,7 +557,7 @@ public sealed class LuaEditorView
         if (documented.Description is { } description)
         {
             ImGui.Separator();
-            _markdown.Draw(description, Theme(), Api());
+            _markdown.Draw(description, Theme(), Api(), wrap);
         }
         ImGui.PopTextWrapPos();
         ImGui.EndTooltip();

@@ -129,6 +129,40 @@ public static class DocMarkdown
     }
 
     /// <summary>
+    /// Which line each word lands on, given its width and the room available.
+    ///
+    /// Pure, because this is the part that was wrong: a paragraph of differently coloured runs has
+    /// to be placed a word at a time, so something has to decide where the lines break, and getting
+    /// it wrong is only visible as mangled text on screen. Here it can be checked against numbers.
+    ///
+    /// A word that does not fit starts a new line, except when it is already first on one - a word
+    /// wider than the whole column has nowhere to break, so it overruns rather than looping.
+    /// </summary>
+    public static int[] Flow(IReadOnlyList<float> widths, float spacing, float available)
+    {
+        var lines = new int[widths.Count];
+        int line = 0;
+        float x = 0f;
+        bool atLineStart = true;
+
+        for (int i = 0; i < widths.Count; i++)
+        {
+            if (!atLineStart && x + spacing + widths[i] > available)
+            {
+                line++;
+                x = widths[i];
+            }
+            else
+            {
+                x = atLineStart ? widths[i] : x + spacing + widths[i];
+            }
+            atLineStart = false;
+            lines[i] = line;
+        }
+        return lines;
+    }
+
+    /// <summary>
     /// Splits a paragraph into runs. Code spans are found first and are not looked inside, so
     /// <c>`a*b*c`</c> keeps its asterisks - which is the whole point of writing it in backticks.
     /// </summary>

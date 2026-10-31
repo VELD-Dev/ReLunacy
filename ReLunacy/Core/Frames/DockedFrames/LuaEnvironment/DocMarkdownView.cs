@@ -22,18 +22,28 @@ public sealed class DocMarkdownView
     private readonly Dictionary<string, Dictionary<int, List<TextSpan>>> _code = new(StringComparer.Ordinal);
     private int _colouredFor = -1;
 
-    /// <summary>Draws documentation, parsing and caching it on the way.</summary>
-    public void Draw(string text, LuaEditorTheme theme, LuaApiDatabase api)
+    /// <summary>
+    /// Draws documentation, parsing and caching it on the way.
+    /// </summary>
+    /// <param name="wrapWidth">
+    /// How wide the text may run. Given rather than measured, because these are drawn in windows
+    /// that size themselves to their contents - asking such a window how much room is left gives
+    /// last frame's answer, and on the first frame an answer narrow enough to break every word.
+    /// </param>
+    public void Draw(string text, LuaEditorTheme theme, LuaApiDatabase api, float wrapWidth)
     {
         if (_colouredFor != theme.Revision) { _code.Clear(); _colouredFor = theme.Revision; }
 
         if (!_blocks.TryGetValue(text, out var blocks))
             _blocks[text] = blocks = DocMarkdown.Parse(text);
 
-        foreach (var block in blocks) DrawBlock(block, theme, api);
+        // One right edge for the whole block, fixed before anything is drawn. Taking it from the
+        // cursor inside a bullet or after a run would move it rightwards as the text went.
+        float right = ImGui.GetCursorScreenPos().X + wrapWidth;
+        foreach (var block in blocks) DrawBlock(block, theme, api, right);
     }
 
-    private void DrawBlock(DocBlock block, LuaEditorTheme theme, LuaApiDatabase api)
+    private void DrawBlock(DocBlock block, LuaEditorTheme theme, LuaApiDatabase api, float right)
     {
         switch (block.Kind)
         {
@@ -43,7 +53,7 @@ public sealed class DocMarkdownView
 
             case DocBlockKind.Heading:
                 ImGui.Dummy(new Vector2(0f, ImGui.GetTextLineHeight() * 0.25f));
-                DrawInlines(block.Inlines, theme, heading: true);
+                DrawInlines(block.Inlines, theme, heading: true, right);
                 ImGui.Separator();
                 return;
 
@@ -52,15 +62,15 @@ public sealed class DocMarkdownView
                 ImGui.SameLine(0f, 0f);
                 ImGui.TextDisabled("•");
                 ImGui.SameLine();
-                DrawInlines(block.Inlines, theme, heading: false);
+                DrawInlines(block.Inlines, theme, heading: false, right);
                 return;
 
             case DocBlockKind.Code:
-                DrawCode(block, theme, api);
+                DrawCode(block, theme, api, right);
                 return;
 
             default:
-                DrawInlines(block.Inlines, theme, heading: false);
+                DrawInlines(block.Inlines, theme, heading: false, right);
                 return;
         }
     }
@@ -70,7 +80,7 @@ public sealed class DocMarkdownView
     /// fence in Lua documentation is Lua in practice, so it is coloured too, while a fence that
     /// names another language is left plain rather than coloured by the wrong rules.
     /// </summary>
-    private void DrawCode(DocBlock block, LuaEditorTheme theme, LuaApiDatabase api)
+    private void DrawCode(DocBlock block, LuaEditorTheme theme, LuaApiDatabase api, float right)
     {
         bool lua = block.Language.Length == 0
                 || block.Language.Equals("lua", StringComparison.OrdinalIgnoreCase);
@@ -81,7 +91,7 @@ public sealed class DocMarkdownView
         float padding = ImGui.GetStyle().FramePadding.X;
 
         var origin = ImGui.GetCursorScreenPos();
-        float width = MathF.Max(ImGui.GetContentRegionAvail().X,
+        float width = MathF.Max(right - origin.X,
                                 lines.Max(l => l.Length) * charWidth + padding * 2f);
         var draw = ImGui.GetWindowDrawList();
         draw.AddRectFilled(origin, origin + new Vector2(width, lines.Length * lineHeight + padding * 2f),
@@ -129,51 +139,63 @@ public sealed class DocMarkdownView
     }
 
     /// <summary>
-    /// Draws a paragraph's runs, wrapping between them. ImGui wraps inside one call, so the runs
-    /// are placed with SameLine and a manual check against the right edge - which is why a single
-    /// very long word in a bold run can still reach past it.
+    /// Draws a paragraph's runs. Each run has its own colour, so the line is laid out a word at a
+    /// time with SameLine, which means this has to decide where the lines break itself.
+    ///
+    /// Where the lines break is worked out first, from the measured widths, and only then are the
+    /// words drawn. Deciding as it went was the bug: a text item leaves the cursor back at the left
+    /// margin, so measuring from the cursor placed words it believed would fit and then ran past
+    /// the edge - and ImGui, still wrapping each item, broke them one character per line.
+    ///
+    /// A single word wider than the whole column still overruns; there is nowhere to break it.
     /// </summary>
-    private static void DrawInlines(IReadOnlyList<DocInline> inlines, LuaEditorTheme theme, bool heading)
+    private static void DrawInlines(IReadOnlyList<DocInline> inlines, LuaEditorTheme theme,
+                                    bool heading, float right)
     {
         if (inlines.Count == 0) { ImGui.Spacing(); return; }
 
-        float right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
-        bool first = true;
+        var words = inlines.SelectMany(i => Words(i.Text).Select(w => (Inline: i, Word: w))).ToList();
+        if (words.Count == 0) { ImGui.Spacing(); return; }
 
-        foreach (var inline in inlines)
-            foreach (string word in Words(inline.Text))
-            {
-                string shown = inline.Kind == DocInlineKind.Code ? word : word;
-                float advance = ImGui.CalcTextSize(shown).X + ImGui.GetStyle().ItemSpacing.X;
-                if (!first)
-                {
-                    if (ImGui.GetCursorPosX() + advance < right) ImGui.SameLine();
-                }
-                first = false;
+        float spacing = ImGui.GetStyle().ItemSpacing.X;
+        float available = right - ImGui.GetCursorScreenPos().X;
+        var lines = DocMarkdown.Flow([.. words.Select(w => ImGui.CalcTextSize(w.Word).X)],
+                                     spacing, available);
 
-                switch (inline.Kind)
-                {
-                    case DocInlineKind.Code:
-                        ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.StringColour), shown);
-                        break;
-                    case DocInlineKind.Strong:
-                        ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.LineNumberCurrentColour), shown);
-                        break;
-                    case DocInlineKind.Emphasis:
-                        ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.ClassColour), shown);
-                        break;
-                    case DocInlineKind.Link:
-                        ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.FunctionColour), shown);
-                        if (ImGui.IsItemHovered() && inline.Target is { Length: > 0 } target)
-                            ImGui.SetTooltip(target);
-                        break;
-                    default:
-                        if (heading)
-                            ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.KeywordColour), shown);
-                        else ImGui.TextUnformatted(shown);
-                        break;
-                }
-            }
+        // Wrapping off for the items themselves: the words are placed by hand, and a word put near
+        // the right edge would otherwise break INSIDE itself, one character per line.
+        ImGui.PushTextWrapPos(-1f);
+        for (int i = 0; i < words.Count; i++)
+        {
+            if (i > 0 && lines[i] == lines[i - 1]) ImGui.SameLine();
+            DrawWord(words[i].Inline, words[i].Word, theme, heading);
+        }
+        ImGui.PopTextWrapPos();
+    }
+
+    private static void DrawWord(DocInline inline, string word, LuaEditorTheme theme, bool heading)
+    {
+        switch (inline.Kind)
+        {
+            case DocInlineKind.Code:
+                ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.StringColour), word);
+                break;
+            case DocInlineKind.Strong:
+                ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.LineNumberCurrentColour), word);
+                break;
+            case DocInlineKind.Emphasis:
+                ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.ClassColour), word);
+                break;
+            case DocInlineKind.Link:
+                ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.FunctionColour), word);
+                if (ImGui.IsItemHovered() && inline.Target is { Length: > 0 } target)
+                    ImGui.SetTooltip(target);
+                break;
+            default:
+                if (heading) ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(theme.KeywordColour), word);
+                else ImGui.TextUnformatted(word);
+                break;
+        }
     }
 
     /// <summary>Splits a run into words, so wrapping can happen between them. Empty runs produce

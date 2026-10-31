@@ -174,7 +174,11 @@ public sealed class LuaCompletionPopup
             if (current.Description is { } description)
             {
                 if (theme is null) ImGui.TextWrapped(description);
-                else _markdown.Draw(description, theme, api ?? new LuaApiDatabase());
+                // The popup is width-constrained to 620, so the text has a known edge to wrap at
+                // rather than one that depends on how wide the list happens to have made it.
+                else _markdown.Draw(description, theme, api ?? new LuaApiDatabase(),
+                                    MathF.Min(ImGui.GetWindowWidth(), 620f)
+                                    - ImGui.GetStyle().WindowPadding.X * 2f);
             }
         }
 
