@@ -30,7 +30,16 @@ Because the European date format is better, please keep date format like this: `
   - ToD back faces culled as the game culls them, its non-opaque polygon offset, the new engine's normal/reflection/detail fade distances.
   - Known level names tell the game apart (`GameDefinitions.FromLevelPath`), which selects A Crack in Time's data layout.
   - The skinning added in #60 is kept: the lit, picking and outline vertex shaders still skin, the bone palette now sits at bindings 9 and 11.
-- 
+- Added a Lua environment (`Lua Environment` panel): browse a level's scripts, read them, edit them, and write them back into the game.
+  - A Lua 5.0 reader, disassembler and compiler for the bytecode Tools of Destruction actually runs. All 524 scripts it ships recompile byte for byte from their own sources, which is what the compiler is checked against.
+  - A code editor with syntax colouring, completion, snippets, auto-closing brackets, rename, go to declaration, find references (results listed under the editor, as coloured code), Ctrl+F, and documentation on hover.
+  - Completion knows more than the documented API: the tables a script declares (including the generated enum tables, like the 1940 entries of `DialogueSpecs`), the functions the level's other scripts declare, and the script names `load_level_script("` and `load_global_script("` take.
+  - LuaLS annotations (`---@param`, `---@class`, `---@cast`...) are coloured and completed, with the parameter names of the function below offered after `---@param`. `---@cast` narrows a variable's type for everything after it, which is how you get completion out of an API nothing documents yet.
+  - Documentation is markdown, as LuaLS writes it, and is rendered as such - Lua examples included, coloured by the editor itself.
+  - Editable colour themes, with the real editor as a live preview.
+  - Saving writes the source and the compiled chunk back into `global_cached.psarc`, adds them to the game's file index when they are new, and keeps `game.toc`'s record of each archive's length in step. The original is backed up first, and the rebuilt archive is verified in full before anything is replaced; files the edit does not touch keep the exact compressed bytes they shipped with.
+  - The game's `.toc` format is decoded and documented in `docs/reverse/tod_toc_format.md`. All 125 shipped indexes are read and written back byte for byte.
+  - Not established yet, and worth knowing before relying on it: whether the engine accepts a file added this way. Replacing an existing script needs none of that and is the safer path.
 
 ## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026
 
