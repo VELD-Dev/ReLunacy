@@ -3,12 +3,12 @@ using NeoVeldrid;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// The fragment program every lit draw in the editor runs, for BOTH engines, in one piece.
+/// The fragment shader every lit draw in the editor runs, for BOTH engines, in one piece.
 ///
-/// It used to be two. The generic program lived in VulkanRenderer as LitFragCommon, and
+/// It used to be two. The generic shader lived in VulkanRenderer as LitFragCommon, and
 /// VulkanRenderer.OldEngineShading rewrote nine passages of it with string Replace at type-init
 /// time, then cached the compiled result under the ORIGINAL source's key so the renderer was
-/// handed the patched program without knowing. Reading what the editor actually draws meant
+/// handed the patched shader without knowing. Reading what the editor actually draws meant
 /// applying the nine replacements by hand, and every proof comment about old- or new-engine shading
 /// was attached to a passage that did not exist in the file that declared it.
 ///
@@ -21,7 +21,7 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 ///
 /// The fold was mechanical: the same nine strings in the same order, and the result is character
 /// for character what the patch produced, so nothing about what the GPU runs changed here. What
-/// changes is that the engine is now an ARGUMENT to one program - uOldEngineMode and uMat2.w select
+/// changes is that the engine is now an ARGUMENT to one shader - uOldEngineMode and uMat2.w select
 /// the branch - which is what the two sources were simulating all along.
 ///
 /// Reading guide. Three things differ per engine and each says so at the branch:
@@ -31,7 +31,7 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 ///  * whether Mobys reach the cube at all - ToD's never do, QForce's always do.
 ///
 /// Evidence boundary, unchanged by the fold. ToD has no single directional-lightmap equation: the
-/// retail TIE shell routes callback52.arg2.low8 (shellFeatureKey) through Full/Reduced program
+/// retail Tie shell routes callback52.arg2.low8 (shellFeatureKey) through Full/Reduced shader
 /// tables, the source use bytes are wired per draw but the terminal key is a separate unresolved
 /// value, and runtime V4 proved use=0x0C can route with key=0x04. LM1/0x5400 and LM2/0x5410 are
 /// proven INPUTS; their final combination is permutation-dependent. So the old-engine baked branch
@@ -45,9 +45,9 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
-    // Shared lit shading: everything except the final output. Each of the three fragment programs
+    // Shared lit shading: everything except the final output. Each of the three fragment shaders
     // below appends its own main() and output declarations to this.
-    // The LightBuffer (LightData) and the new-engine atmosphere, shared by the lit programs and the sky.
+    // The LightBuffer (LightData) and the new-engine atmosphere, shared by the lit shaders and the sky.
     private const string LightBufferGlsl = @"layout(set = 0, binding = 2, std140) uniform LightBuffer {
     vec3 uLightDirection; float uAmbient;
     vec3 uLightColor; float uSpecularPower;
@@ -70,7 +70,7 @@ public sealed unsafe partial class VulkanRenderer
 };
 ";
 
-    // QForce's atmosphere pass (EBOOT 0x006FA0D8 mode 2, fragment programs 0x87 + k of 0x00F10100, groups
+    // QForce's atmosphere pass (EBOOT 0x006FA0D8 mode 2, fragment shaders 0x87 + k of 0x00F10100, groups
     // 0..4 = the view block 0x007181B8 fills): at the pixel's distance d and t = saturate(d / far),
     //   c += c L3(t) (1 - c)                 0x34003, linear, when the table is on (k bit 0)
     //   c = mix(c, F.rgb, F.a)               F = 0x34004 decoded by the texture's gamma, when on (bit 2)
@@ -116,15 +116,15 @@ vec3 newEngineAtmosphere(vec3 c, float d, vec3 dir) {
 }
 ";
 
-    // Shared lit shading: everything except the final output. Each of the three fragment programs
+    // Shared lit shading: everything except the final output. Each of the three fragment shaders
     // below appends its own main() and output declarations to this.
     private const string LitFragCommon = @"#version 450
 " + LightBufferGlsl + NewEngineAtmosphereGlsl + @"
-// True in the opaque pass's program: the game draws those pixels before its atmosphere pass, so they
+// True in the opaque pass's shader: the game draws those pixels before its atmosphere pass, so they
 // take the atmosphere (VulkanRenderer.NewEngineFog.cs) instead of the per-draw fog constant.
 bool gBeforeAtmosphere = false;
 // What the opaque pass writes to alpha: 1, or with the bloom on (uPostParams.x) the glow mask the
-// game's programs output and 0 for everything else (VulkanRenderer.Bloom.cs).
+// game's shaders output and 0 for everything else (VulkanRenderer.Bloom.cs).
 float gGlow = 1.0;
 layout(set = 0, binding = 3) uniform samplerCube uEnvCube;
 // New engine: the other three cubes of the level's environment resource (R16G16B16A16_Float, retail
@@ -133,7 +133,7 @@ layout(set = 0, binding = 5) uniform samplerCube uEnvCube1;
 layout(set = 0, binding = 6) uniform samplerCube uEnvCube2;
 layout(set = 0, binding = 7) uniform samplerCube uEnvCube3;
 // The opaque scene's colour (sky + opaque geometry), copied before the additive and blended draws:
-// what the retail programs that refract or composite read on RSX units 10 / 11.
+// what the retail shaders that refract or composite read on RSX units 10 / 11.
 layout(set = 0, binding = 10) uniform sampler2D uSceneColor;
 struct InstanceLight {
     vec4 ambient;
@@ -166,17 +166,17 @@ layout(set = 1, binding = 2) uniform sampler2D uProps;
 layout(set = 1, binding = 3) uniform sampler2D uLightColour;
 layout(set = 1, binding = 4) uniform sampler2D uLightDir;
 // Retail new-engine routing: material slot 3 is detail, slots 4/5 bind RSX units 8/9.
-// Aux A/B remain program-family specific; binding them does not invent one generic combine rule.
+// Aux A/B remain shader-family specific; binding them does not invent one generic combine rule.
 layout(set = 1, binding = 5) uniform sampler2D uDetail;
 layout(set = 1, binding = 6) uniform sampler2D uAuxA;
 layout(set = 1, binding = 7) uniform sampler2D uAuxB;
-// Two-layer TIEs: the second material and the blend mask (RSX units 8..12 of their programs).
+// Two-layer Ties: the second material and the blend mask (RSX units 8..12 of their shaders).
 layout(set = 1, binding = 8) uniform sampler2D uAlbedo2;
 layout(set = 1, binding = 9) uniform sampler2D uNormal2;
 layout(set = 1, binding = 10) uniform sampler2D uProps2;
 layout(set = 1, binding = 11) uniform sampler2D uDetail2;
 layout(set = 1, binding = 12) uniform sampler2D uBlendMask;
-layout(push_constant) uniform PC { vec4 uMat0; vec4 uMat1; vec4 uMat2; vec4 uMat3; vec4 uMat4; vec4 uMat5; vec4 uMat6; vec4 uMat7; }; // uMat0=(hasBaked,pScale,pBias,alphaThr); uMat1=(class-0x13 embedded program, NewEngineEmbeddedPrograms; vtxAlpha,lit,albedoHasAlpha); uMat2=(lightDirBx2,0,0,0) native RSX ADDRESS conversion state; uMat3=reflection tint (old +0x40 / new +0x50); uMat4=new-engine +0x60 reflection parameters; uMat5.x=new-engine +0x40 environment cube slot; uMat5.yz=new-engine +0x30 normal-map / +0x34 reflection strength; uMat5.w=new-engine normal-map permutation (+0x20 bit 0x08); uMat6=new-engine (detail tiling, detail gain +0x3C, detail present, material +0x20 feature bits); uMat7=new-engine Moby tint (rgb, applies)
+layout(push_constant) uniform PC { vec4 uMat0; vec4 uMat1; vec4 uMat2; vec4 uMat3; vec4 uMat4; vec4 uMat5; vec4 uMat6; vec4 uMat7; }; // uMat0=(hasBaked,pScale,pBias,alphaThr); uMat1=(class-0x13 embedded shader, NewEngineEmbeddedShaders; vtxAlpha,lit,albedoHasAlpha); uMat2=(lightDirBx2,0,0,0) native RSX ADDRESS conversion state; uMat3=reflection tint (old +0x40 / new +0x50); uMat4=new-engine +0x60 reflection parameters; uMat5.x=new-engine +0x40 environment cube slot; uMat5.yz=new-engine +0x30 normal-map / +0x34 reflection strength; uMat5.w=new-engine normal-map permutation (+0x20 bit 0x08); uMat6=new-engine (detail tiling, detail gain +0x3C, detail present, material +0x20 feature bits); uMat7=new-engine Moby tint (rgb, applies)
 layout(location = 0) in vec2 fUV;
 layout(location = 1) in vec3 fWorldNormal;
 layout(location = 2) in vec3 fWorldTangent;
@@ -202,7 +202,7 @@ vec4 newEngineFog() {
     vec4 k = mix(newEngineFogEntry(i0), newEngineFogEntry(min(i0 + 1, 511)), t - floor(t));
     return pow(k, vec4(2.2));
 }
-// S, the retail programs' tex5(WPOS).z (1 lit, 0 in the sun shadow of the world or of a moving
+// S, the retail shaders' tex5(WPOS).z (1 lit, 0 in the sun shadow of the world or of a moving
 // Moby). The game's producer of that mask is not reconstructed, so every pixel is fully lit.
 float sunShadowTerm() { return 1.0; }
 void shade(out vec3 litColor, out float litAlpha) {
@@ -214,7 +214,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     vec3 viewDirTS = transpose(tbn) * viewDir;
     InstanceLight instanceLight = uInstanceLights.values[fInstanceIndex];
     // New-engine distance fades (VkInstanceLight.ApplyNewEngineFades: tieShaderUse1 = 1/d, from the
-    // TIE primitive's +0x30 or the UFrag record's +0x60). The retail VPs build c[19] = K / d with
+    // Tie primitive's +0x30 or the UFrag record's +0x60). The retail VPs build c[19] = K / d with
     // K = (-2.5, -2.5, 1, 2.5) * the camera LOD scale (uNewEngineLodScale) and the view depth (clip w):
     //   normal-map strength  *= saturate(2.5 * (1 - depth / d0))
     //   reflection strength  *= saturate(2.5 * (1 - depth / d1))
@@ -228,8 +228,8 @@ void shade(out vec3 litColor, out float litAlpha) {
     float detailFade = hasFades ? clamp(viewDepth * instanceLight.tieShaderUse1.z, 0.0, 1.0) : 0.0;
     bool farPermutation = hasFades && viewDepth * instanceLight.tieShaderUse1.x > 1.0;
     // The permutation bits the game draws with (QForce EBOOT 0x006AE85C / 0x006B7380): the material's
-    // +0x20 (uMat6.w) AND the TIE primitive's +0x20 / UFrag record's +0x54 (tieShaderUse0.w - 1).
-    // Only programs of bit 0x04 sample the reflection cube, only 0x08 the normal map, only 0x10 the
+    // +0x20 (uMat6.w) AND the Tie primitive's +0x20 / UFrag record's +0x54 (tieShaderUse0.w - 1).
+    // Only shaders of bit 0x04 sample the reflection cube, only 0x08 the normal map, only 0x10 the
     // detail map, and 0x01 is parallax. No mask (Mobys, old engine): nothing is gated.
     bool hasPermutationMask = uOldEngineMode < 0.5 && instanceLight.tieShaderUse0.w > 0.5;
     int permutationBits = hasPermutationMask
@@ -242,7 +242,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     float height = (farPermutation || !allowParallax) ? 0.0 : texture(uProps, fUV).g * uMat0.y + uMat0.z;
     vec2 uv = fUV + viewDirTS.xy * height;
     vec4 albedoTex = texture(uAlbedo, uv);
-    // Two-layer terrain and TIEs, as the game's two-layer programs do it (ToD FP aa00291718be, QForce's
+    // Two-layer UFrags and Ties, as the game's two-layer shaders do it (ToD FP aa00291718be, QForce's
     // standard two-layer family): w = vertex weight x mask(lightmap uv).x, then albedo, normal and
     // properties mixed by w, the second material at the same UV. ToD's weight is 127/128 on every
     // retail vertex (Docs/reverse/tod_catchup_2026-10-10/02_textures_manquantes.md); the new engine's
@@ -264,8 +264,8 @@ void shade(out vec3 litColor, out float litAlpha) {
     vec2 derivativeRaw = allowNormalMap ? nrmSample.rg * 2.0 - 1.0 : vec2(0.0);
     vec4 props = texture(uProps, uv);
     if (layerWeight > 0.0) props = mix(props, texture(uProps2, uv), layerWeight);
-    // New-engine detail map, as the retail programs apply it (FP c8872868fd5f / cbf6dd28f655 paired
-    // with TIE VPs 49 / 50; Docs/reverse/NEW_ENGINE_SHADER_SECTIONS_EBOOT_2026-09-27.md):
+    // New-engine detail map, as the retail shaders apply it (FP c8872868fd5f / cbf6dd28f655 paired
+    // with Tie VPs 49 / 50; Docs/reverse/NEW_ENGINE_SHADER_SECTIONS_EBOOT_2026-09-27.md):
     //   d = tex3(uv * c[22].x), sampled signed (every retail detail descriptor has ADDRESS
     //       unsigned_remap = BIASED), weighted by m = saturate(+0x3C * (1 - fade)) * props.a;
     //   normal-map permutations: n.xy -= d.xy * m * (1 - |n.xy|^2); albedo *= 1 + d.z * m;
@@ -275,9 +275,9 @@ void shade(out vec3 litColor, out float litAlpha) {
     if (uOldEngineMode < 0.5 && uMat6.z > 0.5 && allowDetail)
         detail = (texture(uDetail, uv * uMat6.x) * 2.0 - 1.0) * (clamp(uMat6.y * (1.0 - detailFade), 0.0, 1.0) * props.a);
     bool normalPermutation = uMat5.w > 0.5 && !farPermutation && allowNormalMap;
-    // PROVEN (QForce EBOOT + retail programs): the new engine scales the normal map's xy by material
+    // PROVEN (QForce EBOOT + retail shaders): the new engine scales the normal map's xy by material
     // +0x30 (c[21].x, faded into TEX3.w) and keeps z = 1 - |xy|^2 from the unscaled sample.
-    // Old-engine TIE: TEX2.w = saturate(clip w x c16.x + c16.y), the VP's distance fade (TieFrag +0x30 /
+    // Old-engine Tie: TEX2.w = saturate(clip w x c16.x + c16.y), the VP's distance fade (TieFrag +0x30 /
     // +0x34, tieShaderUseMeta.zw), scales the normal map's derivatives and the cube reflection.
     bool oldFadeKnown = uOldEngineMode > 0.5 && instanceLight.tieShaderUseMeta.x > 0.5
         && (instanceLight.tieShaderUseMeta.z != 0.0 || instanceLight.tieShaderUseMeta.w != 0.0);
@@ -289,7 +289,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     vec3 worldNormal = normalize(tbn * normalize(vec3(derivativeSum, 1.0)));
     float specIntensity = props.r * (1.0 + detail.w);
     float emissive = props.b;
-    // PROVEN (retail Moby, TIE and prelit-TIE programs): the sun term is multiplied by S, and all the
+    // PROVEN (retail Moby, Tie and prelit-Tie shaders): the sun term is multiplied by S, and all the
     // non-emissive light by 0.2 S + 0.8 (below, where lighting is summed). S is 1 on the old engine.
     float sunS = sunShadowTerm();
     // Normal game geometry carries white RGB here. Collision debug batches use the same attribute
@@ -307,13 +307,13 @@ void shade(out vec3 litColor, out float litAlpha) {
     // factor; modes 0/4/5 draw with c[20] = 1.
     if (uMat7.w > 0.5 && step(2.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 3.5) > 0.5)
         albedo *= uMat7.rgb;
-    // PROVEN (retail TIE VP 64fed2abefb9 paired with the analytic-light FP 5a90cc1a17e6): unbaked TIEs
+    // PROVEN (retail Tie VP 64fed2abefb9 paired with the analytic-light FP 5a90cc1a17e6): unbaked Ties
     // on the analytic route use the same hemispheric ambient as Mobys, Amb * (1 + 0.5 * n.y).
     vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 ? 1.0 + 0.5 * worldNormal.y : 1.0)
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
     // Direction0.w: 1 = old-engine Moby draw, 3 = new-engine Moby draw (VkInstanceLight.ForMoby),
-    // 2 = old TIE with a retail baked scale. Both Moby kinds take the hemispheric ambient below; only
+    // 2 = old Tie with a retail baked scale. Both Moby kinds take the hemispheric ambient below; only
     // the old one is kept away from the environment cube.
     float isOldMoby = step(0.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 1.5);
     float isNewMoby = step(2.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 3.5);
@@ -357,10 +357,10 @@ void shade(out vec3 litColor, out float litAlpha) {
         // per material from the real descriptor by RsxTextureFormatConversion - it is never assumed.
         vec3 bakedLightDirTS = uMat2.x > 0.5 ? bakedDirSample.rgb * 2.0 - 1.0 : bakedDirSample.rgb;
         vec3 bakedNormalTS = normalize(vec3(derivativeSum * uBakedBumpFade, 1.0));
-        // Old TIE draws carrying a retail per-instance scale (Direction0.w = 2) use the decoded retail
+        // Old Tie draws carrying a retail per-instance scale (Direction0.w = 2) use the decoded retail
         // Full[0x28] arithmetic: LM2 NOT normalized, NdotL = saturate(dot(N, LM2)), divide by LM2.z when
         // positive, scale by c[4].z (TieInstance +0x60 candidate). Every other baked draw keeps the
-        // VELD presentation fallback, whose fixed 4.0 scale made lightmapped TIEs about 3x brighter
+        // VELD presentation fallback, whose fixed 4.0 scale made lightmapped Ties about 3x brighter
         // than their retail median scale (1.31) and produced the uneven contrast.
         bool retailTieScale = instanceLight.direction0.w > 1.5;
         vec3 fallbackDir = normalize(bakedLightDirTS + vec3(0.0, 0.0, 1e-6));
@@ -368,15 +368,15 @@ void shade(out vec3 litColor, out float litAlpha) {
         float bakedNdotL = clamp(dot(lm2, bakedNormalTS), 0.0, 1.0);
         float bakedDiffuse = lm2.z > 0.0 ? bakedNdotL / lm2.z : bakedNdotL;
         // PROVEN (runtime census, Tools/Reverse/evidence/TOD_TIE_Route_Key_2026-09-18.md): the shell key is the
-        // runtime TieFrag+0x2C use byte, so use bit 0x08 selects the directional LM2 programs (Full[0x28]/[0x2C]/[0x2D])
+        // runtime TieFrag+0x2C use byte, so use bit 0x08 selects the directional LM2 shaders (Full[0x28]/[0x2C]/[0x2D])
         // and its absence the LM1-only ones (Full[0x20]/[0x24]): light = LM1 * c[4].z with NO N.L and no LM2.
         float retailDirectional = mod(floor(instanceLight.tieShaderUse0.z / 8.0), 2.0);
         if (retailTieScale && instanceLight.tieShaderUseMeta.y > 0.5 && retailDirectional < 0.5) bakedDiffuse = 1.0;
         float bakedScale = retailTieScale ? instanceLight.direction1.w : uBakedLightScale;
         bakedDiffuseLight = bakedColour.rgb * bakedDiffuse * bakedScale;
     } else if (uMat2.w > 0.5) {
-        // New engine (QForce / All 4 One), decoded from the retail TIE fragment programs in the
-        // RPCS3 shader cache (e.g. FP 352970cec940 / 03039ca17211, paired with the TIE VPs that route
+        // New engine (QForce / All 4 One), decoded from the retail Tie fragment shaders in the
+        // RPCS3 shader cache (e.g. FP 352970cec940 / 03039ca17211, paired with the Tie VPs that route
         // attribute 4 to TEX0.zw):
         //   0x5410 is NOT a direction. It holds three Radiosity Normal Mapping weights, one per
         //   Half-Life-2 basis vector: R <-> (-0.408, 0.707, 0.577), G <-> (-0.408, -0.707, 0.577),
@@ -407,8 +407,8 @@ void shade(out vec3 litColor, out float litAlpha) {
             rnm = rnmRoute ? (d.z > 1.0e-3 ? nd / d.z : nd) : 1.0;
             sun = vec3(0.0);
         }
-        // PROVEN (QForce EBOOT, Loading.Objects.NewEngineBakedLighting): the RNM vertex programs write
-        // TEX1.z = c[4].x, the per-draw constant the TIE renderer uploads from the placement's +0x64
+        // PROVEN (QForce EBOOT, Loading.Objects.NewEngineBakedLighting): the RNM vertex shaders write
+        // TEX1.z = c[4].x, the per-draw constant the Tie renderer uploads from the placement's +0x64
         // (0x0073E9C0) and the UFrag renderer from the record's +0x68 (0x0074DC98), each u16 * 256/65535.
         // It reaches the shader as Direction1.w on draws flagged Direction0.w = 4. A draw without it
         // keeps the old labelled stand-in of 3, which is not a retail constant.
@@ -430,34 +430,34 @@ void shade(out vec3 litColor, out float litAlpha) {
     // light direction lands on exactly black. uBakedAmbient keeps a fraction of the fill underneath as
     // a floor - the bake's own shadows still read, they just stop bottoming out.
     vec3 bakedFloor = undecodedFill * uBakedAmbient;
-    // Old TIE draws are marked by Direction0.w = 2. Lightmapped retail TIE programs have no ambient
-    // floor, so the editor floor is removed for them. Unbaked TIEs deliberately KEEP the environment
-    // fill: the retail unbaked programs use a per-vertex UBYTE4 prelight whose constants are not
-    // closed, and replacing it with a neutral 1.0 removed all shading and made TIEs glow (2026-09-17).
+    // Old Tie draws are marked by Direction0.w = 2. Lightmapped retail Tie shaders have no ambient
+    // floor, so the editor floor is removed for them. Unbaked Ties deliberately KEEP the environment
+    // fill: the retail unbaked shaders use a per-vertex UBYTE4 prelight whose constants are not
+    // closed, and replacing it with a neutral 1.0 removed all shading and made Ties glow (2026-09-17).
     float oldTieDraw = uOldEngineMode > 0.5 ? step(1.5, instanceLight.direction0.w) : 0.0;
     // New engine, same rule: a draw carrying the game's own c[4] is drawn the retail way, and the
-    // lightmapped QForce programs (949d655b3022, d70d44879d79) add nothing under the bake either.
+    // lightmapped QForce shaders (949d655b3022, d70d44879d79) add nothing under the bake either.
     float newRetailBakeDraw = uOldEngineMode > 0.5
         ? 0.0
         : step(3.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 4.5);
     vec3 selectedFloor = mix(bakedFloor, vec3(0.0), max(oldTieDraw, newRetailBakeDraw));
-    // PROVEN, new engine: the retail emissive term is 4 * props.b, in BOTH program families - the
-    // TIE ones (Reduced 03039ca17211 ends '+ 4 * expensive.b') and the skinned-Moby ones
+    // PROVEN, new engine: the retail emissive term is 4 * props.b, in BOTH shader families - the
+    // Tie ones (Reduced 03039ca17211 ends '+ 4 * expensive.b') and the skinned-Moby ones
     // ('+ emissive(tex2.b) * 4'). The editor used to reach 4 only on a lightmapped draw, by adding
     // 3 * emissive inside the new-engine baked branch on top of the 1 this line adds - so the same
-    // material property glowed four times brighter on a lightmapped TIE than on a Moby, in a game
-    // whose programs say 4 for both. The gain belongs here, once, where every draw passes.
+    // material property glowed four times brighter on a lightmapped Tie than on a Moby, in a game
+    // whose shaders say 4 for both. The gain belongs here, once, where every draw passes.
     //
-    // Old engine keeps 1: the recovered ToD TIE permutation Full[0x28] is LM1.rgb * factor +
-    // properties.b, with no multiplier, and no ToD program has been read that says otherwise.
+    // Old engine keeps 1: the recovered ToD Tie permutation Full[0x28] is LM1.rgb * factor +
+    // properties.b, with no multiplier, and no ToD shader has been read that says otherwise.
     float emissiveGain = uOldEngineMode > 0.5 ? 1.0 : 4.0;
-    // New-engine unbaked TIE with its placement's prelight (Direction0.w = 5), as the retail programs
+    // New-engine unbaked Tie with its placement's prelight (Direction0.w = 5), as the retail shaders
     // light it (FP 210bbe6e06dc flat, af2e853165e2 RNM): prelight + key light * N.L * the baked sun
     // visibility bit, with no environment fill. The normal-map permutations weight the three basis
     // intensities by the squared RNM weights of the tangent normal; the flat ones average them
-    // (c[4].w = c[4].z / 3). The key light takes S like every other program's sun.
+    // (c[4].w = c[4].z / 3). The key light takes S like every other shader's sun.
     vec3 unbakedFill = undecodedFill;
-    // ToD unbaked TIE with its placement's prelight (Direction0.w = 6, FPs 86591e25cdd7 flat /
+    // ToD unbaked Tie with its placement's prelight (Direction0.w = 6, FPs 86591e25cdd7 flat /
     // 952806cc549c normal-mapped): chroma x max(N.TEX3, 0), N the tangent normal (z without a normal map),
     // + props.b (the emissive term below); the albedo already carries TEX0.z (the vertex light scale).
     if (uOldEngineMode > 0.5 && instanceLight.direction0.w > 5.5 && instanceLight.direction0.w < 6.5)
@@ -481,7 +481,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     float bakedSpecLight = mix(1.0, bakedColour.a, hasBaked);
     vec3 reflDir = reflect(-viewDir, worldNormal);
     vec4 envTexel = texture(uEnvCube, reflDir);
-    // PROVEN (retail TIE cubemap FPs): env.rgb *= EX2((env.a * 255 - 80) * 0.0285691) - the RSX EXP
+    // PROVEN (retail Tie cubemap FPs): env.rgb *= EX2((env.a * 255 - 80) * 0.0285691) - the RSX EXP
     // opcode is base 2 (RPCS3's EX2), so 2^((a*255 - 80) / 35.0). Read as a natural exp (e^x, i.e.
     // /24.26) until 09-10-2026, which made the HDR cube up to 3x too bright (a = 204 on Metropolis:
     // 34x instead of 11.7x) and is why the reflections were once held back to a 0.12 gain. The alpha read
@@ -494,12 +494,12 @@ void shade(out vec3 litColor, out float litAlpha) {
     float NdotV = clamp(dot(worldNormal, viewDir), 0.0, 1.0);
     float fresnel = uReflectionBase + (1.0 - uReflectionBase) * pow(1.0 - NdotV, 5.0);
     float reflectivity = clamp(specIntensity + fresnel, 0.0, 1.0);
-    // OLD engine, PROVEN: no retail ToD fragment program paired with a skinned Moby VP samples the
+    // OLD engine, PROVEN: no retail ToD fragment shader paired with a skinned Moby VP samples the
     // cubemap unit (7); Moby reflection comes from the props.b emissive term only. NEW engine, PROVEN
     // the other way (QForce RPCS3 cache, FP 1a28fd1dc600 paired with skinned VP c29b70f7428f, unit 7
     // a cube per the pipeline's texture dimensions): Mobys sample the reflection cube by the reflect
-    // vector like TIEs do, so only the old-engine Moby is kept away from envFill.
-    // PROVEN (retail TIE cubemap FPs, keys with feature bit 0x04 only):
+    // vector like Ties do, so only the old-engine Moby is kept away from envFill.
+    // PROVEN (retail Tie cubemap FPs, keys with feature bit 0x04 only):
     //   reflection = env * mix(ShaderMetadataOld+0x40 rgb, albedo, +0x40 w) * props.r * saturate(fade) * c4.w
     // Eligibility is shell feature bit 0x04: every table entry that samples unit 7 has it and no
     // other does, and runtime V4 shows the bit surviving from the effective use mask into the terminal
@@ -507,7 +507,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     float oldReflectionBit = mod(floor(instanceLight.tieShaderUse0.z / 4.0), 2.0);
     vec3 oldReflection = envColour * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * oldReflectionBit * oldDistanceFade;
     // NEW ENGINE reflection (Docs/reverse/NEW_ENGINE_REFLECTION_FOG_TIE_UFRAG_2026-09-23.md section 2),
-    // read off the retail programs with Tools/Reverse/rsx/rsxfp_dataflow.py and checked against the raw
+    // read off the retail shaders with Tools/Reverse/rsx/rsxfp_dataflow.py and checked against the raw
     // listings by the 23-09 verification:
     //
     //   N      = TBN * normalize(nm.xy * s, 1 - dot(nm.xy, nm.xy))   z BEFORE the scale; s = VP c[17].w
@@ -516,16 +516,16 @@ void shade(out vec3 litColor, out float litAlpha) {
     //   mask   = spec * distanceFade * saturate(dot(lit, lum * 1.65) + 0.01)
     //   colour = albedo * lit + refl * mix(+0x50.rgb, albedo, +0x50.w) * mask
     //
-    // PROVEN in all three reference families (0d299ef3cf54 TIE, 949d655b3022 TIE+UFrag lightmapped,
+    // PROVEN in all three reference families (0d299ef3cf54 Tie, 949d655b3022 Tie+UFrag lightmapped,
     // f6cdb4ccaa84 skinned Moby): the gate on the cube's own fourth channel with bias +0x60.z, the
     // tint mix (ADD then MAD against the same +0x50 vector), the luminance mask on 'lit' INCLUDING the
     // 4 * emissive term (x1.65, +0.01: fixed constants in every family), reflection added before fog.
     //
-    // Where the families differ - so one editor program cannot be term-for-term for all of them:
-    //  * spec is props.r (unit 2, .x) in the dominant form - 344 skinned-Moby and about 130 TIE/UFrag
-    //    programs - but AUXILIARY A's .x (unit 8) in f6cdb4ccaa84 (51 programs), whose emissive is also
+    // Where the families differ - so one editor shader cannot be term-for-term for all of them:
+    //  * spec is props.r (unit 2, .x) in the dominant form - 344 skinned-Moby and about 130 Tie/UFrag
+    //    shaders - but AUXILIARY A's .x (unit 8) in f6cdb4ccaa84 (51 shaders), whose emissive is also
     //    Aux A.y * 4 and which never reads props.r/.b. The editor uses props for every material: the
-    //    unit-8 routing is per program and not closed for the materials whose programs are not in the
+    //    unit-8 routing is per shader and not closed for the materials whose shaders are not in the
     //    level files.
     //  * 0d299ef3cf54 multiplies the mask further by TEX1.w * albedo.a^2 * (1 + detail.a*TEX6.z*props.a);
     //    949d/f6cd do not. Not applied.
@@ -547,10 +547,10 @@ void shade(out vec3 litColor, out float litAlpha) {
                  : texture(uEnvCube, newReflDir);
     float newReflects = step(1e-6, dot(abs(uMat4), vec4(1.0)));
     vec3 newReflRadiance = newCube.rgb * max(newCube.a + uMat4.z, 0.0);
-    // Reflection occlusion (QForce EBOOT fragment-constant group 1, 0x0079DE48): the programs scale the
+    // Reflection occlusion (QForce EBOOT fragment-constant group 1, 0x0079DE48): the shaders scale the
     // reflection by saturate(b + (1 - b) * lum(light) / a), light being the diffuse lighting plus
     // 4 * emissive. b, a come from region.dat 0x8B00 +0x90/+0x94 (uReflOcclusion*, STRONG); (0.01, 0.6) -
-    // the value on every QForce level, i.e. the (0.35079, 1.18008, 0.11913, 0.01) the programs carry -
+    // the value on every QForce level, i.e. the (0.35079, 1.18008, 0.11913, 0.01) the shaders carry -
     // when the level gives none.
     float occlusionFloor = uReflOcclusionFullLuminance > 0.0 ? uReflOcclusionFloor : 0.01;
     float occlusionFull = uReflOcclusionFullLuminance > 0.0 ? uReflOcclusionFullLuminance : 0.6;
@@ -571,11 +571,11 @@ void shade(out vec3 litColor, out float litAlpha) {
     litColor = uMat1.z > 0.5
         ? (albedo * lighting + envFill)
         : albedoTex.rgb * fColor.rgb;
-    // Class 0x13 with a decoded program (uMat1.x, NewEngineEmbeddedPrograms): its own equation replaces
+    // Class 0x13 with a decoded shader (uMat1.x, NewEngineEmbeddedShaders): its own equation replaces
     // the generic one. 1 = family be10f7bae86f, a veil whose albedo holds masks: scrolling, facing-weighted
     // alpha over a flat (props.z + 0.25) * 4, faded out over the first 30 units of depth.
-    int embeddedProgram = uOldEngineMode > 0.5 ? 0 : int(uMat1.x + 0.5);
-    if (embeddedProgram == 1) {
+    int embeddedShader = uOldEngineMode > 0.5 ? 0 : int(uMat1.x + 0.5);
+    if (embeddedShader == 1) {
         float t = uSceneTime;
         vec4 veilA = texture(uAlbedo, fUV + vec2(0.015, 0.01) * t);
         vec4 veilB = texture(uAlbedo, fUV + vec2(0.01, 0.0) * t);
@@ -584,7 +584,7 @@ void shade(out vec3 litColor, out float litAlpha) {
         litColor = vec3((props.z + 0.25) * 4.0);
         litAlpha = clamp(facing * veilMask, 0.0, 1.0) * clamp((1.0 / gl_FragCoord.w - 15.0) / 15.0, 0.0, 1.0);
     }
-    // PROVEN (retail TIE and Moby VPs): fog = min(HPOS.w * c5.x + c5.y, c5.w), saturated in the FP.
+    // PROVEN (retail Tie and Moby VPs): fog = min(HPOS.w * c5.x + c5.y, c5.w), saturated in the FP.
     // The coordinate is clip-space w (linear view depth), not radial eye distance. In Vulkan
     // gl_FragCoord.w is 1/clip.w, so the retail coordinate is recovered exactly per pixel.
     float fogCoordinate = 1.0 / gl_FragCoord.w;
@@ -592,7 +592,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     litColor = uFogDebugView > 0.5 ? vec3(fogFactor) : mix(litColor, uFogColour, fogFactor);
     if (gBeforeAtmosphere) { if (newEngineAtmosphereOn()) litColor = newEngineAtmosphere(litColor, distance(fWorldPos, uCameraPosition), fWorldPos - uCameraPosition); }
     else if (uNewEngineFog.y > 0.5) { vec4 k = newEngineFog(); litColor = mix(litColor, k.rgb, k.w); }
-    if (uMat2.y > 0.5 && uMat1.z > 0.5 && embeddedProgram == 0) litColor = pow(max(litColor, vec3(0.0)), vec3(1.0 / 2.2));
+    if (uMat2.y > 0.5 && uMat1.z > 0.5 && embeddedShader == 0) litColor = pow(max(litColor, vec3(0.0)), vec3(1.0 / 2.2));
     // Opacity combines vertex alpha and the albedo's own alpha for any material with decoded vertex
     // alpha to contribute (uMat1.y - any non-Opaque mode). MULTIPLY, not select: vertex alpha (a
     // decal fade, LOD dither, etc.) and the texture's own alpha are independent sources, not
@@ -601,7 +601,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     // real (uMat1.w, AlbedoHasAlphaChannel) - a format with no alpha channel decodes to garbage
     // there, so a no-alpha albedo contributes nothing and vertex alpha alone stands in for it.
     // Materials with nothing to contribute (Opaque, uMat1.y == 0) read straight from the albedo.
-    if (embeddedProgram == 0)
+    if (embeddedShader == 0)
         litAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? albedoTex.a * fColor.a : fColor.a) : albedoTex.a;
 }";
 

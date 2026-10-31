@@ -208,7 +208,7 @@ public class View3D : DockedFrame
         var level = Core.LunaWindow.Instance.Level;
         bool oldEngine = level?.IsOldEngine == true;
         lighting.OldEngineMode = oldEngine;
-        // Old engine: the TIE programs reflect the level's cube themselves (Render > Reflections).
+        // Old engine: the Tie shaders reflect the level's cube themselves (Render > Reflections).
         // New engine: the cubemaps already carry their HDR colour, so no flat average is needed.
         var env = level?.EnvironmentAverage;
         lighting.EnvironmentColour = oldEngine ? (env ?? Vector3.One) : Vector3.One;
@@ -289,7 +289,7 @@ public class View3D : DockedFrame
                 SkyRenderOptions.Enabled = Program.Settings.RenderSky;
                 OldEngineRenderOptions.FogEnabled = Program.Settings.OldEngineFog;
                 OldEngineRenderOptions.ReflectionsEnabled = Program.Settings.OldEngineReflections;
-                Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = Program.Settings.GameShaders;
+                Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = Program.Settings.GameShaders;
                 // Per-material culling comes from the retail raster state (_matCullBack); this switch
                 // gates it so the editor can still inspect geometry double-sided. Pushed per frame so
                 // the toggle takes effect live, without a scene rebuild.

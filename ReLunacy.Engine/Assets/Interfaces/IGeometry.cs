@@ -22,7 +22,7 @@ public interface IGeometry : IAsset
     float[]? GetVertexAlpha();
 
     /// <summary>
-    /// Old-engine TIE per-vertex baked light multiplier (retail VP TEX1.x), one value per vertex, or
+    /// Old-engine Tie per-vertex baked light multiplier (retail VP TEX1.x), one value per vertex, or
     /// null for geometry that has none. 1.0 is neutral. See VertexFormat0.OldEngineBakedLightScale.
     /// </summary>
     float[]? GetVertexBakedLightScales() => null;

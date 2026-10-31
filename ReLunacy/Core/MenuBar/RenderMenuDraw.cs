@@ -71,7 +71,7 @@ internal static class RenderMenuDraw
 
     /// <summary>Per-zone render toggles - zones are the level's own streaming/culling unit (mostly
     /// relevant on new engine, which routinely has many; old engine levels have exactly one, id 0),
-    /// so this is what lets the user turn a zone's ties/UFrags off without hiding anything else.
+    /// so this is what lets the user turn a zone's Ties/UFrags off without hiding anything else.
     /// Mobys/Volumes are per-REGION, not per-zone (see EntityRegion vs EntityZone), so they're
     /// untouched by this - there's normally only one region per level anyway.
     ///
@@ -170,16 +170,16 @@ internal static class RenderMenuDraw
         ImGui.EndMenu();
     }
 
-    /// <summary>The game's own fidelity switches: its fragment programs (read from a decrypted EBOOT
-    /// in the level's install, and the programs a material ships itself), and on the old engine the
-    /// level's fog (main.dat 0x7100) and the TIE cube reflections. All on by default; they only hide.</summary>
+    /// <summary>The game's own fidelity switches: its fragment shaders (read from a decrypted EBOOT
+    /// in the level's install, and the shaders a material ships itself), and on the old engine the
+    /// level's fog (main.dat 0x7100) and the Tie cube reflections. All on by default; they only hide.</summary>
     internal static void GameFidelity()
     {
         var settings = LunaWindow.Instance.EditorSettings;
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_GameShaders"), "", settings.GameShaders))
         {
             settings.GameShaders = !settings.GameShaders;
-            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = settings.GameShaders;
+            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = settings.GameShaders;
             settings.SaveSettingsToFile();
             LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
         }

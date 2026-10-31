@@ -14,7 +14,7 @@ public record struct MobyMesh : ILunaSerializable, IMesh
     public const uint Size = 0x40;
 
     // New engine only: moby vertex/index buffers are their own sections inside the moby's
-    // per-record IGFile, unlike ties/ufrags which use a raw-file offset field.
+    // per-record IGFile, unlike Ties/ufrags which use a raw-file offset field.
     public const uint VerticesSecID = 0xE200, IndicesSecID = 0xE100;
 
     [FileOffset(0x00)] public uint indicesOffset;

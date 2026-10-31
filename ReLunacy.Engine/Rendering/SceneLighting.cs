@@ -62,9 +62,9 @@ public sealed class SceneLighting
             && fog is { HasValidLinearRange: true }
             && fog.Amount > 0f;
 
-        // Old engine: the retail TIE cube reflection at the programs' own gain (1). Closed 09-10-2026: the
-        // cube's alpha is its exponent as the programs read it, and the distance fade c[16] that kept far
-        // TIEs from reflecting is per TieFrag (Docs/reverse/TOD_RENDER_POST_2026-10-09.md §6). Before it,
+        // Old engine: the retail Tie cube reflection at the shaders' own gain (1). Closed 09-10-2026: the
+        // cube's alpha is its exponent as the shaders read it, and the distance fade c[16] that kept far
+        // Ties from reflecting is per TieFrag (Docs/reverse/TOD_RENDER_POST_2026-10-09.md §6). Before it,
         // reflections glowed at every distance and were held back to a 0.12 A/B gain.
         float environmentIntensity = old
             ? (reflections ? 1f : 0f)
@@ -110,7 +110,7 @@ public sealed class SceneLighting
             MaterialEmissiveEnabled = 1f,
 
             // PROVEN: colour, LinearScale, LinearBias, Amount come from 0x7100 / 0x572774.
-            // PROVEN since 2026-09-16: coordinate = clip-space w (retail TIE/Moby VPs). The shaders use it
+            // PROVEN since 2026-09-16: coordinate = clip-space w (retail Tie/Moby VPs). The shaders use it
             // only when this explicit gate is enabled.
             FogColour = fog?.Colour ?? Vector3.Zero,
             FogScale = fog?.LinearScale ?? 0f,

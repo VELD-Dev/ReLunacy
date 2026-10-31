@@ -3,16 +3,16 @@ using System.Numerics;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// New-engine per-draw fog. The game measures each TIE, UFrag and Moby from the camera (TIE runtime
+/// New-engine per-draw fog. The game measures each Tie, UFrag and Moby from the camera (Tie runtime
 /// +0x40, UFrag record +0x30 = its bounding-sphere centre, Moby position; QForce EBOOT 0x0073EA78,
 /// 0x0074D9B0, 0x0078C4F0 -> 0x00718030), divides by the view's far plane, reads region.dat 0x34004 at
 /// that point (512 ARGB entries, two lerped) and patches pow(entry, 2.2) into fragment group 0, which
-/// the fog programs mix in as mix(colour, K.rgb, K.w). The shaders do the same per draw
+/// the fog shaders mix in as mix(colour, K.rgb, K.w). The shaders do the same per draw
 /// (VulkanRenderer.LitShader.cs newEngineFog) from the centre and table set here.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
-    /// <summary>Marks every TIE, UFrag and Moby draw of a level with a fog table with its centre.</summary>
+    /// <summary>Marks every Tie, UFrag and Moby draw of a level with a fog table with its centre.</summary>
     private void ApplyNewEngineFogCentres(VkInstanceLight[] lights)
     {
         if (_oldLightingEnvironment?.FogTable is null) return;

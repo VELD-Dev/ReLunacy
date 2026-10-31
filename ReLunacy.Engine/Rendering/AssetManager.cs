@@ -27,7 +27,7 @@ public sealed class AssetManager : IDisposable
     // Keyed on (shader TUID, lightmap index): baked lighting is per-instance, so one shader can need
     // multiple built materials. Materials with no baked lighting collapse onto NoLightmap.
     private readonly Dictionary<(ulong ShaderId, ushort LightmapIndex), RenderMaterial> _materialCache = [];
-    // Two-layer TIE primitives: (first, lightmap, second material, blend mask) -> their composite.
+    // Two-layer Tie primitives: (first, lightmap, second material, blend mask) -> their composite.
     private readonly Dictionary<(ulong, ushort, ulong, ulong), RenderMaterial> _twoLayerMaterialCache = [];
     // The second layer's fragment groups 15 / 17 (material +0x50, +0x70) per composite material.
     private readonly Dictionary<RenderMaterial, (Vector4 Tint, Vector4 Parallax)> _vkSecondLayer = new(ReferenceEqualityComparer.Instance);
@@ -51,12 +51,12 @@ public sealed class AssetManager : IDisposable
     private readonly Dictionary<RenderMaterial, Vector2> _vkMaterialStrengths = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<RenderMaterial, Vector4> _vkMaterialPermutation = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<RenderMaterial, Vector4> _vkMobyTint = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<RenderMaterial, EmbeddedProgram> _vkEmbeddedProgram = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<RenderMaterial, Loading.Shaders.NewEngineShaderProgramBundle> _vkProgramBundle = new(ReferenceEqualityComparer.Instance);
-    private readonly bool _retailProgramsMeasured;
-    // The EBOOT's standard (class 0x00) programs, when a decrypted EBOOT is found (QForce only, like
+    private readonly Dictionary<RenderMaterial, EmbeddedShader> _vkEmbeddedShader = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<RenderMaterial, Loading.Shaders.NewEngineShaderBundle> _vkShaderBundle = new(ReferenceEqualityComparer.Instance);
+    private readonly bool _retailShadersMeasured;
+    // The EBOOT's standard (class 0x00) shaders, when a decrypted EBOOT is found (QForce only, like
     // the embedded ones).
-    private readonly Loading.Shaders.NewEngineStandardPrograms? _standardPrograms;
+    private readonly Loading.Shaders.NewEngineStandardShaders? _standardShaders;
     private readonly Dictionary<RenderMaterial, (bool IsNewEngine, byte ShaderClass, byte ShaderFlags)> _vkNewEngineShaderInfo =
         new(ReferenceEqualityComparer.Instance);
 
@@ -92,19 +92,19 @@ public sealed class AssetManager : IDisposable
     public Vector4 GetVkMobyTint(RenderMaterial bMat) =>
         _vkMobyTint.TryGetValue(bMat, out var t) ? t : Vector4.Zero;
 
-    /// <summary>Class 0x13: the embedded program family the lit shader emulates (NewEngineEmbeddedPrograms).</summary>
-    public EmbeddedProgram GetVkEmbeddedProgram(RenderMaterial bMat) =>
-        _vkEmbeddedProgram.TryGetValue(bMat, out var p) ? p : EmbeddedProgram.Generic;
+    /// <summary>Class 0x13: the embedded shader family the lit shader emulates (NewEngineEmbeddedShaders).</summary>
+    public EmbeddedShader GetVkEmbeddedShader(RenderMaterial bMat) =>
+        _vkEmbeddedShader.TryGetValue(bMat, out var p) ? p : EmbeddedShader.Generic;
 
-    /// <summary>Class 0x13: the material's own program bundle, which the renderer translates (RsxFragmentTranslator).</summary>
-    public Loading.Shaders.NewEngineShaderProgramBundle? GetVkProgramBundle(RenderMaterial bMat) =>
-        _vkProgramBundle.TryGetValue(bMat, out var b) ? b : null;
+    /// <summary>Class 0x13: the material's own shader bundle, which the renderer translates (RsxFragmentTranslator).</summary>
+    public Loading.Shaders.NewEngineShaderBundle? GetVkShaderBundle(RenderMaterial bMat) =>
+        _vkShaderBundle.TryGetValue(bMat, out var b) ? b : null;
 
     /// <summary>New-engine renderer routing state from ShaderMetadataNew +0x22/+0x23.</summary>
     public (bool IsNewEngine, byte ShaderClass, byte ShaderFlags) GetVkNewEngineShaderInfo(RenderMaterial bMat) =>
         _vkNewEngineShaderInfo.TryGetValue(bMat, out var info) ? info : (false, (byte)0, (byte)0);
 
-    // Tools of Destruction materials whose draws cull back faces: the TIE shell (0x00594C34) sends
+    // Tools of Destruction materials whose draws cull back faces: the Tie shell (0x00594C34) sends
     // CULL_FACE_ENABLE = !(+0x13 & 0x02) at 0x0059561C / 0x005972AC, and the other shells read the same
     // byte the same way (0x00501E08...). Only materials read from the level: billboards, collision and
     // other editor materials stay double-sided.
@@ -231,21 +231,21 @@ public sealed class AssetManager : IDisposable
         _sourceMobys = level.Mobys;
         _oldLightingEnvironment = level.LightingEnvironment;
         _oldEngineMobys = level.IsOldEngine;
-        // The retail-program routes and patch groups were measured on QForce (RsxPrograms); the other
+        // The retail-shader routes and patch groups were measured on QForce (RsxShaders); the other
         // new-engine games keep the generic path until theirs are (seaside's water drew flat white).
-        // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's programs are
+        // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's shaders are
         // drawn on all of them (the seaside water that drew flat white was the unit-10/11 stub, now the
         // scene copy).
-        _retailProgramsMeasured = !level.IsOldEngine;
-        // The EBOOT's standard programs: this level's own game's when a decrypted EBOOT lies in its install
+        _retailShadersMeasured = !level.IsOldEngine;
+        // The EBOOT's standard shaders: this level's own game's when a decrypted EBOOT lies in its install
         // (QForce, All 4 One, Into the Nexus here), else another new-engine game's - the same engine, the
         // same table layout (A Crack in Time has none decrypted).
-        _standardPrograms = !level.IsOldEngine
-            ? Loading.Shaders.NewEngineStandardPrograms.Find(level.GameDefinition?.Id)
+        _standardShaders = !level.IsOldEngine
+            ? Loading.Shaders.NewEngineStandardShaders.Find(level.GameDefinition?.Id)
             : null;
-        // Tools of Destruction's TIE programs, from its decrypted EBOOT (TodTiePrograms).
-        Vulkan.VulkanRenderer.TodPrograms = level.IsOldEngine && level.GameDefinition?.Id is null or Games.GameId.ToolsOfDestruction
-            ? Loading.Shaders.TodTiePrograms.Find()
+        // Tools of Destruction's Tie shaders, from its decrypted EBOOT (TodTieShaders).
+        Vulkan.VulkanRenderer.TodShaders = level.IsOldEngine && level.GameDefinition?.Id is null or Games.GameId.ToolsOfDestruction
+            ? Loading.Shaders.TodTieShaders.Find()
             : null;
         var sw = System.Diagnostics.Stopwatch.StartNew(); long t0 = 0;
 
@@ -366,17 +366,17 @@ public sealed class AssetManager : IDisposable
     /// R16G16B16A16_Float with the retail channels intact (rgb tint, a intensity); resource r cube i is
     /// cube 4r+i of the texture (Vulkan layers 6(4r+i)..+5).
     ///
-    /// Why four and why float. The retail programs gate every reflection by the cube's OWN fourth
+    /// Why four and why float. The retail shaders gate every reflection by the cube's OWN fourth
     /// channel - `cube.rgb * max(cube.a + (+0x68), 0)` - so that channel has to reach the shader as
     /// itself, not folded into rgb behind an exponent. And each material's 0x5000 +0x40 is 0..3 on
     /// 24,126 of 24,179 new-engine materials while every cube resource holds exactly four cubes
     /// (1,024 cubes, 256 resources, 4 games): the material picks its cube. PROVEN (QForce EBOOT): the
     /// UFrag renderer binds unit 7 to resource[record +0x59] + material +0x40 * 0x20 (0x0074F980), the
-    /// TIE sort does the same with +0x5D (0x006DE364), the Moby pass passes material +0x40 to the bind
+    /// Tie sort does the same with +0x5D (0x006DE364), the Moby pass passes material +0x40 to the bind
     /// helper 0x00B4C80C (0x0078FC68) - Docs/reverse/NEW_ENGINE_REFLECTION_CUBES_2026-10-07.md.
     ///
     /// Why every resource. A level declares up to 21 of them (galacton_ship) and each zone names, per
-    /// TIE placement and per UFrag, the one it reflects - PROVEN, see CubemapReader. Only the default
+    /// Tie placement and per UFrag, the one it reflects - PROVEN, see CubemapReader. Only the default
     /// used to be uploaded, so every placement that asked for another one reflected the wrong sky.
     ///
     /// Sizes. One image needs one face size, and retail mixes them in a level (phoenix_ph2: a 128 cube
@@ -474,7 +474,7 @@ public sealed class AssetManager : IDisposable
         var factory = _gd.ResourceFactory;
 
         // The RSX samples the cube through its descriptor's ADDRESS gamma bits, and every retail ToD cube
-        // (all 24 levels' 0x5920 records) sets all four - alpha included, so the exponent the TIE programs
+        // (all 24 levels' 0x5920 records) sets all four - alpha included, so the exponent the Tie shaders
         // read as EX2((a x 255 - 80) / 35) is the sRGB-decoded alpha. Uploading the raw bytes made the
         // reflections 4x too bright on average (Metropolis: mean 2.4 instead of 0.6). The decode happens
         // before filtering, as on the hardware, into 16-bit channels so the small exponents keep their steps.
@@ -553,7 +553,7 @@ public sealed class AssetManager : IDisposable
         return data;
     }
 
-    /// <summary>Baked lighting is enabled for terrain (UFrags), which index a shared atlas via
+    /// <summary>Baked lighting is enabled for UFrags, which index a shared atlas via
     /// UFragMetadata.lightmapIndex and sample it through UFragVertex.UVs2. Ties are excluded: they
     /// carry a per-instance bake index, but VertexFormat0's single UV pair tiles, so there is no
     /// correct way to sample an atlas with it.</summary>
@@ -651,7 +651,7 @@ public sealed class AssetManager : IDisposable
         GetOrBuildMaterial(material, lightmapIndex, null, null);
 
     /// <summary>With <paramref name="secondLayer"/> and <paramref name="blendMask"/>: the composite a
-    /// two-layer TIE primitive draws with - the first material as usual, plus the second one's albedo /
+    /// two-layer Tie primitive draws with - the first material as usual, plus the second one's albedo /
     /// normal / properties / detail and the mask (fAlbedo2, fNormal2, fProperties2, fDetail2, fBlendMask:
     /// RSX units 8..12) and its +0x50 / +0x70 (<see cref="GetVkSecondLayer"/>).</summary>
     public RenderMaterial GetOrBuildMaterial(IMaterial material, ushort lightmapIndex, IMaterial? secondLayer, ITexture? blendMask)
@@ -705,8 +705,8 @@ public sealed class AssetManager : IDisposable
         bMat.AddMaterialMap("fDetail", new MaterialMap(detail, ResolveSampler(detail), hasDetail ? 1f : 0f));
 
         // New-engine slots 4/5 are native authored bindings, not metadata noise. Retail embedded
-        // programs that use them sample RSX units 8/9. Keep them resident and attached to the
-        // material even though their combine equations are program-family specific and therefore
+        // shaders that use them sample RSX units 8/9. Keep them resident and attached to the
+        // material even though their combine equations are shader-family specific and therefore
         // are not injected into the generic Vulkan shader yet.
         if (material.AuxiliaryTextureA != null)
         {
@@ -739,14 +739,14 @@ public sealed class AssetManager : IDisposable
         if (material is Assets.Materials.Material nativeMaterial)
         {
             _vkReflectionTint[bMat] = nativeMaterial.ReflectionTintSource;
-            // Old engine: uMat4 carries +0x30 instead, the ToD TIE programs' group 1 (G6).
+            // Old engine: uMat4 carries +0x30 instead, the ToD Tie shaders' group 1 (G6).
             _vkReflectionParameters[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? nativeMaterial.ReflectionParametersSource
                 : nativeMaterial.OldShaderVector30;
             _vkEnvironmentCube[bMat] = nativeMaterial.EnvironmentCubeIndex;
-            // PROVEN (QForce EBOOT): the TIE, UFrag and Moby renderers upload +0x30/+0x34 as vertex
-            // constant c[21].xy (0x007444BC, 0x00745E50, 0x00751390, 0x0078EF94); the vertex programs
-            // fade them with distance into TEX3.w / TEX2.w, and the fragment programs multiply the
+            // PROVEN (QForce EBOOT): the Tie, UFrag and Moby renderers upload +0x30/+0x34 as vertex
+            // constant c[21].xy (0x007444BC, 0x00745E50, 0x00751390, 0x0078EF94); the vertex shaders
+            // fade them with distance into TEX3.w / TEX2.w, and the fragment shaders multiply the
             // normal map's xy by TEX3.w and the reflection mask by TEX2.w (949d655b3022, f6cdb4ccaa84,
             // 0d299ef3cf54). The fur class (0x0C) stores other values there.
             byte shaderClass = nativeMaterial.NewEngineShaderClass;
@@ -759,7 +759,7 @@ public sealed class AssetManager : IDisposable
                 nativeMaterial.NewEngineShaderFlags);
             if (!nativeMaterial.IsNewEngineMaterial && (nativeMaterial.OldRenderFlags & 0x02) == 0)
                 _vkOldEngineCulled.Add(bMat);
-            // Old engine: .x = +0x58, the detail tiling the ToD TIE vertex programs apply (c[21].x); the
+            // Old engine: .x = +0x58, the detail tiling the ToD Tie vertex shaders apply (c[21].x); the
             // generic shader reads uMat6 on the new engine only.
             _vkMaterialPermutation[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? NewEnginePermutation(nativeMaterial, hasDetail)
@@ -769,9 +769,9 @@ public sealed class AssetManager : IDisposable
                 : Vector4.Zero;
             if (nativeMaterial.IsNewEngineMaterial && shaderClass == 0x13)
             {
-                _vkEmbeddedProgram[bMat] = NewEngineEmbeddedPrograms.Classify(nativeMaterial.NewEngineProgramKeys);
-                if (_retailProgramsMeasured && nativeMaterial.NewEngineProgramBundle is { Variants.Count: > 0 } bundle)
-                    _vkProgramBundle[bMat] = bundle;
+                _vkEmbeddedShader[bMat] = NewEngineEmbeddedShaders.Classify(nativeMaterial.NewEngineShaderKeys);
+                if (_retailShadersMeasured && nativeMaterial.NewEngineShaders is { Variants.Count: > 0 } bundle)
+                    _vkShaderBundle[bMat] = bundle;
             }
         }
 
@@ -885,16 +885,16 @@ public sealed class AssetManager : IDisposable
     public const float DefaultDetailTiling = 1f;
 
     /// <summary>
-    /// What the retail new-engine programs need beyond the texture set, read in the QForce EBOOT
+    /// What the retail new-engine shaders need beyond the texture set, read in the QForce EBOOT
     /// (Docs/reverse/NEW_ENGINE_SHADER_SECTIONS_EBOOT_2026-09-27.md):
-    ///   x  detail UV tiling. Every renderer uploads VP c[22] = (+0x78, +0x3C, 0, 0) (TIE 0x00743BA4,
-    ///      UFrag 0x00751484, Moby 0x0078F058) and the programs scale the UV by c[22].x; the loader
+    ///   x  detail UV tiling. Every renderer uploads VP c[22] = (+0x78, +0x3C, 0, 0) (Tie 0x00743BA4,
+    ///      UFrag 0x00751484, Moby 0x0078F058) and the shaders scale the UV by c[22].x; the loader
     ///      rescales +0x78 by 512 / (detail width) for standard materials (0x00726E50).
     ///   y  detail gain +0x3C: weight = saturate(+0x3C * (1 - distance fade)) * props.a.
     ///   z  1 when the material draws its detail map.
     ///   w  the material's +0x20 feature bits (as the loader keeps them). Bit 0x08 picks the RNM baked
-    ///      programs (lightmap scale c[4].x) over the flat ones (c[4].y, no RNM weights); 0x04 is the only
-    ///      permutation family whose programs sample the reflection cube, 0x10 the detail map.
+    ///      shaders (lightmap scale c[4].x) over the flat ones (c[4].y, no RNM weights); 0x04 is the only
+    ///      permutation family whose shaders sample the reflection cube, 0x10 the detail map.
     /// </summary>
     private static Vector4 NewEnginePermutation(Assets.Materials.Material material, bool hasDetail)
     {
@@ -1022,7 +1022,7 @@ public sealed class AssetManager : IDisposable
     /// <summary>mipmap: pass false for ATLASES. Mip generation averages neighbouring texels, which
     /// on an atlas blends across island boundaries - and the baked lightmap atlases have black
     /// gutters between their islands, so every minified pixel near an island edge pulls that black
-    /// inward. That shows up as dark patches on lit terrain with no counterpart in the game.
+    /// inward. That shows up as dark patches on lit UFrags with no counterpart in the game.
     /// Native authored chains are the exception: TextureUploadPreparer preserves them even when
     /// this argument is false, because those levels already contain the game's own atlas gutters.</summary>
     public GpuTexture GetOrBuildTexture(ITexture texture, bool mipmap = true)
@@ -1104,7 +1104,7 @@ public sealed class AssetManager : IDisposable
                 ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
                 : new Vector4(1f, 0f, 0f, 1f);
 
-            // Second UV channel is the lightmap UV set where the geometry has one (ties do). Falls
+            // Second UV channel is the lightmap UV set where the geometry has one (Ties do). Falls
             // back to the base UV otherwise, harmless since no lightmap is bound for those draws.
             var lmUV = lightmapUVs != null && lightmapUVs.Length >= i * 2 + 2
                 ? new Vector2(lightmapUVs[i * 2], lightmapUVs[i * 2 + 1])
@@ -1124,7 +1124,7 @@ public sealed class AssetManager : IDisposable
                     jointWeights[i * 4 + 0], jointWeights[i * 4 + 1], jointWeights[i * 4 + 2], jointWeights[i * 4 + 3]);
             }
 
-            // Retail old-engine TIE fragment programs multiply the whole lit result by the VP's TEX1.x
+            // Retail old-engine Tie fragment shaders multiply the whole lit result by the VP's TEX1.x
             // per-vertex multiplier: out = (light * TEX1.x) * albedo. The lit shader computes
             // albedo = texture * fColor.rgb and then albedo * lighting, so carrying the multiplier in
             // the vertex colour RGB is the same product.
@@ -1237,7 +1237,7 @@ public sealed class AssetManager : IDisposable
             var scene = BuildVkScene();
             if (scene is not { } s) return false;
             double built = timer.Elapsed.TotalSeconds;
-            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, true, _oldLightingEnvironment, s.envCube, viewWidth, viewHeight, _oldEngineMobys, EnvironmentCubeResources, _standardPrograms, s.maxSkeletonBones, s.maxConcurrentAnimated);
+            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, true, _oldLightingEnvironment, s.envCube, viewWidth, viewHeight, _oldEngineMobys, EnvironmentCubeResources, _standardShaders, s.maxSkeletonBones, s.maxConcurrentAnimated);
             Console.WriteLine(
                 $"[Scene][Timing] retained scene captured in {timer.Elapsed.TotalSeconds:0.00}s " +
                 $"(gather {built:0.00}s, GPU renderer {timer.Elapsed.TotalSeconds - built:0.00}s): " +

@@ -37,7 +37,7 @@ public record struct TieInstance : ILunaSerializable
     /// Do not confuse texture ownership with UV ownership: the baked texture is per INSTANCE, while
     /// the recovered HALF2 lightmap-UV stream is per ASSET/MESH and is shared by every placement of
     /// that tie. Each lightmapped instance paints its own 0x5400/0x5410 texture into the same authored
-    /// unwrap. Some retail TIE draws instead bind a polymorphic UNORM8x4 per-vertex prelight input;
+    /// unwrap. Some retail Tie draws instead bind a polymorphic UNORM8x4 per-vertex prelight input;
     /// exact per-draw HALF2/UBYTE4 routing remains a separate reverse target.</summary>
     public readonly ushort LightmapIndex =>
         Unk != null && Unk.Length >= 8 ? (ushort)((Unk[6] << 8) | Unk[7]) : NoLightmap;
@@ -47,7 +47,7 @@ public record struct TieInstance : ILunaSerializable
     /// <summary>
     /// New-engine record +0x5C (Unk[8]): 1 when the placement matrix is mirrored. PROVEN on QForce:
     /// 1 on 11 180 / 11 180 placements whose 3x3 has a negative determinant, 0 on the other 43 853.
-    /// The TIE draw loop reads it as a byte and writes RSX FRONT_FACE = 0x901 - flag (CCW, or CW
+    /// The Tie draw loop reads it as a byte and writes RSX FRONT_FACE = 0x901 - flag (CCW, or CW
     /// when mirrored) - QForce EBOOT 0x006E1570 / 0x006E206C - so culling keeps the outside visible.
     /// The renderer derives the same bit from the drawn matrix so editor transforms stay correct.
     /// </summary>
@@ -55,7 +55,7 @@ public record struct TieInstance : ILunaSerializable
 
     /// <summary>
     /// Old-engine per-instance baked light scale candidate at +0x60 (BE float). +0x60 and +0x64 are
-    /// equal on 61,986 / 61,986 retail TIE instances, matching the runtime pair the TIE render shell
+    /// equal on 61,986 / 61,986 retail Tie instances, matching the runtime pair the Tie render shell
     /// reads at callback52 arg1+0xF0/+0xF4 into VP constant c[4] = (2f, -f, f, ...), whose .z is the
     /// baked FPs' light scale (0x59912C). STRONG, not PROVEN: the instance-to-packet copy is not traced.
     /// Null when the record is too short.
@@ -66,8 +66,8 @@ public record struct TieInstance : ILunaSerializable
             : null;
     /// <summary>
     /// New engine: the placement's baked-light vertex constant c[4], from the u16 scales at +0x64 (RNM
-    /// programs), +0x66 (flat programs) and +0x68 (c[4].z, and .w = z / 3). PROVEN in the QForce EBOOT:
-    /// the loader copies the three u16s into the runtime placement (0x0073E02C) and the TIE renderer
+    /// shaders), +0x66 (flat shaders) and +0x68 (c[4].z, and .w = z / 3). PROVEN in the QForce EBOOT:
+    /// the loader copies the three u16s into the runtime placement (0x0073E02C) and the Tie renderer
     /// uploads them per draw (0x0073E9C0) - see <see cref="NewEngineBakedLighting"/>. Retail: +0x64 is
     /// non-zero on 53,448 / 53,448 lit placements and +0x64/+0x66 zero on 1,585 / 1,585 unlit ones.
     /// Null when the record is too short.
@@ -85,7 +85,7 @@ public record struct TieInstance : ILunaSerializable
     /// <summary>
     /// New engine: record +0x54, the offset of this placement's prelight words inside its zone's
     /// lighting.dat slice (0xFFFFFFFF = none). The loader copies it to the runtime placement +0xD0
-    /// (QForce EBOOT 0x0073DFAC) and the TIE renderer binds it as vertex attribute 4 (0x0073F5D8).
+    /// (QForce EBOOT 0x0073DFAC) and the Tie renderer binds it as vertex attribute 4 (0x0073F5D8).
     /// </summary>
     public readonly uint NewEnginePrelightOffset =>
         Unk != null && Unk.Length >= 4 ? BinaryPrimitives.ReadUInt32BigEndian(Unk.AsSpan(0, 4)) : NoPrelight;

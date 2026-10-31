@@ -6,7 +6,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// <summary>
 /// Shared new-engine assetlookup.dat access.
 ///
-/// Asset families such as shaders, cubemaps, TIEs, Mobys, zones and lighting all use the same
+/// Asset families such as shaders, cubemaps, Ties, Mobys, zones and lighting all use the same
 /// 0x10-byte IGHW pointer records (TUID, offset, length) into their sibling .dat payload file.
 /// Keep that plumbing in one place so each semantic reader only has to decode its own payload.
 /// </summary>

@@ -127,7 +127,7 @@ public static class TodRenderPassCatalog
             [50] = new(50, 0x00892798, 0x005B0D38, TodRenderPassRole.Unresolved,
                 "Handler address observed at runtime; what it draws is not yet reversed."),
             [52] = new(52, 0x008926A8, 0x00598970, TodRenderPassRole.TieShell,
-                "Retail TIE render shell (callback52). Records carry the shellFeatureKey in arg2.low8; its producer is still OPEN."),
+                "Retail Tie render shell (callback52). Records carry the shellFeatureKey in arg2.low8; its producer is still OPEN."),
             [53] = new(53, 0x008926F0, 0x0059FDE4, TodRenderPassRole.Unresolved,
                 "Handler address observed at runtime; what it draws is not yet reversed."),
             [54] = new(54, 0x00891F68, 0x0055F14C, TodRenderPassRole.Unresolved,
@@ -176,6 +176,6 @@ public static class TodRenderPassCatalog
 
     public static bool TryGet(int passId, out TodRenderPass pass) => Passes.TryGetValue(passId, out pass!);
 
-    /// <summary>The retail TIE shell pass (callback 52).</summary>
+    /// <summary>The retail Tie shell pass (callback 52).</summary>
     public const int TieShellPassId = 52;
 }

@@ -4,13 +4,13 @@ namespace ReLunacy.Engine.Loading.Vertices;
 
 /// <summary>A tie's lightmap UV channel: one pair of big-endian half floats per vertex, in its own
 /// tightly packed 4-byte-stride array outside the 20-byte <see cref="VertexFormat0"/> record. This
-/// is RSX attribute location 4 (its own stream, stride 4), sampled by the tie fragment programs
+/// is RSX attribute location 4 (its own stream, stride 4), sampled by the tie fragment shaders
 /// against the baked light colour (tex4) and light direction (tex14) atlases. No scale/bias/flip
 /// is applied - raw file bytes are the texture coordinates.
 ///
 /// The array is per-MESH, not per-tie: it sits immediately after the tie's vertex block, at
 /// TieMetadataOld's 0x18 (the end offset of the vertex block), with each mesh's window starting at
-/// 0x18 + TieMesh.verticesIndex * 4. Some ties have meshes that are unshaded or hold unrelated
+/// 0x18 + TieMesh.verticesIndex * 4. Some Ties have meshes that are unshaded or hold unrelated
 /// data, so validation (TieReader.SliceLightmapUVs / LooksLikeUnwrap) is done per mesh rather than
 /// requiring the whole tie to decode in range.
 ///
@@ -19,7 +19,7 @@ namespace ReLunacy.Engine.Loading.Vertices;
 /// placement gets its own baked texture painted into that shared UV space - which is why these UVs
 /// span the full [0,1] square with no atlas offset.
 ///
-/// Some ties have a lightmapped instance but no UV array at this offset (render unlit, likely a
+/// Some Ties have a lightmapped instance but no UV array at this offset (render unlit, likely a
 /// bug); others genuinely have no lightmapped instance at all (intentionally unlit, served by
 /// shader variants with the lightmap inputs switched off).</summary>
 public readonly record struct TieLightmapUV

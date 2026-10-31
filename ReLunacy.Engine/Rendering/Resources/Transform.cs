@@ -38,7 +38,7 @@ public sealed class Transform : IEquatable<Transform>
     /// <summary>
     /// A placement read as a raw matrix. System.Numerics' Decompose REJECTS a sheared matrix - one whose
     /// normalised rows are not orthonormal - and then hands back an IDENTITY rotation, which the callers
-    /// never checked: 326 TIE placements of All 4 One nest and 162 of Q-Force acid_refinery_pre were
+    /// never checked: 326 Tie placements of All 4 One nest and 162 of Q-Force acid_refinery_pre were
     /// drawn unrotated, some off by 250+ units at their own bounding radius. Such a matrix is now kept
     /// and drawn as it is, and decomposed into the nearest rotation (its rows orthonormalised) so the
     /// gizmo and an edit start from where the object really stands.

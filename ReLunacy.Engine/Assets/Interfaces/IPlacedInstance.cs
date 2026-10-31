@@ -26,27 +26,27 @@ public interface IPlacedInstance<out TAsset> where TAsset : IAsset
     /// <summary>This instance's entry in the level's baked lighting lists (LevelData.ZoneLightmaps
     /// / ZoneDirectionals), or 0xFFFF for none. PER-INSTANCE, not per-asset: measured on
     /// metropolis, 1728 of 4848 tie instances carry one and every index is distinct, i.e. one
-    /// unique bake per placement. Only ties populate it today - see TieInstance.LightmapIndex.</summary>
+    /// unique bake per placement. Only Ties populate it today - see TieInstance.LightmapIndex.</summary>
     public ushort LightmapIndex { get; init; }
 
-    /// <summary>Old-engine TIE per-instance baked light scale (TieInstance +0x60), or null.</summary>
+    /// <summary>Old-engine Tie per-instance baked light scale (TieInstance +0x60), or null.</summary>
     float? OldBakedLightScale => null;
 
-    /// <summary>New-engine TIE baked-light vertex constant c[4] (TieInstance.NewEngineBakedLight), or null.</summary>
+    /// <summary>New-engine Tie baked-light vertex constant c[4] (TieInstance.NewEngineBakedLight), or null.</summary>
     Vector4? NewEngineBakedLight => null;
 
-    /// <summary>New-engine TIE: the cubemaps.dat resource the placement reflects (zone 0x72C1 palette entry
+    /// <summary>New-engine Tie: the cubemaps.dat resource the placement reflects (zone 0x72C1 palette entry
     /// at record +0x5D), 0 for the region's default.</summary>
     ulong NewEngineCubeTuid => 0;
 
-    /// <summary>New-engine TIE prelight words (4 bytes per prototype vertex, record +0x54 in the zone's
+    /// <summary>New-engine Tie prelight words (4 bytes per prototype vertex, record +0x54 in the zone's
     /// lighting.dat slice), or null.</summary>
     byte[]? NewEnginePrelight => null;
 
     /// <summary>
-    /// Old engine (ToD): an unbaked placement's prelight, read by its TIE vertex programs as attribute 4
-    /// (UB256 x4 per vertex of the TIE, in the TIE's vertex order): textures.dat at record +0x54
-    /// (consecutive placements of one TIE sit 4 x its vertex count apart). Null when the placement is
+    /// Old engine (ToD): an unbaked placement's prelight, read by its Tie vertex shaders as attribute 4
+    /// (UB256 x4 per vertex of the Tie, in the Tie's vertex order): textures.dat at record +0x54
+    /// (consecutive placements of one Tie sit 4 x its vertex count apart). Null when the placement is
     /// baked or has none. Docs/reverse/TOD_RENDER_POST_2026-10-09.md section 7.
     /// </summary>
     byte[]? OldEnginePrelight => null;

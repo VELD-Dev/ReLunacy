@@ -65,7 +65,7 @@ internal sealed class NewEngineZoneLightingReader
     }
 
     /// <summary>
-    /// A TIE placement's prelight words: <paramref name="byteCount"/> bytes at <paramref name="offset"/>
+    /// A Tie placement's prelight words: <paramref name="byteCount"/> bytes at <paramref name="offset"/>
     /// (placement +0x54) inside the zone's lighting.dat slice (assetlookup 0x1DB00). PROVEN on the 15
     /// QForce levels: the 1,048 unbaked placements carrying an offset all land inside their zone's slice,
     /// and every sampled word decodes to a valid chroma (0 impossible of 16,768), where offsets into
@@ -304,7 +304,7 @@ internal sealed class NewEngineZoneLightingReader
     /// <summary>
     /// The zone's blend masks for its two-layer UFrags (record +0x58): 0x5700 descriptors in the zone,
     /// texels in the zone's lighting.dat slice at the descriptor offset (PROVEN by byte match against the
-    /// TIE copies, Docs/reverse/NEW_ENGINE_TWO_LAYER_AND_GAMEPLAY_CONSTANTS_2026-10-07.md). Empty when the
+    /// Tie copies, Docs/reverse/NEW_ENGINE_TWO_LAYER_AND_GAMEPLAY_CONSTANTS_2026-10-07.md). Empty when the
     /// zone has none.
     /// </summary>
     public ITexture?[] ReadZoneBlendMasks(IGFile zoneFile, ulong zoneTuid)

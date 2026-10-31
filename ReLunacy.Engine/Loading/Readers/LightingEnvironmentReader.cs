@@ -98,10 +98,10 @@ public sealed class LightingEnvironmentReader
     ///   +0x10  unit direction towards the sun
     ///   +0x20  sun colour, bytes R,G,B (+0x23 unused), +0x24 intensity
     ///   +0x60  ambient colour, same encoding, +0x64 intensity
-    /// A colour is (byte / 256)^2 * intensity. That is exact against the retail TIE fragment programs,
+    /// A colour is (byte / 256)^2 * intensity. That is exact against the retail Tie fragment shaders,
     /// which compile the sun in as constants: acid_refinery_pre (250, 235, 146) x 1.0 gives
     /// (0.9537, 0.8427, 0.3253) and jungle_ruins_pvp (105, 162, 195) x 2.5 gives (0.4206, 1.0011,
-    /// 1.4505) - the programs' values to four digits - and in both the direction is the programs'
+    /// 1.4505) - the shaders' values to four digits - and in both the direction is the shaders'
     /// dot3 constant. Present on every QForce and All 4 One level sampled; absent on A Crack in Time,
     /// which carries its lights in the 0xA0 0x8B00 root instead. Levels without a sun of their own
     /// ship (0, 0, -1) with white x 1.
@@ -145,9 +145,9 @@ public sealed class LightingEnvironmentReader
 
     /// <summary>
     /// region.dat 0x8B00 (0xC0 bytes) +0x90 / +0x94: the floor b and the full-strength diffuse luminance
-    /// a of the programs' reflection occlusion, reflection *= saturate(b + (1 - b) * lum(light) / a).
+    /// a of the shaders' reflection occlusion, reflection *= saturate(b + (1 - b) * lum(light) / a).
     /// The formula is PROVEN: the QForce EBOOT builds fragment-constant group 1 = (0.2126 k, 0.7152 k,
-    /// 0.0722 k, b) with k = (1 - b) / a (0x0079DE48) and patches it into every program. The source is
+    /// 0.0722 k, b) with k = (1 - b) / a (0x0079DE48) and patches it into every shader. The source is
     /// STRONG: the region loader copies +0x90/+0x94 into the lighting block 0x0109BF00 +0xB8/+0xBC
     /// (0x0070AC68), and (0.01, 0.6) - the value on all 15 QForce levels, not the engine default (0.9,
     /// 0.05) - gives (0.35079, 1.18008, 0.11913, 0.01), the vector the RPCS3 cache holds in 98 % of the
@@ -194,7 +194,7 @@ public sealed class LightingEnvironmentReader
     /// </summary>
     /// <summary>
     /// region.dat 0x34004 (0x800 bytes): the per-draw fog table, 512 big-endian ARGB words. PROVEN: the
-    /// fog constant K of the QForce programs is pow(lerp(entry, t x 512), 2.2) per channel, A = amount
+    /// fog constant K of the QForce shaders is pow(lerp(entry, t x 512), 2.2) per channel, A = amount
     /// (0x00718030 -> 0x00717DC0, pow 2.2 at 0x00868614), t = distance(object, camera) / far plane; the
     /// RPCS3 cache holds acid_refinery's entries 96 and 128 exactly ((70/255)^2.2 = 0.05819, 0.06003).
     /// The table the game samples is the per-view copy (+0x170) of the active atmosphere: the region's,
@@ -211,7 +211,7 @@ public sealed class LightingEnvironmentReader
     /// region.dat 0x34000 +0x10..+0x30: scattering direction, colour, intensity, turbidity and phase g.
     /// PROVEN by value: with the lobby's record the formulas of 0x007181B8 give the in-scatter colour
     /// (0.002384, 0.017349, 0.028178) and extinction (0.000149, 0.000192, 0.000273) the RPCS3 cache holds in
-    /// fragment program 0x8E. Null when absent, of another version or implausible.
+    /// fragment shader 0x8E. Null when absent, of another version or implausible.
     /// </summary>
     public static Assets.Lighting.NewEngineAtmosphere? ReadNewEngineAtmosphere(FileManager fileManager, string? regionName)
     {

@@ -8,30 +8,30 @@ namespace ReLunacy.Engine.Loading.Shaders;
 /// 0x33001 is not a full Sony CgBinaryProgram container: each 0x33002 slice starts with a compact
 /// Insomniac wrapper and points to raw NV47 fragment microcode plus inline-constant patch lists.
 /// </summary>
-public sealed class NewEngineShaderProgramBundle
+public sealed class NewEngineShaderBundle
 {
-    public const uint ProgramDataSectionId = 0x00033001;
-    public const uint ProgramTableSectionId = 0x00033002;
+    public const uint ShaderDataSectionId = 0x00033001;
+    public const uint ShaderTableSectionId = 0x00033002;
     public const uint SelectorSectionId = 0x00033003;
 
     public ulong MaterialBaseTuid { get; }
-    /// <summary>0x33003 as stored: one 4-byte record per 0x33002 program (the last one unpadded),
+    /// <summary>0x33003 as stored: one 4-byte record per 0x33002 shader (the last one unpadded),
     /// each {u8 n, n x (u8 a, u8 b)}; retail n is 0 or 1 and b is always 0x13 (a in 1, 2, 3, 0x0A,
     /// 0x0B). PROVEN (QForce EBOOT 0x00724F60): the loader copies the first record's n (only when
-    /// n &lt;= 2) and pairs into a 16-byte slot keyed by the bundle's first program TUID, and every
-    /// registered program keeps a pointer to that slot (+0x0C, 0x00724EF8). At draw time 0x0072526C
-    /// (called by the TIE, UFrag, Moby and class-0x13 paths) asks the game's callback 0x00677240 for
+    /// n &lt;= 2) and pairs into a 16-byte slot keyed by the bundle's first shader TUID, and every
+    /// registered shader keeps a pointer to that slot (+0x0C, 0x00724EF8). At draw time 0x0072526C
+    /// (called by the Tie, UFrag, Moby and class-0x13 paths) asks the game's callback 0x00677240 for
     /// the vec4 of SOURCE a, given the drawn object, and writes it into fragment-constant patch GROUP
     /// b - so retail's b = 0x13 is group 19, fed from gameplay object state (a = 1, 2, 3, 0x0A, 0x0B
     /// are callback cases). PROVEN.</summary>
     public byte[] SelectorData { get; }
-    public IReadOnlyList<NewEngineShaderProgramVariant> Variants { get; }
+    public IReadOnlyList<NewEngineShaderVariant> Variants { get; }
     public bool BaseSequenceMatches { get; }
 
-    private NewEngineShaderProgramBundle(
+    private NewEngineShaderBundle(
         ulong materialBaseTuid,
         byte[] selectorData,
-        IReadOnlyList<NewEngineShaderProgramVariant> variants,
+        IReadOnlyList<NewEngineShaderVariant> variants,
         bool baseSequenceMatches)
     {
         MaterialBaseTuid = materialBaseTuid;
@@ -40,20 +40,20 @@ public sealed class NewEngineShaderProgramBundle
         BaseSequenceMatches = baseSequenceMatches;
     }
 
-    public static NewEngineShaderProgramBundle? TryRead(
+    public static NewEngineShaderBundle? TryRead(
         IGFile file,
         StreamHelper sh,
         ulong materialBaseTuid,
         string shaderName)
     {
-        IGFile.SectionHeader dataSection = file.QuerySection(ProgramDataSectionId);
-        IGFile.SectionHeader tableSection = file.QuerySection(ProgramTableSectionId);
+        IGFile.SectionHeader dataSection = file.QuerySection(ShaderDataSectionId);
+        IGFile.SectionHeader tableSection = file.QuerySection(ShaderTableSectionId);
         IGFile.SectionHeader selectorSection = file.QuerySection(SelectorSectionId);
         if (dataSection.id == 0 && tableSection.id == 0 && selectorSection.id == 0)
             return null;
 
-        if (dataSection.id != ProgramDataSectionId ||
-            tableSection.id != ProgramTableSectionId ||
+        if (dataSection.id != ShaderDataSectionId ||
+            tableSection.id != ShaderTableSectionId ||
             selectorSection.id != SelectorSectionId)
         {
             Console.WriteLine(
@@ -70,12 +70,12 @@ public sealed class NewEngineShaderProgramBundle
         }
 
         sh.Seek(dataSection.offset);
-        byte[] programData = sh.ReadBytes(checked((int)dataSection.length));
+        byte[] shaderData = sh.ReadBytes(checked((int)dataSection.length));
         sh.Seek(selectorSection.offset);
         byte[] selectorData = sh.ReadBytes(checked((int)selectorSection.length));
 
         int variantCount = checked((int)(tableSection.length / 0x10));
-        var variants = new List<NewEngineShaderProgramVariant>(variantCount);
+        var variants = new List<NewEngineShaderVariant>(variantCount);
         for (int i = 0; i < variantCount; i++)
         {
             sh.Seek(tableSection.offset + (uint)(i * 0x10));
@@ -84,33 +84,33 @@ public sealed class NewEngineShaderProgramBundle
             uint offset = sh.ReadUInt32();
 
             ulong end = (ulong)offset + size;
-            if (size < 0x18 || end > (ulong)programData.Length)
+            if (size < 0x18 || end > (ulong)shaderData.Length)
             {
                 Console.WriteLine(
-                    $"New-engine shader '{shaderName}' program 0x{tuid:X16}: " +
-                    $"slice +0x{offset:X}/0x{size:X} exceeds 0x33001 length 0x{programData.Length:X}; skipped.");
+                    $"New-engine shader '{shaderName}' shader 0x{tuid:X16}: " +
+                    $"slice +0x{offset:X}/0x{size:X} exceeds 0x33001 length 0x{shaderData.Length:X}; skipped.");
                 continue;
             }
 
-            ReadOnlySpan<byte> slice = programData.AsSpan(checked((int)offset), checked((int)size));
-            var variant = ParseProgram(slice, tuid, size, offset, registerCountInSize: false, out string? error);
+            ReadOnlySpan<byte> slice = shaderData.AsSpan(checked((int)offset), checked((int)size));
+            var variant = ParseShader(slice, tuid, size, offset, registerCountInSize: false, out string? error);
             if (variant == null)
             {
-                Console.WriteLine($"New-engine shader '{shaderName}' program 0x{tuid:X16}: {error}; skipped.");
+                Console.WriteLine($"New-engine shader '{shaderName}' shader 0x{tuid:X16}: {error}; skipped.");
                 continue;
             }
             variants.Add(variant);
         }
 
         bool baseMatches = MatchesBaseSequence(materialBaseTuid, variants);
-        return new NewEngineShaderProgramBundle(materialBaseTuid, selectorData, variants, baseMatches);
+        return new NewEngineShaderBundle(materialBaseTuid, selectorData, variants, baseMatches);
     }
 
-    /// <summary>One compact program wrapper: +0x00 microcode size, +0x04/+0x08/+0x0C control words,
+    /// <summary>One compact shader wrapper: +0x00 microcode size, +0x04/+0x08/+0x0C control words,
     /// +0x10 microcode offset, +0x14 patch-group count, +0x18 + 4g the offset of group g = {u16 n,
-    /// n x u16 slot}. The EBOOT's own programs (<see cref="NewEngineStandardPrograms"/>) keep the
+    /// n x u16 slot}. The EBOOT's own shaders (<see cref="NewEngineStandardShaders"/>) keep the
     /// register count in the size word's high half (<paramref name="registerCountInSize"/>).</summary>
-    internal static NewEngineShaderProgramVariant? ParseProgram(
+    internal static NewEngineShaderVariant? ParseShader(
         ReadOnlySpan<byte> slice, ulong tuid, uint size, uint offset, bool registerCountInSize, out string? error)
     {
         error = null;
@@ -170,9 +170,9 @@ public sealed class NewEngineShaderProgramBundle
 
         ReadOnlySpan<byte> microcode = slice.Slice(
             checked((int)microcodeOffset), checked((int)microcodeSize));
-        RsxProgramScan scan = ScanFragmentProgram(microcode);
+        RsxShaderScan scan = ScanFragmentShader(microcode);
 
-        return new NewEngineShaderProgramVariant(
+        return new NewEngineShaderVariant(
             tuid,
             size,
             offset,
@@ -193,7 +193,7 @@ public sealed class NewEngineShaderProgramBundle
 
     private static bool MatchesBaseSequence(
         ulong baseTuid,
-        IReadOnlyList<NewEngineShaderProgramVariant> variants)
+        IReadOnlyList<NewEngineShaderVariant> variants)
     {
         if (baseTuid == 0 || variants.Count == 0)
             return false;
@@ -207,19 +207,19 @@ public sealed class NewEngineShaderProgramBundle
         return true;
     }
 
-    private readonly record struct RsxProgramScan(
+    private readonly record struct RsxShaderScan(
         int InstructionCount,
         bool HasEnd,
         IReadOnlyList<int> TextureUnits,
         string SkeletonKey);
 
-    private static RsxProgramScan ScanFragmentProgram(ReadOnlySpan<byte> bytes)
+    private static RsxShaderScan ScanFragmentShader(ReadOnlySpan<byte> bytes)
     {
         var units = new SortedSet<int>();
         int offset = 0;
         int count = 0;
         bool hasEnd = false;
-        // The program with its inline constants zeroed, hashed - see NewEngineShaderProgramVariant.SkeletonKey.
+        // The shader with its inline constants zeroed, hashed - see NewEngineShaderVariant.SkeletonKey.
         using var skeleton = System.Security.Cryptography.IncrementalHash.CreateHash(
             System.Security.Cryptography.HashAlgorithmName.SHA1);
         Span<byte> blankConstant = stackalloc byte[16];
@@ -255,7 +255,7 @@ public sealed class NewEngineShaderProgramBundle
         }
 
         string key = Convert.ToHexStringLower(skeleton.GetHashAndReset())[..12];
-        return new RsxProgramScan(count, hasEnd, units.ToArray(), key);
+        return new RsxShaderScan(count, hasEnd, units.ToArray(), key);
     }
 
     private static bool IsTextureOpcode(int op) =>
@@ -279,7 +279,7 @@ public sealed class NewEngineShaderProgramBundle
         BinaryPrimitives.ReadUInt16BigEndian(bytes.Slice(offset, 2));
 }
 
-public sealed record NewEngineShaderProgramVariant(
+public sealed record NewEngineShaderVariant(
     ulong Tuid,
     uint ResourceSize,
     uint ResourceOffset,
@@ -294,9 +294,9 @@ public sealed record NewEngineShaderProgramVariant(
     IReadOnlyList<IReadOnlyList<ushort>> ConstantPatchGroups)
 {
     /// <summary>
-    /// The program's family key: SHA-1 of its microcode with every inline constant zeroed, first 12 hex
+    /// The shader's family key: SHA-1 of its microcode with every inline constant zeroed, first 12 hex
     /// digits - the key of Tools/Reverse/newengine_shader_geometry_join.py and of the RPCS3-cache family
-    /// audits (Tools/Reverse/evidence/NEWENGINE_FP_Families_*.md), so a material's embedded programs can
+    /// audits (Tools/Reverse/evidence/NEWENGINE_FP_Families_*.md), so a material's embedded shaders can
     /// be matched to a decoded family.
     /// </summary>
     public string SkeletonKey { get; init; } = "";
@@ -306,7 +306,7 @@ public sealed record NewEngineShaderProgramVariant(
     public byte[] Microcode { get; init; } = [];
 
     /// <summary>Wrapper +0x08: the RSX shader control word. Bit 0x40 = 32-bit exports (the colour is r0,
-    /// else h0); every QForce embedded program leaves it clear.</summary>
+    /// else h0); every QForce embedded shader leaves it clear.</summary>
     public bool Exports32 => (Config08 & 0x40) != 0;
 
     /// <summary>Constant slot (byte offset / 16) -> patch group, from <see cref="ConstantPatchGroups"/>.</summary>

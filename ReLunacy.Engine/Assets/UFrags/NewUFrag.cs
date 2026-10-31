@@ -2,24 +2,16 @@ using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Loading.Vertices;
 
-namespace ReLunacy.Engine.Assets.Terrain;
+namespace ReLunacy.Engine.Assets.UFrags;
 
-/// <summary>Old-engine UFrag: direct terrain geometry baked into zones - not instanced.</summary>
-public sealed class OldUFrag : IUFrag
+/// <summary>New-engine UFrag: geometry baked directly into zones - not instanced.</summary>
+public sealed class NewUFrag : IUFrag
 {
-    /// <summary>Serialized 0x6200 ordinal. Changes only when an editor delete removes an earlier record.</summary>
-    public ulong Id { get; private set; }
-    /// <summary>ToD's animated UVs for this UFrag (main.dat 0x5C00, <see cref="Geometry.OldEngineUvAnimations"/>), or null.</summary>
-    public Geometry.UvAnimation? UvAnimation { get; internal set; }
-    /// <summary>Two-layer UFrag (12 of the 23 readable levels): main.dat 0x6400 +0x06, the material the mask
-    /// paints in; null for a single-layer one.</summary>
-    public IMaterial? SecondMaterial { get; internal set; }
-    /// <summary>Two-layer UFrag: its 0x5700 mask (record +0x58), painted in lightmap space.</summary>
-    public ITexture? BlendMask { get; internal set; }
+    public ulong Id { get; init; }
     public string? Name { get; init; }
     public bool IsLoaded { get; private set; }
     public IMaterial Material { get; init; }
-    public bool IsOldEngine => true;
+    public bool IsOldEngine => false;
 
     private readonly float[] _positions;
     private readonly float[] _uvs;
@@ -33,7 +25,7 @@ public sealed class OldUFrag : IUFrag
     private readonly float _boundingRadius;
     private readonly UFragVertex[] _rawVertices;
 
-    public OldUFrag(
+    public NewUFrag(
         ulong id,
         float[] positions,
         float[] uvs,
@@ -79,6 +71,7 @@ public sealed class OldUFrag : IUFrag
         }
         else
         {
+            // Fallback: computed from vertices.
             var center = Vector3.Zero;
             int vertexCount = positions.Length / 3;
 
@@ -104,6 +97,19 @@ public sealed class OldUFrag : IUFrag
     public float[]? GetLightmapUVs() => _lightmapUVs;
     public ushort LightmapIndex { get; init; }
     public Loading.Objects.UFragMetadata? Metadata { get; init; }
+    public Vector4? NewEngineBakedLight => BakedLightOverride ?? Metadata?.NewEngineBakedLight;
+
+    /// <summary>c[4] when the record does not hold the QForce u16 pair (A Crack in Time: one float).</summary>
+    public Vector4? BakedLightOverride { get; internal set; }
+    public ulong NewEngineCubeTuid { get; internal set; }
+
+    /// <summary>Two-layer UFrag: the material record +0x52 blends in, by <see cref="BlendMask"/> (+0x58);
+    /// the per-vertex weight is the low 7 bits of each raw vertex's +0x06 / 128.</summary>
+    public IMaterial? SecondMaterial { get; internal set; }
+    public ITexture? BlendMask { get; internal set; }
+    public Vector3? NewEngineFadeDistances => Metadata?.NewEngineFadeDistances;
+    public byte? NewEngineFeatureMask => Metadata?.NewEngineFeatureMask;
+    public Geometry.UvAnimation? UvAnimation { get; internal set; }
     public float[]? GetNormals() => _normals;
     public float[]? GetTangents() => _tangents;
     public float[]? GetVertexAlpha() => _vertexAlpha;
@@ -112,10 +118,4 @@ public sealed class OldUFrag : IUFrag
     public Vector3 GetAnchor() => _anchor;
     public Vector3 GetBoundingCenter() => _boundingCenter;
     public float GetBoundingRadius() => _boundingRadius;
-
-    /// <summary>
-    /// Re-addresses this UFrag after an in-place structural edit removed earlier 0x6200 records, so the
-    /// scene stays in step with main.dat without reloading the level.
-    /// </summary>
-    public void RenumberAfterStructuralEdit(ulong ordinal) => Id = ordinal;
 }

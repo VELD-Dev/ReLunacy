@@ -56,7 +56,7 @@ public record struct TieAsset
     public uint verticesCount;
 }
 
-/// <summary>Terrain fragment, listed alongside Mobys and Ties even though it is not an "asset" in
+/// <summary>A UFrag, listed alongside Mobys and Ties even though it is not an "asset" in
 /// the same sense - UFrags are not instanced, so each one IS its own single placement, and its bake
 /// is therefore unambiguous (unlike a Tie, whose lightmap depends on which instance you're looking
 /// at). Holds no Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
@@ -486,7 +486,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Lightmapped / not, the UFrag tab's own filter. Separate from Used/Unused above, which
-    /// is meaningless for terrain: a UFrag is its own single placement, so it is always "used".</summary>
+    /// is meaningless for a UFrag: it is its own single placement, so it is always "used".</summary>
     private void RenderUFragFilterControl()
     {
         int filter = ufragLightmapFilter switch { null => 0, true => 1, false => 2 };
@@ -1304,7 +1304,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         draw.AddRect(ToScreen(new Vector2(minU, maxV)), ToScreen(new Vector2(maxU, minV)), colRect, 0f, ImDrawFlags.None, 1.5f);
         draw.PopClipRect();
 
-        // In TEXELS, because that is the unit the implausibility shows up in: a terrain chunk mapping
+        // In TEXELS, because that is the unit the implausibility shows up in: a UFrag mapping
         // to a handful of texels cannot resolve a baked shadow no matter where it lands.
         ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragIslandTexels",
             (maxU - minU) * atlas.Width, (maxV - minV) * atlas.Height, atlas.Width, atlas.Height));

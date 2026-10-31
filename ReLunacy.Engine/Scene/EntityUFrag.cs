@@ -36,7 +36,7 @@ public class EntityUFrag : Entity
         var vertices = ConvertUFragToVertices(ufrag, ufrag.Material.UsesVertexAlpha, validatedLightmapUVs);
         if (twoLayer != null && !ufrag.IsOldEngine)
         {
-            // The blend weight the two-layer programs compare with the mask (TEX1.y).
+            // The blend weight the two-layer shaders compare with the mask (TEX1.y).
             var raw = twoLayer.GetRawVertices();
             for (int v = 0; v < vertices.Length && v < raw.Length; v++)
                 vertices[v].Color = vertices[v].Color with { W = (Math.Abs((int)raw[v].unk) & 0x7F) / 128f };

@@ -3,10 +3,10 @@ using System.Buffers.Binary;
 namespace ReLunacy.Engine.Loading.Shaders;
 
 /// <summary>
-/// Tools of Destruction's TIE fragment programs, read out of a decrypted EBOOT (Docs/reverse/
-/// TOD_RENDER_POST_2026-10-09.md section 8). The TIE shell picks
+/// Tools of Destruction's Tie fragment shaders, read out of a decrypted EBOOT (Docs/reverse/
+/// TOD_RENDER_POST_2026-10-09.md section 8). The Tie shell picks
 /// <code>
-///   program = table[0x20 | key]      key = the TieFrag's effective use bits (0x01 parallax, 0x04 cube
+///   shader = table[0x20 | key]      key = the TieFrag's effective use bits (0x01 parallax, 0x04 cube
 ///                                    reflection, 0x08 normal map / directional bake, 0x10 detail)
 /// </code>
 /// in the baked table (the "Full" family: lightmap units 4 / 14) or, 0x200 bytes on, the unbaked one
@@ -14,19 +14,19 @@ namespace ReLunacy.Engine.Loading.Shaders;
 /// at (0x100C3818.. on NPUA80965); it is found by its shape - fifteen pointers 0x80 apart, 8 bytes apart.
 ///
 /// Each family is four 32-entry tables (128 entries): 0x20 | key is the one the shell uses for a single
-/// material, and the two-layer programs (units 8 / 9 / 10 / 11 the second material, 12 the mask read at the
+/// material, and the two-layer shaders (units 8 / 9 / 10 / 11 the second material, 12 the mask read at the
 /// lightmap UV) sit 0x40 further: table[0x60 | key] (0x100C3998 on NPUA80965; 0x100C3918 = table[0x40 | key]
 /// is the two-layer twin of table[key]). Only the baked family has them - no prelit table reads unit 12
 /// (Docs/reverse/tod_catchup_2026-10-10/02_textures_manquantes.md, C4). INFERRED: the 0x60 pairing follows the
 /// 0x20 the shell sets; the two-layer table the shell indexes is not read.
 ///
-/// The wrappers are the new engine's compact format (<see cref="NewEngineShaderProgramBundle.ParseProgram"/>).
+/// The wrappers are the new engine's compact format (<see cref="NewEngineShaderBundle.ParseShader"/>).
 /// Their patch groups are fixed: 0 = the fog colour, 1 = material +0x30, 2 = material +0x40 (reflection
 /// tint), 3 = material +0x50 (parallax scale, bias, detail tiling) - PROVEN by set equality between the
 /// RPCS3 cache's patched constants and the 24 levels' 0x5000 records (43/43, 56/56, 28/28). They are
-/// renumbered to the renderer's group vectors G0 / G6 / G5 / G7 (VulkanRenderer.RsxPrograms.cs).
+/// renumbered to the renderer's group vectors G0 / G6 / G5 / G7 (VulkanRenderer.RsxShaders.cs).
 /// </summary>
-public sealed class TodTiePrograms
+public sealed class TodTieShaders
 {
     // ToD group -> renderer group: fog G0, +0x30 G6 (uMat4), +0x40 G5 (uMat3), +0x50 G7.
     private static readonly int[] GroupTarget = [0, 6, 5, 7];
@@ -34,11 +34,11 @@ public sealed class TodTiePrograms
     private readonly byte[] _elf;
     private readonly List<(ulong Vaddr, ulong Offset, ulong Size)> _segments;
     private readonly uint _bakedTable;
-    private readonly Dictionary<(bool Baked, int Key, bool TwoLayer), NewEngineShaderProgramVariant?> _cache = [];
+    private readonly Dictionary<(bool Baked, int Key, bool TwoLayer), NewEngineShaderVariant?> _cache = [];
 
     public string SourcePath { get; }
 
-    private TodTiePrograms(string path, byte[] elf, List<(ulong, ulong, ulong)> segments, uint bakedTable)
+    private TodTieShaders(string path, byte[] elf, List<(ulong, ulong, ulong)> segments, uint bakedTable)
     {
         SourcePath = path;
         _elf = elf;
@@ -46,10 +46,10 @@ public sealed class TodTiePrograms
         _bakedTable = bakedTable;
     }
 
-    /// <summary>The program of a TIE draw: <paramref name="baked"/> picks the lightmapped family, the key
+    /// <summary>The shader of a Tie draw: <paramref name="baked"/> picks the lightmapped family, the key
     /// its use bits, <paramref name="twoLayer"/> the two-layer table (baked only). Null when the table has
     /// none or it does not parse.</summary>
-    public NewEngineShaderProgramVariant? Get(bool baked, int key, bool twoLayer = false)
+    public NewEngineShaderVariant? Get(bool baked, int key, bool twoLayer = false)
     {
         key &= 0x1F;
         if (twoLayer && !baked)
@@ -58,7 +58,7 @@ public sealed class TodTiePrograms
         {
             if (_cache.TryGetValue((baked, key, twoLayer), out var cached))
                 return cached;
-            NewEngineShaderProgramVariant? variant = null;
+            NewEngineShaderVariant? variant = null;
             uint entry = (baked ? _bakedTable : _bakedTable + 0x200) + (uint)((twoLayer ? 0x60 : 0x20) | key) * 4;
             int at = FileOffset(entry);
             if (at >= 0)
@@ -68,7 +68,7 @@ public sealed class TodTiePrograms
                 if (o >= 0)
                 {
                     int length = Math.Min(0x4000, _elf.Length - o);
-                    var parsed = NewEngineShaderProgramBundle.ParseProgram(
+                    var parsed = NewEngineShaderBundle.ParseShader(
                         _elf.AsSpan(o, length), va, (uint)length, va, registerCountInSize: true, out _);
                     if (parsed is { HasEndInstruction: true } && parsed.ConstantPatchGroups.Count <= GroupTarget.Length)
                     {
@@ -97,12 +97,12 @@ public sealed class TodTiePrograms
     private uint Word(int fileOffset) => BinaryPrimitives.ReadUInt32BigEndian(_elf.AsSpan(fileOffset));
 
     private static readonly object CacheLock = new();
-    private static (string Path, DateTime Stamp, TodTiePrograms? Programs)? _found;
+    private static (string Path, DateTime Stamp, TodTieShaders? Shaders)? _found;
 
-    /// <summary>The programs of the first decrypted ToD EBOOT found under the configured installs
-    /// (<see cref="NewEngineStandardPrograms.SearchRoots"/>, the ToD ones first, then the titles installed
+    /// <summary>The shaders of the first decrypted ToD EBOOT found under the configured installs
+    /// (<see cref="NewEngineStandardShaders.SearchRoots"/>, the ToD ones first, then the titles installed
     /// beside them); null when there is none (the renderer keeps its own equations).</summary>
-    public static TodTiePrograms? Find()
+    public static TodTieShaders? Find()
     {
         foreach (string elf in CandidateElves())
         {
@@ -110,17 +110,17 @@ public sealed class TodTiePrograms
             try { stamp = File.GetLastWriteTimeUtc(elf); }
             catch (IOException) { continue; }
             lock (CacheLock)
-                if (_found is { } c && string.Equals(c.Path, elf, StringComparison.OrdinalIgnoreCase) && c.Stamp == stamp && c.Programs != null)
-                    return c.Programs;
-            TodTiePrograms? programs = null;
-            try { programs = TryRead(elf); }
+                if (_found is { } c && string.Equals(c.Path, elf, StringComparison.OrdinalIgnoreCase) && c.Stamp == stamp && c.Shaders != null)
+                    return c.Shaders;
+            TodTieShaders? shaders = null;
+            try { shaders = TryRead(elf); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException) { }
-            if (programs == null)
+            if (shaders == null)
                 continue;
             lock (CacheLock)
-                _found = (elf, stamp, programs);
-            Console.WriteLine($"[TodTiePrograms] TIE tables 0x{programs._bakedTable:X8} from {Path.GetFileName(elf)}.");
-            return programs;
+                _found = (elf, stamp, shaders);
+            Console.WriteLine($"[TodTieShaders] Tie tables 0x{shaders._bakedTable:X8} from {Path.GetFileName(elf)}.");
+            return shaders;
         }
         return null;
     }
@@ -128,7 +128,7 @@ public sealed class TodTiePrograms
     private static IEnumerable<string> CandidateElves()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var roots = NewEngineStandardPrograms.SearchRoots
+        var roots = NewEngineStandardShaders.SearchRoots
             .OrderBy(r => r.Game == Games.GameId.ToolsOfDestruction ? 0 : r.Game == null ? 1 : 2)
             .Select(r => r.Path)
             .ToList();
@@ -176,7 +176,7 @@ public sealed class TodTiePrograms
     }
 
     /// <summary>Finds the fifteen-table array in one ELF; null when it is not a PS3 PPU ELF or holds none.</summary>
-    public static TodTiePrograms? TryRead(string elfPath)
+    public static TodTieShaders? TryRead(string elfPath)
     {
         byte[] d = File.ReadAllBytes(elfPath);
         if (d.Length < 0x40 || d[0] != 0x7F || d[1] != (byte)'E' || d[2] != (byte)'L' || d[3] != (byte)'F' || d[4] != 2 || d[5] != 2)
@@ -210,7 +210,7 @@ public sealed class TodTiePrograms
                 for (int k = 1; k < 15 && stride; k++)
                     stride = BinaryPrimitives.ReadUInt32BigEndian(d.AsSpan(at + 8 * k)) == first + 0x80u * (uint)k;
                 if (!stride) continue;
-                var candidate = new TodTiePrograms(elfPath, d, segments, first);
+                var candidate = new TodTieShaders(elfPath, d, segments, first);
                 if (candidate.Get(baked: true, 0x00) != null && candidate.Get(baked: false, 0x00) != null)
                     return candidate;
             }

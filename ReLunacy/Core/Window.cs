@@ -252,9 +252,9 @@ public class LunaWindow : IDisposable
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
         Program.ProvidedPath = path;
 
-        // The game's own fragment programs live in its EBOOT: a decrypted one (*.elf) in this level's
-        // install is read when the scene is built (NewEngineStandardPrograms, TodTiePrograms).
-        Engine.Loading.Shaders.NewEngineStandardPrograms.SearchRoots = [(path, null)];
+        // The game's own fragment shaders live in its EBOOT: a decrypted one (*.elf) in this level's
+        // install is read when the scene is built (NewEngineStandardShaders, TodTieShaders).
+        Engine.Loading.Shaders.NewEngineStandardShaders.SearchRoots = [(path, null)];
 
         await Task.Run(() =>
         {

@@ -4,7 +4,7 @@ using System.Numerics;
 namespace ReLunacy.Engine.Assets.Geometry;
 
 /// <summary>
-/// A primitive's animated UVs: Moby / TIE section 0x5C00, one 0x60-byte record per animated frag (the
+/// A primitive's animated UVs: Moby / Tie section 0x5C00, one 0x60-byte record per animated frag (the
 /// ToD-era "VertAnim"). The game runs it on the SPU job "VertAnim" (EBOOT `0x00DBD000`, registered by
 /// `0x00685A20`): each frame `0x006861F8` advances the record and the job rewrites the frag's half UVs
 /// (vertex +0x08, or +0x10 in the skinned 0x1C format) from the base UVs kept in 0x5C01:
@@ -15,8 +15,8 @@ namespace ReLunacy.Engine.Assets.Geometry;
 /// Both move once per game frame, never in between: a scroll of 50 UV/s at 60 Hz is a 5/6 jump a frame (the
 /// flipbooks of imperial fight fest), not a smear. The editor therefore samples them at whole frames of
 /// <see cref="FrameRate"/> (Docs/reverse/tod_catchup_2026-10-10/01_textures_animees_vitesse.md).
-/// Record: +0x00 u16 tag (high nibble: 0 TIE, 1 UFrag, 2 Moby, 3 skinned Moby) | flags, +0x02 vertex count
-/// (rounded up to 4), +0x08 the frag's vertex offset (Moby: byte offset in 0xE200 = frag +0x04; TIE: the
+/// Record: +0x00 u16 tag (high nibble: 0 Tie, 1 UFrag, 2 Moby, 3 skinned Moby) | flags, +0x02 vertex count
+/// (rounded up to 4), +0x08 the frag's vertex offset (Moby: byte offset in 0xE200 = frag +0x04; Tie: the
 /// primitive's vertex index), +0x0C payload offset in 0x5C01, +0x20 / +0x24 pivot, +0x30 / +0x34 scroll,
 /// +0x38 rotation per frame (radians). PROVEN on jungle_ruins_pvp: every record's +0x08 is a frag's
 /// offset and its count that frag's vertex count rounded up to 4. UFrag records (zones.dat, tag 0x1000)
@@ -55,13 +55,13 @@ public readonly record struct UvAnimation(Vector2 Pivot, Vector2 ScrollPerSecond
 
     /// <summary>
     /// Tools of Destruction: one level-wide main.dat 0x5C00. A 0x20-byte header holds three counts - UFrag,
-    /// TIE, Moby records, stored in that order - and 0x40-byte records follow: +0x00 u16 tag (high nibble 1
-    /// UFrag, 0 TIE, 2 Moby, 3 skinned Moby), +0x02 vertex count rounded up to 4, +0x04 u16 the owner (UFrag
-    /// = 0x6200 ordinal, TIE = 0x3400 class, Moby = 0xD100 class), +0x08 the frag (TIE: the primitive's
+    /// Tie, Moby records, stored in that order - and 0x40-byte records follow: +0x00 u16 tag (high nibble 1
+    /// UFrag, 0 Tie, 2 Moby, 3 skinned Moby), +0x02 vertex count rounded up to 4, +0x04 u16 the owner (UFrag
+    /// = 0x6200 ordinal, Tie = 0x3400 class, Moby = 0xD100 class), +0x08 the frag (Tie: the primitive's
     /// vertex index; Moby: the mesh's vertex byte offset; UFrag: relative to a block the editor does not
     /// keep), +0x0C payload offset in 0x5C01, +0x10 / +0x14 scroll per second, +0x18 rotation per frame,
     /// then the run-time state (+0x1C angle, +0x20 / +0x30 the 2 x 2 rotation rows, +0x2C / +0x3C the
-    /// offsets). PROVEN on Rykan V: every TIE record's +0x08 / count is a primitive's first vertex and
+    /// offsets). PROVEN on Rykan V: every Tie record's +0x08 / count is a primitive's first vertex and
     /// vertex count (rounded to 4), every Moby record's a mesh's vertex offset and count.
     ///
     /// The updater `0x005C0718` (EBOOT NPUA80965), per frame and record: angle += +0x18; rows =
@@ -129,7 +129,7 @@ public sealed class OldEngineUvAnimations
     internal Dictionary<uint, UvAnimation> MobyClass(uint index) =>
         _mobys.TryGetValue(index, out var d) ? d : _mobys[index] = [];
 
-    /// <summary>A TIE class's records keyed by its primitives' first vertex index.</summary>
+    /// <summary>A Tie class's records keyed by its primitives' first vertex index.</summary>
     public IReadOnlyDictionary<uint, UvAnimation> ForTie(uint classIndex) => _ties.TryGetValue(classIndex, out var d) ? d : None;
 
     /// <summary>A Moby class's records keyed by its meshes' vertex byte offset.</summary>

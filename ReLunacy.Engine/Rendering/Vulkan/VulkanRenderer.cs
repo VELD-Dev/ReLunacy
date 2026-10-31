@@ -31,7 +31,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     private const VkFormat RevealFormat = VkFormat.R16Sfloat;
     private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 104
     // Albedo, normal, properties, bake colour / direction, detail, auxiliary A / B, then the second
-    // layer of a two-layer TIE: albedo, normal, properties, detail and the blend mask.
+    // layer of a two-layer Tie: albedo, normal, properties, detail and the blend mask.
     private const int TexPerMaterial = 13;
 
     // Polygon offset for the non-opaque pass, matching the real game (same values in AssetManager,
@@ -110,7 +110,7 @@ layout(set = 0, binding = 8, std430) readonly buffer Prelight { uint words[]; } 
 void main() {
     computeSkin(inPos, inNormal, inTangent.xyz);
     mat4 m = uT[gl_InstanceIndex];
-    // New-engine unbaked TIE prelight (VkInstanceLight.ForNewEnginePrelight), decoded as the retail
+    // New-engine unbaked Tie prelight (VkInstanceLight.ForNewEnginePrelight), decoded as the retail
     // VPs 52-59 do: v = x*256 + y holds three RNM basis intensities, frac(v/65536)^2, frac(v/2048)^2,
     // frac(v/64)^2, and in bit 0 the baked sun visibility; (z, w)/255 squared is a chroma normalised
     // to unit Rec.709 luminance (c[1].xyz = 1/luminance weights). The scale is c[4].z.
@@ -126,7 +126,7 @@ void main() {
         fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(4.70367, 1.39821, 13.8504) * il.direction1.w;
         fPrelightIntensity = vec4(basis * basis, fract(v * 0.5) * 2.0);
     } else if (il.direction0.w > 5.5 && il.direction0.w < 6.5) {
-        // ToD prelit TIE (VPs 0e6bff23bfa4 flat / 55e841dad031 normal-mapped): v = x * 256 + y packs a
+        // ToD prelit Tie (VPs 0e6bff23bfa4 flat / 55e841dad031 normal-mapped): v = x * 256 + y packs a
         // tangent-space light vector, TEX3 = f (2 frac(v/65536) - 1, 2 frac(v/2048) - 1, frac(v/64)) with
         // c[4] = (2f, -f, f); (z, w) / 255 is a chroma, divided by the luma weights (c[1] =
         // 1 / (0.299, 0.587, 0.114), frame constants 0x10078944). The FP lights by max(N.TEX3, 0).
@@ -388,9 +388,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly int[] _drawVertexOffset;
     private readonly int[] _drawMatSlot;
     private readonly Vector4[] _matPC0;
-    private readonly float[] _matEmbeddedProgram; // class-0x13 program family the shader emulates (pushed as uMat1.x)
+    private readonly float[] _matEmbeddedShader; // class-0x13 shader family the shader emulates (pushed as uMat1.x)
     private readonly float[] _matCullBack;      // QForce: shaderFlags bit 0x02 disables back-face culling
-    // Retail TIE placement +0x5C: 1 when the placement matrix mirrors (det < 0), and the engine then
+    // Retail Tie placement +0x5C: 1 when the placement matrix mirrors (det < 0), and the engine then
     // writes FRONT_FACE = 0x901 - flag, i.e. CW. Derived from the drawn matrix so editor edits follow.
     private readonly bool[] _instMirrored;
     private readonly float[] _matVertexAlpha;
@@ -498,7 +498,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     // four slots are that same cube and slot 0 is _envCubeView itself.
     private const int EnvCubeSlots = 4;
     // One set-0 variant per cube resource and frame (index frame * _cubeResourceCount + resource): zones
-    // pick a resource per TIE placement and per UFrag (AssetManager.EnvironmentCubeResources), and the
+    // pick a resource per Tie placement and per UFrag (AssetManager.EnvironmentCubeResources), and the
     // lit draw loop rebinds set 0 when the next draw reflects another one. Resource 0 is _descSets.
     private VkImageView[] _envCubeSlotViews = new VkImageView[EnvCubeSlots];
     private int _cubeResourceCount = 1;
@@ -591,7 +591,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly VkImage[] _colorImage = new VkImage[Frames];
     private readonly VkImageView[] _colorView = new VkImageView[Frames];
     // The opaque scene's colour, copied once the opaque geometry is drawn: RSX units 10 / 11 of the
-    // retail programs that refract or composite over what is behind them (set 0 binding 10).
+    // retail shaders that refract or composite over what is behind them (set 0 binding 10).
     private readonly VkImage[] _sceneColorImage = new VkImage[Frames];
     private readonly VkDeviceMemory[] _sceneColorMemory = new VkDeviceMemory[Frames];
     private readonly VkImageView[] _sceneColorView = new VkImageView[Frames];
@@ -616,11 +616,11 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private static GameRenderMode EffectiveRenderMode(in VkMaterialDesc material) =>
         (GameRenderMode)(byte)material.GameRenderMode;
 
-    public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, ReLunacy.Engine.Assets.Lighting.LightingEnvironment? oldLightingEnvironment, Texture? envCube, uint width, uint height, bool oldEngineMobys = true, IReadOnlyDictionary<ulong, int>? cubeResources = null, Loading.Shaders.NewEngineStandardPrograms? standardPrograms = null, int maxSkeletonBones = 0, int maxConcurrentAnimated = 0)
+    public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, ReLunacy.Engine.Assets.Lighting.LightingEnvironment? oldLightingEnvironment, Texture? envCube, uint width, uint height, bool oldEngineMobys = true, IReadOnlyDictionary<ulong, int>? cubeResources = null, Loading.Shaders.NewEngineStandardShaders? standardShaders = null, int maxSkeletonBones = 0, int maxConcurrentAnimated = 0)
     {
         _ctx = new VulkanContext(graphicsDevice);
         _cubeResourceMap = cubeResources;
-        _standardPrograms = standardPrograms;
+        _standardShaders = standardShaders;
         _oldLightingEnvironment = oldLightingEnvironment;
         _oldEngineMobys = oldEngineMobys;
         _api = _ctx.DeviceApi;
@@ -637,7 +637,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _envCube = envCube ?? CreateFallbackCubemap(graphicsDevice);
 
         _matPC0 = new Vector4[materials.Count];
-        _matEmbeddedProgram = new float[materials.Count];
+        _matEmbeddedShader = new float[materials.Count];
         _matCullBack = new float[materials.Count];
         _matVertexAlpha = new float[materials.Count];
         _matAlbedoHasAlpha = new float[materials.Count];
@@ -668,10 +668,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 _ => 0f,
             };
             _matPC0[i] = new Vector4(materials[i].HasBaked, materials[i].ParallaxScale, materials[i].ParallaxBias, alphaRef);
-            _matEmbeddedProgram[i] = materials[i].EmbeddedProgram;
+            _matEmbeddedShader[i] = materials[i].EmbeddedShader;
             // QForce EBOOT common binder maps shaderFlags bit 0x02 to cull enable:
             // bit clear = back-face culling on; bit set = no-cull/double-sided. ToD's shells do the same
-            // with material +0x13 bit 0x02 (TIE shell 0x0059561C; VkMaterialDesc.OldEngineCullBack).
+            // with material +0x13 bit 0x02 (Tie shell 0x0059561C; VkMaterialDesc.OldEngineCullBack).
             _matCullBack[i] = (materials[i].IsNewEngine && (materials[i].ShaderFlags & 0x02) == 0) || materials[i].OldEngineCullBack ? 1f : 0f;
             _matVertexAlpha[i] = materials[i].UsesVertexAlpha;
             _matAlbedoHasAlpha[i] = materials[i].AlbedoHasAlphaChannel;
@@ -850,7 +850,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreateRenderPasses();
         CreatePipelines();
         CreateBloomPipelines();
-        BuildRetailPrograms(materials, instanceLights);
+        BuildRetailShaders(materials, instanceLights);
         long tPipelines = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateTargets(graphicsDevice);
         CreatePickResources();
@@ -1037,11 +1037,11 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         set0[1] = new VkDescriptorSetLayoutBinding { binding = 1, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
         set0[2] = new VkDescriptorSetLayoutBinding { binding = 2, descriptorType = VkDescriptorType.UniformBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
         set0[3] = new VkDescriptorSetLayoutBinding { binding = 3, descriptorType = VkDescriptorType.CombinedImageSampler, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
-        // Instance lights are read by the vertex stage too: a prelit TIE draw finds its prelight words there.
+        // Instance lights are read by the vertex stage too: a prelit Tie draw finds its prelight words there.
         set0[4] = new VkDescriptorSetLayoutBinding { binding = 4, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment };
         for (uint slot = 1; slot < EnvCubeSlots; slot++)
             set0[4 + slot] = new VkDescriptorSetLayoutBinding { binding = 4 + slot, descriptorType = VkDescriptorType.CombinedImageSampler, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
-        // Binding 8: the new-engine TIE prelight words (VulkanRenderer.NewEnginePrelight.cs).
+        // Binding 8: the new-engine Tie prelight words (VulkanRenderer.NewEnginePrelight.cs).
         set0[8] = new VkDescriptorSetLayoutBinding { binding = 8, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
         // Bindings 9 and 11: the skinning bone palette and each instance's region in it (SkinningGlsl).
         set0[9] = new VkDescriptorSetLayoutBinding { binding = 9, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
@@ -1362,7 +1362,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var rasterBiasedCullBackCw = rasterBiasedCullBack with { frontFace = VkFrontFace.Clockwise };
 
         // The lit pipelines: one shared state per kind (CreateLitPipeline), so the translated retail
-        // programs (VulkanRenderer.RsxPrograms.cs) get exactly the generic ones' raster, depth and blend.
+        // shaders (VulkanRenderer.RsxShaders.cs) get exactly the generic ones' raster, depth and blend.
         _pipelineOpaque = CreateLitPipeline(LitKind.Opaque, _fsOpaque);
         _pipelineOpaqueCull = CreateLitPipeline(LitKind.OpaqueCull, _fsOpaque);
         _pipelineOpaqueCullCw = CreateLitPipeline(LitKind.OpaqueCullCw, _fsOpaque);
@@ -1681,7 +1681,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         SetFullViewport();
         var area = new VkRect2D { offset = default, extent = new VkExtent2D { width = _width, height = _height } };
         VkClearValue* clearsO = stackalloc VkClearValue[2];
-        // With the bloom on, alpha is the glow mask: nothing glows until a program says so. The old
+        // With the bloom on, alpha is the glow mask: nothing glows until a shader says so. The old
         // engine's clear agrees: 0x004F6430 sends SET_COLOR_CLEAR_VALUE = context +0x2C & 0xFFFFFF, so the
         // Sky's packed SkyDefs +0x50 never reaches it - the Dome writes that alpha instead.
         clearsO[0] = new VkClearValue { color = new VkClearColorValue(ClearColour.X, ClearColour.Y, ClearColour.Z, _bloomActive ? 0f : ClearColour.W) };
@@ -1924,7 +1924,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 var pc0 = _matPC0[boundMat];
                 if (softEdgeDepthPrepass) pc0.W = 128f / 255f;
                 pc[0] = pc0;
-                pc[1] = new Vector4(_matEmbeddedProgram[boundMat], _matVertexAlpha[boundMat], instanceLit ? 1f : 0f, _matAlbedoHasAlpha[boundMat]);
+                pc[1] = new Vector4(_matEmbeddedShader[boundMat], _matVertexAlpha[boundMat], instanceLit ? 1f : 0f, _matAlbedoHasAlpha[boundMat]);
                 pc[2] = new Vector4(_matLightDirBx2[boundMat], _matColourSpace[boundMat].X,
                     _matColourSpace[boundMat].Y, _matColourSpace[boundMat].Z);
                 pc[3] = _matReflectionTint[boundMat];
@@ -2246,7 +2246,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     /// the region's contents, never reallocates. Returns false if the owner has no instances in this
     /// scene, its skeleton is larger than the palette was sized for, or every region is already taken
     /// by other playing entities - shouldn't happen in practice, since _maxConcurrentAnimated is
-    /// sized to the number of skinned mobys actually in the scene (see AssetManager.BuildVkScene).</summary>
+    /// sized to the number of skinned Mobys actually in the scene (see AssetManager.BuildVkScene).</summary>
     public bool TrySetAnimatedInstance(object owner, IReadOnlyList<Matrix4x4> skinMatrices)
     {
         if (!_ownerInstances.TryGetValue(owner, out var owned)) return false;
@@ -2419,7 +2419,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroySampler(_samplerPoint);
         _api.vkDestroySampler(_samplerLinear);
         _api.vkDestroySampler(_samplerBaked);
-        DestroyRetailPrograms();
+        DestroyRetailShaders();
         DestroyBloomPipelines();
         _api.vkDestroyPipeline(_pipelineOpaque);
         _api.vkDestroyPipeline(_pipelineOpaqueCull);
