@@ -546,14 +546,12 @@ public sealed class LuaEditorView
         ImGui.BeginTooltip();
         float wrap = ImGui.GetFontSize() * 28f;
         ImGui.PushTextWrapPos(wrap);
-        ImGui.TextColored(ImGui.ColorConvertU32ToFloat4(Theme().FunctionColour), documented.Label);
-        ImGui.SameLine();
-        ImGui.TextDisabled(documented.Kind);
-        if (documented.Detail is { } detail)
-        {
-            ImGui.Separator();
-            ImGui.TextWrapped(detail);
-        }
+
+        // One line says everything the heading and the signature used to say between them:
+        // (function) wait(duration?: number): nil
+        SignatureView.Draw(LuaSignature.Header(documented.Kind, documented.Label, documented.Detail),
+                           documented.Kind, Theme());
+
         if (documented.Description is { } description)
         {
             ImGui.Separator();

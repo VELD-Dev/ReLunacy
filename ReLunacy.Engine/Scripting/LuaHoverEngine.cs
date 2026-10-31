@@ -39,10 +39,21 @@ public static class LuaHoverEngine
         // exact label match meaningful rather than a word that merely starts the same.
         var items = LuaCompletionEngine.Complete(source, name.End, api, out _, scripts);
         var match = items.FirstOrDefault(i => i.Label == name.Text);
-        return match is null ? null
-            : new LuaHover(match.Label, match.Kind.ToString().ToLowerInvariant(),
-                           match.Detail, match.Description);
+        return match is null ? null : new LuaHover(match.Label, KindOf(match.Kind),
+                                                   match.Detail, match.Description);
     }
+
+    /// <summary>
+    /// What to call a kind on the hover line. Everything a hover can land on that completion calls
+    /// a "variable" is reached by a bare name with no binding, which is what a global IS - and
+    /// naming it that says more than the word completion uses for its list.
+    /// </summary>
+    private static string KindOf(LuaCompletionKind kind) => kind switch
+    {
+        LuaCompletionKind.Variable => "global",
+        LuaCompletionKind.LoopVariable => "loop variable",
+        _ => kind.ToString().ToLowerInvariant(),
+    };
 
     /// <summary>
     /// A binding's own description: what it is, the type it was initialised from when that can be

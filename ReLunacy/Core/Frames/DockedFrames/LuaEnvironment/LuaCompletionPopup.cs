@@ -168,9 +168,13 @@ public sealed class LuaCompletionPopup
         if (current.Detail is not null || current.Description is not null)
         {
             ImGui.Separator();
-            // The signature stays plain: it is generated from the annotations rather than written,
-            // so there is no markdown in it to render.
-            if (current.Detail is { } fullDetail) ImGui.TextWrapped(fullDetail);
+            // Coloured rather than plain: it describes the same things the editor colours in the
+            // text, so it should read the same way. Markdown does not apply - a signature is
+            // generated from the annotations rather than written.
+            string kind = current.Kind.ToString().ToLowerInvariant();
+            if (current.Detail is { } fullDetail && theme is not null)
+                SignatureView.Draw(LuaSignature.Header(kind, current.Label, fullDetail), kind, theme);
+            else if (current.Detail is { } plain) ImGui.TextWrapped(plain);
             if (current.Description is { } description)
             {
                 if (theme is null) ImGui.TextWrapped(description);
