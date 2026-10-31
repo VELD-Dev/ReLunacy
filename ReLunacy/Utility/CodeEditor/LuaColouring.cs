@@ -44,6 +44,19 @@ public static class LuaColouring
             };
             if (role == LuaEditorThemeRole.Text) continue;
 
+            // A LuaLS annotation is lexically one comment, but it is structured: the tag, the name
+            // it documents and the type are worth telling apart, and a mistyped tag is worth
+            // seeing. Anything that is not an annotation falls through and stays comment-coloured.
+            if (token.Kind == LuaTokenKind.Comment
+                && token.Start.Line == token.End.Line && token.Start.Line < lines.Length
+                && Annotation(lines[token.Start.Line], token.Start.Column, theme) is { Count: > 0 } parts)
+            {
+                if (!byLine.TryGetValue(token.Start.Line, out var annotated))
+                    byLine[token.Start.Line] = annotated = [];
+                annotated.AddRange(parts);
+                continue;
+            }
+
             uint colour = theme.ColourFor(role);
             // Long strings and long comments cover several lines, so a token is clipped per line.
             for (int line = token.Start.Line; line <= token.End.Line && line < lines.Length; line++)
@@ -59,6 +72,31 @@ public static class LuaColouring
 
         foreach (var spans in byLine.Values) spans.Sort((a, b) => a.Start.CompareTo(b.Start));
         return byLine;
+    }
+
+    /// <summary>
+    /// An annotation comment broken into coloured pieces, or empty when the comment is not one.
+    ///
+    /// The marker and the trailing prose keep the comment colour, so an annotation still reads as a
+    /// comment; what stands out is the structure inside it.
+    /// </summary>
+    private static List<TextSpan> Annotation(string line, int start, LuaEditorTheme theme)
+    {
+        var spans = new List<TextSpan>();
+        foreach (var part in LuaAnnotations.Highlight(line.TrimEnd('\r'), start))
+        {
+            uint colour = part.Part switch
+            {
+                LuaAnnotationPart.Tag => theme.DocTagColour,
+                LuaAnnotationPart.Type => theme.DocTypeColour,
+                LuaAnnotationPart.Name => theme.ParameterColour,
+                // A tag nobody knows is a typo, and reads as one.
+                LuaAnnotationPart.Unknown => theme.ErrorColour,
+                _ => theme.CommentColour,
+            };
+            spans.Add(new TextSpan(part.Start, part.Length, colour));
+        }
+        return spans;
     }
 
     /// <summary>

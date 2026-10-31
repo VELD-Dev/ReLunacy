@@ -21,13 +21,16 @@ public enum LuaCompletionTrigger
     Method,
     /// <summary>Inside a string literal that a known function takes a script's name in.</summary>
     StringArgument,
+    /// <summary>Inside a LuaLS annotation: a tag, a type, or a parameter name.</summary>
+    Annotation,
 }
 
 /// <summary>Where completion is happening and what it replaces when accepted.</summary>
 public sealed record LuaCompletionContext(
     LuaCompletionTrigger Trigger, string Prefix, LuaPosition ReplaceFrom, LuaPosition ReplaceTo,
     string? ReceiverType, LuaTableShape? ReceiverShape = null,
-    LuaScriptNameKind ScriptNames = LuaScriptNameKind.None, string? Function = null);
+    LuaScriptNameKind ScriptNames = LuaScriptNameKind.None, string? Function = null,
+    LuaAnnotationSuggestion Annotation = LuaAnnotationSuggestion.None, string? Tag = null);
 
 /// <summary>
 /// Turns a caret position into a list of suggestions, from the locals in scope and the documented
@@ -69,6 +72,10 @@ public static class LuaCompletionEngine
 
         switch (analyzed.Trigger)
         {
+            case LuaCompletionTrigger.Annotation:
+                AddAnnotationItems(items, analyzed, source, api);
+                break;
+
             case LuaCompletionTrigger.StringArgument:
                 foreach (string name in scriptNames?.Invoke(analyzed.ScriptNames) ?? [])
                     items.Add(new LuaCompletionItem(name, name, LuaCompletionKind.Variable, null,
@@ -160,6 +167,96 @@ public static class LuaCompletionEngine
         return Filter(items, analyzed.Prefix);
     }
 
+    /// <summary>
+    /// What to offer inside an annotation: the tags, the types that exist, the parameter names of
+    /// the function being documented, or the diagnostic actions.
+    ///
+    /// The parameter names are the ones that save real typing, and they come from the function
+    /// BELOW the annotation - which is what an annotation documents, and the only place those names
+    /// are written.
+    /// </summary>
+    private static void AddAnnotationItems(List<LuaCompletionItem> items,
+                                           LuaCompletionContext context, string source,
+                                           LuaApiDatabase api)
+    {
+        switch (context.Annotation)
+        {
+            case LuaAnnotationSuggestion.Tag:
+                foreach (var tag in LuaAnnotations.Tags)
+                    items.Add(new LuaCompletionItem(tag.Name, tag.Name, LuaCompletionKind.Keyword,
+                        Shape(tag), tag.Interpreted
+                            ? tag.Summary
+                            : $"{tag.Summary}\n\nRecognised, but this editor does not act on it yet."));
+                break;
+
+            case LuaAnnotationSuggestion.Type:
+                foreach (string type in LuaAnnotations.BuiltInTypes)
+                    items.Add(new LuaCompletionItem(type, type, LuaCompletionKind.Class, "built in", null));
+                foreach (var type in api.Types.Values)
+                    items.Add(new LuaCompletionItem(type.Name, type.Name, LuaCompletionKind.Class,
+                                                    "class", type.Description));
+                foreach (string alias in api.Aliases.Keys)
+                    items.Add(new LuaCompletionItem(alias, alias, LuaCompletionKind.Class, "alias", null));
+                break;
+
+            case LuaAnnotationSuggestion.ParameterName:
+                foreach (string name in ParametersBelow(source, context.ReplaceFrom.Line))
+                    items.Add(new LuaCompletionItem(name, name, LuaCompletionKind.Parameter,
+                                                    "parameter", "of the function below"));
+                break;
+
+            case LuaAnnotationSuggestion.DiagnosticAction:
+                foreach (string action in LuaAnnotations.DiagnosticActions)
+                    items.Add(new LuaCompletionItem(action, action, LuaCompletionKind.Keyword, null, null));
+                break;
+        }
+    }
+
+    /// <summary>How a tag's completion entry describes what comes after it.</summary>
+    private static string Shape(LuaAnnotationTag tag) => tag.Shape switch
+    {
+        LuaAnnotationShape.Type => $"@{tag.Name} <type>",
+        LuaAnnotationShape.NameThenType => $"@{tag.Name} <name> <type>",
+        LuaAnnotationShape.Name => $"@{tag.Name} <name>",
+        LuaAnnotationShape.Diagnostic => $"@{tag.Name} <action>: <name>",
+        _ => $"@{tag.Name}",
+    };
+
+    /// <summary>
+    /// The parameters of the first function declared after a line - what the annotations above it
+    /// are describing.
+    ///
+    /// Only the first, and only when nothing but more annotation lines separates them: an
+    /// annotation block applies to what immediately follows, and reaching past a blank line or a
+    /// statement would offer names from an unrelated function.
+    /// </summary>
+    private static IEnumerable<string> ParametersBelow(string source, int line)
+    {
+        string[] lines = source.Split('\n');
+        int at = line + 1;
+        while (at < lines.Length && lines[at].TrimEnd('\r').TrimStart().StartsWith("---")) at++;
+        if (at >= lines.Length) return [];
+
+        var block = LuaParser.Parse(source, out _);
+        foreach (var node in LuaAstWalker.Walk(block))
+        {
+            var function = node switch
+            {
+                LuaFunctionStat statement => statement.Function,
+                LuaLocalFunctionStat statement => statement.Function,
+                _ => null,
+            };
+            if (function is null || node.Span.Start.Line != at) continue;
+
+            var names = function.Parameters.Select(p => p.Name).ToList();
+            // A method's implicit receiver is not written in the parameter list and is not
+            // documented with @param, so offering it would be offering a name that cannot be used.
+            if (node is LuaFunctionStat { IsMethod: true }) names.Remove("self");
+            return names;
+        }
+        return [];
+    }
+
     private static string ScriptNameDescription(LuaScriptNameKind kind) => kind switch
     {
         LuaScriptNameKind.LevelScript => "a script in this level, loadable with {0}",
@@ -247,7 +344,8 @@ public static class LuaCompletionEngine
             .Where(t => t.End.Line < caret.Line || (t.End.Line == caret.Line && t.End.Column <= caret.Column))
             .ToList();
 
-        // A caret inside a string literal cannot be completing a name, so this comes first.
+        // An annotation and a string both rule out every other trigger, so they come first.
+        if (AnnotationAt(source, caret) is { } inAnnotation) return inAnnotation;
         if (StringArgumentAt(source, tokens, caret) is { } inString) return inString;
 
         string prefix = "";
@@ -301,6 +399,28 @@ public static class LuaCompletionEngine
                 true, new LuaSpan(chain[0].Start, chain[i].End)));
 
         return type;
+    }
+
+    /// <summary>
+    /// The context for a caret inside a LuaLS annotation, or null.
+    ///
+    /// Decided from the line's text rather than from the parse, because an annotation is a comment
+    /// as far as the language is concerned - there is no node to find - and because a half-written
+    /// one has to work.
+    /// </summary>
+    private static LuaCompletionContext? AnnotationAt(string source, LuaPosition caret)
+    {
+        string[] lines = source.Split('\n');
+        if (caret.Line < 0 || caret.Line >= lines.Length) return null;
+
+        string line = lines[caret.Line].TrimEnd('\r');
+        var found = LuaAnnotations.SuggestionAt(line, caret.Column);
+        if (found.Suggestion == LuaAnnotationSuggestion.None) return null;
+
+        var from = new LuaPosition(caret.Line, found.Start);
+        return new LuaCompletionContext(LuaCompletionTrigger.Annotation, found.Prefix, from, caret,
+                                        null, null, LuaScriptNameKind.None, null,
+                                        found.Suggestion, found.Tag);
     }
 
     /// <summary>

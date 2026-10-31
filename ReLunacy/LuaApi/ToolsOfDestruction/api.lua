@@ -8,13 +8,7 @@
 
 ---Loads another of this level's scripts, by name.
 ---
----The name is the bare file name of a script in this level's own `scripts/` folder - no path and
----no `.lua`, so `load_level_script("music")` runs `/levels/<level>/scripts/music.lua`.
----
----Evidence: 310 call sites across the corpus. 307 name a script in the same level, one names a
----script that exists only in another level, and two name scripts no shipped archive contains - all
----three being references to content that was cut. Every call passes exactly one string literal,
----and no call site uses a return value.
+---`load_level_script("music")` runs `/levels/<level>/scripts/music.lua`.
 ---@param name string The script's file name, without folder or extension.
 function load_level_script(name) end
 
@@ -23,8 +17,9 @@ function load_level_script(name) end
 ---The same shape as `load_level_script`, against `/scripts/` instead of the level's own folder:
 ---`load_global_script("globalhelp")` runs `/scripts/globalhelp.lua`. These are the scripts shared
 ---by every level rather than one level's own.
----
----Evidence: 20 call sites, all 20 naming a script under `/scripts/`, all passing one string
----literal, and none using a return value.
 ---@param name string The script's file name, without folder or extension.
 function load_global_script(name) end
+
+---Suspends the dedicated SPU worker thread for `duration`
+---@param duration number The duration in seconds.
+function wait(duration) end

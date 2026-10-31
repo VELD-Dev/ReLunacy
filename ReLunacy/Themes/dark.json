@@ -6,6 +6,8 @@
   "Comment": "#6A9955",
   "Operator": "#D4D4D4",
   "Error": "#F44747",
+  "DocTag": "#4FC1FF",
+  "DocType": "#4EC9B0",
   "Function": "#DCDCAA",
   "Method": "#DCDCAA",
   "Class": "#4EC9B0",

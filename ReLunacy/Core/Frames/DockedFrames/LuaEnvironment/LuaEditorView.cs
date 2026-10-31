@@ -501,7 +501,7 @@ public sealed class LuaEditorView
             _completion.Refresh(_editor, Api(), false, Scripts(), ScriptNames);
         }
         else if (requested) _completion.Refresh(_editor, Api(), true, Scripts(), ScriptNames);
-        _completion.Draw(_editor);
+        _completion.Draw(_editor, Theme(), Api());
         HoverTooltip();
         if (_references.HasResults)
             _references.Render(ReferencesHeight, Theme(), Api(), Scripts(), SourceOf);
@@ -516,6 +516,7 @@ public sealed class LuaEditorView
     /// <summary>How much of the panel the results list takes when it is showing.</summary>
     private const float ReferencesHeight = 140f;
 
+    private readonly DocMarkdownView _markdown = new();
     private LuaHover? _hover;
     private (int Version, TextPosition Position) _hoveredFor = (-1, default);
 
@@ -555,7 +556,7 @@ public sealed class LuaEditorView
         if (documented.Description is { } description)
         {
             ImGui.Separator();
-            ImGui.TextWrapped(description);
+            _markdown.Draw(description, Theme(), Api());
         }
         ImGui.PopTextWrapPos();
         ImGui.EndTooltip();

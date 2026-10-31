@@ -15,8 +15,13 @@ namespace ReLunacy.Engine.Scripting;
 /// </summary>
 public static class LuaDocParser
 {
-    private static readonly string[] KnownTags =
-        ["class", "field", "param", "return", "alias", "type", "meta", "deprecated"];
+    /// <summary>
+    /// Tags that are allowed to appear. Read from <see cref="LuaAnnotations"/> rather than listed
+    /// again here, so highlighting, completion and this parser cannot disagree about what exists -
+    /// a tag one of them knows and another does not is written and then either ignored or reported
+    /// as a mistake.
+    /// </summary>
+    private static readonly string[] KnownTags = [.. LuaAnnotations.Names];
 
     public static void ParseInto(LuaApiDatabase database, string source, string sourceFile)
     {
@@ -231,6 +236,10 @@ public static class LuaDocParser
             diagnostics.Add(new LuaDocDiagnostic($"unknown annotation '@{tag}'", sourceFile, at));
             return;
         }
+        // The rest of LuaLS's vocabulary is accepted and does nothing: those tags describe generics,
+        // operators and visibility, none of which this editor has anywhere to put yet. Accepted
+        // rather than rejected so writing valid LuaLS is not reported as an error.
+        if (!LuaAnnotations.Find(tag)!.Interpreted) return;
 
         switch (tag)
         {

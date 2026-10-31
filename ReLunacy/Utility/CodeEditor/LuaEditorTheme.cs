@@ -30,6 +30,10 @@ public sealed class LuaEditorTheme
     public string Comment { get; set; } = "#6A9955";
     public string Operator { get; set; } = "#D4D4D4";
     public string Error { get; set; } = "#F44747";
+    /// <summary>A LuaLS tag: the <c>@param</c> of <c>---@param id number</c>.</summary>
+    public string DocTag { get; set; } = "#4FC1FF";
+    /// <summary>A type written in an annotation.</summary>
+    public string DocType { get; set; } = "#4EC9B0";
 
     // --- semantic: decided by scope resolution and the documented API --------------------------
     /// <summary>A documented global function.</summary>
@@ -93,6 +97,10 @@ public sealed class LuaEditorTheme
             "Symbols and punctuation", t => t.Operator, (t, v) => t.Operator = v),
         new(LuaEditorThemeRole.Error, LuaEditorThemeGroup.Lexical, nameof(Error), "Error",
             "Text the lexer could not read", t => t.Error, (t, v) => t.Error = v),
+        new(LuaEditorThemeRole.DocTag, LuaEditorThemeGroup.Lexical, nameof(DocTag), "Annotation tag",
+            "@param, @return, @cast and the rest", t => t.DocTag, (t, v) => t.DocTag = v),
+        new(LuaEditorThemeRole.DocType, LuaEditorThemeGroup.Lexical, nameof(DocType), "Annotation type",
+            "A type written in an annotation", t => t.DocType, (t, v) => t.DocType = v),
 
         new(LuaEditorThemeRole.Function, LuaEditorThemeGroup.Semantic, nameof(Function), "Function",
             "A documented global function", t => t.Function, (t, v) => t.Function = v),
@@ -159,6 +167,8 @@ public sealed class LuaEditorTheme
     [JsonIgnore] public uint CommentColour => ColourFor(LuaEditorThemeRole.Comment);
     [JsonIgnore] public uint OperatorColour => ColourFor(LuaEditorThemeRole.Operator);
     [JsonIgnore] public uint ErrorColour => ColourFor(LuaEditorThemeRole.Error);
+    [JsonIgnore] public uint DocTagColour => ColourFor(LuaEditorThemeRole.DocTag);
+    [JsonIgnore] public uint DocTypeColour => ColourFor(LuaEditorThemeRole.DocType);
     [JsonIgnore] public uint FunctionColour => ColourFor(LuaEditorThemeRole.Function);
     [JsonIgnore] public uint MethodColour => ColourFor(LuaEditorThemeRole.Method);
     [JsonIgnore] public uint ClassColour => ColourFor(LuaEditorThemeRole.Class);
@@ -293,7 +303,7 @@ public enum LuaEditorThemeGroup { Lexical, Semantic, Chrome, Decoration }
 public enum LuaEditorThemeRole
 {
     Text,
-    Keyword, String, Number, Comment, Operator, Error,
+    Keyword, String, Number, Comment, Operator, Error, DocTag, DocType,
     Function, Method, Class, Field, Local, Parameter, LoopVariable, GlobalUndocumented,
     Caret, Selection, CurrentLine, LineNumber, LineNumberCurrent,
     MatchingDelimiter, SnippetStop, CaretWord, Occurrence, SearchMatch, SearchCurrent,

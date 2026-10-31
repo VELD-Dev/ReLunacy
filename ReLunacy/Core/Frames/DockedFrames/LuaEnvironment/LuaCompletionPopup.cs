@@ -21,6 +21,7 @@ public sealed class LuaCompletionPopup
 
     private List<LuaCompletionItem> _items = [];
     private LuaCompletionContext? _context;
+    private readonly DocMarkdownView _markdown = new();
     private int _selected;
     private bool _open;
     private int _lastVersion = -1;
@@ -118,7 +119,8 @@ public sealed class LuaCompletionPopup
         Close();
     }
 
-    public void Draw(CodeEditorControl editor)
+    /// <param name="theme">For rendering a description's markdown; null draws it as plain text.</param>
+    public void Draw(CodeEditorControl editor, LuaEditorTheme? theme = null, LuaApiDatabase? api = null)
     {
         if (!IsOpen || !editor.HasFocus) return;
 
@@ -159,17 +161,20 @@ public sealed class LuaCompletionPopup
         if (last < _items.Count) ImGui.TextDisabled($"... {_items.Count - last} below");
 
         // The selected entry's documentation, which is the part that makes an undocumented API
-        // tolerable to work against once it starts being filled in.
+        // tolerable to work against once it starts being filled in. Descriptions come from LuaLS
+        // annotations, which are markdown - see ReLunacy/LuaApi/README.md - so they are rendered
+        // rather than shown as source.
         var current = _items[_selected];
         if (current.Detail is not null || current.Description is not null)
         {
             ImGui.Separator();
+            // The signature stays plain: it is generated from the annotations rather than written,
+            // so there is no markdown in it to render.
             if (current.Detail is { } fullDetail) ImGui.TextWrapped(fullDetail);
             if (current.Description is { } description)
             {
-                ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.TextDisabled));
-                ImGui.TextWrapped(description);
-                ImGui.PopStyleColor();
+                if (theme is null) ImGui.TextWrapped(description);
+                else _markdown.Draw(description, theme, api ?? new LuaApiDatabase());
             }
         }
 
