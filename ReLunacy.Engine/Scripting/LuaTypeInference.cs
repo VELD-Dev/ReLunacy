@@ -80,7 +80,7 @@ public sealed class LuaTypeInference(
 
         // A cast outranks everything: it is someone stating what they know about an API that
         // documents nothing, which is more than anything here can work out for itself.
-        if (CastFor(symbol, name.Name, name.Span.Start) is { } cast) return api.ResolveAlias(cast);
+        if (Cast(symbol, name.Name, name.Span.Start) is { } cast) return cast;
 
         // A local: follow what it was assigned, one hop.
         if (symbol is { Initializer: { } initializer }) return TypeOf(initializer, depth + 1);
@@ -127,8 +127,7 @@ public sealed class LuaTypeInference(
     /// one thing above the cast and another below it, which is the point of casting.
     /// </summary>
     public string? TypeOfSymbolAt(LuaSymbol symbol, LuaPosition at) =>
-        CastFor(symbol, symbol.Name, at) is { } cast ? api.ResolveAlias(cast)
-                                                     : TypeOf(symbol.Initializer);
+        Cast(symbol, symbol.Name, at) ?? TypeOf(symbol.Initializer);
 
     /// <summary>
     /// The nearest cast above a position for this name, or null.
@@ -136,6 +135,40 @@ public sealed class LuaTypeInference(
     /// Matched by binding when both ends resolved to one, and by name otherwise - the fallback
     /// being for a half-typed line, which does not parse and so has no binding to resolve against.
     /// </summary>
+    /// <summary>
+    /// The type a cast establishes at a position, already reduced to something members can be
+    /// looked up on - or null when no cast applies, or when the one that does only subtracts.
+    /// </summary>
+    private string? Cast(LuaSymbol? symbol, string name, LuaPosition at)
+    {
+        if (CastFor(symbol, name, at) is not { } written) return null;
+
+        // `-X` removes X from the union rather than replacing it: `---@cast m -nil` says m is no
+        // longer nil, and what it IS stays whatever it was. Since nil-ness is not tracked here,
+        // the honest answer is the type the binding already had, so the cast is stood down.
+        if (written.StartsWith('-')) return null;
+
+        return NarrowType(written);
+    }
+
+    /// <summary>
+    /// A type expression reduced to the single class a lookup can be done against: a cast's
+    /// leading <c>+</c> dropped, a union's first non-nil member taken, an optional's <c>?</c>
+    /// removed.
+    ///
+    /// Shared with return types, which needed exactly the same reduction - <c>Moby|nil</c> is the
+    /// common documented shape for a lookup, and completing on the useful half is more helpful
+    /// than refusing because the union is not a single class.
+    /// </summary>
+    private string NarrowType(string type)
+    {
+        string text = type.Trim();
+        if (text.StartsWith('+')) text = text[1..];
+        string first = text.Split('|', StringSplitOptions.TrimEntries)
+                           .FirstOrDefault(t => t != "nil") ?? text;
+        return api.ResolveAlias(first.TrimEnd('?'));
+    }
+
     private string? CastFor(LuaSymbol? symbol, string name, LuaPosition at)
     {
         string? type = null;
@@ -160,11 +193,6 @@ public sealed class LuaTypeInference(
     private string? FirstReturn(LuaApiFunction? function)
     {
         string? type = function?.Returns.FirstOrDefault()?.Type;
-        if (type is null) return null;
-        // `Moby|nil` is the common documented shape for a lookup; completing on the useful half is
-        // more helpful than refusing because the union is not a single class.
-        string first = type.Split('|', StringSplitOptions.TrimEntries)
-                           .FirstOrDefault(t => t != "nil") ?? type;
-        return api.ResolveAlias(first.TrimEnd('?'));
+        return type is null ? null : NarrowType(type);
     }
 }

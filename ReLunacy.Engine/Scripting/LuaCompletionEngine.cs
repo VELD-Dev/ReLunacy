@@ -120,8 +120,12 @@ public static class LuaCompletionEngine
                     // with Tab accepting before anything else, would replace the name being typed.
                     if (local.Definition is { } definition && definition.Start == analyzed.ReplaceFrom)
                         continue;
+                    // Asked AT the caret, not in general: a ---@cast above it is the whole reason
+                    // a binding's type can differ from what it was initialised with, and asking
+                    // the initialiser directly answered as though the cast had not been written.
                     items.Add(new LuaCompletionItem(local.Name, local.Name, KindOf(local.Kind),
-                        inference.TypeOf(local.Initializer) is { } t ? t : local.Kind.ToString().ToLowerInvariant(),
+                        inference.TypeOfSymbolAt(local, caret) is { } t
+                            ? t : local.Kind.ToString().ToLowerInvariant(),
                         null));
                 }
 
