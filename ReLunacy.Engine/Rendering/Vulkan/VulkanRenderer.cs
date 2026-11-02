@@ -146,14 +146,16 @@ void main() {
     fWorldPos = world.xyz;
     fUV = inUV;
     // Animated UVs (section 0x5C00, the game's SPU job VertAnim): rotation about the pivot, then the
-    // scroll, at the scene time in uDepthOffset.z. The game moves them once a frame (uvScroll.z Hz):
-    // .z rotation per frame, scroll per second over whole frames - a flipbook jumps, it never smears.
+    // scroll, at the scene time in uDepthOffset.z - the editor's own clock, running continuously.
+    // Both rates are per SECOND (.z rotation, uvScroll.xy scroll), so nothing here depends on how
+    // fast the game ran or on how fast we draw. This used to floor the time into whole frames of
+    // the game's rate, which made the animation no smoother than that rate and, where the rate was
+    // assumed wrong, run at the wrong speed outright.
     if (il.uvAnim.w > 0.5) {
-        float fps = max(il.uvScroll.z, 1.0);
-        float frames = floor(uDepthOffset.z * fps);
-        float a = il.uvAnim.z * frames;
+        float t = uDepthOffset.z;
+        float a = il.uvAnim.z * t;
         vec2 d = inUV - il.uvAnim.xy;
-        fUV = vec2(cos(a) * d.x - sin(a) * d.y, sin(a) * d.x + cos(a) * d.y) + il.uvAnim.xy + fract(il.uvScroll.xy * (frames / fps));
+        fUV = vec2(cos(a) * d.x - sin(a) * d.y, sin(a) * d.x + cos(a) * d.y) + il.uvAnim.xy + fract(il.uvScroll.xy * t);
     }
     fUV2 = inUV2;
     fColor = inColor;

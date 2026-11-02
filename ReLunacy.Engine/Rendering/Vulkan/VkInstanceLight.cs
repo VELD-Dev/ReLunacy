@@ -32,9 +32,9 @@ public struct VkInstanceLight
     // New engine, two-layer Tie draws: the second material's fragment groups 15 / 17 (+0x50, +0x70).
     public Vector4 SecondTint;
     public Vector4 SecondParallax;
-    /// <summary>Animated UVs (section 0x5C00): (pivot u, pivot v, rotation per game frame, 1 = on).</summary>
+    /// <summary>Animated UVs (section 0x5C00): (pivot u, pivot v, rotation per SECOND, 1 = on).</summary>
     public Vector4 UvAnim;
-    /// <summary>Animated UVs: (scroll u, scroll v per second, the game's frame rate, 0).</summary>
+    /// <summary>Animated UVs: (scroll u, scroll v per second, unused, 0).</summary>
     public Vector4 UvScroll;
     /// <summary>New engine: the world point the draw's fog is measured from (its bounding-sphere centre),
     /// w = 1 when the draw is fogged (VulkanRenderer.NewEngineFog.cs).</summary>

@@ -12,9 +12,13 @@ namespace ReLunacy.Engine.Assets.Geometry;
 /// u' = cos a (u - px) - sin a (v - py) + px + U       a += rotation, every frame
 /// v' = sin a (u - px) + cos a (v - py) + py + V       U += scroll.x dt, V += scroll.y dt (seconds), wrapped to [-1, 1]
 /// </code>
-/// Both move once per game frame, never in between: a scroll of 50 UV/s at 60 Hz is a 5/6 jump a frame (the
-/// flipbooks of imperial fight fest), not a smear. The editor therefore samples them at whole frames of
-/// <see cref="FrameRate"/> (Docs/reverse/tod_catchup_2026-10-10/01_textures_animees_vitesse.md).
+/// The game moves both once per game frame, never in between (Docs/reverse/tod_catchup_2026-10-10/
+/// 01_textures_animees_vitesse.md). The editor does NOT reproduce that stepping: it advances them
+/// continuously on its own renderer clock, so they run at the right SPEED whatever rate either side
+/// draws at. Quantising to the game's rate instead made every animation only as smooth as that rate
+/// and, whenever the assumed rate was wrong, run at the wrong speed outright. The cost is that a
+/// large scroll the game showed as a flipbook (50 UV/s at 60 Hz is a 5/6 jump a frame) smears here
+/// rather than jumping.
 /// Record: +0x00 u16 tag (high nibble: 0 Tie, 1 UFrag, 2 Moby, 3 skinned Moby) | flags, +0x02 vertex count
 /// (rounded up to 4), +0x08 the frag's vertex offset (Moby: byte offset in 0xE200 = frag +0x04; Tie: the
 /// primitive's vertex index), +0x0C payload offset in 0x5C01, +0x20 / +0x24 pivot, +0x30 / +0x34 scroll,
@@ -52,7 +56,8 @@ public readonly record struct UvAnimation(Vector2 Pivot, Vector2 ScrollPerSecond
     /// animation scrolled at exactly 1 UV/s, all at the same speed and far too fast, while the
     /// mis-stride pointed the records at the wrong frags.
     /// </summary>
-    public static readonly UvAnimationLayout CrackInTimeLayout = new(0x50, PivotOffset: -1, ScrollOffset: 0x20, RotationOffset: 0x28);
+    public static readonly UvAnimationLayout CrackInTimeLayout =
+        new(0x50, PivotOffset: -1, ScrollOffset: 0x20, RotationOffset: 0x28, FramesPerSecond: CrackInTimeFramesPerSecond);
 
     /// <summary>The layout for everything else on the new engine.</summary>
     public static readonly UvAnimationLayout DefaultLayout = new(RecordSize, PivotOffset: 0x20, ScrollOffset: 0x30, RotationOffset: 0x38);
@@ -60,9 +65,21 @@ public readonly record struct UvAnimation(Vector2 Pivot, Vector2 ScrollPerSecond
     /// <summary>The layout a game writes this section with.</summary>
     public static UvAnimationLayout LayoutFor(bool crackInTime) => crackInTime ? CrackInTimeLayout : DefaultLayout;
 
-    /// <summary>The new engine's frame rate, which the rotation is counted in (INFERRED: QForce renders at 30 Hz).</summary>
+    /// <summary>QForce's frame rate, which its rotation is counted in (INFERRED: QForce renders at 30 Hz).</summary>
     public const float FramesPerSecond = 30f;
 
+    /// <summary>A Crack in Time's frame rate. Not 30: it is not a 30 Hz title, which is why every one
+    /// of its rotations ran at half speed while it shared QForce's rate (REPORTED by the user,
+    /// 2026-11-02; no ACiT EBOOT to hand to confirm it the way Tools of Destruction's was).</summary>
+    public const float CrackInTimeFramesPerSecond = 60f;
+
+    /// <summary>
+    /// The rotation in radians per second.
+    ///
+    /// The file counts rotation per GAME frame, so the game's rate is needed to read that as a
+    /// speed - but only as a unit conversion. The editor does NOT step the animation at that rate:
+    /// it runs on its own renderer clock, so the speed is right whatever either side renders at.
+    /// </summary>
     public float RotationPerSecond => RotationPerFrame * FrameRate;
 
     /// <summary>Reads every record of a 0x5C00 section, keyed by its +0x08 (the frag's vertex offset or
@@ -83,7 +100,8 @@ public readonly record struct UvAnimation(Vector2 Pivot, Vector2 ScrollPerSecond
                 pivot,
                 new Vector2(BinaryPrimitives.ReadSingleBigEndian(r[fields.ScrollOffset..]),
                             BinaryPrimitives.ReadSingleBigEndian(r[(fields.ScrollOffset + 4)..])),
-                BinaryPrimitives.ReadSingleBigEndian(r[fields.RotationOffset..]));
+                BinaryPrimitives.ReadSingleBigEndian(r[fields.RotationOffset..]),
+                fields.FramesPerSecond);
             if (!float.IsFinite(animation.RotationPerFrame) || !float.IsFinite(animation.ScrollPerSecond.X) || !float.IsFinite(animation.ScrollPerSecond.Y))
                 continue;
             result.TryAdd(byUFragIndex ? BinaryPrimitives.ReadUInt16BigEndian(r[0x04..]) : BinaryPrimitives.ReadUInt32BigEndian(r[0x08..]), animation);
@@ -156,7 +174,11 @@ public readonly record struct UvAnimation(Vector2 Pivot, Vector2 ScrollPerSecond
 /// they differ by more than length, so a size on its own is not enough to read one.
 /// </summary>
 /// <param name="PivotOffset">-1 where the game has no pivot and turns about UV (0, 0).</param>
-public readonly record struct UvAnimationLayout(int RecordSize, int PivotOffset, int ScrollOffset, int RotationOffset);
+/// <param name="FramesPerSecond">The rate the GAME advanced this record at. Used only to turn
+/// rotation-per-frame into rotation-per-second: it is a unit of the data, not a cap on how often
+/// the editor may draw. See the note on <see cref="UvAnimation.RotationPerSecond"/>.</param>
+public readonly record struct UvAnimationLayout(int RecordSize, int PivotOffset, int ScrollOffset, int RotationOffset,
+                                                float FramesPerSecond = UvAnimation.FramesPerSecond);
 
 /// <summary>Tools of Destruction's level-wide animated UVs (main.dat 0x5C00), by owner.</summary>
 public sealed class OldEngineUvAnimations
