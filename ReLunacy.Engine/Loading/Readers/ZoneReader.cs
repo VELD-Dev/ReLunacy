@@ -223,7 +223,8 @@ public sealed class ZoneReader
 
     /// <summary>The zone's animated UVs (section 0x5C00), keyed by UFrag index - ToD's level-wide main.dat
     /// one on the old engine (<see cref="Assets.Geometry.OldEngineUvAnimations"/>).</summary>
-    private static Dictionary<uint, Assets.Geometry.UvAnimation>? ReadUFragUvAnimations(Objects.Zone legacyZone)
+    private static Dictionary<uint, Assets.Geometry.UvAnimation>? ReadUFragUvAnimations(
+        Objects.Zone legacyZone, bool crackInTime)
     {
         if (legacyZone.isOld)
             return Assets.Geometry.OldEngineUvAnimations.Read(legacyZone.zoneIGFile)?.UFrags;
@@ -231,10 +232,12 @@ public sealed class ZoneReader
         if (header.id != Assets.Geometry.UvAnimation.SectionId)
             return null;
         uint bytes = header.count <= 1 ? header.length : header.count * header.length;
-        if (bytes < Assets.Geometry.UvAnimation.RecordSize || header.offset + (long)bytes > legacyZone.zoneStream.BaseStream.Length)
+        var layout = Assets.Geometry.UvAnimation.LayoutFor(crackInTime);
+        if (bytes < layout.RecordSize || header.offset + (long)bytes > legacyZone.zoneStream.BaseStream.Length)
             return null;
         legacyZone.zoneStream.Seek(header.offset);
-        return Assets.Geometry.UvAnimation.ReadAll(legacyZone.zoneStream.ReadBytes((int)bytes), byUFragIndex: true);
+        return Assets.Geometry.UvAnimation.ReadAll(legacyZone.zoneStream.ReadBytes((int)bytes),
+                                                   byUFragIndex: true, layout: layout);
     }
 
     private static ulong PaletteCube(ulong[]? palette, byte[]? record, int index) =>
@@ -315,7 +318,7 @@ public sealed class ZoneReader
         }
 
         ulong[]? cubes = ReadCubePalette(legacyZone, 0x71C0);
-        Dictionary<uint, Assets.Geometry.UvAnimation>? uvAnimations = ReadUFragUvAnimations(legacyZone);
+        Dictionary<uint, Assets.Geometry.UvAnimation>? uvAnimations = ReadUFragUvAnimations(legacyZone, CrackInTimeLayout);
         ushort[]? oldSeconds = legacyZone.isOld ? ReadOldSecondMaterials(legacyZone) : null;
         for (int i = 0; i < ufragSection.count; i++)
         {

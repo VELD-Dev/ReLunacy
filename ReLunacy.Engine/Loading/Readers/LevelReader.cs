@@ -58,7 +58,10 @@ public sealed class LevelReader
         _animations = _animationReader.ReadAll();
 
         _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader, _animationReader);
-        _tieReader = new TieReader(_fileManager, _materialReader, _debugReader);
+        _tieReader = new TieReader(_fileManager, _materialReader, _debugReader)
+        {
+            CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
+        };
 
         progressCallback?.Invoke("Loading Debug Data...", 0.05f);
         if (_debugReader.IsAvailable)

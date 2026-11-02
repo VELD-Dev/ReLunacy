@@ -13,6 +13,11 @@ public sealed class TieReader
     private readonly MaterialReader _materialReader;
     private readonly DebugReader _debugReader;
 
+    /// <summary>A Crack in Time writes a shorter animated-UV record; see
+    /// UvAnimation.CrackInTimeRecordSize. Set from the level's game, as MaterialReader and
+    /// ZoneReader already are.</summary>
+    public bool CrackInTimeLayout { get; init; }
+
     public TieReader(FileManager fileManager, MaterialReader materialReader, DebugReader debugReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
@@ -62,7 +67,8 @@ public sealed class TieReader
 
             using MemoryStream tiems = new(tiedat);
 
-            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false);
+            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
+                                            crackInTime: CrackInTimeLayout);
             // Keyed by the assetlookup pointer-table TUID, not the tie's own embedded TUID field
             // (0x68) - the embedded field isn't reliably unique.
             ties.Add(tiePtrs[i].TUID, ConvertTie(legacyTie, tiePtrs[i].TUID));
