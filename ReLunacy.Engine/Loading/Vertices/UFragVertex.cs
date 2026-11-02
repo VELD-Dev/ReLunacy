@@ -40,8 +40,14 @@ public record struct UFragVertex
     public readonly float VertexAlphaNewEngineA => Math.Clamp(((ushort)unk - 0x7F80) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)unk) / 127f, 0f, 1f);
+    // D (0x9980 -> 0.0, ascending) and E (0x8C00 -> 0.0, descending) as VertexFormat0 lists them.
+    // Both were measured on TIE vertices, not UFrag ones; they are carried here because the two
+    // share the encoding and because omitting a band fails silently - the value misses every range,
+    // the fallback returns 1.0, and the surface renders opaque with no sign anything was dropped.
+    public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)unk - 0x9980) / 127f, 0f, 1f);
+    public readonly float VertexAlphaNewEngineE => Math.Clamp((0x8C00 - (ushort)unk) / 127f, 0f, 1f);
 
-    // Picks whichever new-engine range the raw value falls into. Outside all three = 1.0 (opaque).
+    // Picks whichever new-engine range the raw value falls into. Outside all five = 1.0 (opaque).
     public readonly float VertexAlphaNewEngineAuto
     {
         get
@@ -50,6 +56,8 @@ public record struct UFragVertex
             if (raw is >= 0x7F80 and <= 0x7FFF) return VertexAlphaNewEngineA;
             if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaNewEngineB;
             if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaNewEngineC;
+            if (raw is >= 0x9980 and <= 0x99FF) return VertexAlphaNewEngineD;
+            if (raw is >= 0x8B81 and <= 0x8C00) return VertexAlphaNewEngineE;
             return 1f;
         }
     }
