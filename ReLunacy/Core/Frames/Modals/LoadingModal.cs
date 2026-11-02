@@ -19,22 +19,40 @@ public class LoadingModal : Modal
     {
         FrameName = LM.Get("GUI_Frame_LoadingModal");
         _loadProgresses = [new LoadingProgress(loadingString, max, true)];
+        BackgroundTasks.Begin(_loadProgresses[0]);
     }
 
     public LoadingModal(List<LoadingProgress> loadingTasks)
     {
         FrameName = LM.Get("GUI_Frame_LoadingModal");
         _loadProgresses = [.. loadingTasks];
+        foreach (var task in _loadProgresses) BackgroundTasks.Begin(task);
     }
 
     public void AddProgress(LoadingProgress progress)
     {
         lock (_progressLock) _loadProgresses.Add(progress);
+        BackgroundTasks.Begin(progress);
     }
 
     public void RemoveProgress(LoadingProgress progress)
     {
         lock (_progressLock) _loadProgresses.Remove(progress);
+        BackgroundTasks.End(progress);
+    }
+
+    /// <summary>
+    /// Stops the status bar listing this modal's work once the modal is gone.
+    ///
+    /// Done on close rather than when the progress reaches its total, because a task that has
+    /// counted to its maximum is not necessarily finished - UpdateProgress replaces entries, and a
+    /// load reports several stages through the same bar.
+    /// </summary>
+    public override void OnClosed()
+    {
+        List<LoadingProgress> snapshot;
+        lock (_progressLock) snapshot = [.. _loadProgresses];
+        BackgroundTasks.End(snapshot);
     }
 
     protected override void Render(double deltaTime)
@@ -71,10 +89,15 @@ public class LoadingModal : Modal
 
     public void UpdateProgress(int index, LoadingProgress newProgress)
     {
+        LoadingProgress? replaced = null;
         lock (_progressLock)
         {
             if (index >= _loadProgresses.Count) return;
+            replaced = _loadProgresses[index];
             _loadProgresses[index] = newProgress;
         }
+        // The old one is a different object, so the registry would keep listing it for ever.
+        if (replaced is not null) BackgroundTasks.End(replaced);
+        BackgroundTasks.Begin(newProgress);
     }
 }

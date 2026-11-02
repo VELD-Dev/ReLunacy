@@ -448,6 +448,11 @@ public class LunaWindow : IDisposable
         // clicked).
         ViewMenuDraw.RenderSaveLayoutPopup();
 
+        // Before the dockspace: a viewport side bar takes its height out of the work area, and the
+        // dockspace sizes itself from that work area a few lines below. Drawn after, it would
+        // overlap the docked frames instead of making room.
+        Frames.StatusBar.Render();
+
         ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
@@ -675,6 +680,8 @@ public class LunaWindow : IDisposable
         // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
         // called for it.
         RememberDockIdsBeforeClosing();
+        foreach (Frame frame in openFrames)
+            if (FrameMustClose(frame)) frame.OnClosed();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)
