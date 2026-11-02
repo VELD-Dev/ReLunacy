@@ -106,12 +106,26 @@ public static class StatusBar
         foreach (var task in tasks)
         {
             var progress = task.Progress;
+            ImGui.PushID(task.Sequence.GetHashCode());
             ImGui.TextUnformatted(task.Name);
             ImGui.ProgressBar(Math.Clamp(progress.Progress, 0f, 1f),
                               new Vector2(MathF.Max(width, 260f), ImGui.GetFrameHeight()),
                               progress.isPercentage ? $"{progress.GetPercents():N1}%"
                                                     : $"{progress.current:N0}/{progress.max:N0}");
             ImGui.TextDisabled($"{task.Elapsed.TotalSeconds:N0}s");
+
+            // The way back to a window that was hidden or closed while its work carried on.
+            if (task.Reveal is not null)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton(LM.Get("GUI_StatusBar_Show")))
+                {
+                    task.Reveal();
+                    ImGui.CloseCurrentPopup();
+                }
+            }
+
+            ImGui.PopID();
             ImGui.Spacing();
         }
 

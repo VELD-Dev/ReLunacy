@@ -66,7 +66,11 @@ public class LunaWindow : IDisposable
     /// <see cref="DoExportCompletionsCheck"/>.</summary>
     private readonly ConcurrentQueue<ExportCompletion> pendingExportCompletions = new();
 
-    public readonly record struct ExportCompletion(LoadingModal ProgressModal, bool Success, string Message, string Directory);
+    /// <summary>The loading frame belonging to the level load currently running, if any. See
+    /// LoadLevelDataAsync for why this is a field rather than an openFrames lookup.</summary>
+    private LoadingFrame? _activeLoadingFrame;
+
+    public readonly record struct ExportCompletion(LoadingFrame ProgressModal, bool Success, string Message, string Directory);
 
     public void QueueExportCompletion(ExportCompletion completion) => pendingExportCompletions.Enqueue(completion);
 
@@ -246,8 +250,13 @@ public class LunaWindow : IDisposable
     /// </summary>
     public string? PendingExternalDebugDatPath { get; set; }
 
-    public async void LoadLevelDataAsync(string path, LoadingModal? loadingFrame = null, string? debugDatPath = null)
+    public async void LoadLevelDataAsync(string path, LoadingFrame? loadingFrame = null, string? debugDatPath = null)
     {
+        // Held for the rest of the load rather than looked up in openFrames when needed: the frame
+        // can be hidden or closed while the work runs, and a lookup would then come back empty and
+        // strand the load - no texture-upload bar, and loadingFinished never set, which would leave
+        // the task sitting in the status bar for ever.
+        _activeLoadingFrame = loadingFrame;
         TryWipeLevel();
         LunaLog.LogInfo($"Loading level {path.Split(Path.DirectorySeparatorChar)[^1]}.");
         Program.ProvidedPath = path;
@@ -293,7 +302,7 @@ public class LunaWindow : IDisposable
     /// <summary>Applies a user-picked debug.dat to the currently loaded level by reloading it -
     /// the reload runs every name through the exact same DebugReader path a normal load does,
     /// rather than trying to retroactively patch names onto already-built entities.</summary>
-    public void LoadExternalDebugDatAndReload(string debugDatPath, LoadingModal? loadingFrame = null)
+    public void LoadExternalDebugDatAndReload(string debugDatPath, LoadingFrame? loadingFrame = null)
     {
         PendingExternalDebugDatPath = debugDatPath;
         if (!string.IsNullOrEmpty(Program.ProvidedPath))
@@ -333,6 +342,7 @@ public class LunaWindow : IDisposable
         // In case this level was wiped mid-load, while DoLoadEntitiesCheck was still draining its
         // queued texture uploads.
         _finalizingLevelLoad = false;
+        if (_uploadProgress != null) BackgroundTasks.End(_uploadProgress);
         _uploadProgress = null;
     }
 
@@ -377,7 +387,10 @@ public class LunaWindow : IDisposable
             LunaLog.LogDebug($"Entities built in {lsw.ElapsedMilliseconds}ms (region {tRegion}, foliage {lsw.ElapsedMilliseconds - a0}). {AssetManager.TotalQueuedUploads} textures queued for GPU upload.");
 
             _uploadProgress = new LoadingProgress(LM.Get("GUI_LoadLevelModal_UploadingTextures"), (uint)Math.Max(1, AssetManager.TotalQueuedUploads), true);
-            GetFirstFrame<LoadingModal>()?.AddProgress(_uploadProgress);
+            // Registered whether or not a loading frame is up, so uploads show in the status bar
+            // even when the level was loaded without one or its window has been dismissed.
+            BackgroundTasks.Begin(_uploadProgress);
+            _activeLoadingFrame?.AddProgress(_uploadProgress);
             _finalizingLevelLoad = true;
         }
 
@@ -408,21 +421,25 @@ public class LunaWindow : IDisposable
         if (!_finalizingLevelLoad) return;
 
         _finalizingLevelLoad = false;
+        if (_uploadProgress != null) BackgroundTasks.End(_uploadProgress);
         _uploadProgress = null;
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
 
-        var loadModal = GetFirstFrame<LoadingModal>();
+        var loadFrame = _activeLoadingFrame;
+        _activeLoadingFrame = null;
 
         var region = EntityManager.Singleton.Regions.FirstOrDefault();
         var firstMoby = region?.MobyInstances.Entities.FirstOrDefault();
         if (firstMoby != null)
             SelectionManager.Singleton.Select(firstMoby);
 
-        if (loadModal is null) return;
-        loadModal.loadingFinished = true;
-        loadModal.LoadEnd = DateTime.Now;
+        if (loadFrame is null) return;
+        loadFrame.LoadEnd = DateTime.Now;
+        // Setting this is what takes the load out of the status bar, so it happens even if the
+        // frame's window was hidden or closed long ago.
+        loadFrame.loadingFinished = true;
     }
 
 
@@ -592,7 +609,7 @@ public class LunaWindow : IDisposable
     public void AddFrame(Frame frame)
     {
         openFrames.Add(frame);
-        // Only DockedFrame subclasses - Modal-derived frames (LoadingModal, ExportResultModal, the
+        // Only DockedFrame subclasses - the floating frames (LoadingFrame, ExportResultModal, the
         // file/level-export dialogs...) are deliberately floating popups, not workspace panels, and
         // forcing them into the dockspace would just be wrong.
         if (frame is DockedFrame)
@@ -680,8 +697,6 @@ public class LunaWindow : IDisposable
         // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
         // called for it.
         RememberDockIdsBeforeClosing();
-        foreach (Frame frame in openFrames)
-            if (FrameMustClose(frame)) frame.OnClosed();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)

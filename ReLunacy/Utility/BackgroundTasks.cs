@@ -6,6 +6,13 @@ public sealed class BackgroundTask(LoadingProgress progress, long sequence)
     public LoadingProgress Progress { get; } = progress;
 
     /// <summary>
+    /// Brings this task's window back, when it has one. A loading frame can be hidden or closed
+    /// while its work runs on, and the status bar is then the only thing still pointing at it -
+    /// so it has to be able to point the user back.
+    /// </summary>
+    public Action? Reveal { get; internal set; }
+
+    /// <summary>
     /// Registration order, and what "latest" means. A clock is not enough: two tasks begun in the
     /// same tick read the same time, and the bar would then pick between them arbitrarily from one
     /// frame to the next.
@@ -40,13 +47,18 @@ public static class BackgroundTasks
     /// <summary>Starts tracking a progress. Safe to call twice with the same one - the second is
     /// ignored rather than listed twice, since producers hand the same progress to more than one
     /// consumer.</summary>
-    public static BackgroundTask Begin(LoadingProgress progress)
+    public static BackgroundTask Begin(LoadingProgress progress, Action? reveal = null)
     {
         lock (Gate)
         {
             var existing = Running.Find(t => ReferenceEquals(t.Progress, progress));
-            if (existing is not null) return existing;
-            var task = new BackgroundTask(progress, ++_sequence);
+            if (existing is not null)
+            {
+                // A later caller may know how to show the window when the first one did not.
+                existing.Reveal ??= reveal;
+                return existing;
+            }
+            var task = new BackgroundTask(progress, ++_sequence) { Reveal = reveal };
             Running.Add(task);
             return task;
         }

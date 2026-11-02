@@ -26,15 +26,6 @@ public abstract class Frame
 
     protected abstract void Render(double deltaTime);
 
-    /// <summary>
-    /// Called once, when the frame has been closed and is about to be dropped.
-    ///
-    /// For state a frame registered elsewhere and has to take back - a modal's entries in
-    /// <see cref="Utility.BackgroundTasks"/>, say. Render stops being called at that point, so
-    /// there is nowhere else to notice.
-    /// </summary>
-    public virtual void OnClosed() { }
-
     /// <summary>Brings this frame's window to the front/active tab, e.g. when another frame jumps here on selection.</summary>
     public void Focus() => ImGui.SetWindowFocus(frameName);
 
