@@ -12,17 +12,20 @@ public sealed class Shrub : IShrub
 
     public IReadOnlyList<IMesh> Meshes { get; init; }
     public string? SourcePath { get; init; }
+    public ulong MaterialTUID { get; init; }
     public (float Near, float Far) DrawDistances { get; init; }
 
     private readonly Lazy<(Vector3 center, float radius)>? _boundingSphere;
 
     public Shrub(ulong id, IReadOnlyList<IMesh> meshes, string? sourcePath = null,
                  (float Near, float Far) drawDistances = default,
-                 Func<(Vector3, float)>? boundingSphereCalculator = null)
+                 Func<(Vector3, float)>? boundingSphereCalculator = null,
+                 ulong materialTuid = 0)
     {
         Id = id;
         Meshes = meshes ?? throw new ArgumentNullException(nameof(meshes));
         SourcePath = sourcePath;
+        MaterialTUID = materialTuid;
         // The leaf of the asset path is what a user recognises; the full path is kept beside it.
         Name = sourcePath is null
             ? null

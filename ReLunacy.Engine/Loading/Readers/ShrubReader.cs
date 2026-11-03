@@ -35,7 +35,14 @@ public sealed class ShrubReader(FileManager fileManager, MaterialReader material
             var parsed = ShrubClass.Read(slice);
             if (parsed.VertexCount == 0 || parsed.Indices.Length == 0) continue;
 
-            IMaterial material = _materialReader.GetMaterialByTuid(parsed.MaterialTUID);
+            // The shader TUID is carried, NOT resolved. GetMaterialByTuid mints a runtime texture
+            // id per (texture, binding descriptor) pair into the shared registry the renderer packs
+            // its atlas from, so resolving materials for geometry nothing draws shifted every other
+            // material's atlas coordinates and the whole level sampled the wrong textures - green
+            // surfaces and moire, measured as 3,388 registry entries on zolar_forest against 3,386.
+            // Whoever draws shrubs resolves IShrub.MaterialTUID at that point, when the cost is
+            // paid for geometry that is actually on screen.
+            IMaterial placeholder = _materialReader.GetDefaultMaterial();
 
             // Keyed by the pointer table's TUID, as Ties are, because that is what a zone's class
             // table names - not the TUID the class also stores in its own header (they agree on
@@ -43,9 +50,10 @@ public sealed class ShrubReader(FileManager fileManager, MaterialReader material
             var geometry = new GeometryData(
                 pointer.TUID, parsed.Positions, parsed.UVs, parsed.Indices);
 
-            var mesh = new Mesh(geometry, material, parsed.SourcePath);
+            var mesh = new Mesh(geometry, placeholder, parsed.SourcePath);
             shrubs[pointer.TUID] = new Assets.Shrubs.Shrub(
-                pointer.TUID, [mesh], parsed.SourcePath, parsed.DrawDistances, parsed.BoundingSphere);
+                pointer.TUID, [mesh], parsed.SourcePath, parsed.DrawDistances, parsed.BoundingSphere,
+                materialTuid: parsed.MaterialTUID);
         }
 
         return shrubs;

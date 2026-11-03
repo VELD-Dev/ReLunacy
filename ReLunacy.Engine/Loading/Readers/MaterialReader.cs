@@ -300,7 +300,14 @@ public sealed class MaterialReader
         meta.height,
         meta.control3);
 
-    private Material GetDefaultMaterial()
+    /// <summary>
+    /// The flat-white stand-in used where a shader cannot be resolved.
+    ///
+    /// Public because it is also the right thing to hand geometry that is loaded but not drawn:
+    /// it builds a 1x1 texture of its own and never goes through WrapTexture, so unlike a real
+    /// material it adds nothing to the shared texture registry the renderer packs its atlas from.
+    /// </summary>
+    public Material GetDefaultMaterial()
     {
         if (_defaultMaterial != null)
             return _defaultMaterial;
