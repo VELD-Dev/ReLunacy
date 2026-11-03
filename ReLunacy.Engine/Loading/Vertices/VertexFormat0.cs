@@ -78,8 +78,14 @@ public record struct VertexFormat0
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)boneIndex) / 127f, 0f, 1f);
     // Range D: 0x9980 -> 0.0, 0x99FF -> 1.0 (ascending).
     public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)boneIndex - 0x9980) / 127f, 0f, 1f);
+    // Range E: 0x8C00 -> 0.0, 0x8B81 -> 1.0 (descending), reported 2026-11-02 and the same 127-wide
+    // shape as the rest. MEASURED on A Crack in Time Ties: 1,175 of zolar_forest's 217,712 sampled
+    // vertices land in it (0.54%) and 917 of molonoth's 455,758 (0.20%), while krell_canyon has
+    // none - so it is a real band that only some levels use, which is exactly how a band stays
+    // hidden. Until it was listed here those vertices fell through to the opaque fallback.
+    public readonly float VertexAlphaNewEngineE => Math.Clamp((0x8C00 - (ushort)boneIndex) / 127f, 0f, 1f);
 
-    // Picks whichever new-engine range the raw value falls into. Outside all four ranges = 1.0
+    // Picks whichever new-engine range the raw value falls into. Outside all five ranges = 1.0
     // (opaque, no vertex alpha data).
     public readonly float VertexAlphaNewEngineAuto
     {
@@ -90,6 +96,7 @@ public record struct VertexFormat0
             if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaNewEngineB;
             if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaNewEngineC;
             if (raw is >= 0x9980 and <= 0x99FF) return VertexAlphaNewEngineD;
+            if (raw is >= 0x8B81 and <= 0x8C00) return VertexAlphaNewEngineE;
             return 1f;
         }
     }
