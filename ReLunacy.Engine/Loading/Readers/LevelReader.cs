@@ -15,6 +15,7 @@ public sealed class LevelReader
     private readonly DebugReader _debugReader;
     private MobyReader _mobyReader = null!;
     private TieReader _tieReader = null!;
+    private ShrubReader _shrubReader = null!;
     private ZoneReader _zoneReader = null!;
     private FoliageReader _foliageReader = null!;
     private AnimationReader _animationReader = null!;
@@ -22,6 +23,7 @@ public sealed class LevelReader
 
     private Dictionary<ulong, Assets.Mobys.Moby>? _mobys;
     private Dictionary<ulong, Assets.Ties.Tie>? _ties;
+    private Dictionary<ulong, Assets.Shrubs.Shrub>? _shrubs;
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
@@ -82,9 +84,16 @@ public sealed class LevelReader
 
             if (loadZones)
             {
+                // Shrubs before zones: a zone's placements name their class by TUID, so the
+                // classes have to exist before the placements can resolve against them.
+                progressCallback?.Invoke("Loading Shrubs...", 0.55f);
+                _shrubReader = new ShrubReader(_fileManager, _materialReader);
+                _shrubs = _shrubReader.ReadAllShrubs();
+
                 _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader)
                 {
                     CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
+                    Shrubs = _shrubs,
                 };
 
                 progressCallback?.Invoke("Loading Zones...", 0.6f);
@@ -144,6 +153,7 @@ public sealed class LevelReader
         return new LevelData(
             mobys: _mobys ?? [],
             ties: _ties ?? [],
+            shrubs: _shrubs ?? [],
             zones: _zones ?? [],
             region: _region,
             isOldEngine: _fileManager.isOld,
@@ -169,6 +179,7 @@ public sealed class LevelReader
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
+    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs => _shrubs ?? [];
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
     public IReadOnlyList<Assets.Animations.AnimationClip> Animations => _animations ?? [];
@@ -183,6 +194,11 @@ public sealed class LevelData
 {
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys { get; }
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties { get; }
+
+    /// <summary>Shrub classes (shrubs.dat): the small scattered models - grass, ferns,
+    /// groundcover. Empty on the old engine, which has no shrub family. Their placements live on
+    /// each <see cref="Assets.Levels.Zone"/>.</summary>
+    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; }
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones { get; }
     public Assets.Levels.Region? Region { get; }
     public bool IsOldEngine { get; }
@@ -240,6 +256,7 @@ public sealed class LevelData
         Dictionary<ulong, Assets.Mobys.Moby> mobys,
         Dictionary<ulong, Assets.Ties.Tie> ties,
         Dictionary<ulong, Assets.Levels.Zone> zones,
+        Dictionary<ulong, Assets.Shrubs.Shrub> shrubs,
         Assets.Levels.Region? region,
         bool isOldEngine,
         DebugReader debugReader,
@@ -257,6 +274,7 @@ public sealed class LevelData
     {
         Mobys = mobys;
         Ties = ties;
+        Shrubs = shrubs;
         Zones = zones;
         Region = region;
         IsOldEngine = isOldEngine;
