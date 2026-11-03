@@ -84,9 +84,6 @@ public class FileManager : IDisposable
             LoadFile("mobys.dat", true);
             LoadFile("animsets.dat", true);
             LoadFile("ties.dat", true);
-            // Scattered grass and groundcover, sliced by assetlookup's 0x1D500 table. Twelve of A
-            // Crack in Time's twenty-two levels ship it; LoadFile records a null stream for the rest.
-            LoadFile("shrubs.dat", true);
             LoadFile("textures.dat", true);
             LoadFile("highmips.dat", true);
             LoadFile("shaders.dat", true);

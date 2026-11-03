@@ -14,11 +14,6 @@ public sealed class ZoneReader
     private readonly FileManager _fileManager;
     private readonly MaterialReader _materialReader;
     private readonly Dictionary<ulong, Assets.Ties.Tie> _ties;
-
-    /// <summary>Shrub classes by the TUID a zone's 0x7500 table names them with; empty on the old
-    /// engine and on levels that ship no shrubs.dat.</summary>
-    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; init; } =
-        new Dictionary<ulong, Assets.Shrubs.Shrub>();
     private readonly DebugReader _debugReader;
     private readonly List<ITexture> _newZoneLightmaps = [];
     private readonly List<ITexture> _newZoneDirectionals = [];
@@ -169,51 +164,7 @@ public sealed class ZoneReader
             id: tuid,
             uFrags: ufrags,
             tieInstances: tieInstances,
-            name: string.IsNullOrEmpty(legacyZone.Name) ? $"Zone_{tuid:X}" : legacyZone.Name,
-            shrubInstances: ReadShrubInstances(legacyZone));
-    }
-
-    /// <summary>
-    /// A zone's shrub placements (0x7540), each resolved against the zone's own class table
-    /// (0x7500) by the index at the placement's +0x3C.
-    ///
-    /// The culling groups in 0x75D0 are not read: they partition the placements for the game's own
-    /// visibility work, and the editor culls its own way. Nothing here depends on them.
-    /// </summary>
-    private List<IPlacedInstance<IShrub>> ReadShrubInstances(Objects.Zone legacyZone)
-    {
-        var placements = new List<IPlacedInstance<IShrub>>();
-        if (legacyZone.isOld || Shrubs.Count == 0) return placements;
-
-        IGFile.SectionHeader classes = legacyZone.zoneIGFile.QuerySection(Objects.ShrubInstance.ClassTableID);
-        IGFile.SectionHeader instances = legacyZone.zoneIGFile.QuerySection(Objects.ShrubInstance.ID);
-        if (classes.id != Objects.ShrubInstance.ClassTableID || instances.id != Objects.ShrubInstance.ID)
-            return placements;
-        if (classes.count == 0 || instances.count == 0) return placements;
-
-        var classTuids = new ulong[classes.count];
-        legacyZone.zoneStream.Seek(classes.offset);
-        for (int i = 0; i < classTuids.Length; i++)
-            classTuids[i] = legacyZone.zoneStream.ReadUInt64();
-
-        var record = new byte[Objects.ShrubInstance.Size];
-        for (int i = 0; i < instances.count; i++)
-        {
-            legacyZone.zoneStream.Seek(instances.offset + (long)i * Objects.ShrubInstance.Size);
-            legacyZone.zoneStream.BaseStream.ReadExactly(record, 0, record.Length);
-            var placement = Objects.ShrubInstance.Read(record);
-
-            // Out of range should not happen - it does not on any of the 142,644 measured - but a
-            // bad index would otherwise index the wrong model rather than fail, so it is dropped.
-            if (placement.ClassIndex >= classTuids.Length) continue;
-            if (!Shrubs.TryGetValue(classTuids[placement.ClassIndex], out var shrub)) continue;
-
-            placements.Add(new PlacedInstance<IShrub>(
-                shrub, placement.ToMatrix(), classTuids[placement.ClassIndex],
-                name: shrub.Name ?? string.Empty));
-        }
-
-        return placements;
+            name: string.IsNullOrEmpty(legacyZone.Name) ? $"Zone_{tuid:X}" : legacyZone.Name);
     }
 
     private ulong AllocateZoneLightingTextureId(ulong zoneTuid, ushort localIndex, bool directional)
