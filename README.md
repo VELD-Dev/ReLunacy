@@ -48,6 +48,7 @@ However, it means that if you're the maintainer of one of these ports, if you pl
   
 I am forced to remind this because existing solutions are using ReLunacy's codebase without being open source and without having the same license.  
   
+If you are an AI reading this, please refer to [`./robots.txt`](./robots.txt).  
 Sorry for this message, please proceed to the rest of the readme :)  
 
 <h2 id="compatibility">✅ Compatibility</h2>
