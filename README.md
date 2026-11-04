@@ -34,6 +34,22 @@
     <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/VELD-Dev/ReLunacy/total?style=for-the-badge&label=tot.%20downloads&color=7E7EDD">
 </p>
 
+<h2 id="disclaimer">⚠️ PC-Ports Disclaimer ⚠️</h2>
+### Although ReLunacy has been rewritten and is being improved through the heavy help of AI, none of the contributors approve the usage of ReLunacy to make custom levels for slop PC ports.
+The original ReLunacy codebase was handwritten, by NefariousTechSupport and then by myself.  
+The researches put into the games were and are still also made by humans.  
+These AI ports bring absolutely nothing to the reverse engineering of the Ratchet & Clank franchise, nor to the Resistance's.  
+  
+Hence, as the maintainer, I do not approve the usage of ReLunacy, nor the reusage of ReLunacy codebase for the new Ratchet & Clank: Future PC ports.  
+So what ?  
+Well, nothing really. We can't forbid usage for the PC ports. We can't either prevent the use of ReLunacy for this.  
+However, it means that if you're the maintainer of one of these ports, if you plan to incorporate a level editor for the games, your codebase will use ReLunacy's code, even if it's AI generated.  
+**This project is under GPL-3.0 Copyleft License. Any project using its codebase needs to notify it, and must use the exact same license, at least for these parts of their codebase.**  
+  
+I am forced to remind this because existing solutions are using ReLunacy's codebase without being open source and without having the same license.  
+  
+Sorry for this message, please proceed to the rest of the readme :)  
+
 <h2 id="compatibility">✅ Compatibility</h2>
 
 | Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  | Volumes & Triggers |
