@@ -226,17 +226,26 @@ void shadeInner(out vec3 litColor, out float litAlpha);
 // how an overflow presents, the opposite way round from clipping, which saturates to white. It also
 // spreads: NaN survives alpha blending, the OIT accumulate/reveal divide and every tap of the bloom
 // chain, so one bad pixel takes its neighbourhood with it. The 8-bit targets used to clamp this away
-// for free; float ones do not, so it is clamped here instead. 1e4 is far above anything the scene
-// legitimately produces and far below half-float's 65504, leaving no room to overflow downstream.
+// for free; float ones do not, so it is clamped here instead.
+//
+// 1e3, not half float's own 65504: this value is also what the bloom chain samples, and the combine
+// sums three taps of a downsample that already weighs ~1.6, so the ceiling has to leave room for
+// roughly 5x on top of it. The scene's own peak radiance is ~50 (a cube) and a few hundred (a baked
+// scale), so this is ~5x above anything legitimate while keeping every bloom sum two orders clear of
+// overflow - and Inf there would come back as NaN through the combine's mix(c, s3, 1) = Inf * 0.
 vec3 sanitiseColour(vec3 c) {
     c = mix(c, vec3(0.0), bvec3(isnan(c.x), isnan(c.y), isnan(c.z)));
-    return clamp(c, vec3(0.0), vec3(1.0e4));
+    return clamp(c, vec3(0.0), vec3(1.0e3));
 }
 
 void shade(out vec3 litColor, out float litAlpha) {
     shadeInner(litColor, litAlpha);
     litColor = sanitiseColour(debugTonemap(litColor));
-    litAlpha = isnan(litAlpha) ? 0.0 : clamp(litAlpha, 0.0, 1.0e4);
+    // 0..1, not the colour's headroom: this alpha is coverage, and in the opaque pass it is also the
+    // BLOOM SOURCE (gGlow). Left unbounded it feeds the bloom chain values that overflow half float,
+    // and the combine's mix(c, s3, h) then evaluates Inf * 0 = NaN at h = 1 - which renders black,
+    // exactly where bloom is strongest and so exactly where the image is brightest.
+    litAlpha = isnan(litAlpha) ? 0.0 : clamp(litAlpha, 0.0, 1.0);
 }
 
 void shadeInner(out vec3 litColor, out float litAlpha) {
