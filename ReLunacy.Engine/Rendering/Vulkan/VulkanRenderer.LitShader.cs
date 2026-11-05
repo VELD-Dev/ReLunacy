@@ -230,11 +230,28 @@ void shade(out vec3 litColor, out float litAlpha) {
     // The permutation bits the game draws with (QForce EBOOT 0x006AE85C / 0x006B7380): the material's
     // +0x20 (uMat6.w) AND the Tie primitive's +0x20 / UFrag record's +0x54 (tieShaderUse0.w - 1).
     // Only shaders of bit 0x04 sample the reflection cube, only 0x08 the normal map, only 0x10 the
-    // detail map, and 0x01 is parallax. No mask (Mobys, old engine): nothing is gated.
+    // detail map, and 0x01 is parallax.
+    //
+    // The record mask is a MODIFIER on the material's bits, not a precondition for reading them.
+    // A draw that carries no mask - every Moby, which picks its shaders from other key bits - is
+    // still gated by its own material. Substituting 0x1F there discarded uMat6.w entirely and
+    // force-enabled all four features: on zolar_forest that was 1331 of 1458 Moby meshes, 802 of
+    // them declaring 0x0C (specular + normal map, explicitly NO parallax and NO detail) and being
+    // given parallax and detail anyway, and 95 taking parallax with no properties texture bound at
+    // all. Parallax offsets the albedo lookup by the expensive map's green channel, so that lands
+    // as smeared UVs and blown specular, and only in this shader - nothing unlit samples uProps.
+    // The retail route already does it this way (see StandardRoute / the RSX fragment prologue in
+    // VulkanRenderer.RsxShaders): it starts from uMat6.w and only ANDs a mask when one exists.
+    // Old-engine materials carry no +0x20 (uMat6 is their detail tiling), so they keep 0x1F.
     bool hasPermutationMask = uOldEngineMode < 0.5 && instanceLight.tieShaderUse0.w > 0.5;
-    int permutationBits = hasPermutationMask
-        ? int(uMat6.w + 0.5) & (int(instanceLight.tieShaderUse0.w + 0.5) - 1)
-        : 0x1F;
+    int permutationBits = uOldEngineMode > 0.5
+        ? 0x1F
+        : hasPermutationMask
+            ? int(uMat6.w + 0.5) & (int(instanceLight.tieShaderUse0.w + 0.5) - 1)
+            : int(uMat6.w + 0.5);
+    // A detail bit with no detail map bound reads the fallback texture as a full-strength map,
+    // the same guard StandardRoute applies before it picks a retail shader.
+    if (uMat6.z < 0.5) permutationBits &= ~0x10;
     bool allowParallax = (permutationBits & 0x01) != 0;
     bool allowSpecular = (permutationBits & 0x04) != 0;
     bool allowNormalMap = (permutationBits & 0x08) != 0;
