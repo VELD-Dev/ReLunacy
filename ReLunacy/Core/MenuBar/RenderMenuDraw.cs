@@ -321,10 +321,17 @@ internal static class RenderMenuDraw
             Engine.Rendering.Vulkan.VulkanRenderer.CubeBiasOffset = cubeBias;
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_CubeBiasHint"));
 
-        bool tonemap = Engine.Rendering.Vulkan.VulkanRenderer.TonemapPreview;
+        float exposure = Engine.Rendering.Vulkan.VulkanRenderer.TonemapExposure;
+        bool tonemap = exposure > 0f;
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_TonemapPreview"), "", tonemap))
-            Engine.Rendering.Vulkan.VulkanRenderer.TonemapPreview = !tonemap;
+            Engine.Rendering.Vulkan.VulkanRenderer.TonemapExposure = tonemap ? 0f : 1f;
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_TonemapPreviewHint"));
+        if (tonemap)
+        {
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_Exposure"), ref exposure, 0.01f, 4f, "%.3f"))
+                Engine.Rendering.Vulkan.VulkanRenderer.TonemapExposure = MathF.Max(exposure, 0.001f);
+        }
 
         // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a near-mirror everywhere.
         float reflBase = view.ReflectionBase;

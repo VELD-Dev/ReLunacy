@@ -28,11 +28,11 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     /// authored per-material value can be shifted as a whole while hunting for the retail one.</summary>
     public static float CubeBiasOffset { get; set; }
 
-    /// <summary>Reinhard the lit colour instead of letting it clip. Clipping is per channel, so an
-    /// over-bright reflection does not blow out to white - it separates into hue bands, which is what
-    /// makes a too-hot reflection read as a wrong colour rather than as a bright one. This tells the
-    /// two apart at a glance.</summary>
-    public static bool TonemapPreview { get; set; }
+    /// <summary>Exposure for the Reinhard roll-off, 0 to disable it and clamp instead. The scene is
+    /// genuinely HDR, so clamping to the display range loses hue as well as brightness - the channels
+    /// reach 1.0 at different points, so an over-bright surface changes colour rather than going
+    /// white. Rolling off preserves the ratio between channels.</summary>
+    public static float TonemapExposure { get; set; }
 
     /// <summary>0 normal, 1 reflection only, 2 the cube radiance as the shader sampled it, 3 no
     /// reflection at all. Rides in uReflectionDebug, which was declared and never read.</summary>
@@ -2083,7 +2083,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // .y/.z are live cubemap debug knobs (Render > Reflections). They ride in the spare lanes of
         // an existing vec4 rather than growing the uniform block, which would mean matching a std140
         // layout change on both sides for two debug floats.
-        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, CubeBiasOffset, TonemapPreview ? 1f : 0f, SpecularOverride);
+        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, CubeBiasOffset, TonemapExposure, SpecularOverride);
         light.ReflectionDebugView = ReflectionDebugMode;
         light.BakedDebugView = LightingDebugMode;
         WriteNewEngineFog(ref light);

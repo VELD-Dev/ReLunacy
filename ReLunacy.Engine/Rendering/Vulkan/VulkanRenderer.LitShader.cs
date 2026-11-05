@@ -210,7 +210,14 @@ float sunShadowTerm() { return 1.0; }
 // instead of blowing out to white. Rolling off here shows whether what is underneath is a correct
 // picture that is merely too hot, or an actually wrong colour.
 vec3 debugTonemap(vec3 c) {
-    return uPostParams.z > 0.5 ? c / (1.0 + max(c, vec3(0.0))) : c;
+    if (uPostParams.z <= 0.0) return c;
+    // Reinhard at the given exposure. The scene is genuinely HDR - a new-engine cube reaches ~50x
+    // and a baked placement scale 184 - so mapping it to an 8-bit display by CLAMPING loses the
+    // hue as well as the brightness: the channels reach 1.0 at different points, so an over-bright
+    // surface turns a different colour rather than going white. Rolling off keeps the ratio between
+    // channels, which is what makes a bright surface read as bright instead of as miscoloured.
+    vec3 e = max(c, vec3(0.0)) * uPostParams.z;
+    return e / (1.0 + e);
 }
 
 void shadeInner(out vec3 litColor, out float litAlpha);
