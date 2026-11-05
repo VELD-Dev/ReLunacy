@@ -743,6 +743,12 @@ public class LunaWindow : IDisposable
             commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
             commandList.ClearDepthStencil(1.0f);
 
+        // The post-Draw safe point FlushSceneRendererInvalidation documents: this frame's draw is
+        // submitted, so tearing the captured scene down here lets the next Update rebuild it from
+        // the current entity state. Nothing called it before, so every InvalidateSceneRenderer -
+        // the per-zone and per-region render toggles among them - only ever set a flag that was
+        // read back by nothing, and the scene kept drawing whatever it was first built with.
+        AssetManager?.FlushSceneRendererInvalidation();
             imGuiController.Render(graphicsDevice, commandList);
 
             commandList.End();
