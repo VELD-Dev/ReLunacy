@@ -98,6 +98,11 @@ public class EntityManager : IDisposable
     {
         foreach (var e in Foliage) yield return e;
 
+        // Regions can claim the same zone (All 4 One's lobby has two regions over one pair of zones),
+        // and each region built its own EntityZone over it, so a zone reached through two enabled
+        // regions would otherwise have every Tie and UFrag drawn twice.
+        var drawnZones = new HashSet<ulong>();
+
         foreach (var region in Regions)
         {
             if (!region.allowRender) continue;
@@ -107,6 +112,7 @@ public class EntityManager : IDisposable
             foreach (var zone in region.Zones)
             {
                 if (!zone.allowRender) continue;
+                if (!drawnZones.Add(zone.ZoneTUID)) continue;
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
             }

@@ -72,8 +72,9 @@ internal static class RenderMenuDraw
     /// <summary>Per-zone render toggles - zones are the level's own streaming/culling unit (mostly
     /// relevant on new engine, which routinely has many; old engine levels have exactly one, id 0),
     /// so this is what lets the user turn a zone's Ties/UFrags off without hiding anything else.
-    /// Mobys/Volumes are per-REGION, not per-zone (see EntityRegion vs EntityZone), so they're
-    /// untouched by this - there's normally only one region per level anyway.
+    /// Mobys/Volumes are per-REGION, not per-zone (see EntityRegion vs EntityZone), so a zone tick
+    /// leaves them alone; the per-region tick above each group is what hides those, along with every
+    /// zone the region holds.
     ///
     /// Skips building the submenu entirely when there are no zones (no level loaded, or a level
     /// with none) rather than showing an empty one - same pattern ViewMenuDraw.LayoutPresets uses
@@ -84,8 +85,36 @@ internal static class RenderMenuDraw
         if (em.ZonesCount == 0) return;
         if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderZones"))) return;
 
-        foreach (var region in em.Regions)
+        // One region is the norm (every old-engine level, and most new-engine ones), so a lone region
+        // lists its zones directly rather than behind a submenu nobody needs to open. Several regions
+        // is the case this grouping exists for: A4O's levels overlap in space, and a region is how
+        // NewEngine+ groups the zones meant to be seen together.
+        var regions = em.Regions;
+        bool nest = regions.Count > 1;
+
+        for (int r = 0; r < regions.Count; r++)
         {
+            var region = regions[r];
+            // Region names are no more unique than zone names and EntityRegion carries no TUID,
+            // so the list index is what keeps the ImGui IDs distinct.
+            if (nest && !ImGui.BeginMenu($"{region.RegionName}###region_{r}")) continue;
+
+            // The region's own tick, always present so it can be found: at the head of its submenu
+            // when regions are nested, inline and labelled with the region name when there is only
+            // one (nesting a single region would just add a click to reach the zones).
+            if (ImGui.MenuItem(
+                    nest ? LM.Get("GUI_MenuItem_RenderWholeRegion") : $"{region.RegionName}###region_{r}",
+                    "", region.allowRender))
+            {
+                region.allowRender = !region.allowRender;
+                LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+            }
+            ImGui.Separator();
+
+            // A region turned off hides its zones whatever their own flags say (see
+            // EntityManager.AllRenderableEntities), so show them as overridden instead of letting a
+            // ticked zone claim it is drawing when it is not.
+            if (!region.allowRender) ImGui.BeginDisabled();
             foreach (var zone in region.Zones)
             {
                 // ###-scoped by TUID, not just the name - zone names are not guaranteed unique
@@ -97,14 +126,20 @@ internal static class RenderMenuDraw
                     LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
                 }
             }
+            if (!region.allowRender) ImGui.EndDisabled();
+
+            if (nest) ImGui.EndMenu();
         }
 
         ImGui.Separator();
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ShowAllZones")))
         {
             foreach (var region in em.Regions)
+            {
+                region.allowRender = true;
                 foreach (var zone in region.Zones)
                     zone.allowRender = true;
+            }
             LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
         }
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_HideAllZones")))

@@ -384,6 +384,7 @@
         "GUI_MenuItem_RenderFoliage": "Foliage",
         "GUI_MenuItem_RenderVolumes": "Volumes",
         "GUI_MenuItem_RenderZones": "Zones",
+        "GUI_MenuItem_RenderWholeRegion": "Render this region",
         "GUI_MenuItem_ShowAllZones": "Show All",
         "GUI_MenuItem_HideAllZones": "Hide All",
         "GUI_MenuItem_RenderSkies": "Sky",

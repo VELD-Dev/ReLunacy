@@ -401,7 +401,23 @@ public class LunaWindow : IDisposable
             // rather than leaving it to look like a renderer bug.
             WarnIfEbootMissing(ready.Level);
             long a0 = lsw.ElapsedMilliseconds;
-            EntityManager.Singleton.LoadRegion(ready.Level.Region, AssetManager, GraphicsDevice);
+            // Every region, not just the first: new-engine levels group their zones into several
+            // (All 4 One's are progression segments of one map - a_start, b_taxi, ... g_rooftops_2),
+            // and they were unreachable before. Drawing them all at once would stack segments that
+            // overlap in space and were never shown together, so exactly one starts visible and the
+            // rest become available from Render > Zones.
+            foreach (var levelRegion in ready.Level.Regions)
+                EntityManager.Singleton.LoadRegion(levelRegion, AssetManager, GraphicsDevice);
+
+            // The one called "default" when the level names one - that is the game's own default
+            // region, and on a level like lobby (outfitter / static_scene / default) it is the one
+            // holding the full zone set. Otherwise the first, which is the region the loader used to
+            // be hardcoded to.
+            var regions = EntityManager.Singleton.Regions;
+            int shown = regions.FindIndex(r => r.RegionName == "default");
+            if (shown < 0) shown = 0;
+            for (int r = 0; r < regions.Count; r++)
+                regions[r].allowRender = r == shown;
             long tRegion = lsw.ElapsedMilliseconds - a0; a0 = lsw.ElapsedMilliseconds;
             EntityManager.Singleton.LoadFoliage(ready.Level.Foliages, AssetManager, GraphicsDevice);
             LunaLog.LogDebug($"Entities built in {lsw.ElapsedMilliseconds}ms (region {tRegion}, foliage {lsw.ElapsedMilliseconds - a0}). {AssetManager.TotalQueuedUploads} textures queued for GPU upload.");
@@ -727,6 +743,12 @@ public class LunaWindow : IDisposable
 
     protected virtual void AfterUpdate()
     {
+        // The post-Draw safe point FlushSceneRendererInvalidation documents: this frame's draw is
+        // submitted, so tearing the captured scene down here lets the next Update rebuild it from
+        // the current entity state. Nothing called it before, so every InvalidateSceneRenderer -
+        // the per-zone and per-region render toggles among them - only ever set a flag that was
+        // read back by nothing, and the scene kept drawing whatever it was first built with.
+        AssetManager?.FlushSceneRendererInvalidation();
         FlushPendingLevelWipe();
         DoLoadEntitiesCheck();
         DoExportCompletionsCheck();
@@ -743,12 +765,6 @@ public class LunaWindow : IDisposable
             commandList.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1.0f));
             commandList.ClearDepthStencil(1.0f);
 
-        // The post-Draw safe point FlushSceneRendererInvalidation documents: this frame's draw is
-        // submitted, so tearing the captured scene down here lets the next Update rebuild it from
-        // the current entity state. Nothing called it before, so every InvalidateSceneRenderer -
-        // the per-zone and per-region render toggles among them - only ever set a flag that was
-        // read back by nothing, and the scene kept drawing whatever it was first built with.
-        AssetManager?.FlushSceneRendererInvalidation();
             imGuiController.Render(graphicsDevice, commandList);
 
             commandList.End();

@@ -24,7 +24,7 @@ public sealed class RegionReader
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
     }
 
-    public Assets.Levels.Region ReadRegion() => _fileManager.isOld ? ReadRegionOld() : ReadRegionNew();
+    public Assets.Levels.Region ReadRegion() => ReadAllRegions()[0];
 
     private Assets.Levels.Region ReadRegionOld()
     {
@@ -42,12 +42,19 @@ public sealed class RegionReader
             name: "OldRegion");
     }
 
-    private Assets.Levels.Region ReadRegionNew()
+    /// <summary>Every region of the level, in the order gameplay.dat's name table lists them. New-engine
+    /// levels routinely have several - All 4 One's are progression segments of one map (a_start, b_taxi,
+    /// ... g_rooftops_2) that overlap in space and were never meant to be seen at once, which is what
+    /// per-region render toggles exist for. The old engine has exactly one.</summary>
+    public List<Assets.Levels.Region> ReadAllRegions() =>
+        _fileManager.isOld ? [ReadRegionOld()] : ReadAllRegionsNew();
+
+    private List<Assets.Levels.Region> ReadAllRegionsNew()
     {
         if (!_fileManager.igfiles.TryGetValue("gameplay.dat", out IGFile? gameplay) || gameplay is null)
         {
             Console.WriteLine("Cannot find gameplay.dat.");
-            return new Assets.Levels.Region(0, [], [], [], false);
+            return [new Assets.Levels.Region(0, [], [], [], false)];
         }
 
         // New engine: gameplay.dat only carries a string table of region names. The actual
@@ -57,34 +64,40 @@ public sealed class RegionReader
         if (regionNames.Count == 0)
         {
             Console.WriteLine("No regions found in gameplay.dat's region string table.");
-            return new Assets.Levels.Region(0, [], [], [], false);
-        }
-        if (regionNames.Count > 1)
-        {
-            // The format supports multiple regions, but the data model here only holds one.
-            // Load the first and flag the rest.
-            Console.WriteLine($"Level has {regionNames.Count} regions ({string.Join(", ", regionNames)}) - only '{regionNames[0]}' is currently loaded.");
+            return [new Assets.Levels.Region(0, [], [], [], false)];
         }
 
-        string regionName = regionNames[0];
+        var regions = new List<Assets.Levels.Region>(regionNames.Count);
+        for (int i = 0; i < regionNames.Count; i++)
+            if (ReadOneRegionNew(regionNames[i], (ulong)(i + 1)) is { } region)
+                regions.Add(region);
+
+        // A level whose every region failed to open still needs a region to hang its zones off, or
+        // nothing downstream has anywhere to put them.
+        if (regions.Count == 0)
+            regions.Add(new Assets.Levels.Region(0, [], [], [], false, regionNames[0]));
+
+        Console.WriteLine($"[Regions] {regions.Count}/{regionNames.Count} loaded: " +
+            string.Join(", ", regions.Select(r => $"{r.Name} ({r.Zones.Count} zone(s), {r.MobyInstances.Count} moby instance(s))")));
+        return regions;
+    }
+
+    private Assets.Levels.Region? ReadOneRegionNew(string regionName, ulong id)
+    {
         var prius = (IGFile?)_fileManager.LoadFile($"{regionName}/gp_prius.dat", false);
         var region = (IGFile?)_fileManager.LoadFile($"{regionName}/region.dat", false);
 
         if (prius is null || region is null)
         {
             Console.WriteLine($"Cannot find gp_prius.dat/region.dat for region '{regionName}'.");
-            return new Assets.Levels.Region(0, [], [], [], false, regionName);
+            return null;
         }
 
-        var mobyInstances = ReadMobyInstancesNew(prius, region);
-        var volumes = ReadVolumesNew(prius);
-        var zoneList = ReadZoneList(region);
-
         return new Assets.Levels.Region(
-            id: 1,
-            mobyInstances: mobyInstances,
-            volumes: volumes,
-            zones: zoneList,
+            id: id,
+            mobyInstances: ReadMobyInstancesNew(prius, region),
+            volumes: ReadVolumesNew(prius),
+            zones: ReadZoneList(region),
             isOldEngine: false,
             name: regionName);
     }

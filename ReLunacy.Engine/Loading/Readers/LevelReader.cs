@@ -26,6 +26,7 @@ public sealed class LevelReader
     private Dictionary<ulong, Assets.Shrubs.Shrub>? _shrubs;
     private Dictionary<ulong, Assets.Levels.Zone>? _zones;
     private Assets.Levels.Region? _region;
+    private List<Assets.Levels.Region> _regions = [];
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
     private IReadOnlyList<Assets.Animations.AnimationClip>? _animations;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
@@ -106,8 +107,25 @@ public sealed class LevelReader
             _regionReader = new RegionReader(_fileManager, _mobys!, _zones!, _debugReader);
 
             progressCallback?.Invoke("Loading Region...", 0.8f);
-            _region = _regionReader.ReadRegion();
-            _region.Zones = [.. _zones!.Values];
+            _regions = _regionReader.ReadAllRegions();
+            _region = _regions[0];
+
+            // Each new-engine region names its own zones (region.dat 0x1C010), and that membership is
+            // the whole point of loading them separately - it used to be overwritten with every zone in
+            // the level, which is why one region appeared to own all of them. Old-engine regions carry
+            // no zone list at all, so they still take the level's zones wholesale.
+            // Any zone no region claims is attached to the first one rather than dropped: it would
+            // otherwise stop being drawn entirely, since the scene only walks zones through regions.
+            var claimed = _regions.SelectMany(r => r.Zones).Select(z => z.Id).ToHashSet();
+            var unclaimed = _zones!.Values.Where(z => !claimed.Contains(z.Id)).ToList();
+            foreach (var region in _regions)
+                if (region.IsOldEngine || region.Zones.Count == 0 && _regions.Count == 1)
+                    region.Zones = [.. _zones!.Values];
+            if (unclaimed.Count > 0 && _regions.Count > 1)
+            {
+                Console.WriteLine($"[Regions] {unclaimed.Count} zone(s) claimed by no region; attached to '{_regions[0].Name}'.");
+                _regions[0].Zones = [.. _regions[0].Zones, .. unclaimed];
+            }
         }
 
         // Foliage has its own asset + instance sections, so it loads regardless of the Mobys/Ties/
@@ -156,6 +174,7 @@ public sealed class LevelReader
             shrubs: _shrubs ?? [],
             zones: _zones ?? [],
             region: _region,
+            regions: _regions,
             isOldEngine: _fileManager.isOld,
             debugReader: _debugReader,
             allTextures: allTextures,
@@ -187,6 +206,7 @@ public sealed class LevelReader
     public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
     public IReadOnlyList<Assets.Sky.LevelSky> Skies => _skies ?? [];
     public Assets.Levels.Region? Region => _region;
+    public IReadOnlyList<Assets.Levels.Region> Regions => _regions;
 }
 
 /// <summary>Container for a fully loaded level.</summary>
@@ -201,6 +221,11 @@ public sealed class LevelData
     public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; }
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones { get; }
     public Assets.Levels.Region? Region { get; }
+
+    /// <summary>Every region of the level. <see cref="Region"/> is the first of these, kept for callers
+    /// that only ever wanted one.</summary>
+    public IReadOnlyList<Assets.Levels.Region> Regions { get; }
+
     public bool IsOldEngine { get; }
     public DebugReader DebugReader { get; }
 
@@ -258,6 +283,7 @@ public sealed class LevelData
         Dictionary<ulong, Assets.Levels.Zone> zones,
         Dictionary<ulong, Assets.Shrubs.Shrub> shrubs,
         Assets.Levels.Region? region,
+        IReadOnlyList<Assets.Levels.Region>? regions,
         bool isOldEngine,
         DebugReader debugReader,
         IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture>? allTextures = null,
@@ -277,6 +303,7 @@ public sealed class LevelData
         Shrubs = shrubs;
         Zones = zones;
         Region = region;
+        Regions = regions ?? (region != null ? [region] : []);
         IsOldEngine = isOldEngine;
         DebugReader = debugReader;
         AllTextures = allTextures ?? new Dictionary<ulong, Assets.Interfaces.ITexture>();
