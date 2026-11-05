@@ -37,6 +37,69 @@ public class LevelDataFrame : DockedFrame
 
         if (ImGui.CollapsingHeader(ImGuiPlus.Label(Icons.Lightbulb, LM.Get("GUI_Frame_LevelData_Lighting")), ImGuiTreeNodeFlags.DefaultOpen))
             RenderLighting(level);
+
+        if (ImGui.CollapsingHeader(ImGuiPlus.Label(Icons.Folder, LM.Get("GUI_Frame_LevelData_Regions"))))
+            RenderRegions(level);
+    }
+
+    /// <summary>What each loaded region owns and what each of its zones holds. On NewEngine+ the
+    /// cubemap set, lighting, fog and sky belong to the region, and a zone can appear under more than
+    /// one region - so "which region is this, and what does it declare" is a question that otherwise
+    /// takes a log read to answer.</summary>
+    private static void RenderRegions(LevelData level)
+    {
+        var em = EntityManager.Singleton;
+        var am = LunaWindow.Instance.AssetManager;
+        if (em.Regions.Count == 0) { ImGui.TextDisabled(LM.Get("GUI_Frame_LevelData_NoRegions")); return; }
+
+        foreach (var region in em.Regions)
+        {
+            string name = region.RegionName;
+            bool lightingHere = name == am?.ActiveEnvironmentRegion;
+            string label = LM.Get("GUI_Frame_LevelData_RegionHeader", name, region.ZonesCount,
+                region.allowRender ? LM.Get("GUI_Frame_LevelData_Shown") : LM.Get("GUI_Frame_LevelData_Hidden"));
+            if (lightingHere) label += LM.Get("GUI_Frame_LevelData_SuppliesLighting");
+
+            if (!ImGui.TreeNodeEx($"{label}###region_{name}")) continue;
+
+            // The resources this region declares, not the union the renderer uploads: an instance
+            // names its own resource, so this is what the region is authored to reflect.
+            if (level.CubemapsByRegion.TryGetValue(name, out var cubes))
+            {
+                var resources = cubes.Select(c => c.ResourceTuid).Distinct().ToList();
+                ImGui.Text(LM.Get("GUI_Frame_LevelData_RegionCubemapsLabel", resources.Count));
+                foreach (var res in resources) { ImGui.SameLine(); TuidLink.Draw(res); }
+            }
+            else ImGui.TextDisabled(LM.Get("GUI_Frame_LevelData_RegionNoCubemaps"));
+
+            ImGui.Text(LM.Get("GUI_Frame_LevelData_RegionLighting",
+                level.LightingByRegion.ContainsKey(name) ? LM.Get("GUI_Frame_LevelData_Own") : LM.Get("GUI_Frame_LevelData_Inherited")));
+            ImGui.Text(LM.Get("GUI_Frame_LevelData_RegionSkies",
+                level.SkiesByRegion.TryGetValue(name, out var skies) ? skies.Count : 0));
+            ImGui.Text(LM.Get("GUI_Frame_LevelData_RegionCounts",
+                region.MobyInstances.Size, region.Volumes.Size, region.TiesCount, region.UFragsCount));
+
+            if (ImGui.BeginTable($"zones_{name}", 4, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders))
+            {
+                ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ZoneName"));
+                ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ZoneTuid"));
+                ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ZoneTies"));
+                ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ZoneUFrags"));
+                ImGui.TableHeadersRow();
+                foreach (var zone in region.Zones)
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableSetColumnIndex(0);
+                    if (zone.allowRender) ImGui.Text(zone.ZoneName);
+                    else ImGui.TextDisabled(zone.ZoneName);
+                    ImGui.TableSetColumnIndex(1); TuidLink.Draw(zone.ZoneTUID);
+                    ImGui.TableSetColumnIndex(2); ImGui.Text(zone.TieCount.ToString());
+                    ImGui.TableSetColumnIndex(3); ImGui.Text(zone.UFragsCount.ToString());
+                }
+                ImGui.EndTable();
+            }
+            ImGui.TreePop();
+        }
     }
 
     private static void Row(string label, string value)

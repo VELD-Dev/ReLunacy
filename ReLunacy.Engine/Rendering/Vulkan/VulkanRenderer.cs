@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using NeoVeldrid;
 using NeoVeldrid.SPIRV;
 using Vortice.Vulkan;
@@ -24,7 +24,68 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// compiles its own SPIR-V rather than using Bliss's lit shader.</summary>
 public sealed unsafe partial class VulkanRenderer : IDisposable
 {
+    /// <summary>Added to the material's own +0x68 bias before the cube intensity is clamped, so the
+    /// authored per-material value can be shifted as a whole while hunting for the retail one.</summary>
+    public static float CubeBiasOffset { get; set; }
+
+    /// <summary>Reinhard the lit colour instead of letting it clip. Clipping is per channel, so an
+    /// over-bright reflection does not blow out to white - it separates into hue bands, which is what
+    /// makes a too-hot reflection read as a wrong colour rather than as a bright one. This tells the
+    /// two apart at a glance.</summary>
+    public static bool TonemapPreview { get; set; }
+
+    /// <summary>0 normal, 1 reflection only, 2 the cube radiance as the shader sampled it, 3 no
+    /// reflection at all. Rides in uReflectionDebug, which was declared and never read.</summary>
+    public static int ReflectionDebugMode { get; set; }
+
+    /// <summary>0 normal, 1 lighting only, 2 baked colour, 3 baked direction, 4 baked sun visibility,
+    /// 5 prelight (what a Moby uses), 6 baked result, 7 albedo only. Rides in uBakedDebugView, which
+    /// was declared and never read.</summary>
+    public static int LightingDebugMode { get; set; }
+
+    /// <summary>Whether to trust the per-placement baked-light scale (c[4], Tie record +0x64/+0x66/
+    /// +0x68). Those offsets are PROVEN in the QForce EBOOT and the values there match the retail
+    /// figures NewEngineBakedLighting documents - but All 4 One's come out wrong-SHAPED, not merely
+    /// scaled: measured on crumbler, p10 0.012 against QForce's 0.68 and p90 23 against 5.47, with
+    /// 17.4% of ties above 8 and a maximum of 184. A lightmap multiplied by that cannot survive, and
+    /// 17% of ties is about the share that visibly blows out. So A4O's placement record almost
+    /// certainly lays these fields out differently, and until that is read properly this falls back
+    /// to the fixed 3.0 the editor used for both games before, by withholding the constant so the
+    /// shader takes its existing unflagged path.</summary>
+    public static bool UseRetailBakedScale { get; set; } = true;
+
+    /// <summary>Ceiling on the per-placement baked scale, 0 for none. A better middle ground than
+    /// turning the scale off entirely: the relative variation between placements is kept for the
+    /// ~83% of A4O ties whose values are plausible, while the long tail that cannot be right is cut.
+    /// QForce sits below 8 for 98% of its ties, so a ceiling there barely touches a game whose
+    /// values are correct, and removes the A4O outliers that reach 184.
+    ///
+    /// Set per level by AssetManager: 1 on All 4 One, confirmed by eye, and 0 (no ceiling) elsewhere,
+    /// since QForce's values are proven correct and clamping them would only darken a game that is
+    /// already right. This is a CEILING, not a decode - A4O's real per-placement scale field is still
+    /// unidentified (see the remarks on UseRetailBakedScale).</summary>
+    public static float MaxBakedScale { get; set; }
+
+    private static Vector4 ClampBake(Vector4 bake) =>
+        MaxBakedScale > 0f
+            ? new Vector4(MathF.Min(bake.X, MaxBakedScale), MathF.Min(bake.Y, MaxBakedScale), bake.Z, bake.W)
+            : bake;
+
+    /// <summary>Replaces the material's specular map value when >= 0, so a reflection can be seen
+    /// without the props texture deciding where it appears. Negative leaves the material alone.</summary>
+    public static float SpecularOverride { get; set; } = -1f;
+
     private const VkFormat ColorFormat = VkFormat.R8G8B8A8Unorm;
+    /// <summary>The scene's own colour target. Float, because the shaders produce real radiance: a
+    /// new-engine environment cube carries its intensity in alpha and reaches ~50x, and an 8-bit UNorm
+    /// target clamped every channel at write time. That did not merely blow highlights out - clamping
+    /// per channel does not preserve hue, so a reflection whose channels cross 1.0 at different points
+    /// came out tinted (these cubes are blue-dominant, so it skewed violet) instead of simply bright.
+    /// Blending, filtering and the bloom source all see the real values now; the clamp to display range
+    /// happens once, where the resolved texture is sampled into the 8-bit UI target.
+    /// NOT used by the pick pass, which encodes entity ids in colour and reads the bytes back, nor by
+    /// material or sky texture views, which really are 8-bit.</summary>
+    private const VkFormat SceneColorFormat = VkFormat.R16G16B16A16Sfloat;
     // Depth carries stencil for the selection outline's stencil mask-and-inflate technique.
     private const VkFormat DepthFormat = VkFormat.D32SfloatS8Uint;
     private const VkFormat AccumFormat = VkFormat.R16G16B16A16Sfloat;
@@ -779,8 +840,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             {
                 Scene.EntityMoby => VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, world.Translation), _oldEngineMobys),
                 Scene.EntityTie { OldBakedLightScale: { } tieScale } when float.IsFinite(tieScale) => VkInstanceLight.ForOldTie(tieScale),
-                Scene.EntityTie { NewEngineBakedLight: { } tieBake } => VkInstanceLight.ForNewEngineBaked(tieBake),
-                Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } => VkInstanceLight.ForNewEngineBaked(ufragBake),
+                Scene.EntityTie { NewEngineBakedLight: { } tieBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(tieBake)),
+                Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(ufragBake)),
                 _ => default,
             };
             _instCenter[i] = new Vector3(sphere.X, sphere.Y, sphere.Z);
@@ -1187,7 +1248,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     {
         VkAttachmentLoadOp loadOp = load ? VkAttachmentLoadOp.Load : VkAttachmentLoadOp.Clear;
         VkAttachmentDescription* a = stackalloc VkAttachmentDescription[2];
-        a[0] = new VkAttachmentDescription { format = ColorFormat, samples = VkSampleCountFlags.Count1, loadOp = loadOp, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = load ? VkImageLayout.ColorAttachmentOptimal : VkImageLayout.Undefined, finalLayout = colorFinal };
+        a[0] = new VkAttachmentDescription { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = loadOp, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = load ? VkImageLayout.ColorAttachmentOptimal : VkImageLayout.Undefined, finalLayout = colorFinal };
         a[1] = new VkAttachmentDescription { format = DepthFormat, samples = VkSampleCountFlags.Count1, loadOp = loadOp, storeOp = depthWrites ? VkAttachmentStoreOp.Store : VkAttachmentStoreOp.DontCare, stencilLoadOp = loadOp, stencilStoreOp = VkAttachmentStoreOp.Store, initialLayout = load ? VkImageLayout.DepthStencilAttachmentOptimal : VkImageLayout.Undefined, finalLayout = VkImageLayout.DepthStencilAttachmentOptimal };
         var colorRef = new VkAttachmentReference { attachment = 0, layout = VkImageLayout.ColorAttachmentOptimal };
         var depthRef = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };
@@ -1228,7 +1289,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         VkRenderPass rpA; Check(_api.vkCreateRenderPass(&infoA, &rpA), "vkCreateRenderPass(accum)"); _rpAccum = rpA;
 
         VkAttachmentDescription* rAtt = stackalloc VkAttachmentDescription[2];
-        rAtt[0] = new VkAttachmentDescription { format = ColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ColorAttachmentOptimal, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
+        rAtt[0] = new VkAttachmentDescription { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ColorAttachmentOptimal, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
         rAtt[1] = new VkAttachmentDescription { format = DepthFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.DontCare, stencilLoadOp = VkAttachmentLoadOp.Load, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.DepthStencilAttachmentOptimal, finalLayout = VkImageLayout.DepthStencilAttachmentOptimal };
         var cRef = new VkAttachmentReference { attachment = 0, layout = VkImageLayout.ColorAttachmentOptimal };
         var rDepthRef = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };
@@ -1609,14 +1670,14 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     {
         for (int f = 0; f < Frames; f++)
         {
-            _colorTex[f] = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(_width, _height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled | TextureUsage.RenderTarget));
+            _colorTex[f] = gd.ResourceFactory.CreateTexture(TextureDescription.Texture2D(_width, _height, 1, 1, PixelFormat.R16_G16_B16_A16_Float, TextureUsage.Sampled | TextureUsage.RenderTarget));
             _colorImage[f] = _ctx.BackendInfo.GetVkImage(_colorTex[f]);
-            var cvi = new VkImageViewCreateInfo { image = _colorImage[f], viewType = VkImageViewType.Image2D, format = ColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = 1, baseArrayLayer = 0, layerCount = 1 } };
+            var cvi = new VkImageViewCreateInfo { image = _colorImage[f], viewType = VkImageViewType.Image2D, format = SceneColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = 1, baseArrayLayer = 0, layerCount = 1 } };
             VkImageView cv; Check(_api.vkCreateImageView(&cvi, &cv), "vkCreateImageView(color)"); _colorView[f] = cv;
         }
         (_depthImage, _depthMemory, _depthView) = CreateAttachmentImage(DepthFormat, VkImageUsageFlags.DepthStencilAttachment, VkImageAspectFlags.Depth | VkImageAspectFlags.Stencil);
         for (int f = 0; f < Frames; f++)
-            (_sceneColorImage[f], _sceneColorMemory[f], _sceneColorView[f]) = CreateAttachmentImage(ColorFormat, VkImageUsageFlags.Sampled | VkImageUsageFlags.TransferDst, VkImageAspectFlags.Color);
+            (_sceneColorImage[f], _sceneColorMemory[f], _sceneColorView[f]) = CreateAttachmentImage(SceneColorFormat, VkImageUsageFlags.Sampled | VkImageUsageFlags.TransferDst, VkImageAspectFlags.Color);
         // Every set-0 variant of a frame slot reads that slot's copy.
         var sceneColorInfo = stackalloc VkDescriptorImageInfo[1];
         var sceneColorWrite = stackalloc VkWriteDescriptorSet[1];
@@ -2019,7 +2080,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             light.NewEngineReflectionFullLuminance = occlusion.Y;
         }
         _bloomActive = BloomWanted;
-        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, 0f, 0f, 0f);
+        // .y/.z are live cubemap debug knobs (Render > Reflections). They ride in the spare lanes of
+        // an existing vec4 rather than growing the uniform block, which would mean matching a std140
+        // layout change on both sides for two debug floats.
+        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, CubeBiasOffset, TonemapPreview ? 1f : 0f, SpecularOverride);
+        light.ReflectionDebugView = ReflectionDebugMode;
+        light.BakedDebugView = LightingDebugMode;
         WriteNewEngineFog(ref light);
         light.SceneTime = (float)_skyClock.Elapsed.TotalSeconds;
         *(LightData*)_lightMappings[_slot] = light;

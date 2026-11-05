@@ -16,7 +16,9 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
-    private const VkFormat BloomFormat = VkFormat.R8G8B8A8Unorm;
+    // Float like the scene it is built from: an 8-bit bloom chain would clamp the very highlights
+    // bloom exists to spread, putting the clipping back one stage later.
+    private const VkFormat BloomFormat = VkFormat.R16G16B16A16Sfloat;
     private VkRenderPass _rpBloom, _rpBloomComposite, _rpResolveKeep;
     private VkDescriptorSetLayout _bloomSetLayout;
     private VkPipelineLayout _bloomLayout;
@@ -129,7 +131,7 @@ void main() {
 
         VkAttachmentDescription att = new() { format = BloomFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.DontCare, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.Undefined, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
         _rpBloom = MakeColorPass(att);
-        VkAttachmentDescription sceneAtt = new() { format = ColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ShaderReadOnlyOptimal, finalLayout = VkImageLayout.ColorAttachmentOptimal };
+        VkAttachmentDescription sceneAtt = new() { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ShaderReadOnlyOptimal, finalLayout = VkImageLayout.ColorAttachmentOptimal };
         _rpBloomComposite = MakeColorPass(sceneAtt);
         _rpResolveKeep = MakeResolveKeepPass();
 
@@ -169,7 +171,7 @@ void main() {
     private VkRenderPass MakeResolveKeepPass()
     {
         VkAttachmentDescription* a = stackalloc VkAttachmentDescription[2];
-        a[0] = new VkAttachmentDescription { format = ColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ColorAttachmentOptimal, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
+        a[0] = new VkAttachmentDescription { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ColorAttachmentOptimal, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
         a[1] = new VkAttachmentDescription { format = DepthFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.Load, stencilStoreOp = VkAttachmentStoreOp.Store, initialLayout = VkImageLayout.DepthStencilAttachmentOptimal, finalLayout = VkImageLayout.DepthStencilAttachmentOptimal };
         var cRef = new VkAttachmentReference { attachment = 0, layout = VkImageLayout.ColorAttachmentOptimal };
         var dRef = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };

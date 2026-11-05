@@ -609,6 +609,9 @@ public sealed unsafe partial class VulkanRenderer
 vec4 WPOS, COL0, COL1, FOGC, TEX0, TEX1, TEX2, TEX3, TEX4, TEX5, TEX6, TEX7, TEX8, TEX9, SSFC, IN15;
 vec4 G0, G1, G2, G3, G4, G5, G6, G7, G8, G9, G10, G11, G12, G13, G14, G15, G16, G17, G18, G19, G20, G21, G22;
 int rsxCubeSlot;
+// The last cube texel this draw reconstructed, so the debug modes can show what the retail program
+// was handed - it computes its reflection internally, where nothing else can reach it.
+vec3 gCubeRadiance = vec3(0.0);
 vec4 rsxProject(vec4 c) { return vec4(c.xyz / c.w, 1.0); }
 vec4 rsxDst(vec4 a, vec4 b) { return vec4(1.0, a.y * b.y, a.z, b.w); }
 // NRM of a zero vector stays zero instead of turning the whole pixel into NaN.
@@ -662,10 +665,30 @@ vec4 rsxTex4(vec4 c) {
 vec4 rsxTex5(vec4 c) { return vec4(sunShadowTerm()); }
 vec4 rsxTex6(vec4 c) { return vec4(0.0); }
 vec4 rsxTex7(vec4 c) {
-    return rsxCubeSlot == 1 ? texture(uEnvCube1, c.xyz)
-         : rsxCubeSlot == 2 ? texture(uEnvCube2, c.xyz)
-         : rsxCubeSlot == 3 ? texture(uEnvCube3, c.xyz)
-         : texture(uEnvCube, c.xyz);
+    vec4 t = rsxCubeSlot == 1 ? texture(uEnvCube1, c.xyz)
+           : rsxCubeSlot == 2 ? texture(uEnvCube2, c.xyz)
+           : rsxCubeSlot == 3 ? texture(uEnvCube3, c.xyz)
+           : texture(uEnvCube, c.xyz);
+    // A new-engine cube keeps a near-white tint in rgb and its radiance in alpha (CubemapReader:
+    // rgb tint, a intensity). Measured over All 4 One Luminopolis: rgb means 0.93 / 0.98 / 1.23
+    // with almost no structure, alpha reaching 51. So rgb on its own is not a colour - it is a
+    // blue-dominant flat field - and sampling it raw is what made these reflections read as extreme
+    // blue falling to black. The generic shader has always reconstructed the radiance; this path,
+    // which is the one the 3D view uses whenever GameShaders is on, never did.
+    // Exposure is 1 - no gain on top - but the material's own +0x60.z bias still applies, exactly as
+    // the generic shader applies it. Measured over Luminopolis it runs min -4 / mean -0.87 / max 2,
+    // so it is an attenuating threshold, and leaving it out made this path hotter than the generic
+    // one rather than matching it.
+    // Old engine is left alone - the retail ToD Tie fragment programs carry their own EX2 alpha
+    // decode (env.rgb *= EX2((env.a * 255 - 80) / 35)), so reconstructing here would double it.
+    // uEnvironmentIntensity is the Render menu's Reflection Intensity. The generic shader has always
+    // applied it (newReflection * uEnvironmentIntensity); this path never did, so with GameShaders on
+    // the control did nothing and reflections ran unattenuated - worst on metals, whose props.r is
+    // near 1 and which therefore take the cube's full radiance with no specular mask to damp it.
+    if (uOldEngineMode < 0.5) t.rgb *= max(t.a + uMat4.z + uPostParams.y, 0.0) * uEnvironmentIntensity;
+    gCubeRadiance = t.rgb;
+    if (int(uReflectionDebug + 0.5) == 3) t.rgb = vec3(0.0);
+    return t;
 }
 #if RSX_TWO_LAYER
 vec4 rsxTex8(vec4 c) { vec4 t = texture(uAlbedo2, c.xy); if (uMat2.y > 0.5) t.rgb = pow(max(t.rgb, vec3(0.0)), vec3(2.2)); return t; }
@@ -678,7 +701,12 @@ vec4 rsxTex9(vec4 c) { return texture(uAuxB, c.xy); }
 // WPOS x group 17 (+ its refraction offset), linearised like every other colour the shader reads.
 vec4 rsxSceneColor(vec4 c) {
     vec4 t = texture(uSceneColor, c.xy);
-    if (uMat2.y > 0.5) t.rgb = pow(max(t.rgb, vec3(0.0)), vec3(2.2));
+    // Clamped before the gamma decode, not after: this decode assumes a display-range colour, and the
+    // game's own buffer was 8-bit. Now that the scene copy is float the input can exceed 1, where
+    // pow(x, 2.2) amplifies instead of darkening (3.0 becomes 11.6) and a refractive surface reading a
+    // bright reflection would burn out. In range - every pixel that existed before - this is exactly
+    // the old behaviour.
+    if (uMat2.y > 0.5) t.rgb = pow(clamp(t.rgb, vec3(0.0), vec3(1.0)), vec3(2.2));
     return t;
 }
 #if RSX_TWO_LAYER
@@ -737,6 +765,13 @@ void rsxSetup() {
     float normalFade = hasFades ? clamp(2.5 - 2.5 * viewDepth * il.tieShaderUse1.x, 0.0, 1.0) : 1.0;
     float reflFade = hasFades ? clamp(2.5 - 2.5 * viewDepth * il.tieShaderUse1.y, 0.0, 1.0) : 1.0;
     float detailWeight = clamp(uMat6.y * (1.0 - (hasFades ? clamp(viewDepth * il.tieShaderUse1.z, 0.0, 1.0) : 0.0)), 0.0, 1.0);
+    // Both are MASKS the fragment shaders multiply into, so the product is saturated the way
+    // detailWeight above already is. Material +0x30/+0x34 are not 0..1 gains - measured over All 4
+    // One Luminopolis, +0x34 means 3.0 and reaches 30 and +0x30 reaches 11.5 - so an unclamped
+    // product turned a distance fade into a 3x to 30x amplifier. With cube radiance already meaning
+    // ~2 and peaking at 16, that is where the blown-out reflections came from.
+    float reflMask = clamp(reflFade * uMat5.z, 0.0, 1.0);
+    float normalMask = clamp(normalFade * uMat5.y, 0.0, 1.0);
     vec2 detailUV = fUV * uMat6.x;
     bool moby = il.direction0.w > 2.5 && il.direction0.w < 3.5;
     WPOS = gl_FragCoord; COL0 = fColor; COL1 = vec4(0.0); FOGC = vec4(0.0);
@@ -746,8 +781,8 @@ void rsxSetup() {
     bool retailScale = il.direction0.w > 3.5 && il.direction0.w < 4.5;
     TEX0 = vec4(fUV, rsxLightmapUV());
     TEX1 = vec4(fColor.r, fColor.a, detailUV);
-    TEX2 = vec4(dot(v, t), dot(v, b), dot(v, n), reflFade * uMat5.z);
-    TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX2 = vec4(dot(v, t), dot(v, b), dot(v, n), reflMask);
+    TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, retailScale ? il.direction1.w : 3.0);
     TEX5 = vec4(b, detailWeight);
     TEX6 = vec4(dot(t, l), dot(b, l), dot(n, l), 0.0);
@@ -756,8 +791,8 @@ void rsxSetup() {
     float scale = max(il.direction1.w, 1.0e-6);
     TEX0 = vec4(fUV, fColor.r, fColor.a);
     TEX1 = vec4(fPrelightChroma / scale, fPrelightIntensity.w);
-    TEX2 = vec4(dot(v, t), dot(v, b), dot(v, n), reflFade * uMat5.z);
-    TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX2 = vec4(dot(v, t), dot(v, b), dot(v, n), reflMask);
+    TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, 0.0);
     TEX5 = vec4(b, 0.0);
     TEX6 = vec4(fPrelightIntensity.xyz * scale, 0.0);
@@ -778,22 +813,22 @@ void rsxSetup() {
 #if RSX_K == 0
     TEX1 = vec4(w, c4y, 0.0); TEX2 = vec4(n, 0.0);
 #elif RSX_K == 1
-    TEX1 = vec4(w, c4y, 0.0); TEX2 = vec4(v, reflFade * uMat5.z); TEX3 = vec4(n, 0.0);
+    TEX1 = vec4(w, c4y, 0.0); TEX2 = vec4(v, reflMask); TEX3 = vec4(n, 0.0);
 #elif RSX_K == 2
-    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, normalFade * uMat5.y); TEX3 = vec4(lts, 0.0);
+    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, normalMask); TEX3 = vec4(lts, 0.0);
 #elif RSX_K == 3
-    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, reflFade * uMat5.z); TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, reflMask); TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, 0.0); TEX5 = vec4(b, 0.0);
 #elif RSX_K == 4
     TEX1 = vec4(w, c4y, 0.0); TEX2 = vec4(detailUV, detailWeight, 0.0); TEX3 = vec4(n, 0.0);
 #elif RSX_K == 5
-    TEX1 = vec4(w, c4y, 0.0); TEX2 = vec4(v, reflFade * uMat5.z); TEX3 = vec4(n, detailWeight);
+    TEX1 = vec4(w, c4y, 0.0); TEX2 = vec4(v, reflMask); TEX3 = vec4(n, detailWeight);
     TEX4 = vec4(detailUV, 0.0, 0.0);
 #elif RSX_K == 6
-    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, normalFade * uMat5.y); TEX3 = vec4(detailUV, detailWeight, 0.0);
+    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, normalMask); TEX3 = vec4(detailUV, detailWeight, 0.0);
     TEX4 = vec4(lts, 0.0);
 #else
-    TEX1 = vec4(w, detailUV); TEX2 = vec4(vts, reflFade * uMat5.z); TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX1 = vec4(w, detailUV); TEX2 = vec4(vts, reflMask); TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, c4x); TEX5 = vec4(b, detailWeight); TEX6 = vec4(lts, 0.0);
 #endif
 #elif RSX_ROUTE == 4
@@ -812,22 +847,22 @@ void rsxSetup() {
 #if RSX_K == 0
     TEX1 = vec4(flatLight, 0.0); TEX2 = vec4(n, sun);
 #elif RSX_K == 1
-    TEX1 = vec4(flatLight, 0.0); TEX2 = vec4(v, reflFade * uMat5.z); TEX3 = vec4(n, sun);
+    TEX1 = vec4(flatLight, 0.0); TEX2 = vec4(v, reflMask); TEX3 = vec4(n, sun);
 #elif RSX_K == 2
-    TEX1 = vec4(chroma, 0.0); TEX2 = vec4(vts, normalFade * uMat5.y); TEX3 = vec4(basis, 0.0); TEX4 = vec4(lts, sun);
+    TEX1 = vec4(chroma, 0.0); TEX2 = vec4(vts, normalMask); TEX3 = vec4(basis, 0.0); TEX4 = vec4(lts, sun);
 #elif RSX_K == 3
-    TEX1 = vec4(chroma, sun); TEX2 = vec4(vts, reflFade * uMat5.z); TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX1 = vec4(chroma, sun); TEX2 = vec4(vts, reflMask); TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, 0.0); TEX5 = vec4(b, 0.0); TEX6 = vec4(basis, 0.0);
 #elif RSX_K == 4
     TEX1 = vec4(flatLight, 0.0); TEX2 = vec4(detailUV, detailWeight, 0.0); TEX3 = vec4(n, sun);
 #elif RSX_K == 5
-    TEX1 = vec4(flatLight, sun); TEX2 = vec4(v, reflFade * uMat5.z); TEX3 = vec4(n, detailWeight);
+    TEX1 = vec4(flatLight, sun); TEX2 = vec4(v, reflMask); TEX3 = vec4(n, detailWeight);
     TEX4 = vec4(detailUV, 0.0, 0.0);
 #elif RSX_K == 6
-    TEX1 = vec4(chroma, 0.0); TEX2 = vec4(vts, normalFade * uMat5.y); TEX3 = vec4(basis, detailWeight);
+    TEX1 = vec4(chroma, 0.0); TEX2 = vec4(vts, normalMask); TEX3 = vec4(basis, detailWeight);
     TEX4 = vec4(detailUV, 0.0, 0.0); TEX5 = vec4(lts, sun);
 #else
-    TEX1 = vec4(chroma, sun); TEX2 = vec4(vts, reflFade * uMat5.z); TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX1 = vec4(chroma, sun); TEX2 = vec4(vts, reflMask); TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, 0.0); TEX5 = vec4(b, 0.0); TEX6 = vec4(basis, 0.0);
     TEX7 = vec4(detailUV, detailWeight, 0.0); TEX8 = vec4(lts, 0.0);
 #endif
@@ -841,8 +876,8 @@ void rsxSetup() {
     bool det = (RSX_K & 4) != 0;
     TEX0 = vec4(fUV, 0.0, moby ? uMat4.x : 0.0);
     TEX1 = moby ? (uMat7.w > 0.5 ? vec4(uMat7.rgb, 1.0) : vec4(1.0)) : vec4(fColor.rrr, fColor.a);
-    TEX2 = spec ? vec4(v, reflFade * uMat5.z) : (nrm ? vec4(v, 0.0) : vec4(0.0));
-    TEX3 = vec4(n, nrm ? normalFade * uMat5.y : 0.0);
+    TEX2 = spec ? vec4(v, reflMask) : (nrm ? vec4(v, 0.0) : vec4(0.0));
+    TEX3 = vec4(n, nrm ? normalMask : 0.0);
     TEX4 = vec4(0.0); TEX5 = vec4(0.0); TEX6 = vec4(0.0);
     if (nrm) { TEX4 = vec4(t, 0.0); TEX5 = vec4(b, 0.0); if (det) TEX6 = vec4(detailUV, detailWeight, 0.0); }
     else if (det) TEX4 = vec4(detailUV, detailWeight, 0.0);
@@ -920,8 +955,8 @@ void rsxSetup() {
     // Tie (VP 514d2fc8147c: TEX1 = vertex colour x c[20], TEX0.w = VP c[0].x, value OPEN - 0 here).
     TEX0 = vec4(fUV, 0.0, moby ? uMat4.x : 0.0);
     TEX1 = moby ? (uMat7.w > 0.5 ? vec4(uMat7.rgb, 1.0) : vec4(1.0)) : vec4(fColor.rrr, fColor.a);
-    TEX2 = vec4(v, reflFade * uMat5.z);
-    TEX3 = vec4(n, normalFade * uMat5.y);
+    TEX2 = vec4(v, reflMask);
+    TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, 0.0);
     TEX5 = vec4(b, 0.0);
     TEX6 = vec4(detailUV, detailWeight, 0.0);
@@ -983,6 +1018,7 @@ void shadeRetail(out vec3 litColor, out float litAlpha) {
     vec4 o = rsxShader();
     litColor = o.rgb;
     litAlpha = clamp(o.a, 0.0, 1.0);
+    if (int(uReflectionDebug + 0.5) == 2) { litColor = gCubeRadiance; litAlpha = 1.0; }
     // The opaque pass's alpha is the bloom source: the shader's own output alpha - not on the old
     // engine, whose world shaders draw with alpha blend ZERO / ZERO (Docs/reverse/TOD_RENDER_POST_2026-10-09.md).
 #if RSX_ROUTE < 6

@@ -695,7 +695,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                         {
                             foreach (var moby in filtered)
                             {
-                                if (moby.MobyName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                if (TuidLink.Matches(assetSearch, moby.MobyName, moby.Moby.Id))
                                     RenderMobyLeaf(moby);
                             }
                         }
@@ -718,7 +718,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                         {
                             foreach (var tie in filtered)
                             {
-                                if (tie.TieName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                if (TuidLink.Matches(assetSearch, tie.TieName, tie.Tie.Id))
                                     RenderTieLeaf(tie);
                             }
                         }
@@ -738,7 +738,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                         foreach (var ufrag in FilteredUFragAssets())
                         {
                             if (!string.IsNullOrWhiteSpace(assetSearch) &&
-                                !ufrag.UFragName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                !TuidLink.Matches(assetSearch, ufrag.UFragName, ufrag.UFrag.Id))
                                 continue;
                             RenderUFragLeaf(ufrag);
                         }

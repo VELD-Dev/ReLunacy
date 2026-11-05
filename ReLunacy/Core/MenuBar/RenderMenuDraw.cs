@@ -246,13 +246,85 @@ internal static class RenderMenuDraw
         var view = LunaWindow.Instance.GetFirstFrame<Core.Frames.DockedFrames.View3D>();
         if (view == null) return;
 
-        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ReflectionDebug"), "", view.ReflectionDebugView))
-            view.ReflectionDebugView = !view.ReflectionDebugView;
+        // Rebuilds the scene: the instance lights this feeds are built when the scene is captured.
+        bool trustScale = Engine.Rendering.Vulkan.VulkanRenderer.UseRetailBakedScale;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_RetailBakedScale"), "", trustScale))
+        {
+            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailBakedScale = !trustScale;
+            LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_RetailBakedScaleHint"));
+
+        if (trustScale)
+        {
+            float maxScale = Engine.Rendering.Vulkan.VulkanRenderer.MaxBakedScale;
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_MaxBakedScale"), ref maxScale, 0f, 32f, maxScale > 0f ? "%.1f" : "off"))
+            {
+                Engine.Rendering.Vulkan.VulkanRenderer.MaxBakedScale = maxScale;
+                LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+            }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_MaxBakedScaleHint"));
+        }
+
+        // Lighting first: it is the term a Tie and a Moby share, so it is where a fault common to
+        // both has to be looked for before the reflection path is suspected.
+        int lightMode = Engine.Rendering.Vulkan.VulkanRenderer.LightingDebugMode;
+        string[] lightModes = [
+            LM.Get("GUI_MenuItem_LightMode_Normal"),
+            LM.Get("GUI_MenuItem_LightMode_Lighting"),
+            LM.Get("GUI_MenuItem_LightMode_BakedColour"),
+            LM.Get("GUI_MenuItem_LightMode_BakedDir"),
+            LM.Get("GUI_MenuItem_LightMode_BakedSun"),
+            LM.Get("GUI_MenuItem_LightMode_Prelight"),
+            LM.Get("GUI_MenuItem_LightMode_BakedResult"),
+            LM.Get("GUI_MenuItem_LightMode_Albedo")];
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.Combo(LM.Get("GUI_MenuItem_LightMode"), ref lightMode, lightModes, lightModes.Length))
+            Engine.Rendering.Vulkan.VulkanRenderer.LightingDebugMode = lightMode;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_LightModeHint"));
+
+        // Replaces the old Reflection debug toggle, which set a uniform no shader ever read.
+        var vk = typeof(Engine.Rendering.Vulkan.VulkanRenderer);
+        int mode = Engine.Rendering.Vulkan.VulkanRenderer.ReflectionDebugMode;
+        string[] modes = [
+            LM.Get("GUI_MenuItem_ReflMode_Normal"),
+            LM.Get("GUI_MenuItem_ReflMode_Only"),
+            LM.Get("GUI_MenuItem_ReflMode_Cube"),
+            LM.Get("GUI_MenuItem_ReflMode_Off")];
+        ImGui.SetNextItemWidth(180);
+        if (ImGui.Combo(LM.Get("GUI_MenuItem_ReflMode"), ref mode, modes, modes.Length))
+            Engine.Rendering.Vulkan.VulkanRenderer.ReflectionDebugMode = mode;
+
+        float specOverride = Engine.Rendering.Vulkan.VulkanRenderer.SpecularOverride;
+        bool forceSpec = specOverride >= 0f;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ForceSpecular"), "", forceSpec))
+            Engine.Rendering.Vulkan.VulkanRenderer.SpecularOverride = forceSpec ? -1f : 1f;
+        if (forceSpec)
+        {
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_SpecularValue"), ref specOverride, 0f, 1f, "%.2f"))
+                Engine.Rendering.Vulkan.VulkanRenderer.SpecularOverride = specOverride;
+        }
 
         float intensity = view.ReflectionIntensity;
         ImGui.SetNextItemWidth(120);
         if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.2f"))
             view.ReflectionIntensity = intensity;
+
+        // Live cubemap knobs, so the retail values can be found by eye in the 3D view rather than by
+        // rebuilding. Both feed the spare lanes of uPostParams (VulkanRenderer.CubeBiasOffset /
+        // TonemapPreview) and apply to the generic and the retail shader path alike.
+        float cubeBias = Engine.Rendering.Vulkan.VulkanRenderer.CubeBiasOffset;
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_CubeBias"), ref cubeBias, -4f, 4f, "%.3f"))
+            Engine.Rendering.Vulkan.VulkanRenderer.CubeBiasOffset = cubeBias;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_CubeBiasHint"));
+
+        bool tonemap = Engine.Rendering.Vulkan.VulkanRenderer.TonemapPreview;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_TonemapPreview"), "", tonemap))
+            Engine.Rendering.Vulkan.VulkanRenderer.TonemapPreview = !tonemap;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_TonemapPreviewHint"));
 
         // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a near-mirror everywhere.
         float reflBase = view.ReflectionBase;

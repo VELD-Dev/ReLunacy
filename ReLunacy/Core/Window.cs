@@ -374,6 +374,26 @@ public class LunaWindow : IDisposable
     // Present rather than corrupting this one.
     private const double UploadBudgetMs = 20.0;
 
+    /// <summary>Keeps the uploaded environment on whichever region is being rendered. On NewEngine+ the
+    /// cubemap, lighting, fog and sky belong to the region rather than the level (Luminopolis has four
+    /// distinct cubemap reference sets across its eight regions), so showing one region's geometry
+    /// under another's environment is simply wrong - and it was, for every region but the first.
+    ///
+    /// The first ENABLED region wins. Exactly one is visible by default, which makes that
+    /// unambiguous; with several ticked the earliest in load order supplies the environment.</summary>
+    private void FollowActiveRegionEnvironment()
+    {
+        if (AssetManager is null || Level is null) return;
+        var region = EntityManager.Singleton.Regions.FirstOrDefault(r => r.allowRender);
+        if (region is null || region.RegionName == AssetManager.ActiveEnvironmentRegion) return;
+
+        // The renderer takes the lighting environment at construction, so the scene has to be
+        // rebuilt for a change to reach it. Only the lighting switches - the cube array is the union
+        // of every region's resources and stays bound.
+        if (AssetManager.SetActiveEnvironmentRegion(Level, region.RegionName))
+            AssetManager.InvalidateSceneRenderer();
+    }
+
     /// <summary>Warns when a new-engine level's own install holds no decrypted EBOOT: without one the
     /// retail shader table is read from whichever sibling game has one, which depends on what else is
     /// installed beside the level and on the path it was browsed through (a symlinked install has
@@ -597,6 +617,7 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowView3D();
             ViewMenuDraw.ShowAssetViewer();
             ViewMenuDraw.ShowTextureExplorer();
+            ViewMenuDraw.ShowCubemapViewer();
             ViewMenuDraw.ShowShaderBrowser();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
@@ -743,7 +764,9 @@ public class LunaWindow : IDisposable
 
     protected virtual void AfterUpdate()
     {
+        FollowActiveRegionEnvironment();
         // The post-Draw safe point FlushSceneRendererInvalidation documents: this frame's draw is
+        FollowActiveRegionEnvironment();
         // submitted, so tearing the captured scene down here lets the next Update rebuild it from
         // the current entity state. Nothing called it before, so every InvalidateSceneRenderer -
         // the per-zone and per-region render toggles among them - only ever set a flag that was

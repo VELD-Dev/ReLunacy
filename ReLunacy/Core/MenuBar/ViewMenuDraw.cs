@@ -108,6 +108,25 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>Looks around inside an environment cubemap. Separate from the Texture Explorer's
+    /// six-face cross because that one decodes the 8-bit preview re-encoding, which cannot show what
+    /// the reflections actually sample.</summary>
+    internal static void ShowCubemapViewer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<CubemapViewer>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_CubemapViewer"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<CubemapViewer>();
+        else
+        {
+            var frame = new CubemapViewer();
+            frame.TransmitCubemaps(LunaWindow.Instance.Level);
+            LunaWindow.Instance.AddFrame(frame);
+        }
+    }
+
     internal static void ShowShaderBrowser()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ShaderBrowser>();

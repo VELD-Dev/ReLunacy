@@ -494,7 +494,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         if (int.TryParse(inputText.Trim(), out int wantedIndex))
             return objects.Where(t => t.Index == wantedIndex);
 
-        return objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
+        // Name or TUID: pasting an id from another frame finds the texture directly.
+        return objects.Where(t => TuidLink.Matches(inputText, t.TextureName, t.Texture.Id));
     }
 
     protected override void Render(double deltaTime)

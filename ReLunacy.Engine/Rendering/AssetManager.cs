@@ -14,7 +14,9 @@ namespace ReLunacy.Engine.Rendering;
 public sealed class AssetManager : IDisposable
 {
     private readonly GraphicsDevice _gd;
-    private readonly ReLunacy.Engine.Assets.Lighting.LightingEnvironment? _oldLightingEnvironment;
+    // Not readonly: on NewEngine+ this is the REGION's sun/atmosphere, read from its region.dat, and
+    // it is replaced when the rendered region changes.
+    private ReLunacy.Engine.Assets.Lighting.LightingEnvironment? _oldLightingEnvironment;
     /// <summary>Whether the level's Mobys follow the old engine's shading contract (see VkInstanceLight).</summary>
     private readonly bool _oldEngineMobys;
 
@@ -231,6 +233,13 @@ public sealed class AssetManager : IDisposable
         _sourceMobys = level.Mobys;
         _oldLightingEnvironment = level.LightingEnvironment;
         _oldEngineMobys = level.IsOldEngine;
+
+        // The baked-scale ceiling is applied only where the decode is known to be wrong. QForce's
+        // +0x64 is proven and measures on the retail figures, so it is left alone; All 4 One's does
+        // not match at any of the three offsets and was confirmed by eye to need ~1. This is a
+        // per-level default - the Render menu slider still overrides it.
+        Vulkan.VulkanRenderer.MaxBakedScale =
+            level.GameDefinition?.Id == Games.GameId.All4One ? 1f : 0f;
         // The retail-shader routes and patch groups were measured on QForce (RsxShaders); the other
         // new-engine games keep the generic path until theirs are (seaside's water drew flat white).
         // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's shaders are
@@ -287,6 +296,7 @@ public sealed class AssetManager : IDisposable
 
         long tZone = sw.ElapsedMilliseconds - t0;
         BuildEnvironmentCubemap(level);
+        ActiveEnvironmentRegion = level.Region?.Name;
         if (!_prepared.IsEmpty)
             Console.WriteLine($"Warning: {_prepared.Count} decoded textures were prepared but never built - they are holding memory for nothing.");
         // GPU upload happens separately (see GetOrBuildTexture/UploadOnePendingTexture); these timings
@@ -352,6 +362,11 @@ public sealed class AssetManager : IDisposable
     // Always non-null once constructed: a level with no cubemap gets a 1x1 grey fallback so the
     // descriptor set is never left unbound.
     private NeoVeldrid.Texture? _environmentCubemap;
+
+    /// <summary>Which region's environment is currently uploaded. On NewEngine+ the cubemap set
+    /// belongs to the region, and several regions may share one, so this follows whichever region is
+    /// being rendered rather than being fixed at load.</summary>
+    public string? ActiveEnvironmentRegion { get; private set; }
     public NeoVeldrid.TextureView? EnvironmentCubemapView { get; private set; }
 
     /// <summary>
@@ -360,6 +375,7 @@ public sealed class AssetManager : IDisposable
     /// (EntityTie / NewUFrag .NewEngineCubeTuid). Empty on the old engine.
     /// </summary>
     public IReadOnlyDictionary<ulong, int> EnvironmentCubeResources { get; private set; } = new Dictionary<ulong, int>();
+
 
     /// <summary>The retail shader table and engine flag the scene renderer was built with, so a second
     /// renderer over the same assets (the Asset Viewer's preview) can be given the same ones. Taking the
@@ -397,10 +413,10 @@ public sealed class AssetManager : IDisposable
     /// is the raw Vulkan layer - so ArrayLayers is the cube count and cube c, face f is layer 6c + f.
     /// (Both builders used to pass 6 per cube, which allocated six times the layers they wrote.)
     /// </summary>
-    private bool TryBuildNewEngineHdrCubes(LevelData level, NeoVeldrid.ResourceFactory factory)
+    private bool TryBuildNewEngineHdrCubes(IReadOnlyList<Assets.Cubemaps.Cubemap> levelCubemaps, NeoVeldrid.ResourceFactory factory)
     {
         var resources = new List<(ulong Tuid, List<Assets.Cubemaps.Cubemap> Cubes)>();
-        foreach (var cube in level.Cubemaps)
+        foreach (var cube in levelCubemaps)
         {
             if (cube.HalfFloatFaces is not { Count: 6 })
                 continue;
@@ -471,11 +487,13 @@ public sealed class AssetManager : IDisposable
         return bytes;
     }
 
-    private void BuildEnvironmentCubemap(LevelData level)
+    private void BuildEnvironmentCubemap(LevelData level) => BuildEnvironmentCubemap(level.Cubemaps);
+
+    private void BuildEnvironmentCubemap(IReadOnlyList<Assets.Cubemaps.Cubemap> levelCubemaps)
     {
-        if (TryBuildNewEngineHdrCubes(level, _gd.ResourceFactory))
+        if (TryBuildNewEngineHdrCubes(levelCubemaps, _gd.ResourceFactory))
             return;
-        var cubemap = level.Cubemaps.Count > 0 ? level.Cubemaps[0] : null;
+        var cubemap = levelCubemaps.Count > 0 ? levelCubemaps[0] : null;
         int size = cubemap?.FaceSize ?? 1;
         int mipCount = cubemap is { Faces.Count: > 0 }
             ? cubemap.Faces.Min(face => Math.Max(1, face.MipmapCount))
@@ -1316,6 +1334,30 @@ public sealed class AssetManager : IDisposable
         }
 
         InvalidateSceneRenderer();
+    }
+
+    /// <summary>Uploads the environment belonging to <paramref name="regionName"/>, when it is not the
+    /// one already uploaded. Returns true if anything changed, in which case the caller must
+    /// invalidate the scene: the renderer binds the cube views at construction, so a new texture only
+    /// reaches the shaders once the scene is rebuilt.
+    ///
+    /// A region with no environment of its own keeps whatever is bound rather than losing its
+    /// reflections - several regions legitimately share one set, and the maps only hold the regions
+    /// that declared their own.</summary>
+    public bool SetActiveEnvironmentRegion(LevelData level, string? regionName)
+    {
+        if (regionName == null || regionName == ActiveEnvironmentRegion) return false;
+        if (!level.LightingByRegion.TryGetValue(regionName, out var env)) return false;
+
+        // Only the lighting. The cube ARRAY is deliberately the union of every region's resources
+        // (LevelReader), because an instance names the resource it wants and the renderer resolves
+        // that per instance - narrowing the upload to one region's set is what left instances
+        // referencing another region's cube falling back to resource 0. Nothing is disposed here, so
+        // there is also no texture being freed under a renderer that still holds views on it.
+        _oldLightingEnvironment = env;
+        ActiveEnvironmentRegion = regionName;
+        Console.WriteLine($"[Environment] lighting now from region '{regionName}'.");
+        return true;
     }
 
     public void InvalidateSceneRenderer()
