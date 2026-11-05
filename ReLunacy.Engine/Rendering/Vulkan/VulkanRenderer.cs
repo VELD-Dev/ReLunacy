@@ -1193,7 +1193,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var depthRef = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };
         var subpass = new VkSubpassDescription { pipelineBindPoint = VkPipelineBindPoint.Graphics, colorAttachmentCount = 1, pColorAttachments = &colorRef, pDepthStencilAttachment = &depthRef };
         VkSubpassDependency* deps = stackalloc VkSubpassDependency[2];
-        deps[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.FragmentShader, srcAccessMask = VkAccessFlags.ShaderRead, dstStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite };
+        // Must stay byte-identical to the resolve pass's dependencies (see MakeResolvePass): the two
+        // share attachment counts and formats, so pipelines built for one are bound inside the other
+        // and the spec requires their dependencies to match for that to be legal.
+        deps[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
         deps[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.DepthStencilAttachmentRead };
         var info = new VkRenderPassCreateInfo { attachmentCount = 2, pAttachments = a, subpassCount = 1, pSubpasses = &subpass, dependencyCount = 2, pDependencies = deps };
         VkRenderPass rp; Check(_api.vkCreateRenderPass(&info, &rp), "vkCreateRenderPass"); return rp;
@@ -1214,8 +1217,13 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var depthRefRO = new VkAttachmentReference { attachment = 2, layout = VkImageLayout.DepthStencilReadOnlyOptimal };
         var subA = new VkSubpassDescription { pipelineBindPoint = VkPipelineBindPoint.Graphics, colorAttachmentCount = 2, pColorAttachments = colorRefs, pDepthStencilAttachment = &depthRefRO };
         VkSubpassDependency* depsA = stackalloc VkSubpassDependency[2];
-        depsA[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead };
-        depsA[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput, srcAccessMask = VkAccessFlags.ColorAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader, dstAccessMask = VkAccessFlags.ShaderRead };
+        // The depth attachment is CLEARED on entry and transitioned on exit, so both dependencies
+        // have to name the depth stages - WRITE, not just READ. Declaring only DepthStencilAttachmentRead
+        // left the loadOp clear racing the layout transition, which synchronization validation reports
+        // as a WRITE_AFTER_WRITE hazard on vkCmdBeginRenderPass, and the store racing the final
+        // transition on vkCmdEndRenderPass.
+        depsA[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.LateFragmentTests | VkPipelineStageFlags.ColorAttachmentOutput, srcAccessMask = VkAccessFlags.DepthStencilAttachmentWrite | VkAccessFlags.ColorAttachmentWrite, dstStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
+        depsA[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader, dstAccessMask = VkAccessFlags.ShaderRead };
         var infoA = new VkRenderPassCreateInfo { attachmentCount = 3, pAttachments = a, subpassCount = 1, pSubpasses = &subA, dependencyCount = 2, pDependencies = depsA };
         VkRenderPass rpA; Check(_api.vkCreateRenderPass(&infoA, &rpA), "vkCreateRenderPass(accum)"); _rpAccum = rpA;
 
@@ -1226,8 +1234,20 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var rDepthRef = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };
         var subR = new VkSubpassDescription { pipelineBindPoint = VkPipelineBindPoint.Graphics, colorAttachmentCount = 1, pColorAttachments = &cRef, pDepthStencilAttachment = &rDepthRef };
         VkSubpassDependency* depsR = stackalloc VkSubpassDependency[2];
-        depsR[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
-        depsR[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput, srcAccessMask = VkAccessFlags.ColorAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader, dstAccessMask = VkAccessFlags.ShaderRead };
+        // Render pass compatibility covers the dependencies too - the spec allows two passes to
+        // differ only in attachment layouts and load/store ops, nothing else. This pass carries the
+        // same two attachments as MakeColorDepthPass's, so pipelines and framebuffers get used
+        // across both, and its pDependencies[1] used to declare colour only while that one declares
+        // colour AND depth. Validation reported it twice over: as the compatibility break
+        // (VUID-vkCmdDraw-renderPass-02684 / VUID-VkRenderPassBeginInfo-renderPass-00904) and as the
+        // consequence - depth WRITE_AFTER_WRITE hazards, because the depth attachment's writes were
+        // then left with no declared synchronisation at all. AMD's Windows driver tolerates that;
+        // Mesa does not, which is the platform split this was chased through.
+        //
+        // The fix is the union of both passes' dependencies: a superset is always correct (it only
+        // costs parallelism), and being identical restores compatibility.
+        depsR[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
+        depsR[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.DepthStencilAttachmentRead };
         var infoR = new VkRenderPassCreateInfo { attachmentCount = 2, pAttachments = rAtt, subpassCount = 1, pSubpasses = &subR, dependencyCount = 2, pDependencies = depsR };
         VkRenderPass rpR; Check(_api.vkCreateRenderPass(&infoR, &rpR), "vkCreateRenderPass(resolve)"); _rpResolve = rpR;
 
@@ -1237,8 +1257,15 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         var pkColor = new VkAttachmentReference { attachment = 0, layout = VkImageLayout.ColorAttachmentOptimal };
         var pkDepth = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };
         var subP = new VkSubpassDescription { pipelineBindPoint = VkPipelineBindPoint.Graphics, colorAttachmentCount = 1, pColorAttachments = &pkColor, pDepthStencilAttachment = &pkDepth };
-        var depP = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput, srcAccessMask = VkAccessFlags.ColorAttachmentWrite, dstStageMask = VkPipelineStageFlags.Transfer, dstAccessMask = VkAccessFlags.TransferRead };
-        var infoP = new VkRenderPassCreateInfo { attachmentCount = 2, pAttachments = pk, subpassCount = 1, pSubpasses = &subP, dependencyCount = 1, pDependencies = &depP };
+        // Both attachments are cleared on entry from UNDEFINED, so the pass needs an INCOMING
+        // dependency as well: without one there is nothing ordering the loadOp clears against the
+        // layout transitions the same command performs, which is the remaining depth hazard
+        // validation reports here. The outgoing half also has to name the depth stages, since the
+        // depth attachment is transitioned on exit even though its contents are discarded.
+        VkSubpassDependency* depsP = stackalloc VkSubpassDependency[2];
+        depsP[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
+        depsP[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.Transfer, dstAccessMask = VkAccessFlags.TransferRead };
+        var infoP = new VkRenderPassCreateInfo { attachmentCount = 2, pAttachments = pk, subpassCount = 1, pSubpasses = &subP, dependencyCount = 2, pDependencies = depsP };
         VkRenderPass rpP; Check(_api.vkCreateRenderPass(&infoP, &rpP), "vkCreateRenderPass(pick)"); _rpPick = rpP;
     }
 
