@@ -432,6 +432,9 @@
         "GUI_TransformTools_Scale": "Scale",
         "GUI_TransformTools_Translation": "Translation",
         "GUI_Frame_AssetViewer_FoliageTab": "Foliage",
-        "GUI_Frame_AssetViewer_NoFoliage": "This level has no foliage (old engine only)."
+        "GUI_Frame_AssetViewer_NoFoliage": "This level has no foliage (old engine only).",
+        "GUI_Frame_MissingEboot_Title": "Missing EBOOT.elf",
+        "GUI_Frame_MissingEboot_Message": "Warning! The game you just scanned is missing the EBOOT.elf! Please decrypt it using RPCS3 (or similar) to use the game's shaders.",
+        "GUI_Frame_MissingEboot_Borrowed": "Until then the retail shader table is read from another game's EBOOT:\n{0}\nLighting, reflections and transparency will be wrong."
     }
 }

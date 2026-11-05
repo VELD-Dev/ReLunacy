@@ -374,12 +374,32 @@ public class LunaWindow : IDisposable
     // Present rather than corrupting this one.
     private const double UploadBudgetMs = 20.0;
 
+    /// <summary>Warns when a new-engine level's own install holds no decrypted EBOOT: without one the
+    /// retail shader table is read from whichever sibling game has one, which depends on what else is
+    /// installed beside the level and on the path it was browsed through (a symlinked install has
+    /// different neighbours than its target). The substituted table draws, but with the wrong lighting,
+    /// reflections and transparency.</summary>
+    private void WarnIfEbootMissing(LevelData level)
+    {
+        if (level.IsOldEngine) return;
+        if (Engine.Loading.Shaders.NewEngineStandardShaders.LastResolution is not { FromOwnInstall: false } resolution) return;
+
+        LunaLog.LogWarn(resolution.Path == null
+            ? "No decrypted EBOOT found for this level: the renderer keeps its generic shading."
+            : $"This level's install has no decrypted EBOOT; the retail shader table came from '{resolution.Path}'.");
+        AddFrame(new MissingEbootModal(resolution.Path));
+    }
+
     private void DoLoadEntitiesCheck()
     {
         if (pendingLevelReady.TryDequeue(out var ready))
         {
             var lsw = System.Diagnostics.Stopwatch.StartNew();
             AssetManager = new AssetManager(ready.Level, GraphicsDevice, ready.PreparedTextures);
+            // AssetManager's constructor is what resolves the retail shader table, so its provenance is
+            // known by here. A borrowed or absent EBOOT still renders - wrongly - so say so plainly
+            // rather than leaving it to look like a renderer bug.
+            WarnIfEbootMissing(ready.Level);
             long a0 = lsw.ElapsedMilliseconds;
             EntityManager.Singleton.LoadRegion(ready.Level.Region, AssetManager, GraphicsDevice);
             long tRegion = lsw.ElapsedMilliseconds - a0; a0 = lsw.ElapsedMilliseconds;
