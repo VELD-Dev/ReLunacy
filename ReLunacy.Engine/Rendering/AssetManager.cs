@@ -361,6 +361,15 @@ public sealed class AssetManager : IDisposable
     /// </summary>
     public IReadOnlyDictionary<ulong, int> EnvironmentCubeResources { get; private set; } = new Dictionary<ulong, int>();
 
+    /// <summary>The retail shader table and engine flag the scene renderer was built with, so a second
+    /// renderer over the same assets (the Asset Viewer's preview) can be given the same ones. Taking the
+    /// constructor defaults instead left the preview with no standard shaders at all - every draw fell
+    /// back to the generic path, which applies vertex alpha unconditionally where the retail shaders
+    /// apply it per permutation - and with oldEngineMobys true even on a new-engine level.</summary>
+    public Loading.Shaders.NewEngineStandardShaders? StandardShaders => _standardShaders;
+
+    public bool OldEngineMobys => _oldEngineMobys;
+
     /// <summary>
     /// New engine: every cube resource the region declares, four cubes each, uploaded as
     /// R16G16B16A16_Float with the retail channels intact (rgb tint, a intensity); resource r cube i is

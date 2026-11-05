@@ -1831,8 +1831,15 @@ public class AssetViewer : DockedFrame, ILevelListener
 
         try
         {
+            // The scene renderer's own shader table and engine flag, not the constructor defaults: without
+            // standardShaders the preview never selects a retail shader (RsxShaders bails on a null table),
+            // so it shaded everything generically and applied vertex alpha where the 3D view, on the retail
+            // permutation, did not. oldEngineMobys defaults to true, which is wrong for a new-engine level.
             _vkPreview = new Engine.Rendering.Vulkan.VulkanRenderer(
-                graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight)
+                graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight,
+                oldEngineMobys: assetManager?.OldEngineMobys ?? true,
+                cubeResources: assetManager?.EnvironmentCubeResources,
+                standardShaders: assetManager?.StandardShaders)
             {
                 // The preview has always had a light background; the level view keeps its dark one.
                 ClearColour = new Vector4(0.68f, 0.85f, 0.90f, 1f),
