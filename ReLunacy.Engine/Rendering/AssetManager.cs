@@ -234,12 +234,13 @@ public sealed class AssetManager : IDisposable
         _oldLightingEnvironment = level.LightingEnvironment;
         _oldEngineMobys = level.IsOldEngine;
 
-        // The baked-scale ceiling is applied only where the decode is known to be wrong. QForce's
-        // +0x64 is proven and measures on the retail figures, so it is left alone; All 4 One's does
-        // not match at any of the three offsets and was confirmed by eye to need ~1. This is a
-        // per-level default - the Render menu slider still overrides it.
-        Vulkan.VulkanRenderer.MaxBakedScale =
-            level.GameDefinition?.Id == Games.GameId.All4One ? 1f : 0f;
+        // No ceiling by default. It was introduced when the scene was displayed by CLAMPING, where a
+        // placement scale of 20 or 184 could only blow out - but those values look authored rather
+        // than misdecoded, and an HDR scene needs a display mapping, not a cap. Capping instead threw
+        // away 95% of a bright surface's light and left it dark with its lightmap's own chroma, which
+        // reads as the blue and black patches it was meant to cure. Use Render > Tonemap and its
+        // exposure for the display range; the ceiling stays on the slider for A/B work.
+        Vulkan.VulkanRenderer.MaxBakedScale = 0f;
         // The retail-shader routes and patch groups were measured on QForce (RsxShaders); the other
         // new-engine games keep the generic path until theirs are (seaside's water drew flat white).
         // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's shaders are
