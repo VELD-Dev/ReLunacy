@@ -379,6 +379,32 @@ public sealed class CubemapReader
             }
             encoded = linear;
 
+            // CONFIRMED by inspection in the Cubemap Viewer (its Face order controls): the new-engine
+            // faces are stored TRANSPOSED from the GL/RSX convention Cubemap.FaceNames documents and
+            // the GPU's cube sampler assumes - the texel the convention calls (u, v) is stored at
+            // (v, u). Swapping the two axes is what makes the six faces line up at their seams.
+            //
+            // Rotating here rather than in a shader fixes it once for everything that reads a cube:
+            // the reflections, the half-float upload and the A8R8G8B8 preview faces built below all
+            // come off this same buffer. Old-engine cubes are a different path and keep their order.
+            var oriented = new byte[encoded.Length];
+            for (int f = 0; f < FaceCount; f++)
+            {
+                int cursor = checked((int)(f * faceBytes));
+                for (int mip = 0, w = size; mip < mipCount; mip++, w = Math.Max(1, w / 2))
+                {
+                    for (int y = 0; y < w; y++)
+                        for (int x = 0; x < w; x++)
+                        {
+                            int srcX = y, srcY = x;
+                            Buffer.BlockCopy(encoded, cursor + (srcY * w + srcX) * 8,
+                                             oriented, cursor + (y * w + x) * 8, 8);
+                        }
+                    cursor = checked(cursor + w * w * 8);
+                }
+            }
+            encoded = oriented;
+
             var faces = new ITexture[FaceCount];
             var halfFaces = new byte[FaceCount][];
             for (int f = 0; f < FaceCount; f++)
