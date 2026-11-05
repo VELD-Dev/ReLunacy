@@ -462,6 +462,7 @@
         "GUI_MenuItem_LightMode_Prelight": "Prelight (what mobys use)",
         "GUI_MenuItem_LightMode_BakedResult": "Baked lighting result",
         "GUI_MenuItem_LightMode_Albedo": "Albedo only",
+        "GUI_MenuItem_LightMode_NonFinite": "Non-finite check (red NaN, blue Inf)",
         "GUI_MenuItem_LightModeHint": "Lighting is where a tie and a moby meet: a tie takes it from the lightmaps, a moby from its prelight, and both multiply it into the albedo. Start with Lighting only.",
         "GUI_MenuItem_ReflMode_Normal": "Normal",
         "GUI_MenuItem_ReflMode_Only": "Reflection only",

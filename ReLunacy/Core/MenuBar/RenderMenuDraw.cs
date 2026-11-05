@@ -278,7 +278,8 @@ internal static class RenderMenuDraw
             LM.Get("GUI_MenuItem_LightMode_BakedSun"),
             LM.Get("GUI_MenuItem_LightMode_Prelight"),
             LM.Get("GUI_MenuItem_LightMode_BakedResult"),
-            LM.Get("GUI_MenuItem_LightMode_Albedo")];
+            LM.Get("GUI_MenuItem_LightMode_Albedo"),
+            LM.Get("GUI_MenuItem_LightMode_NonFinite")];
         ImGui.SetNextItemWidth(200);
         if (ImGui.Combo(LM.Get("GUI_MenuItem_LightMode"), ref lightMode, lightModes, lightModes.Length))
             Engine.Rendering.Vulkan.VulkanRenderer.LightingDebugMode = lightMode;

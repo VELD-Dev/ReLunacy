@@ -240,6 +240,21 @@ vec3 sanitiseColour(vec3 c) {
 
 void shade(out vec3 litColor, out float litAlpha) {
     shadeInner(litColor, litAlpha);
+
+    // Mode 8, before anything is sanitised or rolled off: RED where a channel is NaN, BLUE where it
+    // is Inf, grey by luminance where it is finite (mid grey = 1.0, so anything brighter than that
+    // reads as a plateau rather than as detail). Black here therefore means a genuinely small
+    // finite value, not an overflow - which is the distinction every theory about these patches has
+    // turned on, and the one thing that cannot be settled by looking at the shaded result.
+    if (int(uBakedDebugView + 0.5) == 8) {
+        bvec3 n = bvec3(isnan(litColor.x), isnan(litColor.y), isnan(litColor.z));
+        bvec3 f = bvec3(isinf(litColor.x), isinf(litColor.y), isinf(litColor.z));
+        float lum = dot(max(litColor, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+        litColor = any(n) ? vec3(1.0, 0.0, 0.0)
+                 : any(f) ? vec3(0.0, 0.3, 1.0)
+                 : vec3(clamp(lum * 0.5, 0.0, 1.0));
+        litAlpha = 1.0;
+    }
     litColor = sanitiseColour(debugTonemap(litColor));
     // 0..1, not the colour's headroom: this alpha is coverage, and in the opaque pass it is also the
     // BLOOM SOURCE (gGlow). Left unbounded it feeds the bloom chain values that overflow half float,
