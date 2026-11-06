@@ -91,8 +91,8 @@ public sealed class RegionReader
 
     private Assets.Levels.Region? ReadOneRegionNew(string regionName, ulong id)
     {
-        var prius = (IGFile?)_fileManager.LoadFile($"{regionName}/gp_prius.dat", false);
-        var region = (IGFile?)_fileManager.LoadFile($"{regionName}/region.dat", false);
+        var prius = _fileManager.GetOrLoadIGFile($"{regionName}/gp_prius.dat");
+        var region = _fileManager.GetOrLoadIGFile($"{regionName}/region.dat");
 
         if (prius is null || region is null)
         {
@@ -114,7 +114,7 @@ public sealed class RegionReader
     /// [regionCount, regionTableOffset], and regionTableOffset points to `regionCount` uint32
     /// name-string pointers - matches Legacy's Gameplay(AssetLoader) constructor exactly.
     /// </summary>
-    private static List<string> ReadRegionNames(IGFile gameplay)
+    internal static List<string> ReadRegionNames(IGFile gameplay)
     {
         var names = new List<string>();
         var stringTableSection = gameplay.QuerySection(0x25000);

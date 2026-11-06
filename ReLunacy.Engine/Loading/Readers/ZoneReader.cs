@@ -15,6 +15,10 @@ public sealed class ZoneReader
     private readonly MaterialReader _materialReader;
     private readonly Dictionary<ulong, Assets.Ties.Tie> _ties;
 
+    /// <summary>Zone names by TUID, from the regions (see NewEngineZoneNames). Empty on the old
+    /// engine and before regions are readable, in which case a zone keeps its Zone_TUID fallback.</summary>
+    public IReadOnlyDictionary<ulong, string> ZoneNames { get; init; } = new Dictionary<ulong, string>();
+
     /// <summary>Shrub classes by the TUID a zone's 0x7500 table names them with; empty on the old
     /// engine and on levels that ship no shrubs.dat.</summary>
     public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; init; } =
@@ -176,7 +180,11 @@ public sealed class ZoneReader
             id: tuid,
             uFrags: ufrags,
             tieInstances: tieInstances,
-            name: string.IsNullOrEmpty(legacyZone.Name) ? $"Zone_{tuid:X}" : legacyZone.Name,
+            // The name comes from the region, not the zone: a zone blob has no name of its own, only
+            // its Tie (0x72C0) and Shrub (0x74C0) instance name tables. See NewEngineZoneNames.
+            name: ZoneNames.TryGetValue(tuid, out string? zoneName) && !string.IsNullOrEmpty(zoneName)
+                ? zoneName
+                : $"Zone_{tuid:X}",
             shrubInstances: ReadShrubInstances(legacyZone));
     }
 

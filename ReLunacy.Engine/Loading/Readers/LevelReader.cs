@@ -100,6 +100,9 @@ public sealed class LevelReader
                 {
                     CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
                     Shrubs = _shrubs,
+                    // Names come off the regions, which are read after the zones, so the tables are
+                    // read here rather than waiting for RegionReader - a zone is constructed once.
+                    ZoneNames = NewEngineZoneNames.Read(_fileManager),
                 };
 
                 progress?.Begin(LoadPhase.Zones);

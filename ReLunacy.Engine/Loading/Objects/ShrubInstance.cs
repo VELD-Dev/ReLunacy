@@ -30,6 +30,15 @@ public readonly struct ShrubInstance
     public const uint ClassTableID = 0x7500;
     public const uint ID = 0x7540;
     public const uint GroupID = 0x75D0;
+
+    /// <summary>
+    /// Shrub placement names, positionally parallel to <see cref="ID"/>, in the same record shape as
+    /// TieInstance.NameTableID: TUID (8) + absolute name pointer (4) + 4 zero bytes. Present only on
+    /// zones that have shrubs, which is why ZoneMetadata used to read a shrub's name as the zone's on
+    /// some zones and nothing at all on others (see NewEngineZoneNames). Names read as
+    /// "nb_cr_tree_curved_2_5" on A4O crumbler. Not consumed yet - shrubs are loaded but not drawn.
+    /// </summary>
+    public const uint NameTableID = 0x74C0;
     public const int Size = 0x40;
 
     public Vector3 Position { get; init; }

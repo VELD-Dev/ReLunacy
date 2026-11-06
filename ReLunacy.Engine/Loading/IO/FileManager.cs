@@ -101,6 +101,15 @@ public class FileManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// The IGFile for <paramref name="name"/>, loading it on first use. <see cref="LoadFile"/>
+    /// registers a new entry and throws when one already exists, so any reader that may not be the
+    /// first to want a file has to come through here. The per-region files are the case that matters:
+    /// region.dat is read both for a zone's name and for the region itself.
+    /// </summary>
+    public IGFile? GetOrLoadIGFile(string name) =>
+        igfiles.TryGetValue(name, out IGFile? existing) ? existing : (IGFile?)LoadFile(name, false);
+
     public object? LoadFile(string name, bool isRaw)
     {
         Stream? ms = _archives.Count > 0 ? OpenFromArchives(name) : OpenFromFolder(name);
