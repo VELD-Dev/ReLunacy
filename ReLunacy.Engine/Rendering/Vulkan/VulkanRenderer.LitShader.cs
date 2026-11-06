@@ -99,8 +99,26 @@ bool newEngineAtmosphereOn() { return uNewEngineFog.y > 0.5 || uAtmExtinction.w 
 vec3 newEngineAtmosphere(vec3 c, float d, vec3 dir) {
     float t = clamp(d * uAtmPhase.w, 0.0, 1.0);
     if (uAtmExtinction.w > 0.5) {
+        // c += c L (1 - c), the pass's own form above - and (1 - c) is a HEADROOM, which it only is
+        // while c <= 1. That was all the RSX could hand this pass: it read and wrote an LDR target.
+        // Here c is real radiance, so a lit surface arrives at tens or hundreds, (1 - c) turns large
+        // and negative, and c (1 + L (1 - c)) is a downward parabola - it crosses zero at 1 + 1/L and
+        // then runs away. L is PER CHANNEL and indexed by depth, so every channel of every pixel
+        // inverts at its own threshold: all 53 A4O regions carry this table with L ~ 0.4 .. 1.0, i.e.
+        // thresholds between 2.0 and 3.4 radiance, and the channel order varies with distance (near
+        // crumbler R dies first, at mid depth G, far B). Past a threshold the channel is negative and
+        // sanitiseColour clamps it to exactly 0, so a bright Tie or Moby loses its channels one at a
+        // time - a single-channel fluorescent patch, then black. An INVERSION, not clipping: it is why
+        // raising the baked scale made surfaces darker instead of whiter, why the colour marched
+        // green -> blue -> black as it rose, and why capping the scale at 8 never cured the patches,
+        // 8 being four times over the threshold already.
+        //
+        // Measuring the headroom on the displayable colour is exact on [0,1], where the hardware ran
+        // this, and above it the pass adds nothing - which is also what the hardware did there, having
+        // no headroom left to fill. Monotonic in c and per-channel hue-preserving, so an over-bright
+        // surface now reads as over-bright and Render > Tonemap maps it for the display.
         vec3 l = c * newEngineAtmosphereSample(false, t).rgb;
-        c = c - c * l + l;
+        c = c + l * (1.0 - clamp(c, 0.0, 1.0));
     }
     if (uNewEngineFog.y > 0.5) {
         vec4 f = newEngineAtmosphereSample(true, t);
