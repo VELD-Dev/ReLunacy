@@ -132,3 +132,47 @@ public readonly struct SemVersion : IComparable<SemVersion>, IEquatable<SemVersi
     public override string ToString() =>
         $"{Major}.{Minor}.{Patch}" + (IsPrerelease ? $"-{string.Join('.', Prerelease)}" : "");
 }
+
+/// <summary>
+/// Which published release an update check should offer. Kept apart from UpdateChecker, which cannot
+/// run without HTTP and JSON, so the rule itself can be exercised directly.
+/// </summary>
+public static class ReleasePicker
+{
+    /// <summary>
+    /// The highest release worth offering, or false when there is none.
+    ///
+    /// Drafts and tags that are not versions are skipped - the nightly channel publishes under the
+    /// fixed tag "nightly" and shares the release list. Prereleases are skipped unless
+    /// <paramref name="includePrereleases"/> is set OR <paramref name="current"/> is itself a
+    /// prerelease: a running 0.06-beta.1 is newer than every stable release, so filtering them out
+    /// would strand it with no update ever offered, not even the next beta.
+    ///
+    /// Returns the highest regardless of whether it is newer than <paramref name="current"/>; the
+    /// caller compares, since it also decides what to say when there is nothing new.
+    /// </summary>
+    public static bool TryPickBest(
+        IEnumerable<(string? Tag, bool IsDraft)> releases,
+        SemVersion current,
+        bool includePrereleases,
+        out string tag,
+        out SemVersion version)
+    {
+        tag = "";
+        version = default;
+        bool wantPrereleases = includePrereleases || current.IsPrerelease;
+        bool found = false;
+
+        foreach (var (candidateTag, isDraft) in releases)
+        {
+            if (isDraft) continue;
+            if (!SemVersion.TryParse(candidateTag, out var candidate)) continue;
+            if (candidate.IsPrerelease && !wantPrereleases) continue;
+            if (found && candidate <= version) continue;
+            tag = candidateTag!;
+            version = candidate;
+            found = true;
+        }
+        return found;
+    }
+}

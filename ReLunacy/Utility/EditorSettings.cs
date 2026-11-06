@@ -130,6 +130,11 @@ public class EditorSettings
     // Stable checks GitHub's "latest release"; Nightly checks the rolling "nightly" tag (see
     // UpdateChecker). Independent of which build is actually running.
     public UpdateChannel UpdateChannel;
+
+    /// <summary>Whether the update check offers prereleases (alphas, betas, release candidates) on
+    /// the stable channel. Ignored when the running build is ITSELF a prerelease, which would
+    /// otherwise be stranded with no update ever offered - see UpdateChecker.</summary>
+    public bool IncludePrereleases;
     // First real lighting pass for the live renderer (see LitModelShaderSource); everything else
     // is unlit. Opt-in, off by default as experimental.
     public bool EnableLighting;
@@ -204,6 +209,7 @@ public class EditorSettings
         SelectionOutlineColor = new Vector4(1f, 0.65f, 0f, 1f);
         BackfaceCulling = false;
         UpdateChannel = UpdateChannel.Stable;
+        IncludePrereleases = false;
         EnableLighting = false;
         CodeEditorTheme = "dark";
         AssetViewerFarPlane = 100f;

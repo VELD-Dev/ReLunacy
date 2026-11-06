@@ -24,6 +24,6 @@ internal static class AboutMenuDraw
 
         allowCheckforUpdate = false;
         cooldownCallback = new Timer(_ => allowCheckforUpdate = true, null, 120_000, Timeout.Infinite);
-        UpdateChecker.CheckUpdates(Program.Settings.UpdateChannel);
+        UpdateChecker.CheckUpdates(Program.Settings.UpdateChannel, Program.Settings.IncludePrereleases);
     }
 }
