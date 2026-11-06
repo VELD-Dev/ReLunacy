@@ -77,6 +77,14 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     public bool NavmeshVisible { get; set; }
 
+    /// <summary>The selected chunk's span in the index buffer, or a count of 0 for no selection.
+    /// Drawn again over the surface in <see cref="NavmeshSelectionColor"/>, which is how selecting a
+    /// chunk in the hierarchy shows up in the viewport - a navmesh chunk has no renderables of its
+    /// own, so the usual selection outline has nothing to outline.</summary>
+    public (int First, int Count) NavmeshSelection { get; set; }
+
+    public Vector4 NavmeshSelectionColor { get; set; } = new(1f, 0.6f, 0.1f, 0.8f);
+
     /// <summary>True once geometry has been uploaded, so the UI can say "no navmesh in this level"
     /// rather than leaving the toggle looking broken.</summary>
     public bool HasNavmesh => _navIndexCount > 0;
@@ -231,6 +239,16 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkCmdBindVertexBuffers(_cmd, 0, 1, &vb, &zero);
         _api.vkCmdBindIndexBuffer(_cmd, _navIndexBuffer, 0, VkIndexType.Uint32);
         _api.vkCmdDrawIndexed(_cmd, _navIndexCount, 1, 0, 0, 0);
+
+        // The selected chunk, over the surface and under the wireframe: same pipeline and buffers,
+        // just its own slice of the index buffer and a different colour.
+        var (first, count) = NavmeshSelection;
+        if (count > 0 && first >= 0 && first + count <= (int)_navIndexCount)
+        {
+            *(Vector4*)pc = NavmeshSelectionColor;
+            _api.vkCmdPushConstants(_cmd, _navLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 32, pc);
+            _api.vkCmdDrawIndexed(_cmd, (uint)count, 1, (uint)first, 0, 0);
+        }
 
         if (_navEdgeInstanceCount == 0) return;
         // Solid black, whatever the surface colour is: the wireframe is there to read the topology.

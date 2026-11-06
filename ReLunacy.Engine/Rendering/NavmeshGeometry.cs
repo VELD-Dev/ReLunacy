@@ -14,7 +14,11 @@ public static class NavmeshGeometry
     /// Merges every chunk of every navmesh. Navmesh positions are world-space already, so chunks can
     /// share one buffer with no per-chunk matrix and the whole level draws in one call per half.
     /// </summary>
-    public static (Vector3[] Vertices, uint[] Indices, Matrix4x4[] Edges) Build(IEnumerable<Navmesh> navmeshes)
+    /// <param name="ranges">Each chunk's [first, count) span in the returned index buffer, so a
+    /// selected chunk can be re-drawn on its own without a second upload. Keyed by chunk identity,
+    /// not position, because the same chunk can be reached through several regions.</param>
+    public static (Vector3[] Vertices, uint[] Indices, Matrix4x4[] Edges) Build(
+        IEnumerable<Navmesh> navmeshes, Dictionary<NavmeshChunk, (int First, int Count)>? ranges = null)
     {
         var vertices = new List<Vector3>();
         var indices = new List<uint>();
@@ -25,9 +29,11 @@ public static class NavmeshGeometry
             foreach (NavmeshChunk chunk in navmesh.Chunks)
             {
                 int baseIndex = vertices.Count;
+                int firstIndex = indices.Count;
                 vertices.AddRange(chunk.Vertices);
                 foreach (int index in chunk.TriangleIndices)
                     indices.Add((uint)(baseIndex + index));
+                ranges?.TryAdd(chunk, (firstIndex, indices.Count - firstIndex));
 
                 foreach ((ushort a, ushort b) in chunk.Edges)
                 {

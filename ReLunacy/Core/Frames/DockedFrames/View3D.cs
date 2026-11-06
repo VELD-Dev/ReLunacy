@@ -197,8 +197,18 @@ public class View3D : DockedFrame
             .Where(n => n is not null)
             .Select(n => n!)
             .ToList() ?? [];
-        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes);
+        var ranges = new Dictionary<Engine.Assets.Navigation.NavmeshChunk, (int First, int Count)>();
+        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes, ranges);
         renderer.SetNavmesh(vertices, indices, edges);
+
+        // Hand every chunk entity its slice of the buffer that was just uploaded. Matched by chunk
+        // identity, so the several entities a zone shared between regions produces all get the same
+        // slice instead of one of them winning.
+        foreach (var region in EntityManager.Singleton.Regions)
+            foreach (var zone in region.Zones)
+                foreach (var chunkEntity in zone.Navmeshes)
+                    if (ranges.TryGetValue(chunkEntity.Chunk, out var range))
+                        (chunkEntity.FirstIndex, chunkEntity.IndexCount) = range;
         if (vertices.Length > 0)
             Console.WriteLine($"[Navmesh] {navmeshes.Count} zone(s), {vertices.Length} vertices, " +
                               $"{indices.Length / 3} triangles, {edges.Length} wireframe edges.");
@@ -338,6 +348,10 @@ public class View3D : DockedFrame
                 vkStage.NavmeshColor = EntityManager.Singleton.NavmeshColor;
                 vkStage.NavmeshVisible = EntityManager.Singleton.renderNavmesh;
                 UploadNavmeshIfStale(vkStage);
+                vkStage.NavmeshSelection = SelectedEntity is Engine.Scene.EntityNavmesh chunk && chunk.FirstIndex >= 0
+                    ? (chunk.FirstIndex, chunk.IndexCount)
+                    : (0, 0);
+                vkStage.NavmeshSelectionColor = Program.Settings.SelectionOutlineColor with { W = 0.8f };
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(

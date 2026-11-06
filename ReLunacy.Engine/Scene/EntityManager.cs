@@ -106,6 +106,7 @@ public class EntityManager : IDisposable
             {
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
+                foreach (var e in zone.Navmeshes) yield return e;
             }
         }
     }

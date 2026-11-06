@@ -208,6 +208,21 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeId", volumeEntity.BaseVolume.Id));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeGroup", volumeEntity.BaseVolume.group));
         }
+        else if (SelectedEntity is EntityNavmesh navmeshChunk)
+        {
+            // The chunk table's own counts, not recomputed ones, so a disagreement with what is drawn
+            // would be visible rather than smoothed over.
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshZone", navmeshChunk.ZoneName));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshChunk", navmeshChunk.ChunkIndex));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshCounts",
+                navmeshChunk.VertexCount, navmeshChunk.TriangleCount, navmeshChunk.EdgeCount));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshLinks",
+                navmeshChunk.LinkedEdgeCount, navmeshChunk.EdgeCount));
+            var neighbours = navmeshChunk.Chunk.EdgeNeighbours
+                .Where(n => n.HasValue).Select(n => n!.Value).Distinct().Order().ToList();
+            ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_NavmeshNeighbours",
+                neighbours.Count > 0 ? string.Join(", ", neighbours) : "-"));
+        }
 
         ImGui.Separator();
 
