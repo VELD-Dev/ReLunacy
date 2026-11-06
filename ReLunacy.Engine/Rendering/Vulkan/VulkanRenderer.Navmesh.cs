@@ -33,9 +33,13 @@ void main() { gl_Position = uMvp * vec4(inPos, 1.0); }";
     private const string NavmeshSurfaceFragmentGlsl = @"#version 450
 layout(push_constant) uniform PC { vec4 uColor; vec4 uParams; };
 layout(location = 0) out vec4 o;
-// The opaque target's alpha is the bloom glow mask, so a translucent overlay must not write it:
-// the colour write mask drops A, and this value is ignored.
-void main() { o = vec4(uColor.rgb * uColor.a, 1.0); }";
+// Premultiplied: rgb is the colour already scaled by alpha. A has to carry the REAL alpha even so,
+// because the blend's dstColorBlendFactor is ONE_MINUS_SRC_ALPHA and reads it from here. Writing 1.0
+// instead - which this did - makes that factor zero, discards the destination, and leaves the
+// surface opaque and merely darkening as alpha falls. The colour write mask independently drops A,
+// so the opaque target's alpha (the bloom glow mask) is untouched either way: what a fragment
+// outputs for blending and what the mask lets it store are separate things.
+void main() { o = vec4(uColor.rgb * uColor.a, uColor.a); }";
 
     // Per-instance edge transform, four vec4 rows of a mat4 in locations 1..4.
     private const string NavmeshEdgeVertexGlsl = @"#version 450
