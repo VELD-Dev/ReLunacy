@@ -27,7 +27,8 @@ public sealed class FoliageReader
         _materialReader = materialReader;
     }
 
-    public IReadOnlyList<Assets.Foliage.Foliage> ReadAll()
+    /// <param name="progress">The level load's bar; the Foliage phase counts one item per asset.</param>
+    public IReadOnlyList<Assets.Foliage.Foliage> ReadAll(LevelLoadProgress? progress = null)
     {
         if (!_fileManager.isOld) return [];
         if (!_fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null) return [];
@@ -48,8 +49,10 @@ public sealed class FoliageReader
         var byOffset = new Dictionary<uint, int>();
         var result = new List<Assets.Foliage.Foliage>();
 
+        progress?.SetTotal(assets.count);
         for (uint i = 0; i < assets.count; i++)
         {
+            progress?.Advance();
             uint recordBase = (uint)(assets.offset + FoliageMetadata.Size * i);
             var meta = FoliageMetadata.Read(main.sh, recordBase);
 

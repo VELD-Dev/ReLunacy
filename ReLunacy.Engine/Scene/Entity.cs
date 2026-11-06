@@ -57,7 +57,7 @@ public abstract class Entity : IDisposable
     protected virtual void EnsureRenderables() { }
 
     /// <summary>Every mesh this entity places, with the material that placement is drawn with. Material
-    /// is per-renderable rather than per-mesh, since some placements (e.g. lit ties) need their own
+    /// is per-renderable rather than per-mesh, since some placements (e.g. lit Ties) need their own
     /// baked-lighting material.</summary>
     public virtual IEnumerable<(RenderMesh mesh, RenderMaterial material, Matrix4x4 world, Vector4 sphere)> GetRenderablesForVk()
     {

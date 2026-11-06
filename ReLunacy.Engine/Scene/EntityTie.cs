@@ -60,6 +60,21 @@ public class EntityTie : Entity
                 : Loading.Objects.Instances.TieInstance.NoLightmap;
     }
 
+    /// <summary>
+    /// Whether a mesh carries a lightmap UV for every one of its vertices.
+    ///
+    /// The same test <see cref="EntityUFrag"/> applies to UFrags, for the same reason: a short or
+    /// absent array is not a bake this mesh can sample, and binding the atlas anyway reads a texel
+    /// nothing authored.
+    /// </summary>
+    private static bool HasLightmapUVs(Assets.Interfaces.IMesh mesh)
+    {
+        var uvs = mesh.Geometry.GetLightmapUVs();
+        if (uvs is null) return false;
+        int vertexCount = mesh.Geometry.GetVertexPositions().Length / 3;
+        return vertexCount > 0 && uvs.Length == vertexCount * 2;
+    }
+
     private readonly AssetManager _assetManager;
 
     /// <summary>This placement's sanitized baked lighting entry, or 0xFFFF for none - see
@@ -95,7 +110,11 @@ public class EntityTie : Entity
         for (int i = 0; i < Model.Meshes.Length; i++)
         {
             var mesh = Model.Meshes[i];
-            if (lit && i < BaseTie.Meshes.Count)
+            // The index says this PLACEMENT has a bake; the UVs say this MESH can sample it. Both
+            // are needed. A mesh whose lightmap UV slice is missing, which TieReader leaves null
+            // per mesh, otherwise binds the real atlas and samples it at (0,0) - a black texel,
+            // drawn as though it were the light reaching that surface.
+            if (lit && i < BaseTie.Meshes.Count && HasLightmapUVs(BaseTie.Meshes[i]))
             {
                 var perInstance = _assetManager.GetOrBuildMaterial(BaseTie.Meshes[i].Material, LightmapIndex);
                 cachedRenderables.Add(new Renderable(mesh, Transform, perInstance));

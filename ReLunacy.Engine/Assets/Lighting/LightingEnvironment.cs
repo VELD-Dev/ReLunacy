@@ -80,7 +80,7 @@ public sealed class SpatialLightingVolume
 ///
 /// Retail evidence currently closes this as the static environment-lighting source sampled for
 /// Mobys/moveable objects. Static environment geometry has a separate prelighting path (directional
-/// lightmaps and, where authored, vertex lighting), so TIE/UFrag draws must not be silently routed
+/// lightmaps and, where authored, vertex lighting), so Tie/UFrag draws must not be silently routed
 /// through this sampler merely because the source exists. Exact coverage outside the proven movable
 /// path remains an explicit reverse-engineering question rather than a renderer fallback.
 /// </summary>
@@ -101,7 +101,7 @@ public sealed class LightingEnvironment
     public List<SpatialLightingVolume> SpatialVolumes { get; } = [];
 
     /// <summary>
-    /// New engine: the reflection occlusion (floor b, full-strength luminance a) the programs apply as
+    /// New engine: the reflection occlusion (floor b, full-strength luminance a) the shaders apply as
     /// reflection *= saturate(b + (1 - b) * lum(diffuse light) / a) - region.dat 0x8B00 +0x90 / +0x94,
     /// (0.01, 0.6) on all 15 QForce levels. Null when the level carries none.
     /// </summary>
@@ -116,7 +116,7 @@ public sealed class LightingEnvironment
 
     /// <summary>
     /// New engine: the atmosphere table, region.dat 0x34004 - 512 ARGB u32 (A = fog amount). Every draw
-    /// of the fog programs reads it at its distance from the camera over the far plane and mixes
+    /// of the fog shaders reads it at its distance from the camera over the far plane and mixes
     /// mix(colour, K.rgb, K.w) with K = pow(lerp(table[t x 512]), 2.2) (QForce EBOOT 0x00718030 /
     /// 0x00717DC0; Docs/reverse/QFORCE_FILE_STRUCTURE_2026-10-08.md §3). Null when the level has none.
     /// </summary>
@@ -157,7 +157,7 @@ public readonly record struct NewEngineAtmosphere(
 /// extract (FP 95 of the post table 0x100C3660: the glow mask alone, white), picked by 0x7100 +0x8C = 0.
 /// <see cref="DestinationAlpha"/>: the glow mask is the old engine's destination alpha, which the Sky
 /// alone writes (Dome, Color shells, Clouds, Bloom shells; the clear and the opaque world leave 0) -
-/// rather than the new engine's per-program glow output.
+/// rather than the new engine's per-shader glow output.
 /// </summary>
 public readonly record struct BloomParameters(
     float ExtractScale, float ExtractExponent, float MipWeight, float HistoryBlend, float Intensity,

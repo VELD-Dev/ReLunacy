@@ -53,7 +53,7 @@ public static class TextureUtils
     /// Decodes only the physical texel packing into RGBA8. No RSX channel remap, signed/unsigned
     /// remap, gamma or sampler state is applied here. This is the lossless inspection boundary a
     /// texture editor needs: it shows what the payload actually stores before NV4097 sampling state
-    /// changes what the fragment program sees.
+    /// changes what the fragment shader sees.
     /// </summary>
     public static byte[]? DecodePhysicalToRgba8888(ITexture texture, out int width, out int height)
     {
@@ -311,7 +311,7 @@ public static class TextureUtils
         // way): A repeats the G byte and R the B byte. CONTROL1 then picks from them - the normal maps'
         // 0x2AF0 / 0x6AF0 read A and B - so A must carry data. It used to be a constant 255, which made
         // every such normal map's x exactly 1 and its z = 1 - |xy|^2 collapse (black ramps in the
-        // retail programs; Docs/reverse/NEW_ENGINE_EMBEDDED_PROGRAMS_2026-10-07.md).
+        // retail shaders; Docs/reverse/NEW_ENGINE_EMBEDDED_PROGRAMS_2026-10-07.md).
         for (int i = 0; i < pixelCount; i++)
         {
             byte g = rawData[i * SrcPs + 0], b = rawData[i * SrcPs + 1];

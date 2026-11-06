@@ -13,6 +13,11 @@ public sealed class TieReader
     private readonly MaterialReader _materialReader;
     private readonly DebugReader _debugReader;
 
+    /// <summary>A Crack in Time writes a shorter animated-UV record; see
+    /// UvAnimation.CrackInTimeRecordSize. Set from the level's game, as MaterialReader and
+    /// ZoneReader already are.</summary>
+    public bool CrackInTimeLayout { get; init; }
+
     public TieReader(FileManager fileManager, MaterialReader materialReader, DebugReader debugReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
@@ -20,25 +25,29 @@ public sealed class TieReader
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
     }
 
-    public Dictionary<ulong, Assets.Ties.Tie> ReadAllTies() => _fileManager.isOld ? ReadTiesOld() : ReadTiesNew();
+    /// <param name="progress">The level load's bar; the Tie phase counts one item per class.</param>
+    public Dictionary<ulong, Assets.Ties.Tie> ReadAllTies(LevelLoadProgress? progress = null) =>
+        _fileManager.isOld ? ReadTiesOld(progress) : ReadTiesNew(progress);
 
-    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesOld()
+    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesOld(LevelLoadProgress? progress)
     {
         var ties = new Dictionary<ulong, Assets.Ties.Tie>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile.SectionHeader tieSection = main.QuerySection(TieMetadataOld.ID);
 
-        // ToD's animated UVs are level-wide (main.dat 0x5C00), keyed by the TIE's class index.
+        // ToD's animated UVs are level-wide (main.dat 0x5C00), keyed by the Tie's class index.
         var uvAnimations = Assets.Geometry.OldEngineUvAnimations.Read(main);
         main.sh.Seek(tieSection.offset, SeekOrigin.Begin);
+        progress?.SetTotal(tieSection.count);
         for (uint i = 0; i < tieSection.count; i++)
         {
+            progress?.Advance();
             var legacyTie = new Objects.Tie(main, _fileManager, old: true, index: i);
             if (uvAnimations != null)
                 legacyTie.UvAnimations = uvAnimations.ForTie(i);
 
             // Old engine: TieInstance.tieIndex stores file offsets, not sequential indices -
-            // key ties the same way to match.
+            // key Ties the same way to match.
             ulong key = tieSection.offset + i * TieMetadataOld.Size;
             ties.Add(key, ConvertTie(legacyTie, key));
         }
@@ -46,23 +55,26 @@ public sealed class TieReader
         return ties;
     }
 
-    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesNew()
+    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesNew(LevelLoadProgress? progress)
     {
         var ties = new Dictionary<ulong, Assets.Ties.Tie>();
 
         AssetPointer[] tiePtrs = NewEngineAssetLookup.ReadPointers(
-            _fileManager, NewEngineAssetLookup.TiePointers, "TIEs");
-        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "ties.dat", "TIEs", out Stream? tieStream) ||
+            _fileManager, NewEngineAssetLookup.TiePointers, "Ties");
+        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "ties.dat", "Ties", out Stream? tieStream) ||
             tieStream is null)
             return ties;
 
+        progress?.SetTotal(tiePtrs.Length);
         for (int i = 0; i < tiePtrs.Length; i++)
         {
-            byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, tiePtrs[i], "TIE");
+            progress?.Advance();
+            byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, tiePtrs[i], "Tie");
 
             using MemoryStream tiems = new(tiedat);
 
-            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false);
+            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
+                                            crackInTime: CrackInTimeLayout);
             // Keyed by the assetlookup pointer-table TUID, not the tie's own embedded TUID field
             // (0x68) - the embedded field isn't reliably unique.
             ties.Add(tiePtrs[i].TUID, ConvertTie(legacyTie, tiePtrs[i].TUID));
@@ -95,7 +107,7 @@ public sealed class TieReader
             // Neither engine addresses the compact Half2 secondary stream with +0x04, which is the
             // primary VertexFormat0 index: a primitive's window starts at its +0x06. Old engine:
             // file/corpus/geometry proof across nine ToD levels, gated by a non-zero +0x0E. New
-            // engine: read in the QForce EBOOT - the TIE renderer binds attribute 4 at
+            // engine: read in the QForce EBOOT - the Tie renderer binds attribute 4 at
             // array + primitive[+0x06] * 4 and the bake only for primitives whose +0x0E bit 0 is set
             // (NewEngineBakedLighting). The game binds every such window, so the new engine only
             // refuses what cannot be sampled at all; the old engine still has to find its array
@@ -233,7 +245,7 @@ public sealed class TieReader
         legacyMesh.GetBuffers(scale, out var positions, out var indices, out var uvs, out var normals, out var tangents, out var vertexAlpha, out var bakedLightScales);
 
         // Two-layer primitive: the second material, its mask, and the per-vertex blend weight the
-        // programs compare with the mask (TEX1.y = low 7 bits of |position.w| / 128).
+        // shaders compare with the mask (TEX1.y = low 7 bits of |position.w| / 128).
         IMaterial? secondMaterial = null;
         ITexture? blendMask = null;
         if (!legacyMesh.isOld && tie.SecondShaderIndices is { } seconds && meshIndex < seconds.Length &&
@@ -294,7 +306,7 @@ public sealed class TieReader
             SourceVertexBase = legacyMesh.isOld ? legacyMesh.verticesIndex : -1,
             SecondMaterial = secondMaterial,
             BlendMask = blendMask,
-            // A TIE's 0x5C00 record names the primitive by its vertex index (ToD's level-wide one too).
+            // A Tie's 0x5C00 record names the primitive by its vertex index (ToD's level-wide one too).
             UvAnimation = tie.UvAnimations.TryGetValue(legacyMesh.verticesIndex, out var uv) ? uv : null,
             NewEngineTiePrimitive = legacyMesh.isOld
                 ? null

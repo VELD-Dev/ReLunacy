@@ -8,6 +8,7 @@ using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Loading.Shaders;
 using ReLunacy.Engine.Loading.Textures;
 using ReLunacy.Engine.Scene;
+using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
@@ -143,8 +144,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         if (!string.IsNullOrWhiteSpace(inputText))
             result = result.Where(s =>
-                (!string.IsNullOrEmpty(s.name) && s.name.Contains(inputText, StringComparison.OrdinalIgnoreCase)) ||
-                s.TUID.ToString().Contains(inputText, StringComparison.OrdinalIgnoreCase));
+                TuidLink.Matches(inputText, s.name, s.TUID));
 
         return result;
     }

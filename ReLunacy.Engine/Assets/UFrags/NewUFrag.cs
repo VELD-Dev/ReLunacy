@@ -1,0 +1,121 @@
+using System.Numerics;
+using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Loading.Vertices;
+
+namespace ReLunacy.Engine.Assets.UFrags;
+
+/// <summary>New-engine UFrag: geometry baked directly into zones - not instanced.</summary>
+public sealed class NewUFrag : IUFrag
+{
+    public ulong Id { get; init; }
+    public string? Name { get; init; }
+    public bool IsLoaded { get; private set; }
+    public IMaterial Material { get; init; }
+    public bool IsOldEngine => false;
+
+    private readonly float[] _positions;
+    private readonly float[] _uvs;
+    private readonly float[]? _normals;
+    private readonly float[]? _tangents;
+    private readonly float[]? _lightmapUVs;
+    private readonly float[]? _vertexAlpha;
+    private readonly uint[] _indices;
+    private readonly Vector3 _anchor;
+    private readonly Vector3 _boundingCenter;
+    private readonly float _boundingRadius;
+    private readonly UFragVertex[] _rawVertices;
+
+    public NewUFrag(
+        ulong id,
+        float[] positions,
+        float[] uvs,
+        uint[] indices,
+        IMaterial material,
+        Vector3 anchor = default,
+        Vector3? boundingCenter = null,
+        float? boundingRadius = null,
+        float[]? normals = null,
+        float[]? tangents = null,
+        float[]? lightmapUVs = null,
+        float[]? vertexAlpha = null,
+        ushort lightmapIndex = Loading.Objects.UFragMetadata.NoLightmap,
+        Loading.Objects.UFragMetadata? metadata = null,
+        string? name = null,
+        UFragVertex[]? rawVertices = null)
+    {
+        Id = id;
+        Name = name;
+        _positions = positions ?? throw new ArgumentNullException(nameof(positions));
+        _uvs = uvs ?? throw new ArgumentNullException(nameof(uvs));
+        _indices = indices ?? throw new ArgumentNullException(nameof(indices));
+        Material = material ?? throw new ArgumentNullException(nameof(material));
+        _normals = normals;
+        _tangents = tangents;
+        _lightmapUVs = lightmapUVs;
+        _vertexAlpha = vertexAlpha;
+        LightmapIndex = lightmapIndex;
+        Metadata = metadata;
+        _anchor = anchor;
+        _rawVertices = rawVertices ?? [];
+        IsLoaded = true;
+
+        if (boundingCenter.HasValue && boundingRadius.HasValue)
+        {
+            _boundingCenter = boundingCenter.Value;
+            _boundingRadius = boundingRadius.Value;
+        }
+        else if (positions.Length == 0)
+        {
+            _boundingCenter = Vector3.Zero;
+            _boundingRadius = 0f;
+        }
+        else
+        {
+            // Fallback: computed from vertices.
+            var center = Vector3.Zero;
+            int vertexCount = positions.Length / 3;
+
+            for (int i = 0; i < positions.Length; i += 3)
+                center += new Vector3(positions[i], positions[i + 1], positions[i + 2]);
+            center /= vertexCount;
+
+            float maxDistSq = 0f;
+            for (int i = 0; i < positions.Length; i += 3)
+            {
+                var pos = new Vector3(positions[i], positions[i + 1], positions[i + 2]);
+                var distSq = Vector3.DistanceSquared(center, pos);
+                if (distSq > maxDistSq) maxDistSq = distSq;
+            }
+
+            _boundingCenter = center;
+            _boundingRadius = MathF.Sqrt(maxDistSq);
+        }
+    }
+
+    public float[] GetVertexPositions() => _positions;
+    public float[] GetTextureCoordinates() => _uvs;
+    public float[]? GetLightmapUVs() => _lightmapUVs;
+    public ushort LightmapIndex { get; init; }
+    public Loading.Objects.UFragMetadata? Metadata { get; init; }
+    public Vector4? NewEngineBakedLight => BakedLightOverride ?? Metadata?.NewEngineBakedLight;
+
+    /// <summary>c[4] when the record does not hold the QForce u16 pair (A Crack in Time: one float).</summary>
+    public Vector4? BakedLightOverride { get; internal set; }
+    public ulong NewEngineCubeTuid { get; internal set; }
+
+    /// <summary>Two-layer UFrag: the material record +0x52 blends in, by <see cref="BlendMask"/> (+0x58);
+    /// the per-vertex weight is the low 7 bits of each raw vertex's +0x06 / 128.</summary>
+    public IMaterial? SecondMaterial { get; internal set; }
+    public ITexture? BlendMask { get; internal set; }
+    public Vector3? NewEngineFadeDistances => Metadata?.NewEngineFadeDistances;
+    public byte? NewEngineFeatureMask => Metadata?.NewEngineFeatureMask;
+    public Geometry.UvAnimation? UvAnimation { get; internal set; }
+    public float[]? GetNormals() => _normals;
+    public float[]? GetTangents() => _tangents;
+    public float[]? GetVertexAlpha() => _vertexAlpha;
+    public UFragVertex[] GetRawVertices() => _rawVertices;
+    public uint[] GetIndices() => _indices;
+    public Vector3 GetAnchor() => _anchor;
+    public Vector3 GetBoundingCenter() => _boundingCenter;
+    public float GetBoundingRadius() => _boundingRadius;
+}

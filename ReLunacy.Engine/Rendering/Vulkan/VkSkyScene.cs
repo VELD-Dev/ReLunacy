@@ -35,7 +35,7 @@ public sealed class VkSkyDome
     /// <summary>
     /// True when the terminal retail C0 path is closed. For the native Dome this is proven:
     /// SkyDefs +0x44..+0x50 -> Sky runtime +0x90..+0x9C -> embedded FP constant slot in
-    /// fragment program 0x100C1930. This path uses the raw float4, not runtime packed colour +0x60.
+    /// fragment shader 0x100C1930. This path uses the raw float4, not runtime packed colour +0x60.
     /// </summary>
     public bool FragmentConstant0JoinProven { get; }
 

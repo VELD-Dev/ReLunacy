@@ -14,7 +14,9 @@ namespace ReLunacy.Engine.Rendering;
 public sealed class AssetManager : IDisposable
 {
     private readonly GraphicsDevice _gd;
-    private readonly ReLunacy.Engine.Assets.Lighting.LightingEnvironment? _oldLightingEnvironment;
+    // Not readonly: on NewEngine+ this is the REGION's sun/atmosphere, read from its region.dat, and
+    // it is replaced when the rendered region changes.
+    private ReLunacy.Engine.Assets.Lighting.LightingEnvironment? _oldLightingEnvironment;
     /// <summary>Whether the level's Mobys follow the old engine's shading contract (see VkInstanceLight).</summary>
     private readonly bool _oldEngineMobys;
 
@@ -27,7 +29,7 @@ public sealed class AssetManager : IDisposable
     // Keyed on (shader TUID, lightmap index): baked lighting is per-instance, so one shader can need
     // multiple built materials. Materials with no baked lighting collapse onto NoLightmap.
     private readonly Dictionary<(ulong ShaderId, ushort LightmapIndex), RenderMaterial> _materialCache = [];
-    // Two-layer TIE primitives: (first, lightmap, second material, blend mask) -> their composite.
+    // Two-layer Tie primitives: (first, lightmap, second material, blend mask) -> their composite.
     private readonly Dictionary<(ulong, ushort, ulong, ulong), RenderMaterial> _twoLayerMaterialCache = [];
     // The second layer's fragment groups 15 / 17 (material +0x50, +0x70) per composite material.
     private readonly Dictionary<RenderMaterial, (Vector4 Tint, Vector4 Parallax)> _vkSecondLayer = new(ReferenceEqualityComparer.Instance);
@@ -51,12 +53,12 @@ public sealed class AssetManager : IDisposable
     private readonly Dictionary<RenderMaterial, Vector2> _vkMaterialStrengths = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<RenderMaterial, Vector4> _vkMaterialPermutation = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<RenderMaterial, Vector4> _vkMobyTint = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<RenderMaterial, EmbeddedProgram> _vkEmbeddedProgram = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<RenderMaterial, Loading.Shaders.NewEngineShaderProgramBundle> _vkProgramBundle = new(ReferenceEqualityComparer.Instance);
-    private readonly bool _retailProgramsMeasured;
-    // The EBOOT's standard (class 0x00) programs, when a decrypted EBOOT is found (QForce only, like
+    private readonly Dictionary<RenderMaterial, EmbeddedShader> _vkEmbeddedShader = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<RenderMaterial, Loading.Shaders.NewEngineShaderBundle> _vkShaderBundle = new(ReferenceEqualityComparer.Instance);
+    private readonly bool _retailShadersMeasured;
+    // The EBOOT's standard (class 0x00) shaders, when a decrypted EBOOT is found (QForce only, like
     // the embedded ones).
-    private readonly Loading.Shaders.NewEngineStandardPrograms? _standardPrograms;
+    private readonly Loading.Shaders.NewEngineStandardShaders? _standardShaders;
     private readonly Dictionary<RenderMaterial, (bool IsNewEngine, byte ShaderClass, byte ShaderFlags)> _vkNewEngineShaderInfo =
         new(ReferenceEqualityComparer.Instance);
 
@@ -92,19 +94,19 @@ public sealed class AssetManager : IDisposable
     public Vector4 GetVkMobyTint(RenderMaterial bMat) =>
         _vkMobyTint.TryGetValue(bMat, out var t) ? t : Vector4.Zero;
 
-    /// <summary>Class 0x13: the embedded program family the lit shader emulates (NewEngineEmbeddedPrograms).</summary>
-    public EmbeddedProgram GetVkEmbeddedProgram(RenderMaterial bMat) =>
-        _vkEmbeddedProgram.TryGetValue(bMat, out var p) ? p : EmbeddedProgram.Generic;
+    /// <summary>Class 0x13: the embedded shader family the lit shader emulates (NewEngineEmbeddedShaders).</summary>
+    public EmbeddedShader GetVkEmbeddedShader(RenderMaterial bMat) =>
+        _vkEmbeddedShader.TryGetValue(bMat, out var p) ? p : EmbeddedShader.Generic;
 
-    /// <summary>Class 0x13: the material's own program bundle, which the renderer translates (RsxFragmentTranslator).</summary>
-    public Loading.Shaders.NewEngineShaderProgramBundle? GetVkProgramBundle(RenderMaterial bMat) =>
-        _vkProgramBundle.TryGetValue(bMat, out var b) ? b : null;
+    /// <summary>Class 0x13: the material's own shader bundle, which the renderer translates (RsxFragmentTranslator).</summary>
+    public Loading.Shaders.NewEngineShaderBundle? GetVkShaderBundle(RenderMaterial bMat) =>
+        _vkShaderBundle.TryGetValue(bMat, out var b) ? b : null;
 
     /// <summary>New-engine renderer routing state from ShaderMetadataNew +0x22/+0x23.</summary>
     public (bool IsNewEngine, byte ShaderClass, byte ShaderFlags) GetVkNewEngineShaderInfo(RenderMaterial bMat) =>
         _vkNewEngineShaderInfo.TryGetValue(bMat, out var info) ? info : (false, (byte)0, (byte)0);
 
-    // Tools of Destruction materials whose draws cull back faces: the TIE shell (0x00594C34) sends
+    // Tools of Destruction materials whose draws cull back faces: the Tie shell (0x00594C34) sends
     // CULL_FACE_ENABLE = !(+0x13 & 0x02) at 0x0059561C / 0x005972AC, and the other shells read the same
     // byte the same way (0x00501E08...). Only materials read from the level: billboards, collision and
     // other editor materials stay double-sided.
@@ -151,6 +153,66 @@ public sealed class AssetManager : IDisposable
     public IReadOnlyDictionary<ulong, ITexture> SourceTextures => _sourceTextures;
 
     public Dictionary<ulong, RenderModel[]> Mobys { get; } = []; // one Model per bangle
+
+    /// <summary>Opt-in audit (RELUNACY_BANGLE_AUDIT=1) of what each moby's bangles actually contain.
+    ///
+    /// EntityMoby.EnsureRenderables draws EVERY bangle, but a bangle is a group enabled/disabled at
+    /// runtime - character skins, LOD levels, NPC variations (see IBangle) - so alternates are drawn
+    /// superimposed. That is invisible while everything sits in bind pose and shows up as a duplicate
+    /// as soon as an animation plays. This reports which bangles carry skin weights, and whether any
+    /// joint index overruns the skeleton, so the "which bangle should the editor draw" rule can be
+    /// chosen from real data rather than inferred.
+    ///
+    /// Written with Console.WriteLine, which LunaLog classifies as Debug - the editor's Logging Level
+    /// must be Debug for these lines to reach Logs/relunacy_*.log.</summary>
+    private void LogBangleAudit(LevelData level)
+    {
+        if (Environment.GetEnvironmentVariable("RELUNACY_BANGLE_AUDIT") != "1") return;
+
+        int multi = 0, multiSkinned = 0, detailed = 0, overrun = 0;
+        const int DetailLimit = 40;
+        foreach (var (id, moby) in level.Mobys)
+        {
+            if (moby.Bangles.Count <= 1) continue;
+            multi++;
+            int bones = moby.Skeleton?.Bones.Count ?? 0;
+            if (bones > 0) multiSkinned++;
+            if (!Mobys.TryGetValue(id, out RenderModel[]? models)) continue;
+
+            // Per bangle: meshes, vertices, how many of those meshes have any non-zero weight, and the
+            // highest joint index referenced by a weighted vertex (uBones[base + joint] overruns the
+            // moby's own palette region when this reaches the bone count).
+            var parts = new List<string>(models.Length);
+            for (int b = 0; b < models.Length; b++)
+            {
+                int verts = 0, weighted = 0, maxJoint = -1;
+                foreach (RenderMesh mesh in models[b].Meshes)
+                {
+                    verts += mesh.Vertices.Length;
+                    bool any = false;
+                    foreach (ref readonly Vertex3D v in mesh.Vertices.AsSpan())
+                    {
+                        if (v.Weights == System.Numerics.Vector4.Zero) continue;
+                        any = true;
+                        if (v.Weights.X > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.X);
+                        if (v.Weights.Y > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.Y);
+                        if (v.Weights.Z > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.Z);
+                        if (v.Weights.W > 0f) maxJoint = Math.Max(maxJoint, (int)v.Joints.W);
+                    }
+                    if (any) weighted++;
+                }
+                if (bones > 0 && maxJoint >= bones) overrun++;
+                string name = string.IsNullOrEmpty(moby.Bangles[b].Name) ? $"#{b}" : moby.Bangles[b].Name!;
+                parts.Add($"{name}: {models[b].Meshes.Length}m/{verts}v, {weighted} weighted, maxJoint {maxJoint}");
+            }
+
+            if (detailed++ >= DetailLimit) continue;
+            Console.WriteLine($"[BangleAudit] moby 0x{id:X} \"{moby.Name}\" bangles {models.Length} bones {bones} | {string.Join(" | ", parts)}");
+        }
+        Console.WriteLine($"[BangleAudit] {level.Mobys.Count} mobys; {multi} with >1 bangle ({multiSkinned} of those skinned); " +
+                          $"{overrun} bangle(s) referencing a joint past the skeleton" +
+                          (detailed > DetailLimit ? $"; {detailed - DetailLimit} detail line(s) suppressed past {DetailLimit}" : ""));
+    }
     public Dictionary<ulong, RenderModel> Ties { get; } = [];
     private readonly IReadOnlyDictionary<ulong, Assets.Mobys.Moby> _sourceMobys;
 
@@ -163,33 +225,58 @@ public sealed class AssetManager : IDisposable
     // means the decode was attempted and failed.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, TextureLevels?> _prepared = new();
 
+    /// <summary>Vertex/index/interleave arrays packed off the main thread by the load's pre-pass, for
+    /// the asset build and the scene entities to consume instead of packing them here. Null outside a
+    /// level load (an editor path building one model), where each caller packs its own.</summary>
+    public Loading.PreparedGeometry? PreparedGeometry => _preparedGeometry;
+    private readonly Loading.PreparedGeometry? _preparedGeometry;
+
     /// <param name="preparedTextures">Textures already decoded by <see cref="PrepareTextures"/>. Null
     /// decodes them here instead, which blocks whatever thread this runs on.</param>
-    public AssetManager(LevelData level, GraphicsDevice gd, IDictionary<ulong, TextureLevels?>? preparedTextures = null)
+    /// <param name="preparedGeometry">Geometry already packed by <see cref="Loading.PreparedGeometry.Build"/>,
+    /// for the same reason. Null packs it here.</param>
+    /// <param name="progress">The level load's bar, so the asset build reports its own share of it.</param>
+    public AssetManager(LevelData level, GraphicsDevice gd, IDictionary<ulong, TextureLevels?>? preparedTextures = null,
+        Loading.PreparedGeometry? preparedGeometry = null, Loading.LevelLoadProgress? progress = null)
     {
+        _preparedGeometry = preparedGeometry;
         _gd = gd;
         _sourceMobys = level.Mobys;
         _oldLightingEnvironment = level.LightingEnvironment;
         _oldEngineMobys = level.IsOldEngine;
-        // The retail-program routes and patch groups were measured on QForce (RsxPrograms); the other
+
+        // No ceiling by default. It was introduced when the scene was displayed by CLAMPING, where a
+        // placement scale of 20 or 184 could only blow out - but those values look authored rather
+        // than misdecoded, and an HDR scene needs a display mapping, not a cap. Capping instead threw
+        // away 95% of a bright surface's light and left it dark with its lightmap's own chroma, which
+        // reads as the blue and black patches it was meant to cure. Use Render > Tonemap and its
+        // exposure for the display range; the ceiling stays on the slider for A/B work.
+        Vulkan.VulkanRenderer.MaxBakedScale = 0f;
+        // The retail-shader routes and patch groups were measured on QForce (RsxShaders); the other
         // new-engine games keep the generic path until theirs are (seaside's water drew flat white).
-        // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's programs are
+        // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's shaders are
         // drawn on all of them (the seaside water that drew flat white was the unit-10/11 stub, now the
         // scene copy).
-        _retailProgramsMeasured = !level.IsOldEngine;
-        // The EBOOT's standard programs: this level's own game's when a decrypted EBOOT lies in its install
+        _retailShadersMeasured = !level.IsOldEngine;
+        // The EBOOT's standard shaders: this level's own game's when a decrypted EBOOT lies in its install
         // (QForce, All 4 One, Into the Nexus here), else another new-engine game's - the same engine, the
         // same table layout (A Crack in Time has none decrypted).
-        _standardPrograms = !level.IsOldEngine
-            ? Loading.Shaders.NewEngineStandardPrograms.Find(level.GameDefinition?.Id)
+        _standardShaders = !level.IsOldEngine
+            ? Loading.Shaders.NewEngineStandardShaders.Find(level.GameDefinition?.Id)
             : null;
-        // Tools of Destruction's TIE programs, from its decrypted EBOOT (TodTiePrograms).
-        Vulkan.VulkanRenderer.TodPrograms = level.IsOldEngine && level.GameDefinition?.Id is null or Games.GameId.ToolsOfDestruction
-            ? Loading.Shaders.TodTiePrograms.Find()
+        // Tools of Destruction's Tie shaders, from its decrypted EBOOT (TodTieShaders).
+        Vulkan.VulkanRenderer.TodShaders = level.IsOldEngine && level.GameDefinition?.Id is null or Games.GameId.ToolsOfDestruction
+            ? Loading.Shaders.TodTieShaders.Find()
             : null;
         var sw = System.Diagnostics.Stopwatch.StartNew(); long t0 = 0;
 
         foreach (var (id, levels) in preparedTextures ?? PrepareTextures(level)) _prepared[id] = levels;
+
+        // Mobys, ties and the two zone-lighting lists: one item each, which is what the bar counts
+        // through. Every one of them allocates graphics-device resources, so this phase is the main
+        // thread's and cannot be spread across cores the way the pre-passes are.
+        progress?.Begin(Loading.LoadPhase.BuildingAssets,
+            level.Mobys.Count + level.Ties.Count + level.ZoneLightmaps.Count + level.ZoneDirectionals.Count);
 
         foreach (var (id, moby) in level.Mobys)
         {
@@ -199,12 +286,15 @@ public sealed class AssetManager : IDisposable
                 models[i] = BuildModel(moby.Bangles[i].Meshes);
             }
             Mobys[id] = models;
+            progress?.Advance();
         }
+        LogBangleAudit(level);
 
         long tMobys = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
         foreach (var (id, tie) in level.Ties)
         {
             Ties[id] = BuildModel(tie.Meshes);
+            progress?.Advance();
         }
         long tTies = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
 
@@ -219,13 +309,14 @@ public sealed class AssetManager : IDisposable
             _sourceTextures.TryAdd(texture.Id, texture);
 
         long tTextures = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
-        ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap");
-        ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional");
+        ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap", progress);
+        ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional", progress);
         if (ZoneLightmaps.Count != 0)
             Console.WriteLine($"Zone lighting: {ZoneLightmaps.Count} light-colour and {ZoneDirectionals.Count} light-direction textures built.");
 
         long tZone = sw.ElapsedMilliseconds - t0;
         BuildEnvironmentCubemap(level);
+        ActiveEnvironmentRegion = level.Region?.Name;
         if (!_prepared.IsEmpty)
             Console.WriteLine($"Warning: {_prepared.Count} decoded textures were prepared but never built - they are holding memory for nothing.");
         // GPU upload happens separately (see GetOrBuildTexture/UploadOnePendingTexture); these timings
@@ -235,7 +326,9 @@ public sealed class AssetManager : IDisposable
 
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run
     /// concurrently: pixel data is already in memory, and the block decoders hold only readonly state.</summary>
-    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level)
+    /// <param name="progress">The level load's bar. The texture count is only known once the working
+    /// set has been walked, so the phase is given its total here rather than by the caller.</param>
+    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level, Loading.LevelLoadProgress? progress = null)
     {
         // Generated mips remain disabled for atlases because a generic box filter bleeds their black
         // gutters into neighbouring islands. TextureUploadPreparer overrides this only when the source
@@ -269,6 +362,7 @@ public sealed class AssetManager : IDisposable
             foreach (var mesh in tie.Meshes) NeedMaterial(mesh.Material);
 
         var prepared = new System.Collections.Concurrent.ConcurrentDictionary<ulong, TextureLevels?>();
+        progress?.AddTotal(needed.Count);
         Parallel.ForEach(needed.Values, texture =>
         {
             try
@@ -283,6 +377,7 @@ public sealed class AssetManager : IDisposable
                 prepared[texture.Id] = null;
                 Console.WriteLine($"Warning: Failed to decode texture {texture.Id:X}: {ex.Message}");
             }
+            progress?.Advance();
         });
         return new Dictionary<ulong, TextureLevels?>(prepared);
     }
@@ -291,6 +386,16 @@ public sealed class AssetManager : IDisposable
     // Always non-null once constructed: a level with no cubemap gets a 1x1 grey fallback so the
     // descriptor set is never left unbound.
     private NeoVeldrid.Texture? _environmentCubemap;
+    private IReadOnlyList<Assets.Cubemaps.Cubemap> _levelCubemaps = [];
+    // The CubemapArrangement.Revision the uploaded cubes were built with, so a caller can ask whether
+    // what the shaders sample still matches the arrangement.
+    private int _environmentCubemapRevision = -1;
+    private bool _environmentCubemapRebuildPending;
+
+    /// <summary>Which region's environment is currently uploaded. On NewEngine+ the cubemap set
+    /// belongs to the region, and several regions may share one, so this follows whichever region is
+    /// being rendered rather than being fixed at load.</summary>
+    public string? ActiveEnvironmentRegion { get; private set; }
     public NeoVeldrid.TextureView? EnvironmentCubemapView { get; private set; }
 
     /// <summary>
@@ -300,22 +405,32 @@ public sealed class AssetManager : IDisposable
     /// </summary>
     public IReadOnlyDictionary<ulong, int> EnvironmentCubeResources { get; private set; } = new Dictionary<ulong, int>();
 
+
+    /// <summary>The retail shader table and engine flag the scene renderer was built with, so a second
+    /// renderer over the same assets (the Asset Viewer's preview) can be given the same ones. Taking the
+    /// constructor defaults instead left the preview with no standard shaders at all - every draw fell
+    /// back to the generic path, which applies vertex alpha unconditionally where the retail shaders
+    /// apply it per permutation - and with oldEngineMobys true even on a new-engine level.</summary>
+    public Loading.Shaders.NewEngineStandardShaders? StandardShaders => _standardShaders;
+
+    public bool OldEngineMobys => _oldEngineMobys;
+
     /// <summary>
     /// New engine: every cube resource the region declares, four cubes each, uploaded as
     /// R16G16B16A16_Float with the retail channels intact (rgb tint, a intensity); resource r cube i is
     /// cube 4r+i of the texture (Vulkan layers 6(4r+i)..+5).
     ///
-    /// Why four and why float. The retail programs gate every reflection by the cube's OWN fourth
+    /// Why four and why float. The retail shaders gate every reflection by the cube's OWN fourth
     /// channel - `cube.rgb * max(cube.a + (+0x68), 0)` - so that channel has to reach the shader as
     /// itself, not folded into rgb behind an exponent. And each material's 0x5000 +0x40 is 0..3 on
     /// 24,126 of 24,179 new-engine materials while every cube resource holds exactly four cubes
     /// (1,024 cubes, 256 resources, 4 games): the material picks its cube. PROVEN (QForce EBOOT): the
     /// UFrag renderer binds unit 7 to resource[record +0x59] + material +0x40 * 0x20 (0x0074F980), the
-    /// TIE sort does the same with +0x5D (0x006DE364), the Moby pass passes material +0x40 to the bind
+    /// Tie sort does the same with +0x5D (0x006DE364), the Moby pass passes material +0x40 to the bind
     /// helper 0x00B4C80C (0x0078FC68) - Docs/reverse/NEW_ENGINE_REFLECTION_CUBES_2026-10-07.md.
     ///
     /// Why every resource. A level declares up to 21 of them (galacton_ship) and each zone names, per
-    /// TIE placement and per UFrag, the one it reflects - PROVEN, see CubemapReader. Only the default
+    /// Tie placement and per UFrag, the one it reflects - PROVEN, see CubemapReader. Only the default
     /// used to be uploaded, so every placement that asked for another one reflected the wrong sky.
     ///
     /// Sizes. One image needs one face size, and retail mixes them in a level (phoenix_ph2: a 128 cube
@@ -327,10 +442,10 @@ public sealed class AssetManager : IDisposable
     /// is the raw Vulkan layer - so ArrayLayers is the cube count and cube c, face f is layer 6c + f.
     /// (Both builders used to pass 6 per cube, which allocated six times the layers they wrote.)
     /// </summary>
-    private bool TryBuildNewEngineHdrCubes(LevelData level, NeoVeldrid.ResourceFactory factory)
+    private bool TryBuildNewEngineHdrCubes(IReadOnlyList<Assets.Cubemaps.Cubemap> levelCubemaps, NeoVeldrid.ResourceFactory factory)
     {
         var resources = new List<(ulong Tuid, List<Assets.Cubemaps.Cubemap> Cubes)>();
-        foreach (var cube in level.Cubemaps)
+        foreach (var cube in levelCubemaps)
         {
             if (cube.HalfFloatFaces is not { Count: 6 })
                 continue;
@@ -357,14 +472,20 @@ public sealed class AssetManager : IDisposable
         var tex = factory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
             (uint)size, (uint)size, 1, (uint)cubes.Count, NeoVeldrid.PixelFormat.R16_G16_B16_A16_Float,
             NeoVeldrid.TextureUsage.Sampled | NeoVeldrid.TextureUsage.Cubemap));
+        // The storage transform is measured, the orientation is not (CubemapArrangement): direction f
+        // takes the stored face the arrangement names, with the per-face rotation that the chosen cube
+        // symmetry implies - the same mapping the Cubemap Viewer's projection reads it through.
+        var arrangement = Assets.Cubemaps.CubemapArrangement.NewEngine;
         for (int c = 0; c < cubes.Count; c++)
             for (int f = 0; f < 6; f++)
-                _gd.UpdateTexture(tex, HalfFace(cubes[c].HalfFloatFaces![f], cubes[c].FaceSize, size),
+                _gd.UpdateTexture(tex,
+                    arrangement.Orient(f, HalfFace(cubes[c].HalfFloatFaces![arrangement.Source(f)], cubes[c].FaceSize, size), size, 8),
                     0, 0, 0, (uint)size, (uint)size, 1, 0, (uint)(6 * c + f));
+        _environmentCubemapRevision = arrangement.Revision;
 
         Console.WriteLine(
             $"[Environment] new-engine HDR cubes: {resources.Count} resource(s), {cubes.Count} x {size}x{size} " +
-            "R16G16B16A16_Float, retail channels (rgb tint, a intensity), Morton-deswizzled.");
+            $"R16G16B16A16_Float, retail channels (rgb tint, a intensity), Morton-deswizzled, faces {arrangement.Describe()}.");
         _environmentCubemap = tex;
         EnvironmentCubemapView = factory.CreateTextureView(tex);
         EnvironmentCubeResources = map;
@@ -401,11 +522,18 @@ public sealed class AssetManager : IDisposable
         return bytes;
     }
 
-    private void BuildEnvironmentCubemap(LevelData level)
+    private void BuildEnvironmentCubemap(LevelData level) => BuildEnvironmentCubemap(level.Cubemaps);
+
+    private void BuildEnvironmentCubemap(IReadOnlyList<Assets.Cubemaps.Cubemap> levelCubemaps)
     {
-        if (TryBuildNewEngineHdrCubes(level, _gd.ResourceFactory))
+        // Retained so the upload can be redone under a different arrangement without reloading the
+        // level (RequestEnvironmentCubemapRebuild). The Cubemap objects are the loader's, not copies.
+        _levelCubemaps = levelCubemaps;
+        if (TryBuildNewEngineHdrCubes(levelCubemaps, _gd.ResourceFactory))
             return;
-        var cubemap = level.Cubemaps.Count > 0 ? level.Cubemaps[0] : null;
+        var oldArrangement = Assets.Cubemaps.CubemapArrangement.OldEngine;
+        _environmentCubemapRevision = oldArrangement.Revision;
+        var cubemap = levelCubemaps.Count > 0 ? levelCubemaps[0] : null;
         int size = cubemap?.FaceSize ?? 1;
         int mipCount = cubemap is { Faces.Count: > 0 }
             ? cubemap.Faces.Min(face => Math.Max(1, face.MipmapCount))
@@ -413,7 +541,7 @@ public sealed class AssetManager : IDisposable
         var factory = _gd.ResourceFactory;
 
         // The RSX samples the cube through its descriptor's ADDRESS gamma bits, and every retail ToD cube
-        // (all 24 levels' 0x5920 records) sets all four - alpha included, so the exponent the TIE programs
+        // (all 24 levels' 0x5920 records) sets all four - alpha included, so the exponent the Tie shaders
         // read as EX2((a x 255 - 80) / 35) is the sRGB-decoded alpha. Uploading the raw bytes made the
         // reflections 4x too bright on average (Metropolis: mean 2.4 instead of 0.6). The decode happens
         // before filtering, as on the hardware, into 16-bit channels so the small exponents keep their steps.
@@ -434,13 +562,14 @@ public sealed class AssetManager : IDisposable
             for (uint mip = 0; mip < (uint)mipCount; mip++)
             {
                 byte[] rgba;
-                if (cubemap != null && f < cubemap.Faces.Count)
+                int sourceFace = oldArrangement.Source((int)f);
+                if (cubemap != null && sourceFace < cubemap.Faces.Count)
                 {
-                    var face = cubemap.Faces[(int)f];
+                    var face = cubemap.Faces[sourceFace];
                     if (face.Format != ReLunacy.Engine.Assets.Interfaces.TextureFormat.A8R8G8B8)
                         throw new InvalidDataException($"0x5920 cubemap face {f} has unsupported format {face.Format}.");
                     byte[] argb = face.GetMipmapData((int)mip);
-                    rgba = TextureUtils.ARGB8888ToRGBA8888(argb, (int)w, (int)h);
+                    rgba = oldArrangement.Orient((int)f, TextureUtils.ARGB8888ToRGBA8888(argb, (int)w, (int)h), (int)w, 4);
                 }
                 else
                 {
@@ -453,7 +582,7 @@ public sealed class AssetManager : IDisposable
             }
         }
 
-        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {size}x{size}, {mipCount} authored mip(s), 6 faces{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}.");
+        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {size}x{size}, {mipCount} authored mip(s), 6 faces{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}, faces {oldArrangement.Describe()}.");
         _environmentCubemap = tex;
         EnvironmentCubemapView = factory.CreateTextureView(tex);
     }
@@ -492,7 +621,7 @@ public sealed class AssetManager : IDisposable
         return data;
     }
 
-    /// <summary>Baked lighting is enabled for terrain (UFrags), which index a shared atlas via
+    /// <summary>Baked lighting is enabled for UFrags, which index a shared atlas via
     /// UFragMetadata.lightmapIndex and sample it through UFragVertex.UVs2. Ties are excluded: they
     /// carry a per-instance bake index, but VertexFormat0's single UV pair tiles, so there is no
     /// correct way to sample an atlas with it.</summary>
@@ -503,7 +632,7 @@ public sealed class AssetManager : IDisposable
     public IReadOnlyList<GpuTexture?> ZoneLightmaps { get; } = [];
     public IReadOnlyList<GpuTexture?> ZoneDirectionals { get; } = [];
 
-    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture> source, string label)
+    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture> source, string label, Loading.LevelLoadProgress? progress = null)
     {
         var built = new List<GpuTexture?>(source.Count);
         foreach (var tex in source)
@@ -517,6 +646,7 @@ public sealed class AssetManager : IDisposable
                 Console.WriteLine($"Warning: Failed to build zone {label} {built.Count}: {ex.Message}");
                 built.Add(null);
             }
+            progress?.Advance();
         }
         return built;
     }
@@ -560,11 +690,24 @@ public sealed class AssetManager : IDisposable
             var material = twoLayer != null
                 ? GetOrBuildMaterial(source, Loading.Objects.UFragMetadata.NoLightmap, twoLayer.SecondMaterial, twoLayer.BlendMask)
                 : GetOrBuildMaterial(source);
-            var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
-            var indices = mesh.Geometry.GetIndices();
+
+            // Normally packed by the load's parallel pre-pass (Loading.PreparedGeometry), which is
+            // where a whole level's vertex packing belongs - it needs no graphics device. A variant
+            // or editor build passes a material the pre-pass could not know about, and the packed
+            // layout depends on that material's vertex-alpha use, so those are packed here.
+            Loading.PreparedGeometry.Entry geometry = default;
+            bool packed = ReferenceEquals(source, mesh.Material)
+                && _preparedGeometry is { } pre && pre.TryTake(mesh, out geometry);
+            if (!packed)
+            {
+                var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
+                var indices = mesh.Geometry.GetIndices();
+                geometry = new Loading.PreparedGeometry.Entry(
+                    vertices, indices, Loading.PreparedGeometry.Interleaved(vertices, indices), HasValidLightmapUVs: false);
+            }
 
             var oldTieShaderUse = mesh is Assets.Geometry.Mesh sourceMesh ? sourceMesh.OldTieShaderUse : null;
-            var bMesh = new RenderMesh(vertices, indices, material, oldTieShaderUse)
+            var bMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material, oldTieShaderUse)
             {
                 NewEngineTiePrimitive = mesh is Assets.Geometry.Mesh sourcePrimitive ? sourcePrimitive.NewEngineTiePrimitive : null,
                 NewEngineFadeDistances = mesh is Assets.Geometry.Mesh fadeSource
@@ -575,8 +718,8 @@ public sealed class AssetManager : IDisposable
 
             // Register this mesh's raw geometry keyed by the mesh instance, so the renderer can
             // upload it once and resolve every scene instance back to it.
-            if (vertices.Length > 0 && indices.Length >= 3)
-                Vulkan.VulkanSceneCapture.Register(bMesh, Vulkan.VulkanSceneCapture.Interleave(vertices), indices);
+            if (geometry.Interleaved.Length > 0)
+                Vulkan.VulkanSceneCapture.Register(bMesh, geometry.Interleaved, geometry.Indices);
 
             bMeshes[i] = bMesh;
         }
@@ -590,7 +733,7 @@ public sealed class AssetManager : IDisposable
         GetOrBuildMaterial(material, lightmapIndex, null, null);
 
     /// <summary>With <paramref name="secondLayer"/> and <paramref name="blendMask"/>: the composite a
-    /// two-layer TIE primitive draws with - the first material as usual, plus the second one's albedo /
+    /// two-layer Tie primitive draws with - the first material as usual, plus the second one's albedo /
     /// normal / properties / detail and the mask (fAlbedo2, fNormal2, fProperties2, fDetail2, fBlendMask:
     /// RSX units 8..12) and its +0x50 / +0x70 (<see cref="GetVkSecondLayer"/>).</summary>
     public RenderMaterial GetOrBuildMaterial(IMaterial material, ushort lightmapIndex, IMaterial? secondLayer, ITexture? blendMask)
@@ -644,8 +787,8 @@ public sealed class AssetManager : IDisposable
         bMat.AddMaterialMap("fDetail", new MaterialMap(detail, ResolveSampler(detail), hasDetail ? 1f : 0f));
 
         // New-engine slots 4/5 are native authored bindings, not metadata noise. Retail embedded
-        // programs that use them sample RSX units 8/9. Keep them resident and attached to the
-        // material even though their combine equations are program-family specific and therefore
+        // shaders that use them sample RSX units 8/9. Keep them resident and attached to the
+        // material even though their combine equations are shader-family specific and therefore
         // are not injected into the generic Vulkan shader yet.
         if (material.AuxiliaryTextureA != null)
         {
@@ -678,14 +821,14 @@ public sealed class AssetManager : IDisposable
         if (material is Assets.Materials.Material nativeMaterial)
         {
             _vkReflectionTint[bMat] = nativeMaterial.ReflectionTintSource;
-            // Old engine: uMat4 carries +0x30 instead, the ToD TIE programs' group 1 (G6).
+            // Old engine: uMat4 carries +0x30 instead, the ToD Tie shaders' group 1 (G6).
             _vkReflectionParameters[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? nativeMaterial.ReflectionParametersSource
                 : nativeMaterial.OldShaderVector30;
             _vkEnvironmentCube[bMat] = nativeMaterial.EnvironmentCubeIndex;
-            // PROVEN (QForce EBOOT): the TIE, UFrag and Moby renderers upload +0x30/+0x34 as vertex
-            // constant c[21].xy (0x007444BC, 0x00745E50, 0x00751390, 0x0078EF94); the vertex programs
-            // fade them with distance into TEX3.w / TEX2.w, and the fragment programs multiply the
+            // PROVEN (QForce EBOOT): the Tie, UFrag and Moby renderers upload +0x30/+0x34 as vertex
+            // constant c[21].xy (0x007444BC, 0x00745E50, 0x00751390, 0x0078EF94); the vertex shaders
+            // fade them with distance into TEX3.w / TEX2.w, and the fragment shaders multiply the
             // normal map's xy by TEX3.w and the reflection mask by TEX2.w (949d655b3022, f6cdb4ccaa84,
             // 0d299ef3cf54). The fur class (0x0C) stores other values there.
             byte shaderClass = nativeMaterial.NewEngineShaderClass;
@@ -698,7 +841,7 @@ public sealed class AssetManager : IDisposable
                 nativeMaterial.NewEngineShaderFlags);
             if (!nativeMaterial.IsNewEngineMaterial && (nativeMaterial.OldRenderFlags & 0x02) == 0)
                 _vkOldEngineCulled.Add(bMat);
-            // Old engine: .x = +0x58, the detail tiling the ToD TIE vertex programs apply (c[21].x); the
+            // Old engine: .x = +0x58, the detail tiling the ToD Tie vertex shaders apply (c[21].x); the
             // generic shader reads uMat6 on the new engine only.
             _vkMaterialPermutation[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? NewEnginePermutation(nativeMaterial, hasDetail)
@@ -708,9 +851,9 @@ public sealed class AssetManager : IDisposable
                 : Vector4.Zero;
             if (nativeMaterial.IsNewEngineMaterial && shaderClass == 0x13)
             {
-                _vkEmbeddedProgram[bMat] = NewEngineEmbeddedPrograms.Classify(nativeMaterial.NewEngineProgramKeys);
-                if (_retailProgramsMeasured && nativeMaterial.NewEngineProgramBundle is { Variants.Count: > 0 } bundle)
-                    _vkProgramBundle[bMat] = bundle;
+                _vkEmbeddedShader[bMat] = NewEngineEmbeddedShaders.Classify(nativeMaterial.NewEngineShaderKeys);
+                if (_retailShadersMeasured && nativeMaterial.NewEngineShaders is { Variants.Count: > 0 } bundle)
+                    _vkShaderBundle[bMat] = bundle;
             }
         }
 
@@ -824,16 +967,16 @@ public sealed class AssetManager : IDisposable
     public const float DefaultDetailTiling = 1f;
 
     /// <summary>
-    /// What the retail new-engine programs need beyond the texture set, read in the QForce EBOOT
+    /// What the retail new-engine shaders need beyond the texture set, read in the QForce EBOOT
     /// (Docs/reverse/NEW_ENGINE_SHADER_SECTIONS_EBOOT_2026-09-27.md):
-    ///   x  detail UV tiling. Every renderer uploads VP c[22] = (+0x78, +0x3C, 0, 0) (TIE 0x00743BA4,
-    ///      UFrag 0x00751484, Moby 0x0078F058) and the programs scale the UV by c[22].x; the loader
+    ///   x  detail UV tiling. Every renderer uploads VP c[22] = (+0x78, +0x3C, 0, 0) (Tie 0x00743BA4,
+    ///      UFrag 0x00751484, Moby 0x0078F058) and the shaders scale the UV by c[22].x; the loader
     ///      rescales +0x78 by 512 / (detail width) for standard materials (0x00726E50).
     ///   y  detail gain +0x3C: weight = saturate(+0x3C * (1 - distance fade)) * props.a.
     ///   z  1 when the material draws its detail map.
     ///   w  the material's +0x20 feature bits (as the loader keeps them). Bit 0x08 picks the RNM baked
-    ///      programs (lightmap scale c[4].x) over the flat ones (c[4].y, no RNM weights); 0x04 is the only
-    ///      permutation family whose programs sample the reflection cube, 0x10 the detail map.
+    ///      shaders (lightmap scale c[4].x) over the flat ones (c[4].y, no RNM weights); 0x04 is the only
+    ///      permutation family whose shaders sample the reflection cube, 0x10 the detail map.
     /// </summary>
     private static Vector4 NewEnginePermutation(Assets.Materials.Material material, bool hasDetail)
     {
@@ -961,7 +1104,7 @@ public sealed class AssetManager : IDisposable
     /// <summary>mipmap: pass false for ATLASES. Mip generation averages neighbouring texels, which
     /// on an atlas blends across island boundaries - and the baked lightmap atlases have black
     /// gutters between their islands, so every minified pixel near an island edge pulls that black
-    /// inward. That shows up as dark patches on lit terrain with no counterpart in the game.
+    /// inward. That shows up as dark patches on lit UFrags with no counterpart in the game.
     /// Native authored chains are the exception: TextureUploadPreparer preserves them even when
     /// this argument is false, because those levels already contain the game's own atlas gutters.</summary>
     public GpuTexture GetOrBuildTexture(ITexture texture, bool mipmap = true)
@@ -1018,7 +1161,7 @@ public sealed class AssetManager : IDisposable
 
     // When useVertexAlpha is set, decoded vertex alpha is written into each vertex's color alpha
     // instead of the default fully-opaque white.
-    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, bool useVertexAlpha)
+    internal static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, bool useVertexAlpha)
     {
         var positions = geometry.GetVertexPositions();
         var uvs = geometry.GetTextureCoordinates();
@@ -1043,7 +1186,7 @@ public sealed class AssetManager : IDisposable
                 ? new Vector4(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3])
                 : new Vector4(1f, 0f, 0f, 1f);
 
-            // Second UV channel is the lightmap UV set where the geometry has one (ties do). Falls
+            // Second UV channel is the lightmap UV set where the geometry has one (Ties do). Falls
             // back to the base UV otherwise, harmless since no lightmap is bound for those draws.
             var lmUV = lightmapUVs != null && lightmapUVs.Length >= i * 2 + 2
                 ? new Vector2(lightmapUVs[i * 2], lightmapUVs[i * 2 + 1])
@@ -1063,7 +1206,7 @@ public sealed class AssetManager : IDisposable
                     jointWeights[i * 4 + 0], jointWeights[i * 4 + 1], jointWeights[i * 4 + 2], jointWeights[i * 4 + 3]);
             }
 
-            // Retail old-engine TIE fragment programs multiply the whole lit result by the VP's TEX1.x
+            // Retail old-engine Tie fragment shaders multiply the whole lit result by the VP's TEX1.x
             // per-vertex multiplier: out = (light * TEX1.x) * albedo. The lit shader computes
             // albedo = texture * fColor.rgb and then albedo * lighting, so carrying the multiplier in
             // the vertex colour RGB is the same product.
@@ -1176,7 +1319,7 @@ public sealed class AssetManager : IDisposable
             var scene = BuildVkScene();
             if (scene is not { } s) return false;
             double built = timer.Elapsed.TotalSeconds;
-            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, true, _oldLightingEnvironment, s.envCube, viewWidth, viewHeight, _oldEngineMobys, EnvironmentCubeResources, _standardPrograms, s.maxSkeletonBones, s.maxConcurrentAnimated);
+            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, true, _oldLightingEnvironment, s.envCube, viewWidth, viewHeight, _oldEngineMobys, EnvironmentCubeResources, _standardShaders, s.maxSkeletonBones, s.maxConcurrentAnimated);
             Console.WriteLine(
                 $"[Scene][Timing] retained scene captured in {timer.Elapsed.TotalSeconds:0.00}s " +
                 $"(gather {built:0.00}s, GPU renderer {timer.Elapsed.TotalSeconds - built:0.00}s): " +
@@ -1248,6 +1391,56 @@ public sealed class AssetManager : IDisposable
         InvalidateSceneRenderer();
     }
 
+    /// <summary>Uploads the environment belonging to <paramref name="regionName"/>, when it is not the
+    /// one already uploaded. Returns true if anything changed, in which case the caller must
+    /// invalidate the scene: the renderer binds the cube views at construction, so a new texture only
+    /// reaches the shaders once the scene is rebuilt.
+    ///
+    /// A region with no environment of its own keeps whatever is bound rather than losing its
+    /// reflections - several regions legitimately share one set, and the maps only hold the regions
+    /// that declared their own.</summary>
+    public bool SetActiveEnvironmentRegion(LevelData level, string? regionName)
+    {
+        if (regionName == null || regionName == ActiveEnvironmentRegion) return false;
+        if (!level.LightingByRegion.TryGetValue(regionName, out var env)) return false;
+
+        // Only the lighting. The cube ARRAY is deliberately the union of every region's resources
+        // (LevelReader), because an instance names the resource it wants and the renderer resolves
+        // that per instance - narrowing the upload to one region's set is what left instances
+        // referencing another region's cube falling back to resource 0. Nothing is disposed here, so
+        // there is also no texture being freed under a renderer that still holds views on it.
+        _oldLightingEnvironment = env;
+        ActiveEnvironmentRegion = regionName;
+        Console.WriteLine($"[Environment] lighting now from region '{regionName}'.");
+        return true;
+    }
+
+    /// <summary>True while a requested cube rebuild has not run yet. A sweep that syncs each step to
+    /// the 3D view has to wait on this: one rebuild happens per frame at the safe point, so advancing
+    /// faster than that would skip candidates without ever showing them.</summary>
+    public bool EnvironmentCubemapRebuildPending => _environmentCubemapRebuildPending;
+
+    /// <summary>True when the uploaded cubes no longer match the arrangement the level's engine uses,
+    /// i.e. a rebuild would change what the 3D view reflects.</summary>
+    public bool EnvironmentCubemapArrangementStale(bool oldEngine) =>
+        _environmentCubemapRevision != Assets.Cubemaps.CubemapArrangement.For(oldEngine).Revision;
+
+    /// <summary>
+    /// Uploads the level's cubes again under the current <see cref="Assets.Cubemaps.CubemapArrangement"/>.
+    ///
+    /// The work is deferred to <see cref="FlushSceneRendererInvalidation"/> rather than done here: the
+    /// captured scene's descriptor sets are what still reference the cube image, so the texture can
+    /// only be replaced once that capture has been torn down, and that safe point is post-Draw - after
+    /// the frame has been presented and waited on - which is also the only place the existing teardown
+    /// runs. Calling this from a UI callback mid-frame and disposing immediately would free an image
+    /// the frame in flight is still sampling.
+    /// </summary>
+    public void RequestEnvironmentCubemapRebuild()
+    {
+        _environmentCubemapRebuildPending = true;
+        InvalidateSceneRenderer();
+    }
+
     public void InvalidateSceneRenderer()
     {
         // If no retained scene exists, BuildVkScene will consume the latest registry naturally;
@@ -1258,10 +1451,23 @@ public sealed class AssetManager : IDisposable
     /// <summary>Executes a requested invalidation at LunaWindow's post-Draw safe point.</summary>
     public void FlushSceneRendererInvalidation()
     {
-        if (!_sceneRendererInvalidationPending) return;
+        if (!_sceneRendererInvalidationPending && !_environmentCubemapRebuildPending) return;
         _sceneRendererInvalidationPending = false;
         SceneRenderer?.Dispose();
         SceneRenderer = null;
+        // Only now, with the capture gone, is nothing holding the old cube image. The next capture
+        // reads EnvironmentCubemapView afresh (see BuildVkScene), so the new texture reaches the
+        // shaders without anything else having to be told about it.
+        if (_environmentCubemapRebuildPending)
+        {
+            _environmentCubemapRebuildPending = false;
+            EnvironmentCubemapView?.Dispose();
+            EnvironmentCubemapView = null;
+            EnvironmentCubeResources = new Dictionary<ulong, int>();
+            _environmentCubemap?.Dispose();
+            _environmentCubemap = null;
+            BuildEnvironmentCubemap(_levelCubemaps);
+        }
     }
 
     /// <summary>Tears down the captured scene. Must be called before EntityManager.Singleton.Dispose()

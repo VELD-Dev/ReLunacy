@@ -43,7 +43,7 @@ public static class Icons
     public const string Palette = "\uf53f";  // shaders / materials
     public const string VectorSquare = "\uf5cb";  // volumes
     public const string Map = "\uf279";  // level
-    public const string MountainSun = "\ue52f";  // terrain / ufrags
+    public const string MountainSun = "\ue52f";  // UFrags
     public const string Tree = "\uf1bb";  // foliage
     public const string Droplet = "\uf043";
     public const string LayerGroup = "\uf5fd";

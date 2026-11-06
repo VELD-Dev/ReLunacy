@@ -69,6 +69,7 @@ internal class EditorSettingsFrame : Frame
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
                     Program.Settings.TextureFiltering = (ReLunacy.Engine.Rendering.TextureFiltering)currentFiltering;
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_EnableLighting"), ref Program.Settings.EnableLighting);
+                DrawCodeEditorThemePicker();
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
                 // Light direction/colour/ambient controls live in the Level Data frame instead,
@@ -90,6 +91,18 @@ internal class EditorSettingsFrame : Frame
                 }
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_UpdateChannelHelp"));
+                // Disabled on the nightly channel, which has no version ladder at all, and on a
+                // prerelease build, which considers prereleases whatever this says.
+                bool prereleaseForced = SemVersion.TryParse(ProgramInfo.Version, out var running) && running.IsPrerelease;
+                ImGui.BeginDisabled(Program.Settings.UpdateChannel == UpdateChannel.Nightly || prereleaseForced);
+                bool includePrereleases = Program.Settings.IncludePrereleases || prereleaseForced;
+                if (ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_IncludePrereleases"), ref includePrereleases))
+                    Program.Settings.IncludePrereleases = includePrereleases;
+                ImGui.EndDisabled();
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get(prereleaseForced
+                    ? "GUI_Frame_EditorSettings_IncludePrereleasesForced"
+                    : "GUI_Frame_EditorSettings_IncludePrereleasesHelp"));
                 if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
                 {
                     ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));
@@ -110,6 +123,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_VolumeWireThicknessHelp"));
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeColor"), ref Program.Settings.VolumeColor);
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_NavmeshColor"), ref Program.Settings.NavmeshColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_SelectionOutlineColor"), ref Program.Settings.SelectionOutlineColor);
                 ImGui.EndGroup();
@@ -184,5 +198,18 @@ internal class EditorSettingsFrame : Frame
         ImGui.SetNextWindowSize(new Vector2(800, 600));
         ImGui.SetNextWindowPos(ImGui.GetWorkCenter(ImGui.GetMainViewport()), ImGuiCond.Once, new Vector2(0.5f));
         base.RenderAsWindow(deltaTime);
+    }
+
+    /// <summary>Theme list for the Lua code editor, read from Themes/*.json so a file dropped in
+    /// next to the executable shows up without a rebuild.</summary>
+    private static void DrawCodeEditorThemePicker()
+    {
+        var names = Utility.CodeEditor.LuaEditorThemeLoader.Available();
+        int current = Math.Max(0, names.FindIndex(n =>
+            string.Equals(n, Program.Settings.CodeEditorTheme, StringComparison.OrdinalIgnoreCase)));
+        if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_CodeEditorTheme"), ref current, [.. names], names.Count))
+            Program.Settings.CodeEditorTheme = names[current];
+        ImGui.SameLine();
+        ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_CodeEditorThemeHelp"));
     }
 }

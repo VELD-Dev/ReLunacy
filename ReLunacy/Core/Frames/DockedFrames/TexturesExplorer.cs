@@ -464,7 +464,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         return viewer;
     }
 
-    // UFrags are baked per-zone terrain, not a browsable asset catalog like Mobys/Ties - the
+    // UFrags are baked per zone, not a browsable asset catalog like Mobys/Ties - the
     // coherent selection target is the scene entity already loaded in the 3D view. Matched by
     // reference, not Id: IUFrag.Id is only unique within its own zone.
     private static void SelectUFragInView3D(IUFrag ufrag)
@@ -494,7 +494,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         if (int.TryParse(inputText.Trim(), out int wantedIndex))
             return objects.Where(t => t.Index == wantedIndex);
 
-        return objects.Where(t => (t.TextureName ?? "").Contains(inputText, StringComparison.OrdinalIgnoreCase));
+        // Name or TUID: pasting an id from another frame finds the texture directly.
+        return objects.Where(t => TuidLink.Matches(inputText, t.TextureName, t.Texture.Id));
     }
 
     protected override void Render(double deltaTime)

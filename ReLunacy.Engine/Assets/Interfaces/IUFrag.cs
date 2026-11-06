@@ -3,7 +3,7 @@ using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Assets.Interfaces;
 
-/// <summary>Terrain geometry baked directly into zones - not instanced.</summary>
+/// <summary>Geometry baked directly into zones - not instanced.</summary>
 public interface IUFrag : IAsset
 {
     float[] GetVertexPositions();
@@ -34,11 +34,11 @@ public interface IUFrag : IAsset
     /// <summary>New engine: animated UVs (zone section 0x5C00), or null.</summary>
     Geometry.UvAnimation? UvAnimation => null;
 
-    /// <summary>Two-layer terrain: the material <see cref="BlendMask"/> paints over <see cref="Material"/>
+    /// <summary>Two-layer UFrag: the material <see cref="BlendMask"/> paints over <see cref="Material"/>
     /// (grass, snow, dirt), or null. New engine: record +0x52; Tools of Destruction: main.dat 0x6400 +0x06.</summary>
     IMaterial? SecondMaterial => null;
 
-    /// <summary>Two-layer terrain: the mask, sampled at the lightmap UV (record +0x58 into 0x5700).</summary>
+    /// <summary>Two-layer UFrag: the mask, sampled at the lightmap UV (record +0x58 into 0x5700).</summary>
     ITexture? BlendMask => null;
 
     float[]? GetNormals();

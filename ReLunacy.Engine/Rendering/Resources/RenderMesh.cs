@@ -20,16 +20,16 @@ public sealed class RenderMesh(
     public RenderMaterial Material { get; set; } = material;
 
     /// <summary>
-    /// Old-engine TIE primitive shader-use bytes reconstructed by the native-loader-equivalent path.
+    /// Old-engine Tie primitive shader-use bytes reconstructed by the native-loader-equivalent path.
     /// This is deliberately raw/proof-bounded routing evidence, NOT a shellFeatureKey alias.
     /// The terminal edge EffectiveUseMask -> callback52.arg2.low8 remains open until runtime proof.
     /// </summary>
     public OldTieShaderUse? OldTieShaderUse { get; } = oldTieShaderUse;
 
-    /// <summary>New-engine TIE primitive window, for the per-placement prelight (null elsewhere).</summary>
+    /// <summary>New-engine Tie primitive window, for the per-placement prelight (null elsewhere).</summary>
     public NewEngineTiePrimitive? NewEngineTiePrimitive { get; init; }
 
-    /// <summary>New-engine fade distances of the source primitive (TIE or Moby), or null.</summary>
+    /// <summary>New-engine fade distances of the source primitive (Tie or Moby), or null.</summary>
     public System.Numerics.Vector3? NewEngineFadeDistances { get; init; }
 
     /// <summary>Animated UVs of the source primitive (section 0x5C00), or null.</summary>

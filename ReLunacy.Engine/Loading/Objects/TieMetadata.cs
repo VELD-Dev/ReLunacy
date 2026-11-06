@@ -63,7 +63,7 @@ public record struct TieMetadataOld : ILunaObject, ILunaSerializable
 }
 
 /// <summary>
-/// New-engine TIE definition record (section 0x3400 of the tie's own IGHW container in ties.dat).
+/// New-engine Tie definition record (section 0x3400 of the tie's own IGHW container in ties.dat).
 ///
 /// The record has TWO SIZES: 0x80 on A Crack in Time, 0x90 on QForce and Into the Nexus. Every
 /// field below 0x80 is at the same offset in both, and the extra 0x10 bytes are zero on 2 360 of
@@ -155,7 +155,7 @@ public record struct TieMetadataNew : ILunaObject, ILunaSerializable
     /// <summary>
     /// +0x74. Pointer to the tie's optional auxiliary block, or 0xFFFFFFFF. It resolves to section
     /// 0x3900 on all 2378 QForce / Into the Nexus resources (the only ones that carry 0x3900), and
-    /// on A Crack in Time it is the sentinel except for the 55 ties that own an embedded texture,
+    /// on A Crack in Time it is the sentinel except for the 55 Ties that own an embedded texture,
     /// where it points into their 0x5800 texel blob.
     /// </summary>
     [FileOffset(0x74)] public uint auxiliaryPointer;

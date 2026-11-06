@@ -147,7 +147,7 @@ public sealed class CubemapReader
     /// Format 0x9A stores four big-endian half floats per texel, Morton-SWIZZLED inside each face and
     /// mip (no LN bit; the linear reading this reader used was a scrambled mosaic), faces packed back
     /// to back. Channels 0-2 are tint and channel 3 is intensity. The renderer samples the channels as
-    /// they are (Cubemap.HalfFloatFaces, uploaded R16G16B16A16_Float) because the retail programs gate
+    /// they are (Cubemap.HalfFloatFaces, uploaded R16G16B16A16_Float) because the retail shaders gate
     /// on channel 3 by itself; the A8R8G8B8 faces - tint*intensity with an exponent in alpha - exist
     /// only for previews. See Docs/reverse/NEW_ENGINE_REFLECTION_FOG_TIE_UFRAG_2026-09-23.md.
     /// </summary>
@@ -261,10 +261,10 @@ public sealed class CubemapReader
         }
 
         // The other resources the region declares follow the active one: zones pick them per placement.
-        // PROVEN (QForce EBOOT): the zone loader resolves each zone's cube palettes - 0x72C1 for TIE
+        // PROVEN (QForce EBOOT): the zone loader resolves each zone's cube palettes - 0x72C1 for Tie
         // placements, 0x71C0 for UFrags - against the level's cube table, a 0 TUID taking the region's
-        // default (0x006B6714 / 0x006B6858), and rewrites TIE +0x5D and UFrag +0x59 from palette
-        // indices into table indices (0x006B7128, 0x006B7314); the TIE renderer reflects with the
+        // default (0x006B6714 / 0x006B6858), and rewrites Tie +0x5D and UFrag +0x59 from palette
+        // indices into table indices (0x006B7128, 0x006B7314); the Tie renderer reflects with the
         // resource at +0x5D (0x0073DFD4). acid_refinery_pvp: 3 resources, two zones use a second one.
         if (result.Count != 0)
             foreach (ulong tuid in declaredInOrder)
@@ -378,6 +378,32 @@ public sealed class CubemapReader
                 }
             }
             encoded = linear;
+
+            // CONFIRMED by inspection in the Cubemap Viewer (its Face order controls): the new-engine
+            // faces are stored TRANSPOSED from the GL/RSX convention Cubemap.FaceNames documents and
+            // the GPU's cube sampler assumes - the texel the convention calls (u, v) is stored at
+            // (v, u). Swapping the two axes is what makes the six faces line up at their seams.
+            //
+            // Rotating here rather than in a shader fixes it once for everything that reads a cube:
+            // the reflections, the half-float upload and the A8R8G8B8 preview faces built below all
+            // come off this same buffer. Old-engine cubes are a different path and keep their order.
+            var oriented = new byte[encoded.Length];
+            for (int f = 0; f < FaceCount; f++)
+            {
+                int cursor = checked((int)(f * faceBytes));
+                for (int mip = 0, w = size; mip < mipCount; mip++, w = Math.Max(1, w / 2))
+                {
+                    for (int y = 0; y < w; y++)
+                        for (int x = 0; x < w; x++)
+                        {
+                            int srcX = y, srcY = x;
+                            Buffer.BlockCopy(encoded, cursor + (srcY * w + srcX) * 8,
+                                             oriented, cursor + (y * w + x) * 8, 8);
+                        }
+                    cursor = checked(cursor + w * w * 8);
+                }
+            }
+            encoded = oriented;
 
             var faces = new ITexture[FaceCount];
             var halfFaces = new byte[FaceCount][];

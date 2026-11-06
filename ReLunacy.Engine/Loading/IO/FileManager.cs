@@ -84,6 +84,9 @@ public class FileManager : IDisposable
             LoadFile("mobys.dat", true);
             LoadFile("animsets.dat", true);
             LoadFile("ties.dat", true);
+            // Scattered grass and groundcover, sliced by assetlookup's 0x1D500 table. Twelve of A
+            // Crack in Time's twenty-two levels ship it; LoadFile records a null stream for the rest.
+            LoadFile("shrubs.dat", true);
             LoadFile("textures.dat", true);
             LoadFile("highmips.dat", true);
             LoadFile("shaders.dat", true);
@@ -97,6 +100,15 @@ public class FileManager : IDisposable
             LoadFile("cubemaps.dat", true);
         }
     }
+
+    /// <summary>
+    /// The IGFile for <paramref name="name"/>, loading it on first use. <see cref="LoadFile"/>
+    /// registers a new entry and throws when one already exists, so any reader that may not be the
+    /// first to want a file has to come through here. The per-region files are the case that matters:
+    /// region.dat is read both for a zone's name and for the region itself.
+    /// </summary>
+    public IGFile? GetOrLoadIGFile(string name) =>
+        igfiles.TryGetValue(name, out IGFile? existing) ? existing : (IGFile?)LoadFile(name, false);
 
     public object? LoadFile(string name, bool isRaw)
     {

@@ -6,17 +6,19 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
 /// The new engine's bloom, as the QForce post function runs it (EBOOT <c>0x006BD8C0</c>,
-/// Docs/reverse/NEW_ENGINE_POSTPROCESS_2026-10-07.md): the world programs write a glow mask to alpha;
+/// Docs/reverse/NEW_ENGINE_POSTPROCESS_2026-10-07.md): the world shaders write a glow mask to alpha;
 /// a quarter-size extract scales the colour by (k x a)^e; three levels (1/4, 1/8, 1/16) are blurred by a
 /// 3-tap horizontal + vertical kernel, combined (s', 1/3, 2/3 - s'), mixed with last frame's result (h),
 /// blurred twice more by a 5-tap Gaussian and added to the scene, x I. k, e, s, h, I come from region.dat
 /// 0x34000 (<see cref="Assets.Lighting.BloomParameters"/>). Drawn when the level carries them and the
-/// game's programs are on; the glow mask then lives in the colour target's alpha until the composite
+/// game's shaders are on; the glow mask then lives in the colour target's alpha until the composite
 /// writes it back to 1.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
-    private const VkFormat BloomFormat = VkFormat.R8G8B8A8Unorm;
+    // Float like the scene it is built from: an 8-bit bloom chain would clamp the very highlights
+    // bloom exists to spread, putting the clipping back one stage later.
+    private const VkFormat BloomFormat = VkFormat.R16G16B16A16Sfloat;
     private VkRenderPass _rpBloom, _rpBloomComposite, _rpResolveKeep;
     private VkDescriptorSetLayout _bloomSetLayout;
     private VkPipelineLayout _bloomLayout;
@@ -51,7 +53,7 @@ public sealed unsafe partial class VulkanRenderer
     private static readonly bool BloomAllowed = Environment.GetEnvironmentVariable("RELUNACY_BLOOM") != "0";
 
     private bool BloomWanted =>
-        BloomAllowed && UseRetailEmbeddedPrograms && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
+        BloomAllowed && UseRetailEmbeddedShaders && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
 
     /// <summary>The bloom is on and its glow mask is the old engine's destination alpha, which only the Sky
     /// writes: the Dome its colour's alpha, the Color shells and Clouds attenuate it, the Bloom shells add
@@ -129,7 +131,7 @@ void main() {
 
         VkAttachmentDescription att = new() { format = BloomFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.DontCare, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.Undefined, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
         _rpBloom = MakeColorPass(att);
-        VkAttachmentDescription sceneAtt = new() { format = ColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ShaderReadOnlyOptimal, finalLayout = VkImageLayout.ColorAttachmentOptimal };
+        VkAttachmentDescription sceneAtt = new() { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ShaderReadOnlyOptimal, finalLayout = VkImageLayout.ColorAttachmentOptimal };
         _rpBloomComposite = MakeColorPass(sceneAtt);
         _rpResolveKeep = MakeResolveKeepPass();
 
@@ -169,13 +171,18 @@ void main() {
     private VkRenderPass MakeResolveKeepPass()
     {
         VkAttachmentDescription* a = stackalloc VkAttachmentDescription[2];
-        a[0] = new VkAttachmentDescription { format = ColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ColorAttachmentOptimal, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
+        a[0] = new VkAttachmentDescription { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ColorAttachmentOptimal, finalLayout = VkImageLayout.ShaderReadOnlyOptimal };
         a[1] = new VkAttachmentDescription { format = DepthFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.Load, stencilStoreOp = VkAttachmentStoreOp.Store, initialLayout = VkImageLayout.DepthStencilAttachmentOptimal, finalLayout = VkImageLayout.DepthStencilAttachmentOptimal };
         var cRef = new VkAttachmentReference { attachment = 0, layout = VkImageLayout.ColorAttachmentOptimal };
         var dRef = new VkAttachmentReference { attachment = 1, layout = VkImageLayout.DepthStencilAttachmentOptimal };
         var sub = new VkSubpassDescription { pipelineBindPoint = VkPipelineBindPoint.Graphics, colorAttachmentCount = 1, pColorAttachments = &cRef, pDepthStencilAttachment = &dRef };
         VkSubpassDependency* deps = stackalloc VkSubpassDependency[2];
-        deps[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
+        // Same two attachments as the scene's colour+depth pass, so pipelines and framebuffers cross
+        // between them and the spec requires identical dependencies - see MakeColorDepthPass and
+        // MakeResolvePass in VulkanRenderer.cs, which this must stay byte-identical to. Missing the
+        // FragmentShader/ShaderRead bits here is what validation still reported on pDependencies[0]
+        // after those two were unified.
+        deps[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite };
         deps[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.LateFragmentTests, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.DepthStencilAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.EarlyFragmentTests, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.DepthStencilAttachmentRead };
         var info = new VkRenderPassCreateInfo { attachmentCount = 2, pAttachments = a, subpassCount = 1, pSubpasses = &sub, dependencyCount = 2, pDependencies = deps };
         VkRenderPass rp; Check(_api.vkCreateRenderPass(&info, &rp), "vkCreateRenderPass(resolve keep)"); return rp;

@@ -55,6 +55,7 @@ public sealed unsafe partial class VulkanRenderer
     private VkShaderModule _skyDomeVs;
     private VkShaderModule _skyDomeFs;
     private VkPipelineLayout _skyDomeLayout;
+    private string? _skySkipReason;
     private VkPipeline _pipelineSkyDome;
 
     private bool _skyLoggedFirstDraw;
@@ -246,7 +247,7 @@ void main() {
 
         CreateSkyDescriptors(scene);
         CreateSkyPipelines(scene);
-        Console.WriteLine(
+        LunaLog.LogInfo(
             $"[VkRenderer][Sky] direct pass ready: Dome={(scene.HasDome ? "yes" : "no")}, " +
             $"Clouds={(scene.HasClouds ? "yes" : "no")}, shells={scene.Draws.Count(d => !d.Bloom)}, " +
             $"textures={scene.Textures.Length}. Bloom remains proof-gated.");
@@ -606,7 +607,15 @@ void main() {
     {
         var scene = _skyScene;
         if (!SkyRenderOptions.Enabled || scene is not { HasGeometry: true })
+        {
+            // Once per state change: the packet can be attached and still be skipped here.
+            string why = !SkyRenderOptions.Enabled ? "RenderSky is off"
+                : scene == null ? "no packet attached to this renderer"
+                : "the attached packet has no geometry";
+            if (_skySkipReason != why) { _skySkipReason = why; LunaLog.LogInfo($"[VkRenderer][Sky] pass skipped - {why}."); }
             return;
+        }
+        if (_skySkipReason != null) { _skySkipReason = null; LunaLog.LogInfo("[VkRenderer][Sky] pass active."); }
 
         VkDescriptorSet sceneSet = _descSet;
         float retailTime = UpdateSkyRuntime(scene);

@@ -108,6 +108,25 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>Looks around inside an environment cubemap. Separate from the Texture Explorer's
+    /// six-face cross because that one decodes the 8-bit preview re-encoding, which cannot show what
+    /// the reflections actually sample.</summary>
+    internal static void ShowCubemapViewer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<CubemapViewer>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_CubemapViewer"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<CubemapViewer>();
+        else
+        {
+            var frame = new CubemapViewer();
+            frame.TransmitCubemaps(LunaWindow.Instance.Level);
+            LunaWindow.Instance.AddFrame(frame);
+        }
+    }
+
     internal static void ShowShaderBrowser()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ShaderBrowser>();
@@ -123,6 +142,21 @@ internal static class ViewMenuDraw
                 frame.TransmitShaders(LunaWindow.Instance.Level);
             LunaWindow.Instance.AddFrame(frame);
         }
+    }
+
+    /// <summary>The Lua development environment: source editor and bytecode disassembly in one
+    /// window. Grouped with the file inspectors rather than the level views, since it works on
+    /// scripts rather than on the loaded level.</summary>
+    internal static void ShowLuaEnvironment()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<LuaEnvironmentFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_LuaEnvironment"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<LuaEnvironmentFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new LuaEnvironmentFrame());
     }
 
     internal static void ShowPSArcExplorer()

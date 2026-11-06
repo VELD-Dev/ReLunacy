@@ -18,7 +18,7 @@ namespace ReLunacy.Engine.Loading.Shaders;
 // New engine, PROVEN in the QForce EBOOT (see ShaderMetadataNew.renderingMode): Overlay and Scunge
 // are unsorted alpha blends in their own passes, Additive is SRC_ALPHA/ONE and Blended
 // SRC_ALPHA/ONE_MINUS_SRC_ALPHA in the depth-sorted list, Cutout and SoftEdge ride the opaque pass,
-// and 7/8 are never drawn by the TIE renderer.
+// and 7/8 are never drawn by the Tie renderer.
 public enum RenderingMode : byte
 {
     Opaque = 0x00,

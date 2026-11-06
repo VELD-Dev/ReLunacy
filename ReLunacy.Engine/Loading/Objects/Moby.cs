@@ -97,7 +97,12 @@ public class Moby : IDisposable
                 txstream.Seek(omoby.verticesOffset, SeekOrigin.Begin);
                 var length = lastMesh.verticesOffset + lastMesh.verticesCount * (lastMesh.verticesType == 0 ? VertexFormat0.Size : VertexFormat1.Size);
                 byte[] verticesData = new byte[length];
-                txstream.Read(verticesData, 0, (int)length);
+                // ReadAtLeast, not Read: a raw Stream may satisfy a large request in several chunks,
+                // and how it splits them depends on the filesystem underneath. Read's short return was
+                // ignored, so the tail of the buffer stayed zero - zeroed normals/tangents, UVs and
+                // vertex alpha, on this moby only. Psarc levels never showed it (MemoryStream always
+                // returns the lot); folder-loaded levels, on a real FileStream, do.
+                txstream.ReadAtLeast(verticesData.AsSpan(0, (int)length), (int)length, throwOnEndOfStream: false);
                 verticesStream = new StreamHelper(new MemoryStream(verticesData), StreamHelper.Endianness.Big);
             }
 
@@ -117,7 +122,7 @@ public class Moby : IDisposable
                 txstream.Seek(omoby.indicesOffset, SeekOrigin.Begin);
                 var length = lastMesh.indicesOffset * sizeof(ushort) + lastMesh.indicesCount * (uint)sizeof(ushort);
                 byte[] indexData = new byte[length];
-                txstream.Read(indexData, 0, (int)length);
+                txstream.ReadAtLeast(indexData.AsSpan(0, (int)length), (int)length, throwOnEndOfStream: false);
                 indicesStream = new StreamHelper(new MemoryStream(indexData), StreamHelper.Endianness.Big);
             }
         }

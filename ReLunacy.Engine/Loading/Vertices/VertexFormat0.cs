@@ -19,17 +19,38 @@ public record struct VertexFormat0
     public readonly Vector3 Normal => PackedNormal.Decode(normal);
     public readonly Vector3 Tangent => PackedNormal.Decode(tangent);
 
-    // Old-engine vertex alpha: raw = 0xC000 - round(127*alpha).
-    public readonly float VertexAlpha => Math.Clamp((0xC000 - (ushort)boneIndex) / 127f, 0f, 1f);
+    // Old-engine vertex alpha. Two bands are known, both 127 wide and both descending - the value
+    // counts DOWN from the band's top as alpha rises:
+    //   A: 0xC000 -> 0.0, 0xBF81 -> 1.0   (raw = 0xC000 - round(127*alpha))
+    //   B: 0x8080 -> 0.0, 0x8001 -> 1.0   (reported 2026-10-31; the same shape 0x4000 lower)
+    // Band B matters because of how a miss fails: a value in it is far below band A's floor, so
+    // band A's formula yields well over 1 and clamps to fully opaque - indistinguishable from a
+    // vertex carrying no alpha at all, which is how the new-engine bands were found to be missing.
+    public readonly float VertexAlphaOldEngineA => Math.Clamp((0xC000 - (ushort)boneIndex) / 127f, 0f, 1f);
+    public readonly float VertexAlphaOldEngineB => Math.Clamp((0x8080 - (ushort)boneIndex) / 127f, 0f, 1f);
+
+    /// <summary>Picks whichever old-engine band the raw value falls into; outside both, opaque.</summary>
+    public readonly float VertexAlpha
+    {
+        get
+        {
+            ushort raw = (ushort)boneIndex;
+            if (raw is >= 0xBF81 and <= 0xC000) return VertexAlphaOldEngineA;
+            if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaOldEngineB;
+            // Band A's formula is kept as the fallback rather than returning 1: values below its
+            // floor already clamped to opaque there, so nothing that used to decode changes.
+            return VertexAlphaOldEngineA;
+        }
+    }
 
     // RETAIL DECODE, 2026-09-16 (Tools/Reverse/evidence/TOD_Retail_Shader_Programs_2026-09-16.md).
-    // The NPUA80965 TIE vertex programs compute
+    // The NPUA80965 Tie vertex shaders compute
     //     TEX1.x = fract(|pos.w| * c[3].z) * c[20].z
     //     TEX1.y = fract(|pos.w| * c[3].w) * c[20].w
-    // and every baked TIE fragment program multiplies ALL of its light by TEX1.x. c[20] is PROVEN:
-    // the TIE render shell at 0x598B00 uploads c[20] = (2, 2, 2, 1). c[3].zw = (1/32768, 1/128) is
+    // and every baked Tie fragment shader multiplies ALL of its light by TEX1.x. c[20] is PROVEN:
+    // the Tie render shell at 0x598B00 uploads c[20] = (2, 2, 2, 1). c[3].zw = (1/32768, 1/128) is
     // PROVEN too (09-10-2026): the frame constants 0x004F58C4 load c[1..3] from 0x10078944, c[3] =
-    // (1/255, 1/32768, 1/32768, 1/128). Over all 7,012,751 retail TIE vertices it puts 87.8% of vertices at exactly
+    // (1/255, 1/32768, 1/32768, 1/128). Over all 7,012,751 retail Tie vertices it puts 87.8% of vertices at exactly
     // 1.0, never reaches 2.0 (the fract * 2 ceiling), and makes TEX1.y equal to the low seven bits /
     // 128 - which is the user-confirmed vertex alpha decode above. So this field is not a bone index
     // and not a detail UV: it packs a per-vertex baked light multiplier (high bits) and vertex alpha
@@ -57,8 +78,14 @@ public record struct VertexFormat0
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)boneIndex) / 127f, 0f, 1f);
     // Range D: 0x9980 -> 0.0, 0x99FF -> 1.0 (ascending).
     public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)boneIndex - 0x9980) / 127f, 0f, 1f);
+    // Range E: 0x8C00 -> 0.0, 0x8B81 -> 1.0 (descending), reported 2026-11-02 and the same 127-wide
+    // shape as the rest. MEASURED on A Crack in Time Ties: 1,175 of zolar_forest's 217,712 sampled
+    // vertices land in it (0.54%) and 917 of molonoth's 455,758 (0.20%), while krell_canyon has
+    // none - so it is a real band that only some levels use, which is exactly how a band stays
+    // hidden. Until it was listed here those vertices fell through to the opaque fallback.
+    public readonly float VertexAlphaNewEngineE => Math.Clamp((0x8C00 - (ushort)boneIndex) / 127f, 0f, 1f);
 
-    // Picks whichever new-engine range the raw value falls into. Outside all four ranges = 1.0
+    // Picks whichever new-engine range the raw value falls into. Outside the applied ranges = 1.0
     // (opaque, no vertex alpha data).
     public readonly float VertexAlphaNewEngineAuto
     {
@@ -68,7 +95,18 @@ public record struct VertexFormat0
             if (raw is >= 0x7F80 and <= 0x7FFF) return VertexAlphaNewEngineA;
             if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaNewEngineB;
             if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaNewEngineC;
-            if (raw is >= 0x9980 and <= 0x99FF) return VertexAlphaNewEngineD;
+            // Bands D and E are deliberately NOT applied.
+            //
+            // Listing E (0x8C00 -> 0.0) turned whole meshes translucent that had been opaque: on
+            // zolar_forest, meshes of 42, 56 and 31 vertices with EVERY vertex in the band, on
+            // vertex-alpha materials, decoding to a mean alpha of 0.25 to 0.48 where the fallback
+            // had given 1.0. That is what reached the screen as see-through surfaces in the 3D
+            // view while the Asset Viewer, which does not apply vertex alpha, looked right.
+            //
+            // So the raw values are real - the band is there in the data - but reading them as
+            // alpha is not what the game does with them, at least not for these meshes. Until the
+            // EBOOT says how that field is actually consumed, the opaque fallback is the honest
+            // answer: it is what shipped before and it is visibly correct.
             return 1f;
         }
     }

@@ -22,22 +22,26 @@ public sealed class MobyReader
         _animationReader = animationReader ?? throw new ArgumentNullException(nameof(animationReader));
     }
 
-    public Dictionary<ulong, Assets.Mobys.Moby> ReadAllMobys() => _fileManager.isOld ? ReadMobysOld() : ReadMobysNew();
+    /// <param name="progress">The level load's bar; the Moby phase counts one item per prototype.</param>
+    public Dictionary<ulong, Assets.Mobys.Moby> ReadAllMobys(LevelLoadProgress? progress = null) =>
+        _fileManager.isOld ? ReadMobysOld(progress) : ReadMobysNew(progress);
 
-    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysOld()
+    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysOld(LevelLoadProgress? progress)
     {
         var mobys = new Dictionary<ulong, Assets.Mobys.Moby>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile.SectionHeader mobySection = main.QuerySection(0xD100);
+        progress?.SetTotal(mobySection.count);
         for (int i = 0; i < mobySection.count; i++)
         {
+            progress?.Advance();
             var legacyMoby = new Objects.Moby(main.sh, _fileManager, i);
             mobys.Add((ulong)i, ConvertMoby(legacyMoby, (ulong)i));
         }
         return mobys;
     }
 
-    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysNew()
+    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysNew(LevelLoadProgress? progress)
     {
         var mobys = new Dictionary<ulong, Assets.Mobys.Moby>();
         if (!_fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
@@ -50,8 +54,10 @@ public sealed class MobyReader
         assetlookup.sh.Seek(mobySection.offset);
         AssetPointer[] mobyPtrs = AssetPointer.ReadArray(assetlookup.sh, mobySection.length / AssetPointer.Size);
         Stream mobyStream = _fileManager.rawfiles["mobys.dat"]!;
+        progress?.SetTotal(mobyPtrs.Length);
         for (int i = 0; i < mobyPtrs.Length; i++)
         {
+            progress?.Advance();
             byte[] mobydat = ReadRawAsset(mobyStream, mobyPtrs[i].offset, mobyPtrs[i].length);
             using var mobyms = new MemoryStream(mobydat, writable: false);
             using var streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);

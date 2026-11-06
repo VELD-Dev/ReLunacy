@@ -1,7 +1,7 @@
 namespace ReLunacy.Engine.Loading.Meshes;
 
 /// <summary>
-/// Evidence-backed accessors for the old-engine 0x3300 TIE primitive record.
+/// Evidence-backed accessors for the old-engine 0x3300 Tie primitive record.
 ///
 /// TieMesh intentionally keeps several historical field names because the same struct is also used by
 /// newer-engine readers. These accessors expose the old ToD byte layout without forcing a risky shared
@@ -62,7 +62,7 @@ public static class OldTiePrimitiveSemantics
 
     /// <summary>
     /// 0x3300 +0x2F. Native render-path routing byte. The low three bits are directly tested by the
-    /// canonical TIE renderer before the primitive enters one render path. Individual bit meanings
+    /// canonical Tie renderer before the primitive enters one render path. Individual bit meanings
     /// remain OPEN; keep the raw byte authoritative.
     /// </summary>
     public static byte GetOldRenderRouteFlags(this in TieMesh primitive) =>

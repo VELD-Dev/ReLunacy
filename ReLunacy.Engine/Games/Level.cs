@@ -37,11 +37,15 @@ public sealed class Level : IDisposable
         DebugDatPath = debugDatPath;
     }
 
-    public LevelData Load(Action<string, float>? progressCallback = null)
+    /// <param name="progress">The load's phase-weighted bar (see Loading.LevelLoadProgress). Opening
+    /// the archive is a phase of it too: on a packed level it is close to a second of the wait, and
+    /// nothing used to be reported for it at all.</param>
+    public LevelData Load(Loading.LevelLoadProgress? progress = null)
     {
         if (Data != null)
             return Data;
 
+        progress?.Begin(Loading.LoadPhase.OpeningFiles);
         FileManager = new FileManager();
         if (SourceKind == LevelSourceKind.Psarc)
             FileManager.LoadFromPsarcFile(SourcePath);
@@ -50,9 +54,10 @@ public sealed class Level : IDisposable
 
         if (FileManager.isOld && DebugDatPath != null)
             FileManager.LoadExternalDebugDat(DebugDatPath);
+        progress?.CompletePhase();
 
         var reader = new LevelReader(FileManager);
-        Data = reader.LoadLevel(progressCallback);
+        Data = reader.LoadLevel(progress);
         return Data;
     }
 

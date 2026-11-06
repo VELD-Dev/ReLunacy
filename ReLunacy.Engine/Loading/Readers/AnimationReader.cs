@@ -152,8 +152,12 @@ public sealed class AnimationReader
         {
             var f000 = ig.QuerySection(AnimationMetadataNew.ID);
             if (f000.id != AnimationMetadataNew.ID || f000.count == 0) return [];
-            if (f000.length != AnimationMetadataNew.Size)
-                throw new InvalidDataException($"New F000 stride is 0x{f000.length:X}, expected 0x{AnimationMetadataNew.Size:X}.");
+            // A Crack in Time writes the same record 0x40 long, without its tail; the rest of the
+            // new engine writes it 0x60. Both are read here, at whatever stride the section states.
+            if (!AnimationMetadataNew.IsKnownStride(f000.length))
+                throw new InvalidDataException(
+                    $"New F000 stride is 0x{f000.length:X}, expected 0x{AnimationMetadataNew.Size:X} "
+                  + $"or 0x{AnimationMetadataNew.CompactSize:X}.");
 
             var f400 = ig.QuerySection(AnimationAuxMetadataNew.ID);
             var f990 = ig.QuerySection(AnimationAuxBlockNew.ID);
@@ -167,8 +171,8 @@ public sealed class AnimationReader
             var clips = new List<AnimationClip>((int)f000.count);
             for (uint i = 0; i < f000.count; i++)
             {
-                uint f000Pointer = f000.offset + AnimationMetadataNew.Size * i;
-                var header = AnimationMetadataNew.Read(ig.sh, f000Pointer);
+                uint f000Pointer = f000.offset + f000.length * i;
+                var header = AnimationMetadataNew.Read(ig.sh, f000Pointer, f000.length);
                 ValidateNewHeaderStorage(header);
 
                 AnimationAuxMetadataNew? aux = hasF400

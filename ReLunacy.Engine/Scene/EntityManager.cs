@@ -18,6 +18,8 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderFoliage = true;
     public bool renderVolumes = true;
+    /// <summary>Off by default: the navmesh is an inspection overlay, not part of the level.</summary>
+    public bool renderNavmesh = false;
     /// <summary>Not currently drawn; the raw-Vulkan renderer has no debug-shape pass yet. Kept for when one is added.</summary>
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
@@ -32,6 +34,8 @@ public class EntityManager : IDisposable
     /// <summary>RGBA tint for a Volume's wireframe box, unselected/selected. Synced from
     /// EditorSettings by View3D each frame.</summary>
     public Vector4 VolumeColor = new(1f, 1f, 0f, 1f);
+    /// <summary>Synced in from the app layer's settings, same as VolumeColor.</summary>
+    public Vector4 NavmeshColor = new(0.2f, 0.45f, 1f, 0.35f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
 
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);
@@ -45,7 +49,7 @@ public class EntityManager : IDisposable
     public List<EntityFoliage> Foliage { get; } = [];
 
     /// <summary>Mobys currently animating in the 3D View, driven once per frame (see View3D's render
-    /// loop) rather than scanned for out of every entity - a level can have thousands of mobys, but
+    /// loop) rather than scanned for out of every entity - a level can have thousands of Mobys, but
     /// only a handful ever play at once. Add on Play, remove on Stop or when a non-looping clip
     /// finishes.</summary>
     public List<EntityMoby> PlayingMobyAnimations { get; } = [];
@@ -56,16 +60,35 @@ public class EntityManager : IDisposable
         Regions.Add(new EntityRegion(region, am, gd));
     }
 
+    /// <summary>Adds a region whose zones are built afterwards, one at a time - see
+    /// <see cref="SceneBuildJob"/>, which is what a level load drives this through.</summary>
+    public EntityRegion BeginRegion(Region region, AssetManager am, GraphicsDevice gd)
+    {
+        var built = new EntityRegion(region, am, gd, deferZones: true);
+        Regions.Add(built);
+        return built;
+    }
+
     public void LoadFoliage(IReadOnlyList<Assets.Foliage.Foliage> foliages, AssetManager am, GraphicsDevice gd)
     {
         foreach (var foliage in foliages)
         {
             // foliage.Material is resolved from the asset's own texture index; null falls back to the
             // default billboard texture inside GetOrBuildBillboardMaterial.
-            foreach (var placement in foliage.Placements)
-                Foliage.Add(new EntityFoliage(foliage, placement, foliage.Material, am));
+            for (int i = 0; i < foliage.Placements.Count; i++)
+                AddFoliage(foliage, i, am);
         }
 
+        LogFoliage();
+    }
+
+    /// <summary>One placement of one foliage asset, so a caller can spread a level's foliage across
+    /// frames. Indexed rather than handed the placement, which is a struct worth not copying.</summary>
+    public void AddFoliage(Assets.Foliage.Foliage foliage, int placement, AssetManager am) =>
+        Foliage.Add(new EntityFoliage(foliage, foliage.Placements[placement], foliage.Material, am));
+
+    public void LogFoliage()
+    {
         if (Foliage.Count != 0)
             Console.WriteLine($"Foliage: {Foliage.Count} entity/entities built (LOD {EntityFoliage.BuiltLod}).");
     }
@@ -83,6 +106,7 @@ public class EntityManager : IDisposable
             {
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
+                foreach (var e in zone.Navmeshes) yield return e;
             }
         }
     }
@@ -98,6 +122,11 @@ public class EntityManager : IDisposable
     {
         foreach (var e in Foliage) yield return e;
 
+        // Regions can claim the same zone (All 4 One's lobby has two regions over one pair of zones),
+        // and each region built its own EntityZone over it, so a zone reached through two enabled
+        // regions would otherwise have every Tie and UFrag drawn twice.
+        var drawnZones = new HashSet<ulong>();
+
         foreach (var region in Regions)
         {
             if (!region.allowRender) continue;
@@ -107,6 +136,7 @@ public class EntityManager : IDisposable
             foreach (var zone in region.Zones)
             {
                 if (!zone.allowRender) continue;
+                if (!drawnZones.Add(zone.ZoneTUID)) continue;
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
             }

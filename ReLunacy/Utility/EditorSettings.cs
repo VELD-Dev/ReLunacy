@@ -55,6 +55,7 @@ public class EditorSettings
     public bool RenderUFrags;
     public bool RenderFoliage;
     public bool RenderVolumes;
+    public bool RenderNavmesh;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -90,6 +91,7 @@ public class EditorSettings
     public float GizmoSnapScale;
     public float VolumeWireThickness;
     public Vector4 VolumeColor;
+    public Vector4 NavmeshColor;
     public Vector4 VolumeSelectedColor;
     public Vector4 SelectionOutlineColor;
     internal LunaLog.LogLevel LogLevel;
@@ -128,9 +130,17 @@ public class EditorSettings
     // Stable checks GitHub's "latest release"; Nightly checks the rolling "nightly" tag (see
     // UpdateChecker). Independent of which build is actually running.
     public UpdateChannel UpdateChannel;
+
+    /// <summary>Whether the update check offers prereleases (alphas, betas, release candidates) on
+    /// the stable channel. Ignored when the running build is ITSELF a prerelease, which would
+    /// otherwise be stranded with no update ever offered - see UpdateChecker.</summary>
+    public bool IncludePrereleases;
     // First real lighting pass for the live renderer (see LitModelShaderSource); everything else
     // is unlit. Opt-in, off by default as experimental.
     public bool EnableLighting;
+    // Name of a Themes/<name>.json file for the Lua code editor. Missing or unreadable falls back
+    // to the built-in defaults rather than leaving the editor unreadable.
+    public string CodeEditorTheme = "dark";
     // Scene-wide default texture filtering for the 3D view (AssetManager also supports per-texture
     // overrides, see AssetManager.SetTextureFiltering).
     public ReLunacy.Engine.Rendering.TextureFiltering TextureFiltering;
@@ -157,6 +167,7 @@ public class EditorSettings
         RenderUFrags = true;
         RenderFoliage = true;
         RenderVolumes = true;
+        RenderNavmesh = false;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;
@@ -192,11 +203,15 @@ public class EditorSettings
         GizmoSnapScale = 0.25f;
         VolumeWireThickness = 0.1f;
         VolumeColor = new Vector4(1f, 1f, 0f, 1f);
+        // Semi-transparent blue; alpha is the overlay's opacity over the level.
+        NavmeshColor = new Vector4(0.2f, 0.45f, 1f, 0.35f);
         VolumeSelectedColor = new Vector4(1f, 1f, 1f, 1f);
         SelectionOutlineColor = new Vector4(1f, 0.65f, 0f, 1f);
         BackfaceCulling = false;
         UpdateChannel = UpdateChannel.Stable;
+        IncludePrereleases = false;
         EnableLighting = false;
+        CodeEditorTheme = "dark";
         AssetViewerFarPlane = 100f;
         // Bilinear by default, matching the game's own PS3 behavior; Point is selectable for raw texel data.
         TextureFiltering = ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;

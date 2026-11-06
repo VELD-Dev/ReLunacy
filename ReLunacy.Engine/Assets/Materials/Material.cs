@@ -31,16 +31,16 @@ public sealed class Material : IMaterial
     public float NewEngineParameter3C { get; set; }
     /// <summary>ShaderMetadataNew +0x20 as the QForce loader keeps it (0x006ACD28 drops the parallax
     /// bit 0x01 when the normal-map bit 0x08 is clear). Bits 0x04/0x08/0x10 pick the retail vertex
-    /// program: 44 + ((flags &gt;&gt; 2) &amp; 7) for baked TIEs, 98 + k for UFrags (0x007473F4, 0x00753EB0).</summary>
+    /// shader: 44 + ((flags &gt;&gt; 2) &amp; 7) for baked Ties, 98 + k for UFrags (0x007473F4, 0x00753EB0).</summary>
     public byte NewEngineFeatureFlags { get; set; }
     /// <summary>ShaderMetadataNew +0x44. Retail class-0x13 uses this as framebuffer/render-target
     /// sampling state for dynamically supplied unit-10/unit-11 inputs.</summary>
     public uint NewEngineFramebufferSamplingMask { get; set; }
-    /// <summary>Class 0x13: the family keys of the material's embedded fragment programs
-    /// (NewEngineShaderProgramVariant.SkeletonKey). Empty for every other class.</summary>
-    public IReadOnlyList<string> NewEngineProgramKeys { get; set; } = [];
-    /// <summary>Class 0x13: the embedded program bundle itself, for the renderer's microcode translation.</summary>
-    public Loading.Shaders.NewEngineShaderProgramBundle? NewEngineProgramBundle { get; set; }
+    /// <summary>Class 0x13: the family keys of the material's embedded fragment shaders
+    /// (NewEngineShaderVariant.SkeletonKey). Empty for every other class.</summary>
+    public IReadOnlyList<string> NewEngineShaderKeys { get; set; } = [];
+    /// <summary>Class 0x13: the embedded shader bundle itself, for the renderer's microcode translation.</summary>
+    public Loading.Shaders.NewEngineShaderBundle? NewEngineShaders { get; set; }
 
     public RenderMode RenderMode { get; init; }
     /// <summary>The game's own rendering-mode byte (0-6) - see IMaterial.GameRenderMode.</summary>
@@ -48,7 +48,7 @@ public sealed class Material : IMaterial
 
     /// <summary>
     /// Raw old-engine ShaderMetadataOld+0x10 feature/use byte. Keep it lossless: the retail loader
-    /// intersects it with the authored TIE primitive +0x2C byte to build runtime TieFrag+0x2C.
+    /// intersects it with the authored Tie primitive +0x2C byte to build runtime TieFrag+0x2C.
     /// This byte by itself is NOT asserted to be callback52 shellFeatureKey.
     /// </summary>
     public byte OldFeatureFlags { get; init; }
@@ -72,12 +72,12 @@ public sealed class Material : IMaterial
     /// <summary>
     /// New-engine 0x5000 +0x60, the second reflection vector, consumed around the unit-7 cubemap
     /// fetch. Component roles are PROVEN by set equality between this field's values and the
-    /// constants the engine uploads into its own programs
+    /// constants the engine uploads into its own shaders
     /// (Tools/Reverse/newengine_shader_constant_binding.py, Docs/reverse/NEW_ENGINE_SHADER_CORPUS_2026-09-21.md):
     ///   .y  Fresnel exponent          - retail values 3, 5, 6.112, 6.5, 7.84, 13.536
     ///   .z  bias added to the cube's alpha before the max(.., 0) HDR gate - -1, -4, -0.576, -0.232, 0
     ///   .w  gain on the Fresnel term  - 4 on most materials, 0.512 on one
-    ///   .x  present in the vector, not consumed by any program read so far (2, 9.856, 37.568, 64)
+    ///   .x  present in the vector, not consumed by any shader read so far (2, 9.856, 37.568, 64)
     /// The old engine has no equivalent vector, so this stays zero there and the shader falls back
     /// to its existing presentation Fresnel when .y is zero.
     /// </summary>
@@ -97,7 +97,7 @@ public sealed class Material : IMaterial
         set => ReflectionTintSource = value;
     }
     public bool UsesDetailMap { get; init; }
-    /// <summary>Old engine: 0x5000 +0x30..+0x3C, the TIE programs' patch group 1 (Loading.Shaders.TodTiePrograms).
+    /// <summary>Old engine: 0x5000 +0x30..+0x3C, the Tie shaders' patch group 1 (Loading.Shaders.TodTieShaders).
     /// Zero on the new engine.</summary>
     public System.Numerics.Vector4 OldShaderVector30 { get; set; }
 

@@ -8,7 +8,23 @@ namespace ReLunacy.Engine.Loading.Objects;
 public record struct AnimationMetadataNew : ILunaSerializable
 {
     public const uint ID = 0xF000;
+
+    /// <summary>The record as QForce, All 4 One and Into the Nexus write it.</summary>
     public const uint Size = 0x60;
+
+    /// <summary>
+    /// The record as A Crack in Time writes it: the same fields, without the 0x40..0x5F tail.
+    ///
+    /// Measured over 1,903 clips in two ACiT levels decoded with the layout below - every name
+    /// read back printable, every localAnimationIndex equal to its record's position, every frame
+    /// rate in range (30, with a few at 24) and every control and frame pointer inside the asset.
+    /// The same checks on QForce's 0x60 records give the same answer, so they are not vacuous.
+    /// Nothing reads the dropped tail.
+    /// </summary>
+    public const uint CompactSize = 0x40;
+
+    /// <summary>Whether a section's stride is one this record can be read at.</summary>
+    public static bool IsKnownStride(uint stride) => stride == Size || stride == CompactSize;
 
     [FileOffset(0x00)] public ushort localAnimationIndex;
     [FileOffset(0x02)] public ushort flags;
@@ -45,10 +61,29 @@ public record struct AnimationMetadataNew : ILunaSerializable
     public readonly bool IsAdditive => (flags & 0x02) != 0;
     public readonly bool IsPacked => (flags & 0x04) != 0;
 
-    public static AnimationMetadataNew Read(StreamHelper sh, uint recordBase)
+    /// <param name="stride">
+    /// The section's own record stride. A record shorter than <see cref="Size"/> is read into a
+    /// full-length buffer so the absent tail reads as zero - reading the structure straight off the
+    /// stream would run into the NEXT record, and past the end of the array on the last one.
+    /// </param>
+    public static AnimationMetadataNew Read(StreamHelper sh, uint recordBase, uint stride = Size)
     {
-        sh.Seek(recordBase);
-        var value = FileUtils.ReadStructure<AnimationMetadataNew>(sh);
+        AnimationMetadataNew value;
+        if (stride >= Size)
+        {
+            sh.Seek(recordBase);
+            value = FileUtils.ReadStructure<AnimationMetadataNew>(sh);
+        }
+        else
+        {
+            var bytes = new byte[Size];
+            sh.ReadFromOffset(checked((int)stride), recordBase).CopyTo(bytes, 0);
+            using var padded = new MemoryStream(bytes, writable: false);
+            value = FileUtils.ReadStructure<AnimationMetadataNew>(
+                new StreamHelper(padded, sh._endianness));
+        }
+
+        // The name lives outside the record, so it is always read from the original stream.
         value.Name = value.namePtr != 0 ? sh.ReadString(value.namePtr) : string.Empty;
         return value;
     }

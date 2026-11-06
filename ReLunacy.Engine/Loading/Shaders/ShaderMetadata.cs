@@ -18,9 +18,9 @@ public record struct ShaderMetadataOld : ILunaSerializable
     // InsomniaToolset's MaterialV1_5 (shader.hpp, same 0x5000 layout): four texture references at
     // 0x00-0x0F, this byte at 0x10, then blend/render mode at 0x11.
     //
-    // IMPORTANT PROOF BOUNDARY: this serialized byte is NOT yet proven to be the runtime TIE
+    // IMPORTANT PROOF BOUNDARY: this serialized byte is NOT yet proven to be the runtime Tie
     // shellFeatureKey. Retail callback52 takes arg2.low8, forces/uses feature bits and indexes distinct
-    // Full/Reduced fragment-program tables, but the producer chain from serialized material/TieFrag
+    // Full/Reduced fragment-shader tables, but the producer chain from serialized material/TieFrag
     // state to callback52.arg2.low8 remains OPEN. Do not use "same-looking bits" as proof that
     // ShaderMetadataOld.flags == shellFeatureKey.
     //
@@ -38,7 +38,7 @@ public record struct ShaderMetadataOld : ILunaSerializable
     // Bit meanings measured over all 12,477 retail records (Docs/reverse/TOD_SHADER_RECORD_0x5000_FIELD_MAP_2026-09-18.md):
     //   0x01 parallax   +0x50/+0x54 nonzero in 95%/93% of records with the bit vs 2% without (needs normal + props textures)
     //   0x02 gloss      +0x38 non-default in 98% of records with it; the two colours at 0x60/0x70 in 74%
-    //   0x04 reflection runtime shell key bit 0x04 selects the fragment programs that sample the cubemap (unit 7)
+    //   0x04 reflection runtime shell key bit 0x04 selects the fragment shaders that sample the cubemap (unit 7)
     //   0x08 normal map normal texture present in 100% of records with it, 0% without
     //   0x10 detail map detail texture present in 100% of records with it, 0% without
     // Earlier versions of these helpers had parallax on 0x02 and gloss on 0x04; the data refutes that.
@@ -68,8 +68,8 @@ public record struct ShaderMetadataOld : ILunaSerializable
 
     /// <summary>
     /// values[2] (0x40..0x4F): retail reflection tint. Every reflection constant patched into the
-    /// executed TIE cubemap fragment programs (9 distinct values across 11 levels) is found here, and
-    /// those programs compute reflectionColour = mix(values[2].rgb, albedo, values[2].w).
+    /// executed Tie cubemap fragment shaders (9 distinct values across 11 levels) is found here, and
+    /// those shaders compute reflectionColour = mix(values[2].rgb, albedo, values[2].w).
     /// See Tools/Reverse/evidence/TOD_Retail_Shader_Programs_2026-09-16.md.
     /// </summary>
     public readonly System.Numerics.Vector4 ReflectionTint =>
@@ -80,7 +80,7 @@ public record struct ShaderMetadataOld : ILunaSerializable
                 System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(Unk2b.AsSpan(0x10, 4)),
                 System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(Unk2b.AsSpan(0x14, 4)))
             : System.Numerics.Vector4.Zero;
-    /// <summary>+0x30..+0x3C: the TIE programs' patch group 1 (PROVEN, 43/43 cached values; TodTiePrograms).
+    /// <summary>+0x30..+0x3C: the Tie shaders' patch group 1 (PROVEN, 43/43 cached values; TodTieShaders).
     /// .x = 1 iff use bit 0x01, .z a gloss-like scalar, .w integer 0..5.</summary>
     public readonly System.Numerics.Vector4 Vector30 =>
         new(value1X, value1Y,
@@ -134,17 +134,17 @@ public record struct ShaderMetadataNew : ILunaSerializable
     // 0x00 on 3 099, 0x04 on 1 956 and 0x0D on 1 834, so the bit reading survives but the corpus is
     // dominated by normal+specular (0x0C) rather than by the acid distribution.
     [FileOffset(0x20)] public byte featureFlags;
-    // PROVEN (QForce EBOOT, TIE draw-list builder 0x0073E280 and the passes it feeds): 0 -> opaque
+    // PROVEN (QForce EBOOT, Tie draw-list builder 0x0073E280 and the passes it feeds): 0 -> opaque
     // pass 0x24; 1 -> pass 0x3B, BLEND SRC_ALPHA / ONE_MINUS_SRC_ALPHA, no depth write, unsorted
     // (0x007464B8); 2 -> depth-sorted list, BLEND SRC_ALPHA / ONE (0x00747208); 3 -> pass 0x40, same
-    // blend as 1, drawn later; 4 and 5 -> the opaque pass (the cut is the program's alpha < 128/255
-    // discard, 154 of the 176 cached programs that discard); 6 -> depth-sorted list, BLEND
+    // blend as 1, drawn later; 4 and 5 -> the opaque pass (the cut is the shader's alpha < 128/255
+    // discard, 154 of the 176 cached shaders that discard); 6 -> depth-sorted list, BLEND
     // SRC_ALPHA / ONE_MINUS_SRC_ALPHA (0x00747548); above 6 -> not drawn. Retail QForce uses 0, 1, 2,
     // 4 and 6 only (4 747 / 128 / 176 / 190 / 979).
     [FileOffset(0x21)] public byte renderingMode;
     // 0x00 standard (21 048 of 24 179 retail resources over the three games), 0x13 (2 677),
     // 0x0C fur (270), 0x05 (90), 0x0F (42), plus a handful of 0x04/0x0E.
-    // PROVEN on the whole corpus: a resource carries the 0x33001/0x33002 program bundle if and only
+    // PROVEN on the whole corpus: a resource carries the 0x33001/0x33002 shader bundle if and only
     // if this byte is 0x13 - 2 677 bundles, 2 677 class-0x13 resources, no exception either way.
     [FileOffset(0x22)] public byte shaderClass;
     // PROVEN on the whole corpus: bit 0x20 is set exactly when shaderClass is non-zero (3 131 of
@@ -157,20 +157,20 @@ public record struct ShaderMetadataNew : ILunaSerializable
     [FileOffset(0x23)] public byte shaderFlags;
 
     // Material RGB tint. 596/666 retail records are (1,1,1); team-colour materials carry their
-    // authored red/blue/green values here while sharing the same compiled program family.
+    // authored red/blue/green values here while sharing the same compiled shader family.
     // PROVEN (QForce EBOOT): read by the Moby passes 0x3D / sorted (0x00791004, 0x007921C4) into
     // VP c[20].rgb = tint * instance colour, and by the class handlers 0x01, 0x05, 0x0A, 0x0C and
-    // 0x0F; the main TIE, UFrag and Moby colour paths never read it.
+    // 0x0F; the main Tie, UFrag and Moby colour paths never read it.
     [FileOffset(0x24)] public float tintR;
     [FileOffset(0x28)] public float tintG;
     [FileOffset(0x2C)] public float tintB;
 
     // Formerly named alphaClip. That interpretation is refuted: this is 1.0 on 603/666 materials,
     // including opaque ones, and ranges well above 1. Alpha test reference is render-mode state.
-    // PROVEN (QForce EBOOT): the TIE, UFrag and Moby renderers upload vertex constant
+    // PROVEN (QForce EBOOT): the Tie, UFrag and Moby renderers upload vertex constant
     // c[21] = (+0x30, +0x34 * placement scale, +0x60.x, ...) (0x007444BC, 0x00745E50, 0x00751390,
-    // 0x0078EF94). The vertex programs fade .x/.y with distance into TEX3.w / TEX2.w, and the fragment
-    // programs multiply the normal map's xy by TEX3.w and the reflection mask by TEX2.w - so +0x30 is
+    // 0x0078EF94). The vertex shaders fade .x/.y with distance into TEX3.w / TEX2.w, and the fragment
+    // shaders multiply the normal map's xy by TEX3.w and the reflection mask by TEX2.w - so +0x30 is
     // the NORMAL-MAP STRENGTH and +0x34 the REFLECTION STRENGTH (standard and embedded classes; the fur
     // class 0x0C stores other values in +0x34..+0x3C and +0x60). Names kept for compatibility.
     [FileOffset(0x30)] public float parameter30;
@@ -180,9 +180,9 @@ public record struct ShaderMetadataNew : ILunaSerializable
     // shell count (0 selects render mode 6, 0x006D7AB8).
     [FileOffset(0x38)] public uint packedState38;
     // 2.0 on 5 079 / 5 092 standard records, 0 on class 0x13. PROVEN (QForce EBOOT): the DETAIL GAIN.
-    // Every renderer uploads VP c[22] = (+0x78, +0x3C, 0, 0) (TIE 0x00743BA4, UFrag 0x00751484, Moby
-    // 0x0078F058, class 0x13 0x006CCA5C); the vertex programs output saturate(+0x3C * (1 - fade))
-    // with fade = saturate(depth * c[19].z), and the fragment programs weight the detail map by it
+    // Every renderer uploads VP c[22] = (+0x78, +0x3C, 0, 0) (Tie 0x00743BA4, UFrag 0x00751484, Moby
+    // 0x0078F058, class 0x13 0x006CCA5C); the vertex shaders output saturate(+0x3C * (1 - fade))
+    // with fade = saturate(depth * c[19].z), and the fragment shaders weight the detail map by it
     // times props.a (FP c8872868fd5f, cbf6dd28f655).
     [FileOffset(0x3C)] public float parameter3C;
 
@@ -192,18 +192,18 @@ public record struct ShaderMetadataNew : ILunaSerializable
     // though: the 53 resources of shader classes 0x0E and 0x0F store a float here instead (1.0f on
     // the 42 class-0x0F ones), so the word is class-dependent. Preserve it losslessly.
     // PROVEN (QForce EBOOT 0x006DE0D4, 0x0073FF0C): cube descriptor = set + (+0x40) * 0x20, bound on
-    // unit 7; the 4-cube set (0x80 bytes) is picked per PLACEMENT (TIE record +0x5D, 0x0073DFD4).
+    // unit 7; the 4-cube set (0x80 bytes) is picked per PLACEMENT (Tie record +0x5D, 0x0073DFD4).
     [FileOffset(0x40)] public uint environmentFilterIndex;
     // PROVEN (QForce EBOOT, exhaustive scan of the material-table loads): read only by the class
     // handlers 0x01 (VP c[45] = (+0x44, +0x48, +0x4C, +0x50), 0x006C225C) and 0x0F (0x006C91A8);
     // no standard or class-0x13 path reads it.
     [FileOffset(0x44)] public uint parameter44;
 
-    // Closed against every embedded-program resource: for 98 three-variant bundles 0x33002 contains
+    // Closed against every embedded-shader resource: for 98 three-variant bundles 0x33002 contains
     // base+1..base+3; for the four four-variant bundles it contains base..base+3.
-    [FileOffset(0x48)] public ulong fragmentProgramBaseTuid;
+    [FileOffset(0x48)] public ulong fragmentShaderBaseTuid;
 
-    // Patched into the retail fragment path surrounding texture unit 7. The program forms the
+    // Patched into the retail fragment path surrounding texture unit 7. The shader forms the
     // environment colour as mix(RGB, albedo, W) (NEW_ENGINE_SHADER_CORPUS_2026-09-21 §3).
     [FileOffset(0x50)] public float reflectionTintR;
     [FileOffset(0x54)] public float reflectionTintG;
@@ -218,10 +218,10 @@ public record struct ShaderMetadataNew : ILunaSerializable
     [FileOffset(0x68)] public float reflectionParamZ;
     [FileOffset(0x6C)] public float reflectionParamW;
 
-    // Closed against the embedded RSX programs: height * X + Y, and Z drives detail UV frequency.
+    // Closed against the embedded RSX shaders: height * X + Y, and Z drives detail UV frequency.
     // PROVEN (QForce EBOOT 0x00726E50): for standard materials with a detail slot the runtime value is
     // +0x78 * 512 / (detail texture width), i.e. the file stores the tiling for a 512-wide detail map.
-    // +0x7C is zero in every file; the loader writes the embedded program handle there (0x006ACDA8).
+    // +0x7C is zero in every file; the loader writes the embedded shader handle there (0x006ACDA8).
     [FileOffset(0x70)] public float parallaxScale;
     [FileOffset(0x74)] public float parallaxBias;
     [FileOffset(0x78)] public float detailTiling;
@@ -233,7 +233,7 @@ public record struct ShaderMetadataNew : ILunaSerializable
     public readonly bool UsesSpecularPath => (featureFlags & 0x04) != 0;
     public readonly bool UsesNormalMap => (featureFlags & 0x08) != 0;
     public readonly bool UsesDetailMap => (featureFlags & 0x10) != 0;
-    public readonly bool UsesEmbeddedProgramBundle => shaderClass == 0x13;
+    public readonly bool UsesEmbeddedShaderBundle => shaderClass == 0x13;
     public readonly bool IsFurFamily => shaderClass == 0x0C;
 
     public readonly System.Numerics.Vector3 MaterialTint => new(tintR, tintG, tintB);

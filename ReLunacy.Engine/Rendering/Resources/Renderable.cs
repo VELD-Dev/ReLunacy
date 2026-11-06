@@ -2,7 +2,7 @@ namespace ReLunacy.Engine.Rendering.Resources;
 
 /// <summary>One mesh placed in the world, with an optional per-placement material override.
 ///
-/// The override is what lit ties need: one tie model is shared across many placements, but each
+/// The override is what lit Ties need: one tie model is shared across many placements, but each
 /// placement has its own baked lightmap textures, so the material cannot live on the shared mesh.</summary>
 public sealed class Renderable
 {

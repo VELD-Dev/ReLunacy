@@ -28,7 +28,7 @@ public struct UFragMetadata : ILunaSerializable
     /// on both engines; new-engine values remain zone-local until ZoneReader maps them into the
     /// combined runtime lighting pool. Supersedes an earlier old-engine reading at 0x52, which was
     /// 0xFFFF for every UFrag in the level and so
-    /// made terrain look unlit - it was taken from ReLunacy-Ymir on trust and never held up here.
+    /// made UFrags look unlit - it was taken from ReLunacy-Ymir on trust and never held up here.
     /// </summary>
     public ushort lightmapIndex;
 

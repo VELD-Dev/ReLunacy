@@ -4,9 +4,9 @@ using ReLunacy.Engine.Loading.IO;
 namespace ReLunacy.Engine.Loading.Objects;
 
 /// <summary>
-/// Old-engine ToD section 0x3F00 record. There is exactly one record per 0x3300 TIE Primitive
+/// Old-engine ToD section 0x3F00 record. There is exactly one record per 0x3300 Tie Primitive
 /// and the 0x3400 definition points to the first record in parallel with its 0x3300 pointer.
-/// Decoding the actual 0x9000 TIE vertices proves this is a primitive-local world-unit AABB.
+/// Decoding the actual 0x9000 Tie vertices proves this is a primitive-local world-unit AABB.
 /// </summary>
 [FileStructure(Size)]
 public record struct TiePrimitiveBounds

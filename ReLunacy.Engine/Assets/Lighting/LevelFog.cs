@@ -12,7 +12,7 @@ namespace ReLunacy.Engine.Assets.Lighting;
 ///   LinearScale = Amount / (FarDistance - NearDistance)
 ///   LinearBias  = -NearDistance * LinearScale
 ///
-/// This closes the authored data and CPU setup. It does NOT by itself prove which ToD vertex-program
+/// This closes the authored data and CPU setup. It does NOT by itself prove which ToD vertex-shader
 /// value reaches the RSX FOGC interpolator, so the renderer must not silently substitute Euclidean
 /// distance or view-Z until that producer is closed.
 /// </summary>
@@ -36,7 +36,7 @@ public sealed class LevelFog
     /// the 0x7100 consumer 0x004E2E00 copies +0x70 (on), +0x74 (mip weight), +0x78 (history), +0x80
     /// (extract scale), +0x84 (extract exponent), +0x88 (intensity), +0x8C (colour extract) to the render
     /// globals 0x10676580 +0x6B..+0x84, the frame's post settings (0x004C5C3C) hand them to the post
-    /// function 0x006B8E2C, and its bloom 0x004F2E14 patches them into its programs - the values the
+    /// function 0x006B8E2C, and its bloom 0x004F2E14 patches them into its shaders - the values the
     /// RPCS3 cache holds (Metropolis (0.6, 2.2, 0.6), Meridian City (0.85, 1.8, 0.8)). On in all 24 levels.
     /// Null when +0x70 is 0 or the record is shorter.
     /// </summary>

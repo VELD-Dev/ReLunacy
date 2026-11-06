@@ -3,7 +3,7 @@ using ReLunacy.Engine.Assets.Interfaces;
 namespace ReLunacy.Engine.Assets.Geometry;
 
 /// <summary>
-/// A new-engine TIE primitive as the retail renderer addresses it: +0x04 first vertex, +0x06 secondary
+/// A new-engine Tie primitive as the retail renderer addresses it: +0x04 first vertex, +0x06 secondary
 /// index, +0x08 vertex count, +0x0E bit 0 (drawn with the placement's bake) and the +0x30/+0x32/+0x34
 /// fade distances (normal map, reflection, detail), and the +0x20 mask the loader ANDs with the
 /// material's feature bits.
@@ -29,13 +29,13 @@ public sealed class Mesh : IMesh
     public Func<int, string?>? VertexDumper { get; init; }
 
     /// <summary>
-    /// Old-engine TIE per-primitive shader-use state reconstructed from proven retail loader rules.
+    /// Old-engine Tie per-primitive shader-use state reconstructed from proven retail loader rules.
     /// Null for every geometry family where that state does not exist or has not been proven.
     /// </summary>
     public OldTieShaderUse? OldTieShaderUse { get; init; }
 
     /// <summary>
-    /// Old-engine TIE only: where this primitive's vertices start inside its prototype's shared vertex
+    /// Old-engine Tie only: where this primitive's vertices start inside its prototype's shared vertex
     /// block (0x3300 +0x04). Vertex i of this mesh is prototype vertex SourceVertexBase + i, which is
     /// what lets an editor map a picked render vertex back to the file. -1 when not applicable.
     /// </summary>
@@ -44,10 +44,10 @@ public sealed class Mesh : IMesh
     /// <summary>Animated UVs (section 0x5C00), or null.</summary>
     public UvAnimation? UvAnimation { get; init; }
 
-    /// <summary>New-engine TIE only: the primitive's vertex window and bake gate, null elsewhere.</summary>
+    /// <summary>New-engine Tie only: the primitive's vertex window and bake gate, null elsewhere.</summary>
     public NewEngineTiePrimitive? NewEngineTiePrimitive { get; init; }
 
-    /// <summary>New engine: this primitive's normal-map / reflection / detail fade distances (TIE
+    /// <summary>New engine: this primitive's normal-map / reflection / detail fade distances (Tie
     /// primitive or Moby frag record +0x30), or null.</summary>
     public System.Numerics.Vector3? NewEngineFadeDistances { get; init; }
 
@@ -62,12 +62,12 @@ public sealed class Mesh : IMesh
     /// </summary>
     public IReadOnlyList<IMaterial> MaterialVariants { get; init; } = [];
 
-    /// <summary>New engine, two-layer TIE primitive: the material blended in by <see cref="BlendMask"/>
+    /// <summary>New engine, two-layer Tie primitive: the material blended in by <see cref="BlendMask"/>
     /// (Docs/reverse/NEW_ENGINE_TWO_LAYER_AND_GAMEPLAY_CONSTANTS_2026-10-07.md), or null. The vertex alpha
     /// candidates of such a mesh carry the per-vertex weight, low 7 bits of |position.w| / 128.</summary>
     public IMaterial? SecondMaterial { get; init; }
 
-    /// <summary>New engine, two-layer TIE primitive: the blend mask (unit 12), or null.</summary>
+    /// <summary>New engine, two-layer Tie primitive: the blend mask (unit 12), or null.</summary>
     public ITexture? BlendMask { get; init; }
 
     public Mesh(IGeometry geometry, IMaterial material, string? name = null, string? vertexFormatName = null, Func<int, string?>? vertexDumper = null, OldTieShaderUse? oldTieShaderUse = null, IReadOnlyList<IMaterial>? materialVariants = null)

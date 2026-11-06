@@ -415,17 +415,36 @@ public class ImGuiController : IDisposable
         KeyMap[KeyboardKey.KeypadEnter] = ImGuiKey.KeypadEnter;
     }
 
+    /// <summary>
+    /// Requests platform text input for this frame on behalf of a control that handles its own
+    /// typing rather than going through an ImGui text widget - the Lua code editor, which draws
+    /// itself and so never sets io.WantTextInput.
+    ///
+    /// It is a per-frame request, cleared as soon as it is read: a control has to keep asking while
+    /// it is focused, so text input switches off by itself the moment the control stops. Latching it
+    /// would leave SDL in text-input mode permanently, which is the thing the gate below exists to
+    /// prevent.
+    /// </summary>
+    public static bool TextInputRequested { get; set; }
+
+    /// <summary>Characters the platform delivered this frame, for a control that reads them
+    /// directly instead of through an ImGui widget. Same text that is fed to
+    /// <c>io.AddInputCharacter</c>, taken one step earlier.</summary>
+    public static string TypedText { get; private set; } = "";
+
     private void UpdateImGuiInput()
     {
         var io = ImGui.GetIO();
 
-        // Only capture text input while ImGui actually wants it (a text field is focused).
-        // Leaving SDL text-input mode permanently on routes letter keys through the IME/
-        // composition path instead of delivering plain key-down events, which silently
-        // breaks WASD-style shortcuts anywhere outside of a text box.
-        if (io.WantTextInput && !Input.IsTextInputActive())
+        // Only capture text input while ImGui actually wants it (a text field is focused), or while
+        // a self-drawn control asks for it. Leaving SDL text-input mode permanently on routes letter
+        // keys through the IME/composition path instead of delivering plain key-down events, which
+        // silently breaks WASD-style shortcuts anywhere outside of a text box.
+        bool wantsText = io.WantTextInput || TextInputRequested;
+        TextInputRequested = false;
+        if (wantsText && !Input.IsTextInputActive())
             Input.EnableTextInput();
-        else if (!io.WantTextInput && Input.IsTextInputActive())
+        else if (!wantsText && Input.IsTextInputActive())
             Input.DisableTextInput();
 
         var mousePosition = Input.GetMousePosition();
@@ -439,8 +458,12 @@ public class ImGuiController : IDisposable
             io.AddMouseWheelEvent(0f, wheelDelta.Y);
 
         if (Input.GetTypedText(out var inputText))
+        {
+            TypedText = inputText;
             foreach (char ch in inputText)
                 io.AddInputCharacter(ch);
+        }
+        else TypedText = "";
 
         var ctrlDown = Input.IsKeyDown(KeyboardKey.ControlLeft) || Input.IsKeyDown(KeyboardKey.ControlRight);
         if (ctrlDown != _lastControlPressed) io.AddKeyEvent(ImGuiKey.ModCtrl, ctrlDown);

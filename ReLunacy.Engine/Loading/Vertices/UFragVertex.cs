@@ -12,15 +12,42 @@ public record struct UFragVertex
     // skeleton, so this field is never a bone index here.
     public short unk;
 
-    // Old-engine vertex alpha: raw = 0xC000 - round(127*alpha).
-    public readonly float VertexAlpha => Math.Clamp((0xC000 - (ushort)unk) / 127f, 0f, 1f);
+    // Old-engine vertex alpha. Two bands are known, both 127 wide and both descending - the value
+    // counts DOWN from the band's top as alpha rises:
+    //   A: 0xC000 -> 0.0, 0xBF81 -> 1.0   (raw = 0xC000 - round(127*alpha))
+    //   B: 0x8080 -> 0.0, 0x8001 -> 1.0   (reported 2026-10-31; the same shape 0x4000 lower)
+    // Band B matters because of how a miss fails: a value in it is far below band A's floor, so
+    // band A's formula yields well over 1 and clamps to fully opaque - indistinguishable from a
+    // vertex carrying no alpha at all, which is how the new-engine bands were found to be missing.
+    public readonly float VertexAlphaOldEngineA => Math.Clamp((0xC000 - (ushort)unk) / 127f, 0f, 1f);
+    public readonly float VertexAlphaOldEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
+
+    /// <summary>Picks whichever old-engine band the raw value falls into; outside both, opaque.</summary>
+    public readonly float VertexAlpha
+    {
+        get
+        {
+            ushort raw = (ushort)unk;
+            if (raw is >= 0xBF81 and <= 0xC000) return VertexAlphaOldEngineA;
+            if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaOldEngineB;
+            // Band A's formula is kept as the fallback rather than returning 1: values below its
+            // floor already clamped to opaque there, so nothing that used to decode changes.
+            return VertexAlphaOldEngineA;
+        }
+    }
 
     // New-engine vertex alpha ranges (same formulas as VertexFormat0's A/B/C).
     public readonly float VertexAlphaNewEngineA => Math.Clamp(((ushort)unk - 0x7F80) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)unk) / 127f, 0f, 1f);
+    // D (0x9980 -> 0.0, ascending) and E (0x8C00 -> 0.0, descending) as VertexFormat0 lists them.
+    // Both were measured on TIE vertices, not UFrag ones; they are carried here because the two
+    // share the encoding and because omitting a band fails silently - the value misses every range,
+    // the fallback returns 1.0, and the surface renders opaque with no sign anything was dropped.
+    public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)unk - 0x9980) / 127f, 0f, 1f);
+    public readonly float VertexAlphaNewEngineE => Math.Clamp((0x8C00 - (ushort)unk) / 127f, 0f, 1f);
 
-    // Picks whichever new-engine range the raw value falls into. Outside all three = 1.0 (opaque).
+    // Picks whichever new-engine range the raw value falls into. Outside the applied ranges = 1.0 (opaque).
     public readonly float VertexAlphaNewEngineAuto
     {
         get
@@ -29,6 +56,18 @@ public record struct UFragVertex
             if (raw is >= 0x7F80 and <= 0x7FFF) return VertexAlphaNewEngineA;
             if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaNewEngineB;
             if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaNewEngineC;
+            // Bands D and E are deliberately NOT applied.
+            //
+            // Listing E (0x8C00 -> 0.0) turned whole meshes translucent that had been opaque: on
+            // zolar_forest, meshes of 42, 56 and 31 vertices with EVERY vertex in the band, on
+            // vertex-alpha materials, decoding to a mean alpha of 0.25 to 0.48 where the fallback
+            // had given 1.0. That is what reached the screen as see-through surfaces in the 3D
+            // view while the Asset Viewer, which does not apply vertex alpha, looked right.
+            //
+            // So the raw values are real - the band is there in the data - but reading them as
+            // alpha is not what the game does with them, at least not for these meshes. Until the
+            // EBOOT says how that field is actually consumed, the opaque fallback is the honest
+            // answer: it is what shipped before and it is visibly correct.
             return 1f;
         }
     }

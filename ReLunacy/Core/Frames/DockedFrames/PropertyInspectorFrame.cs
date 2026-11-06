@@ -21,6 +21,76 @@ public class PropertyInspectorFrame : DockedFrame
     private Vector3 selectedBSphere;
     private float selectedBSphereRadius;
     private float selectedCullDistance;
+    /// <summary>Opens (or focuses) the Cubemap Viewer on a cubemaps.dat resource.</summary>
+    private static void OpenCubemapInViewer(ulong resourceTuid)
+    {
+        var window = LunaWindow.Instance;
+        CubemapViewer viewer;
+        if (window.IsAnyFrameOpened<CubemapViewer>())
+            viewer = window.GetFirstFrame<CubemapViewer>()!;
+        else
+        {
+            viewer = new CubemapViewer();
+            viewer.TransmitCubemaps(window.Level);
+            window.AddFrame(viewer);
+        }
+        viewer.SelectByResource(resourceTuid);
+        viewer.Focus();
+    }
+
+    /// <summary>Which environment cubemap this instance actually reflects, and why.
+    ///
+    /// Two independent lookups decide it. The RESOURCE comes from the instance's own authored cube
+    /// TUID, resolved through the active region's resource map (VulkanRenderer: _cubeResourceMap);
+    /// the SLOT within that resource comes from the material's 0x5000 +0x40. The resource map is
+    /// rebuilt whenever the rendered region changes, because a region owns its cubemap set - so an
+    /// instance whose TUID is not in the current region's set silently falls back to resource 0,
+    /// which is exactly the case worth seeing rather than guessing at.</summary>
+    private static void RenderCubemapSection(ulong cubeTuid)
+    {
+        var am = LunaWindow.Instance.AssetManager;
+        var level = LunaWindow.Instance.Level;
+        if (am is null || level is null) return;
+
+        ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_CubemapCategory"));
+        ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_CubemapRegion", am.ActiveEnvironmentRegion ?? "-"));
+        ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_CubemapTuidLabel"));
+        ImGui.SameLine();
+        TuidLink.Draw(cubeTuid);
+
+        if (cubeTuid == 0)
+        {
+            ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CubemapNoTuid"));
+            return;
+        }
+
+        bool resolved = am.EnvironmentCubeResources.TryGetValue(cubeTuid, out int resource);
+        if (!resolved) resource = 0;
+        ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_CubemapResource", resource,
+            am.EnvironmentCubeResources.Count));
+        if (!resolved)
+            ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CubemapFallback"));
+
+        // The four slots of that resource, in the order AssetManager packs them.
+        var ofRegion = am.ActiveEnvironmentRegion is { } r && level.CubemapsByRegion.TryGetValue(r, out var byRegion)
+            ? byRegion : level.Cubemaps;
+        var ordered = ofRegion.Where(c => c.HalfFloatFaces is { Count: 6 })
+            .GroupBy(c => c.ResourceTuid)
+            .Select(g => g.OrderBy(c => c.IndexInResource).ToList())
+            .ToList();
+        if (resource >= 0 && resource < ordered.Count)
+        {
+            var slots = ordered[resource];
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_CubemapSlotsLabel"));
+            foreach (var slot in slots) { ImGui.SameLine(); TuidLink.Draw(slot.Id); }
+
+            // The instance names a RESOURCE, so the jump selects that resource in the viewer rather
+            // than a cube key - the two are different identifiers and get confused for each other.
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_CubemapOpen")))
+                OpenCubemapInViewer(resolved ? cubeTuid : slots[0].ResourceTuid);
+        }
+    }
+
     private float selectedUpdateDistance;
 
     public Entity? SelectedEntity => SelectionManager.Singleton.SelectedEntity;
@@ -124,17 +194,34 @@ public class PropertyInspectorFrame : DockedFrame
         {
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenTieInAssetViewer(tie.BaseTie.Id);
+            RenderCubemapSection(tie.NewEngineCubeTuid);
         }
         else if (SelectedEntity is EntityUFrag ufrag)
         {
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenUFragInAssetViewer(ufrag.UFrag);
+            RenderCubemapSection(ufrag.UFrag.NewEngineCubeTuid);
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
             // Volumes carry nothing beyond a transform in the level format itself - this is all there is to show.
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeId", volumeEntity.BaseVolume.Id));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeGroup", volumeEntity.BaseVolume.group));
+        }
+        else if (SelectedEntity is EntityNavmesh navmeshChunk)
+        {
+            // The chunk table's own counts, not recomputed ones, so a disagreement with what is drawn
+            // would be visible rather than smoothed over.
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshZone", navmeshChunk.ZoneName));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshChunk", navmeshChunk.ChunkIndex));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshCounts",
+                navmeshChunk.VertexCount, navmeshChunk.TriangleCount, navmeshChunk.EdgeCount));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshLinks",
+                navmeshChunk.LinkedEdgeCount, navmeshChunk.EdgeCount));
+            var neighbours = navmeshChunk.Chunk.EdgeNeighbours
+                .Where(n => n.HasValue).Select(n => n!.Value).Distinct().Order().ToList();
+            ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_NavmeshNeighbours",
+                neighbours.Count > 0 ? string.Join(", ", neighbours) : "-"));
         }
 
         ImGui.Separator();
@@ -177,7 +264,7 @@ public class PropertyInspectorFrame : DockedFrame
         {
             for (int i = 0; i < clips.Count; i++)
             {
-                // ##anim_{i} disambiguates the ImGui ID from the label text: some mobys have several
+                // ##anim_{i} disambiguates the ImGui ID from the label text: some Mobys have several
                 // clips sharing the same name, and Selectable's ID is derived from the label alone -
                 // without a unique suffix, duplicate names collide and corrupt the ID stack (visible
                 // as PopID errors in the dropdown).

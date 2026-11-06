@@ -4,9 +4,9 @@ using NeoVeldrid;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// Old-engine TIE draw-state wiring kept separate from the large Vulkan renderer implementation.
+/// Old-engine Tie draw-state wiring kept separate from the large Vulkan renderer implementation.
 /// The overload delegates all normal scene construction to the canonical constructor, then annotates
-/// the already mapped per-instance SSBO with source-authoritative TIE metadata.
+/// the already mapped per-instance SSBO with source-authoritative Tie metadata.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
@@ -23,7 +23,7 @@ public sealed unsafe partial class VulkanRenderer
         uint height,
         bool oldEngineMobys = true,
         IReadOnlyDictionary<ulong, int>? cubeResources = null,
-        Loading.Shaders.NewEngineStandardPrograms? standardPrograms = null,
+        Loading.Shaders.NewEngineStandardShaders? standardShaders = null,
         int maxSkeletonBones = 0,
         int maxConcurrentAnimated = 0)
         : this(
@@ -38,7 +38,7 @@ public sealed unsafe partial class VulkanRenderer
             height,
             oldEngineMobys,
             cubeResources,
-            standardPrograms,
+            standardShaders,
             maxSkeletonBones,
             maxConcurrentAnimated)
     {
@@ -107,6 +107,6 @@ public sealed unsafe partial class VulkanRenderer
         }
 
         if (wired > 0)
-            Console.WriteLine($"[VkRenderer] old-engine TIE source shader-use wired to {wired} draw(s); callback52 terminal route remains unresolved.");
+            Console.WriteLine($"[VkRenderer] old-engine Tie source shader-use wired to {wired} draw(s); callback52 terminal route remains unresolved.");
     }
 }

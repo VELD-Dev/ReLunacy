@@ -56,7 +56,7 @@ public record struct TieAsset
     public uint verticesCount;
 }
 
-/// <summary>Terrain fragment, listed alongside Mobys and Ties even though it is not an "asset" in
+/// <summary>A UFrag, listed alongside Mobys and Ties even though it is not an "asset" in
 /// the same sense - UFrags are not instanced, so each one IS its own single placement, and its bake
 /// is therefore unambiguous (unlike a Tie, whose lightmap depends on which instance you're looking
 /// at). Holds no Model of its own: the preview reuses the scene EntityUFrag's already-built mesh
@@ -486,7 +486,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Lightmapped / not, the UFrag tab's own filter. Separate from Used/Unused above, which
-    /// is meaningless for terrain: a UFrag is its own single placement, so it is always "used".</summary>
+    /// is meaningless for a UFrag: it is its own single placement, so it is always "used".</summary>
     private void RenderUFragFilterControl()
     {
         int filter = ufragLightmapFilter switch { null => 0, true => 1, false => 2 };
@@ -695,7 +695,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                         {
                             foreach (var moby in filtered)
                             {
-                                if (moby.MobyName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                if (TuidLink.Matches(assetSearch, moby.MobyName, moby.Moby.Id))
                                     RenderMobyLeaf(moby);
                             }
                         }
@@ -718,7 +718,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                         {
                             foreach (var tie in filtered)
                             {
-                                if (tie.TieName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                if (TuidLink.Matches(assetSearch, tie.TieName, tie.Tie.Id))
                                     RenderTieLeaf(tie);
                             }
                         }
@@ -738,7 +738,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                         foreach (var ufrag in FilteredUFragAssets())
                         {
                             if (!string.IsNullOrWhiteSpace(assetSearch) &&
-                                !ufrag.UFragName.Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
+                                !TuidLink.Matches(assetSearch, ufrag.UFragName, ufrag.UFrag.Id))
                                 continue;
                             RenderUFragLeaf(ufrag);
                         }
@@ -797,6 +797,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                 try
                 {
                     _vkPreview.SetDebugLines(_debugLines);
+                    _vkPreview.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
                     _vkPreview.Frame(
                         Camera.GetView(), Camera.GetProjection(),
                         _lighting.BuildLightData(Camera.Position),
@@ -1045,7 +1046,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         string path = Path.Combine(directory, $"{safeName}.{extension}");
 
         ExportRunner.Run(LM.Get("GUI_Frame_AssetViewer_ExportingTitle"), path, directory,
-            progress => exporter(path, safeName, groups, skeleton, progress));
+            report => exporter(path, safeName, groups, skeleton, ExportRunner.MeshesOnly(report)));
     }
 
     /// <summary>The scene entity's own already-built GPU mesh for this UFrag, or null if the level
@@ -1303,7 +1304,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         draw.AddRect(ToScreen(new Vector2(minU, maxV)), ToScreen(new Vector2(maxU, minV)), colRect, 0f, ImDrawFlags.None, 1.5f);
         draw.PopClipRect();
 
-        // In TEXELS, because that is the unit the implausibility shows up in: a terrain chunk mapping
+        // In TEXELS, because that is the unit the implausibility shows up in: a UFrag mapping
         // to a handful of texels cannot resolve a baked shadow no matter where it lands.
         ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_UFragIslandTexels",
             (maxU - minU) * atlas.Width, (maxV - minV) * atlas.Height, atlas.Width, atlas.Height));
@@ -1830,8 +1831,15 @@ public class AssetViewer : DockedFrame, ILevelListener
 
         try
         {
+            // The scene renderer's own shader table and engine flag, not the constructor defaults: without
+            // standardShaders the preview never selects a retail shader (RsxShaders bails on a null table),
+            // so it shaded everything generically and applied vertex alpha where the 3D view, on the retail
+            // permutation, did not. oldEngineMobys defaults to true, which is wrong for a new-engine level.
             _vkPreview = new Engine.Rendering.Vulkan.VulkanRenderer(
-                graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight)
+                graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight,
+                oldEngineMobys: assetManager?.OldEngineMobys ?? true,
+                cubeResources: assetManager?.EnvironmentCubeResources,
+                standardShaders: assetManager?.StandardShaders)
             {
                 // The preview has always had a light background; the level view keeps its dark one.
                 ClearColour = new Vector4(0.68f, 0.85f, 0.90f, 1f),

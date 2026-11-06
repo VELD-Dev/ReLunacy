@@ -3,7 +3,7 @@ namespace ReLunacy.Engine.Assets.Materials;
 /// <summary>Which asset family a <see cref="OldMaterialTextureBindingTable"/> belongs to.</summary>
 public enum OldMaterialTextureBindingOwner
 {
-    /// <summary>main.dat 0x3500. Several records per TIE definition; +0x06 names the 0x3400 ordinal.</summary>
+    /// <summary>main.dat 0x3500. Several records per Tie definition; +0x06 names the 0x3400 ordinal.</summary>
     Tie,
 
     /// <summary>main.dat 0x6400. Exactly one record per 0x6200 UFrag, in UFrag order, so the owner is
@@ -16,15 +16,15 @@ public enum OldMaterialTextureBindingOwner
 
 /// <summary>
 /// One 0x10-byte record of the old-engine material/texture binding family
-/// (main.dat 0x3500 for TIEs, 0x6400 for UFrags, 0xD800 for Moby prototypes).
+/// (main.dat 0x3500 for Ties, 0x6400 for UFrags, 0xD800 for Moby prototypes).
 ///
 /// NATIVE PROOF that the three are one family. The loader at 0x004E2068 files each table into its
-/// subsystem registry (TIE 0x721C(r2) +0x18/+0x1C, UFrag 0x7220(r2) +0x08/+0x0C, Moby 0x725C(r2)
+/// subsystem registry (Tie 0x721C(r2) +0x18/+0x1C, UFrag 0x7220(r2) +0x08/+0x0C, Moby 0x725C(r2)
 /// +0x2C/+0x30) and then hands all three (pointer, count) pairs to the SAME consumer, through the
 /// cross-module thunk 0x0026AEC0 -> 0x00584B50:
 ///
 ///   0x004E26A0  UFrag +0x08/+0x0C  (0x6400)  -> 0x0026AEC0
-///   0x004E26B4  TIE   +0x18/+0x1C  (0x3500)  -> 0x0026AEC0
+///   0x004E26B4  Tie   +0x18/+0x1C  (0x3500)  -> 0x0026AEC0
 ///   0x004E26C8  Moby  +0x2C/+0x30  (0xD800)  -> 0x0026AEC0
 ///
 /// 0x00584B50 reads the u16 at +0x08 as a material ordinal, indexes the 0x5000 material table by
@@ -96,7 +96,7 @@ public readonly struct OldMaterialTextureBinding
     public required ushort ReservedRuntimeSlot3 { get; init; }
 
     /// <summary>
-    /// Ordinal of the asset this binding belongs to: the 0x3400 TIE definition or the 0xD100 Moby
+    /// Ordinal of the asset this binding belongs to: the 0x3400 Tie definition or the 0xD100 Moby
     /// prototype named at +0x06, or — for the UFrag table, which is parallel to 0x6200 — this
     /// record's own index.
     ///

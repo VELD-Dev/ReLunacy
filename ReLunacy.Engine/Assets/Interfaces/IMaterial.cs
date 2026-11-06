@@ -17,8 +17,8 @@ public interface IMaterial : IAsset
     // B = additive albedo brightness, A = additive specular intensity. Gated by
     // PropertiesTexture's alpha (the detail mask). Uses the base UV set.
     ITexture? DetailTexture { get; }
-    /// <summary>New-engine 0x5000 slots 4/5. Their retail programs bind these to RSX texture
-    /// units 8/9 when present; combine semantics remain program-family specific.</summary>
+    /// <summary>New-engine 0x5000 slots 4/5. Their retail shaders bind these to RSX texture
+    /// units 8/9 when present; combine semantics remain shader-family specific.</summary>
     ITexture? AuxiliaryTextureA => null;
     ITexture? AuxiliaryTextureB => null;
     RenderMode RenderMode { get; }
@@ -37,7 +37,7 @@ public interface IMaterial : IAsset
     float ParallaxBias { get; }
 
     // Detail-map UV tiling. Old engine stores it at 0x58; new engine stores it at 0x78 and the
-    // embedded RSX program consumes that value in the detail UV path.
+    // embedded RSX shader consumes that value in the detail UV path.
     float DetailTiling { get; }
 
     // Whether this material uses a detail map. New-engine materials fall back to "has a detail

@@ -14,7 +14,7 @@ public class EntityMoby : Entity
     public override string Name { get; protected set; }
     public RenderModel[]? Models { get; private set; }
 
-    /// <summary>Lazily created on first use - most mobys never play an animation in the 3D View, so
+    /// <summary>Lazily created on first use - most Mobys never play an animation in the 3D View, so
     /// there is no reason for every instance to carry one. See EntityManager.PlayingMobyAnimations
     /// for the per-frame update/GPU-push loop that drives this once playback starts.</summary>
     public AnimationPlayer AnimationPlayer => _animationPlayer ??= new AnimationPlayer();

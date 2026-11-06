@@ -14,10 +14,13 @@ public readonly record struct LevelExportOptions(bool ExportMobys, bool ExportTi
 /// <summary>Exports an entire loaded level as a single .glb. Builds each unique Moby/Tie asset's
 /// mesh once and references it from every placed instance's node (true glTF mesh instancing).
 /// Nodes are organized as Mobys/AssetName/Instance and Zones/ZoneName/{Ties/AssetName,UFrags}/Instance.
-/// UFrags are unique per-placement terrain geometry, so they're exported flat under their zone.</summary>
+/// UFrags are unique per-placement geometry, so they're exported flat under their zone.</summary>
 public static class LevelExporter
 {
-    public static void Export(string filePath, string levelName, EntityManager entityManager, LevelExportOptions options, Action<float>? onProgress = null)
+    /// <param name="onProgress">Reports the export's own stages (see <see cref="ExportPhase"/>),
+    /// including the serialize and the file write - between them a large part of the wait on a whole
+    /// level, and silent before.</param>
+    public static void Export(string filePath, string levelName, EntityManager entityManager, LevelExportOptions options, Action<ExportProgressReport>? onProgress = null)
     {
         var sceneBuilder = new SceneBuilder();
         var materialCache = new Dictionary<ulong, MaterialBuilder>();
@@ -31,7 +34,13 @@ public static class LevelExporter
                             + (options.ExportTies ? entityManager.TiesCount : 0)
                             + (options.ExportUFrags ? entityManager.UFragsCount : 0);
         int processedInstances = 0;
-        void ReportProgress() => onProgress?.Invoke(totalInstances == 0 ? 1f : ++processedInstances / (float)totalInstances);
+        void ReportProgress()
+        {
+            processedInstances++;
+            onProgress?.Invoke(ExportPhases.Report(ExportPhase.Meshes,
+                totalInstances == 0 ? 1f : processedInstances / (float)totalInstances,
+                processedInstances, totalInstances));
+        }
 
         if (options.ExportMobys)
         {
@@ -112,8 +121,12 @@ public static class LevelExporter
         if (!anyContentAdded)
             throw new InvalidOperationException("Nothing to export - no assets found for the selected categories.");
 
+        onProgress?.Invoke(ExportPhases.Report(ExportPhase.Serializing, 0f));
         var model = sceneBuilder.ToGltf2();
+
+        onProgress?.Invoke(ExportPhases.Report(ExportPhase.Writing, 0f));
         model.SaveGLB(filePath);
+        onProgress?.Invoke(ExportPhases.Report(ExportPhase.Writing, 1f));
     }
 
     /// <summary>Creates the instance's own transform node under its asset-type group, then attaches
@@ -164,7 +177,7 @@ public static class LevelExporter
     }
 
     /// <summary>Adapts IUFrag (which carries geometry+material directly) to IMesh/IGeometry so
-    /// GltfExporter.BuildMeshBuilder can build UFrag terrain through the same code path.</summary>
+    /// GltfExporter.BuildMeshBuilder can build UFrags through the same code path.</summary>
     private sealed class UFragMeshAdapter(IUFrag ufrag, string name) : IMesh, IGeometry
     {
         public IGeometry Geometry => this;
@@ -181,7 +194,7 @@ public static class LevelExporter
         public float[]? GetNormals() => ufrag.GetNormals();
         public float[]? GetLightmapUVs() => ufrag.GetLightmapUVs();
 
-        // UFrag terrain carries no baked tangent (or, on some readers, normal) data - compute both.
+        // UFrags carry no baked tangent (or, on some readers, normal) data - compute both.
         public float[]? GetTangents()
         {
             var positions = ufrag.GetVertexPositions();
