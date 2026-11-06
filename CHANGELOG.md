@@ -15,7 +15,7 @@ Because the European date format is better, please keep date format like this: `
   - Editable colour themes, with the real editor as a live preview. Color themes can be easily shared across installs under `ReLunacy/Themes/`.
   - Saving writes the source and the compiled chunk back into `global_cached.psarc`, adds them to the game's file index when they are new, and keeps `game.toc`'s record of each archive's length in step. The original is backed up first, and the rebuilt archive is verified in full before anything is replaced; files the edit does not touch keep the exact compressed bytes they shipped with.
   - Adding new scripts. Not established yet, and worth knowing before relying on it: whether the engine accepts a file added through ReLunacy. Replacing an existing script needs none of that and is the safer path.
-- Added animation support by @Fianshoo in PRs #58, #59 and #60
+- Added animation support by @Zairata in PRs #59 and #60
 - Added sky rendering on both engines (`Render menu > Sky`) by @Fianshoo: the dome and its gradient, the two scrolling cloud layers and the authored sky shells (panoramas, stars, planets), drawn in the game's pass order with each texture's own RSX sampler. Tools of Destruction reads main.dat 0x8150/0x8160/0x8170 and the shell mesh in vertices.dat 0x9000/0x9100; the new engine reads every sky of the region (region.dat 0x81B0, textures in sky.dat), so All 4 One's seaside (3 skies) and polar_sea (2) can show each one. The clear colour comes from the sky, as in game. Bloom shells stay off for now.
 - Old-engine textures now keep their whole 0x5200 RSX descriptor (`TextureMetadataOld` fields 0x08-0x1C, `Texture.OldDescriptor`) instead of 16 unnamed bytes.
 - Rendering closer to the games, on both engines, by @Fianshoo. Every item below was checked against the game's own code (EBOOT, RSX shaders, RPCS3 shader cache) or measured over the retail files:
@@ -55,6 +55,7 @@ Because the European date format is better, please keep date format like this: `
 ### Everything else
 
 - Added the raw-vertex inspector in Asset Viewer for reverse-engineering purposes.
+- Fixed the Asset Viewer disposing its preview while a level reload was still using it, by @Zairata in PR #58.
 - Game Browser now remembers the last USRDIR path you scanned, both when reopening the frame AND relaunching ReLunacy.
 - Fixed "Open in Asset Viewer" (from the Property Inspector) jumping to the wrong UFrag, or the wrong zone's UFrag entirely, whenever a level had more than one zone in New Engine.
 - The editor window now opens maximized by default and remembers last size and maximization state between sessions.
