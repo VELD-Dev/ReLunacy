@@ -11,10 +11,17 @@ namespace ReLunacy.Utility;
 /// links to the full commit at <see cref="Url"/>.</summary>
 public readonly record struct CommitInfo(string ShortSha, string Message, string Url);
 
-// Channel-aware per EditorSettings. Stable compares GitHub's "latest release" tag as a Version
-// against ProgramInfo.Version. Nightly has no single version number (the "nightly" tag
+// Channel-aware per EditorSettings. Stable picks the highest release tag by SemVersion and compares
+// it against ProgramInfo.Version. Nightly has no single version number (the "nightly" tag
 // accumulates every build's dated, commit-stamped assets), so comparison extracts the commit
 // hash from the newest asset's filename and compares it against NightlyBuildInfo.CommitHash.
+//
+// Prereleases are part of the stable channel's ladder: 0.05 -> 0.06-alpha.1 -> 0.06-beta.1 -> 0.06.
+// That falls out of taking the highest version rather than being special-cased - SemVersion already
+// ranks 0.06-beta.1 above 0.05 and below 0.06, so a prerelease is only ever offered while nothing
+// higher exists, and the final release supersedes it the moment it is published. To keep
+// prereleases away from stable users instead, filter the list below to !v.IsPrerelease unless the
+// running build is itself a prerelease.
 public static class UpdateChecker
 {
     private const string RepoApiBase = "https://api.github.com/repos/VELD-Dev/ReLunacy";
@@ -45,32 +52,56 @@ public static class UpdateChecker
     private static async Task CheckStable()
     {
         using var client = CreateClient();
-        var response = await client.GetAsync($"{RepoApiBase}/releases/latest");
-        response.EnsureSuccessStatusCode();
-        var data = JObject.Parse(await response.Content.ReadAsStringAsync());
-
-        string? tag = (string?)data["tag_name"];
-        string? url = (string?)data["html_url"];
-        string? publishedAt = (string?)data["published_at"];
-        string? body = (string?)data["body"];
-        if (tag == null || url == null || publishedAt == null) return;
-
-        if (!TryParseVersion(tag, out var newVersion) || !TryParseVersion(ProgramInfo.Version, out var currentVersion))
+        if (!SemVersion.TryParse(ProgramInfo.Version, out var currentVersion))
         {
-            LunaLog.LogWarn($"Could not compare release tag '{tag}' against current version '{ProgramInfo.Version}'.");
+            LunaLog.LogWarn($"Could not read the running version '{ProgramInfo.Version}' as a version.");
             return;
         }
 
+        // The whole list, not /releases/latest: GitHub defines "latest" as the newest release that
+        // is NOT a prerelease, so an alpha or beta is invisible there and an alpha build would never
+        // be offered anything until the final release shipped.
+        var response = await client.GetAsync($"{RepoApiBase}/releases?per_page=30");
+        response.EnsureSuccessStatusCode();
+        var releases = JArray.Parse(await response.Content.ReadAsStringAsync());
+
+        JObject? best = null;
+        var newVersion = default(SemVersion);
+        foreach (var entry in releases.OfType<JObject>())
+        {
+            if ((bool?)entry["draft"] == true) continue;
+            // Tags that are not versions are skipped rather than warned about: the nightly channel
+            // publishes under the fixed tag "nightly" and shares this list.
+            if (!SemVersion.TryParse((string?)entry["tag_name"], out var candidate)) continue;
+            if (best == null || candidate > newVersion)
+            {
+                best = entry;
+                newVersion = candidate;
+            }
+        }
+
+        if (best == null)
+        {
+            LunaLog.LogWarn("No release tag in the repository could be read as a version.");
+            return;
+        }
+
+        string? tag = (string?)best["tag_name"];
+        string? url = (string?)best["html_url"];
+        string? publishedAt = (string?)best["published_at"];
+        string? body = (string?)best["body"];
+        if (tag == null || url == null || publishedAt == null) return;
+
         if (newVersion > currentVersion)
         {
-            LunaLog.LogInfo($"A stable update is available: v{tag}");
+            LunaLog.LogInfo($"An update is available: v{tag}" + (newVersion.IsPrerelease ? " (prerelease)" : ""));
             // Commits between the running release's tag and the new one.
             var commits = await FetchCommitsAsync(client, ProgramInfo.Version, tag);
             LunaWindow.Instance.AddFrame(new UpdateInfoFrame(url, tag, DateTime.Parse(publishedAt, CultureInfo.InvariantCulture), changelog: body, commits: commits));
         }
         else
         {
-            LunaLog.LogInfo("No stable update available.");
+            LunaLog.LogInfo($"No update available; v{ProgramInfo.Version} is current.");
         }
     }
 
@@ -173,11 +204,4 @@ public static class UpdateChecker
         return parts.Length >= 2 ? parts[1] : null;
     }
 
-    private static bool TryParseVersion(string raw, out Version version)
-    {
-        string cleaned = raw.TrimStart('v', 'V');
-        bool ok = Version.TryParse(cleaned, out var parsed);
-        version = parsed ?? new Version(0, 0);
-        return ok;
-    }
 }
