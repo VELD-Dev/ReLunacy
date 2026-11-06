@@ -1,5 +1,6 @@
 using System.Numerics;
 using ReLunacy.Engine.Scripting;
+using ReLunacy.Utility;
 using ReLunacy.Utility.CodeEditor;
 using ReLunacy.Utility.Localization;
 
@@ -32,6 +33,10 @@ public sealed class LuaEditorView
     /// <summary>Why an install was refused, shown under the status line so a compile error is
     /// readable rather than summarised away.</summary>
     private IReadOnlyList<string> _installProblems = [];
+
+    /// <summary>An install in flight. The write takes seconds on a real archive and now runs on a
+    /// worker, so the button has to stop a second one being started over the same file.</summary>
+    private bool _installing;
 
     /// <summary>Scope analysis of the current text, refreshed when it changes. F2 and completion
     /// read this; it is recomputed lazily so typing does not reparse on every keystroke.</summary>
@@ -426,21 +431,45 @@ public sealed class LuaEditorView
         // the archive: a path that is not there yet is added, index entries and all.
         ImGui.SameLine();
         string? archivePath = ArchivePath?.Invoke();
-        ImGui.BeginDisabled(archivePath is null || !CameFromArchive);
+        ImGui.BeginDisabled(archivePath is null || !CameFromArchive || _installing);
         if (ImGui.Button(LM.Get("GUI_LuaEnv_Install")) && archivePath is not null)
         {
-            var result = LuaScriptPackWriter.Save(archivePath, _path, Document.GetText());
-            _installProblems = result.Problems;
-            if (result.Succeeded)
-            {
-                _modified = false;
-                Installed?.Invoke();
-                _status = result.BackupPath is { } backup
-                    ? string.Format(LM.Get("GUI_LuaEnv_InstalledWithBackup"), result.Summary,
-                                    System.IO.Path.GetFileName(backup))
-                    : result.Summary;
-            }
-            else _status = result.Summary;
+            // Off the main thread behind a progress bar: this reads the whole archive, rebuilds it,
+            // reads it back to verify and copies the original aside. The text is taken here, on the
+            // main thread, so the worker writes what was on screen when the button was pressed.
+            string text = Document.GetText();
+            string scriptPath = _path;
+            string archive = archivePath;
+            var labels = PhaseLabels<LuaSavePhase>.Snapshot("LuaSavePhase");
+            string installing = string.Format(LM.Get("GUI_LuaEnv_Installing"), System.IO.Path.GetFileName(archive));
+            _installing = true;
+            _status = installing;
+
+            BackgroundJob.Run(
+                LM.Get("GUI_LuaEnv_Install"),
+                installing,
+                bar => LuaScriptPackWriter.Save(archive, scriptPath, text,
+                    report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total)),
+                result =>
+                {
+                    _installing = false;
+                    _installProblems = result.Problems;
+                    if (result.Succeeded)
+                    {
+                        _modified = false;
+                        Installed?.Invoke();
+                        _status = result.BackupPath is { } backup
+                            ? string.Format(LM.Get("GUI_LuaEnv_InstalledWithBackup"), result.Summary,
+                                            System.IO.Path.GetFileName(backup))
+                            : result.Summary;
+                    }
+                    else _status = result.Summary;
+                },
+                e =>
+                {
+                    _installing = false;
+                    _status = e.Message;
+                });
         }
         ImGui.EndDisabled();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_InstallHelp"));

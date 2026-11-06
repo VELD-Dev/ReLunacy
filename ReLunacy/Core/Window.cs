@@ -58,7 +58,16 @@ public class LunaWindow : IDisposable
     /// as <see cref="pendingExportCompletions"/>) so both arrive as one atomic message.</summary>
     private readonly ConcurrentQueue<LevelReady> pendingLevelReady = new();
 
-    private readonly record struct LevelReady(LevelData Level, Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?> PreparedTextures);
+    private readonly record struct LevelReady(
+        int Generation,
+        LevelData Level,
+        Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?> PreparedTextures,
+        Engine.Loading.PreparedGeometry PreparedGeometry);
+
+    /// <summary>Which load is current. Bumped by every load and every wipe, so a loading task that
+    /// finishes after its level was closed - or after another level was asked for - can be told
+    /// apart from the one being waited on, and its result dropped instead of built.</summary>
+    private int _loadGeneration;
 
     /// <summary>Background export tasks (see AssetViewer) can only touch <see cref="openFrames"/>
     /// from the main thread, same rule as the rest of this class - so completions are queued here
@@ -70,9 +79,29 @@ public class LunaWindow : IDisposable
     /// LoadLevelDataAsync for why this is a field rather than an openFrames lookup.</summary>
     private LoadingFrame? _activeLoadingFrame;
 
+    /// <summary>Work a background job wants done on the main thread - the completion of an archive
+    /// save going back into the panel that started it, say. Same rule and same pattern as
+    /// <see cref="pendingExportCompletions"/>: nothing off the main thread may touch
+    /// <see cref="openFrames"/> or anything else ImGui is reading.</summary>
+    private readonly ConcurrentQueue<Action> pendingMainThreadWork = new();
+
     public readonly record struct ExportCompletion(LoadingFrame ProgressModal, bool Success, string Message, string Directory);
 
     public void QueueExportCompletion(ExportCompletion completion) => pendingExportCompletions.Enqueue(completion);
+
+    /// <summary>Queues work to run on the main thread at the end of the next frame. Safe from any
+    /// thread; see <see cref="Utility.BackgroundJob"/>, which is what hands completions back.</summary>
+    public void QueueOnMainThread(Action work) => pendingMainThreadWork.Enqueue(work);
+
+    private void DoMainThreadWorkCheck()
+    {
+        while (pendingMainThreadWork.TryDequeue(out var work))
+        {
+            // One job's completion throwing must not take the drain - or the frame - down with it.
+            try { work(); }
+            catch (Exception e) { LunaLog.LogError($"Queued main-thread work failed: {e}"); }
+        }
+    }
 
     private void DoExportCompletionsCheck()
     {
@@ -250,6 +279,10 @@ public class LunaWindow : IDisposable
     /// </summary>
     public string? PendingExternalDebugDatPath { get; set; }
 
+    /// <summary>Steps on the level load's bar. A thousand rather than a hundred so a long phase's
+    /// item counts still move it visibly - the window is wide enough to show them.</summary>
+    private const uint LoadBarSteps = 1000;
+
     public async void LoadLevelDataAsync(string path, LoadingFrame? loadingFrame = null, string? debugDatPath = null)
     {
         // Held for the rest of the load rather than looked up in openFrames when needed: the frame
@@ -265,36 +298,83 @@ public class LunaWindow : IDisposable
         // install is read when the scene is built (NewEngineStandardShaders, TodTieShaders).
         Engine.Loading.Shaders.NewEngineStandardShaders.SearchRoots = [(path, null)];
 
-        await Task.Run(() =>
+        // ONE progress for the whole load, mutated in place by whichever thread is reporting - the
+        // phases hand it a fraction of the whole job rather than each owning a bar of its own, so
+        // what the user watches is a single bar that crosses the load from the file open to the last
+        // texture upload. The labels are resolved here, on the main thread, for the reason
+        // PhaseLabels documents.
+        var labels = PhaseLabels<Engine.Loading.LoadPhase>.Snapshot("LoadPhase");
+        var bar = new LoadingProgress(labels.Label(Engine.Loading.LoadPhase.OpeningFiles), LoadBarSteps, true);
+        _loadBar = bar;
+        // Registered either way, so a load started without a window still shows in the status bar.
+        if (loadingFrame is not null) loadingFrame.UpdateProgress(0, bar);
+        else BackgroundTasks.Begin(bar);
+
+        int generation = ++_loadGeneration;
+
+        var progress = new Engine.Loading.LevelLoadProgress(
+            report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total));
+        _loadProgress = progress;
+
+        try
         {
-            fileManager = new FileManager();
-            if (path.EndsWith(".psarc", StringComparison.OrdinalIgnoreCase))
-                fileManager.LoadFromPsarcFile(path);
-            else
-                fileManager.LoadFolder(path);
-
-            // Old engine only: debug.dat almost never ships alongside main.dat/the level's own .psarc -
-            // try, in priority order, whatever the user explicitly picked, then whatever the caller
-            // already resolved, then fall back to deriving it from the path directly.
-            if (fileManager.isOld && fileManager.igfiles.GetValueOrDefault("debug.dat") is null)
+            await Task.Run(() =>
             {
-                string? resolvedDebugDat = PendingExternalDebugDatPath ?? debugDatPath ?? Engine.Games.GameLibraryScanner.TryResolveDebugDatPath(path);
-                if (resolvedDebugDat != null)
-                    fileManager.LoadExternalDebugDat(resolvedDebugDat);
+                // Opening the archive is a phase like any other: on a packed level it is the better
+                // part of a second, and the bar used to sit at zero through all of it.
+                progress.Begin(Engine.Loading.LoadPhase.OpeningFiles);
+                fileManager = new FileManager();
+                if (path.EndsWith(".psarc", StringComparison.OrdinalIgnoreCase))
+                    fileManager.LoadFromPsarcFile(path);
+                else
+                    fileManager.LoadFolder(path);
+
+                // Old engine only: debug.dat almost never ships alongside main.dat/the level's own .psarc -
+                // try, in priority order, whatever the user explicitly picked, then whatever the caller
+                // already resolved, then fall back to deriving it from the path directly.
+                if (fileManager.isOld && fileManager.igfiles.GetValueOrDefault("debug.dat") is null)
+                {
+                    string? resolvedDebugDat = PendingExternalDebugDatPath ?? debugDatPath ?? Engine.Games.GameLibraryScanner.TryResolveDebugDatPath(path);
+                    if (resolvedDebugDat != null)
+                        fileManager.LoadExternalDebugDat(resolvedDebugDat);
+                }
+                progress.CompletePhase();
+
+                var levelReader = new LevelReader(fileManager);
+                Level = levelReader.LoadLevel(progress);
+
+                // Everything the asset build and the scene entities would otherwise do on the main
+                // thread that does NOT need the graphics device, done here instead: packing every
+                // mesh and UFrag into vertex/index/interleaved arrays, then decoding every texture
+                // and building its mip chain. Both are internally parallel across cores; they run
+                // one after the other rather than at the same time because each already saturates
+                // them, and sequencing keeps the bar's phases - and the peak memory - honest.
+                progress.Begin(Engine.Loading.LoadPhase.PreparingGeometry);
+                var geometry = Engine.Loading.PreparedGeometry.Build(Level, progress);
+
+                progress.Begin(Engine.Loading.LoadPhase.DecodingTextures);
+                var swPrep = System.Diagnostics.Stopwatch.StartNew();
+                var prepared = AssetManager.PrepareTextures(Level, progress);
+                LunaLog.LogDebug($"Decoded {prepared.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
+
+                pendingLevelReady.Enqueue(new LevelReady(generation, Level, prepared, geometry));
+            });
+        }
+        catch (Exception ex)
+        {
+            // A load that threw used to leave its bar in the status bar for ever and the window
+            // sitting at whatever percentage it had reached. Nothing here touches openFrames: this
+            // continuation runs on a pool thread (there is no synchronization context), and only the
+            // task registry and the frame's own finished flag are safe from one.
+            LunaLog.LogError($"Level load failed: {ex}");
+            BackgroundTasks.End(bar);
+            if (loadingFrame is not null)
+            {
+                loadingFrame.LoadEnd = DateTime.Now;
+                loadingFrame.loadingFinished = true;
             }
-
-            var levelReader = new LevelReader(fileManager);
-            Level = levelReader.LoadLevel((status, progress) =>
-                loadingFrame?.UpdateProgress(0, new LoadingProgress(status, 100, true) { current = (uint)(progress * 100) }));
-
-            // Decode every texture and build its mip chain HERE, still on the loading task and in
-            // parallel across cores - none of it needs the graphics device.
-            var swPrep = System.Diagnostics.Stopwatch.StartNew();
-            var prepared = AssetManager.PrepareTextures(Level);
-            LunaLog.LogDebug($"Decoded {prepared.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
-
-            pendingLevelReady.Enqueue(new LevelReady(Level, prepared));
-        });
+            return;
+        }
 
         LunaLog.LogDebug("Level loaded.");
     }
@@ -319,6 +399,22 @@ public class LunaWindow : IDisposable
     /// </summary>
     public void TryWipeLevel()
     {
+        // A level whose scene is still being built has no AssetManager published yet, so the guard
+        // below would walk straight past it and leave its half-built entities, its GPU textures and
+        // a job still stepping over a level that is being thrown away. Dropped first, before
+        // anything else, and whatever the rest of this method decides to do.
+        AbandonLevelFinalization();
+        // Anything the loading task finished but that was never picked up belongs to the level being
+        // wiped, not to the one about to load - and a task still running is now a stale generation,
+        // so whatever it enqueues later is dropped rather than built over the next level.
+        pendingLevelReady.Clear();
+        _loadGeneration++;
+        // Likewise the previous load's bar: this runs before the guards below, so a load wiped while
+        // it was still reading files stops being listed as running either way.
+        if (_loadBar != null) BackgroundTasks.End(_loadBar);
+        _loadBar = null;
+        _loadProgress = null;
+
         if (string.IsNullOrEmpty(Program.ProvidedPath)) return;
         if (AssetManager is null || Level is null || fileManager is null) return;
 
@@ -346,6 +442,28 @@ public class LunaWindow : IDisposable
         _uploadProgress = null;
     }
 
+    /// <summary>Drops a scene build in flight and frees what it had already allocated. The GPU-side
+    /// disposal goes through the same deferred path a normal wipe uses where that slot is free;
+    /// where it is not (a second load in the same frame) the build's resources are freed directly,
+    /// which is safe precisely because they were never published - nothing has drawn with them.</summary>
+    private void AbandonLevelFinalization()
+    {
+        if (_sceneBuild is null && _buildingAssetManager is null) return;
+
+        _sceneBuild = null;
+        var abandoned = _buildingAssetManager;
+        _buildingAssetManager = null;
+        if (abandoned is null) return;
+
+        if (_pendingWipeAssetManager is null)
+            _pendingWipeAssetManager = abandoned;
+        else
+        {
+            abandoned.DisposeSceneRenderer();
+            abandoned.Dispose();
+        }
+    }
+
     private AssetManager? _pendingWipeAssetManager;
 
     /// <summary>Actually frees the GPU resources a wipe queued up in TryWipeLevel (see its comment
@@ -364,6 +482,28 @@ public class LunaWindow : IDisposable
     // True from the moment a level's AssetManager/entities are built until its queued texture uploads
     // have fully drained - see DoLoadEntitiesCheck. Spans many frames for one level.
     private bool _finalizingLevelLoad;
+
+    /// <summary>The scene build in flight, if any: the entities of one level, built a few steps per
+    /// frame (see <see cref="Engine.Scene.SceneBuildJob"/>).</summary>
+    private Engine.Scene.SceneBuildJob? _sceneBuild;
+
+    /// <summary>The level's AssetManager while its scene is still being built. Deliberately NOT yet
+    /// published to <see cref="AssetManager"/>: View3D captures the whole scene the first frame it
+    /// sees an asset manager with nothing left to upload, and capturing a half-built level would
+    /// retain exactly that - a level missing most of its zones, with nothing to make it rebuild.</summary>
+    private AssetManager? _buildingAssetManager;
+
+    /// <summary>The level load's single bar, and the phase-weighted reporter writing to it. Held for
+    /// the whole load because the last phases - the asset build, the entity build and the uploads -
+    /// happen here, on the main thread, frames after the loading task has finished.</summary>
+    private LoadingProgress? _loadBar;
+    private Engine.Loading.LevelLoadProgress? _loadProgress;
+
+    /// <summary>Per-frame time budget for building scene entities, the same idea as
+    /// <see cref="UploadBudgetMs"/>: it runs in AfterUpdate, after this frame's Draw, so overrunning
+    /// slightly delays the next frame rather than corrupting this one. A zone is the unit of work and
+    /// cannot be split, so a single very large zone can still overshoot this.</summary>
+    private const double BuildBudgetMs = 12.0;
     // The upload phase's own progress bar slot on the loading modal - kept as a direct reference so
     // each frame can just mutate .current instead of reconstructing/relocking through UpdateProgress.
     private LoadingProgress? _uploadProgress;
@@ -410,45 +550,96 @@ public class LunaWindow : IDisposable
         AddFrame(new MissingEbootModal(resolution.Path));
     }
 
+    /// <summary>Builds the level's renderer-side assets and starts its scene build. The asset build
+    /// is one indivisible step - it is a constructor, and it allocates the GPU textures every
+    /// material needs - so this is the one part of the load that can still be felt as a hitch; the
+    /// vertex packing it used to do on top of that is already done by here.</summary>
+    private void BeginLevelFinalization(LevelReady ready)
+    {
+        var lsw = System.Diagnostics.Stopwatch.StartNew();
+        _buildingAssetManager = new AssetManager(
+            ready.Level, GraphicsDevice, ready.PreparedTextures, ready.PreparedGeometry, _loadProgress);
+        // AssetManager's constructor is what resolves the retail shader table, so its provenance is
+        // known by here. A borrowed or absent EBOOT still renders - wrongly - so say so plainly
+        // rather than leaving it to look like a renderer bug.
+        WarnIfEbootMissing(ready.Level);
+        LunaLog.LogDebug($"Assets built in {lsw.ElapsedMilliseconds}ms; building scene entities.");
+
+        _sceneBuild = new Engine.Scene.SceneBuildJob(ready.Level, _buildingAssetManager, GraphicsDevice, _loadProgress);
+    }
+
+    /// <summary>Spends this frame's budget on the scene build. Returns true once the scene is
+    /// complete and the level has been published, which is when the caller may carry on into the
+    /// upload drain and the finalization tail.</summary>
+    private bool StepLevelFinalization()
+    {
+        if (_sceneBuild is null || _buildingAssetManager is null) return false;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.Elapsed.TotalMilliseconds < BuildBudgetMs)
+            if (!_sceneBuild.Step()) break;
+
+        if (!_sceneBuild.IsFinished) return false; // resume next frame
+
+        // The one called "default" when the level names one - that is the game's own default
+        // region, and on a level like lobby (outfitter / static_scene / default) it is the one
+        // holding the full zone set. Otherwise the first, which is the region the loader used to
+        // be hardcoded to. Drawing them all at once would stack segments that overlap in space and
+        // were never shown together, so exactly one starts visible and the rest become available
+        // from Render > Zones.
+        var regions = EntityManager.Singleton.Regions;
+        int shown = regions.FindIndex(r => r.RegionName == "default");
+        if (shown < 0) shown = 0;
+        for (int r = 0; r < regions.Count; r++)
+            regions[r].allowRender = r == shown;
+
+        // Published only now that every region and zone exists - see _buildingAssetManager.
+        AssetManager = _buildingAssetManager;
+        _buildingAssetManager = null;
+        _sceneBuild = null;
+
+        LunaLog.LogDebug($"Scene entities built ({EntityManager.Singleton.ZonesCount} zone(s), " +
+            $"{EntityManager.Singleton.UFragsCount} UFrag(s), {EntityManager.Singleton.MobysCount} Moby instance(s)). " +
+            $"{AssetManager.TotalQueuedUploads} textures queued for GPU upload.");
+        // Anything left means the pre-pass packed geometry the build never asked for, i.e. the two
+        // walks have drifted apart - worth saying, since the leftovers are pure wasted work.
+        if (AssetManager.PreparedGeometry is { Count: > 0 } leftover)
+            LunaLog.LogDebug($"{leftover.Count} prepared geometr(ies) went unused by the build.");
+
+        _loadProgress?.Begin(Engine.Loading.LoadPhase.UploadingTextures, AssetManager.TotalQueuedUploads);
+        _uploadProgress = new LoadingProgress(LM.Get("GUI_LoadLevelModal_UploadingTextures"), (uint)Math.Max(1, AssetManager.TotalQueuedUploads), true);
+        // Registered whether or not a loading frame is up, so uploads show in the status bar
+        // even when the level was loaded without one or its window has been dismissed.
+        BackgroundTasks.Begin(_uploadProgress);
+        _activeLoadingFrame?.AddProgress(_uploadProgress);
+        _finalizingLevelLoad = true;
+        return true;
+    }
+
+    /// <summary>
+    /// The main thread's share of a level load, driven once per frame from AfterUpdate: build the
+    /// asset manager, then the scene entities a few steps at a time, then drain the texture uploads a
+    /// few milliseconds at a time, then finalize.
+    ///
+    /// All of it is here rather than threaded because all of it talks to the graphics device or to
+    /// the renderer's static capture registry (see <see cref="Engine.Scene.SceneBuildJob"/>). What
+    /// CAN be threaded was already done on the loading task before this is ever reached - the
+    /// vertex packing and the texture decode, which is where the seconds were.
+    /// </summary>
     private void DoLoadEntitiesCheck()
     {
-        if (pendingLevelReady.TryDequeue(out var ready))
+        // One level at a time: a second load's data is not touched until the first has published.
+        while (_sceneBuild is null && _buildingAssetManager is null && pendingLevelReady.TryDequeue(out var ready))
         {
-            var lsw = System.Diagnostics.Stopwatch.StartNew();
-            AssetManager = new AssetManager(ready.Level, GraphicsDevice, ready.PreparedTextures);
-            // AssetManager's constructor is what resolves the retail shader table, so its provenance is
-            // known by here. A borrowed or absent EBOOT still renders - wrongly - so say so plainly
-            // rather than leaving it to look like a renderer bug.
-            WarnIfEbootMissing(ready.Level);
-            long a0 = lsw.ElapsedMilliseconds;
-            // Every region, not just the first: new-engine levels group their zones into several
-            // (All 4 One's are progression segments of one map - a_start, b_taxi, ... g_rooftops_2),
-            // and they were unreachable before. Drawing them all at once would stack segments that
-            // overlap in space and were never shown together, so exactly one starts visible and the
-            // rest become available from Render > Zones.
-            foreach (var levelRegion in ready.Level.Regions)
-                EntityManager.Singleton.LoadRegion(levelRegion, AssetManager, GraphicsDevice);
-
-            // The one called "default" when the level names one - that is the game's own default
-            // region, and on a level like lobby (outfitter / static_scene / default) it is the one
-            // holding the full zone set. Otherwise the first, which is the region the loader used to
-            // be hardcoded to.
-            var regions = EntityManager.Singleton.Regions;
-            int shown = regions.FindIndex(r => r.RegionName == "default");
-            if (shown < 0) shown = 0;
-            for (int r = 0; r < regions.Count; r++)
-                regions[r].allowRender = r == shown;
-            long tRegion = lsw.ElapsedMilliseconds - a0; a0 = lsw.ElapsedMilliseconds;
-            EntityManager.Singleton.LoadFoliage(ready.Level.Foliages, AssetManager, GraphicsDevice);
-            LunaLog.LogDebug($"Entities built in {lsw.ElapsedMilliseconds}ms (region {tRegion}, foliage {lsw.ElapsedMilliseconds - a0}). {AssetManager.TotalQueuedUploads} textures queued for GPU upload.");
-
-            _uploadProgress = new LoadingProgress(LM.Get("GUI_LoadLevelModal_UploadingTextures"), (uint)Math.Max(1, AssetManager.TotalQueuedUploads), true);
-            // Registered whether or not a loading frame is up, so uploads show in the status bar
-            // even when the level was loaded without one or its window has been dismissed.
-            BackgroundTasks.Begin(_uploadProgress);
-            _activeLoadingFrame?.AddProgress(_uploadProgress);
-            _finalizingLevelLoad = true;
+            if (ready.Generation != _loadGeneration)
+            {
+                LunaLog.LogDebug("Dropped a finished level load: its level was closed or replaced while it ran.");
+                continue;
+            }
+            BeginLevelFinalization(ready);
         }
+
+        if (_sceneBuild is not null && !StepLevelFinalization()) return;
 
         if (AssetManager is null) return;
 
@@ -467,8 +658,12 @@ public class LunaWindow : IDisposable
                 AssetManager.UploadOnePendingTexture();
 
             // Only meaningful while the loading modal is up; null once the level has finalized.
+            int uploaded = AssetManager.TotalQueuedUploads - AssetManager.PendingUploadCount;
             if (_uploadProgress != null)
-                _uploadProgress.current = (uint)(AssetManager.TotalQueuedUploads - AssetManager.PendingUploadCount);
+                _uploadProgress.current = (uint)uploaded;
+            // The overall bar's last phase. Set rather than advanced, since the queue is also fed
+            // after a load (lazily built materials, the sky, asset previews).
+            if (_finalizingLevelLoad) _loadProgress?.SetDone(uploaded);
 
             if (AssetManager.HasPendingUploads) return; // more queued - resume next frame
         }
@@ -479,6 +674,14 @@ public class LunaWindow : IDisposable
         _finalizingLevelLoad = false;
         if (_uploadProgress != null) BackgroundTasks.End(_uploadProgress);
         _uploadProgress = null;
+
+        // The bar reaches 100% here and nowhere earlier: the uploads were its last phase.
+        _loadProgress?.Finish();
+        if (_loadProgress is not null)
+            LunaLog.LogDebug($"Level load phases: {_loadProgress.Summary()}.");
+        if (_loadBar != null) BackgroundTasks.End(_loadBar);
+        _loadBar = null;
+        _loadProgress = null;
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
@@ -766,7 +969,6 @@ public class LunaWindow : IDisposable
     {
         FollowActiveRegionEnvironment();
         // The post-Draw safe point FlushSceneRendererInvalidation documents: this frame's draw is
-        FollowActiveRegionEnvironment();
         // submitted, so tearing the captured scene down here lets the next Update rebuild it from
         // the current entity state. Nothing called it before, so every InvalidateSceneRenderer -
         // the per-zone and per-region render toggles among them - only ever set a flag that was
@@ -775,6 +977,7 @@ public class LunaWindow : IDisposable
         FlushPendingLevelWipe();
         DoLoadEntitiesCheck();
         DoExportCompletionsCheck();
+        DoMainThreadWorkCheck();
     }
 
     protected virtual void FixedUpdate() { }

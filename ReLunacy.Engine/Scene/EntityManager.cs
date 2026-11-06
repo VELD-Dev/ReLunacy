@@ -56,16 +56,35 @@ public class EntityManager : IDisposable
         Regions.Add(new EntityRegion(region, am, gd));
     }
 
+    /// <summary>Adds a region whose zones are built afterwards, one at a time - see
+    /// <see cref="SceneBuildJob"/>, which is what a level load drives this through.</summary>
+    public EntityRegion BeginRegion(Region region, AssetManager am, GraphicsDevice gd)
+    {
+        var built = new EntityRegion(region, am, gd, deferZones: true);
+        Regions.Add(built);
+        return built;
+    }
+
     public void LoadFoliage(IReadOnlyList<Assets.Foliage.Foliage> foliages, AssetManager am, GraphicsDevice gd)
     {
         foreach (var foliage in foliages)
         {
             // foliage.Material is resolved from the asset's own texture index; null falls back to the
             // default billboard texture inside GetOrBuildBillboardMaterial.
-            foreach (var placement in foliage.Placements)
-                Foliage.Add(new EntityFoliage(foliage, placement, foliage.Material, am));
+            for (int i = 0; i < foliage.Placements.Count; i++)
+                AddFoliage(foliage, i, am);
         }
 
+        LogFoliage();
+    }
+
+    /// <summary>One placement of one foliage asset, so a caller can spread a level's foliage across
+    /// frames. Indexed rather than handed the placement, which is a struct worth not copying.</summary>
+    public void AddFoliage(Assets.Foliage.Foliage foliage, int placement, AssetManager am) =>
+        Foliage.Add(new EntityFoliage(foliage, foliage.Placements[placement], foliage.Material, am));
+
+    public void LogFoliage()
+    {
         if (Foliage.Count != 0)
             Console.WriteLine($"Foliage: {Foliage.Count} entity/entities built (LOD {EntityFoliage.BuiltLod}).");
     }

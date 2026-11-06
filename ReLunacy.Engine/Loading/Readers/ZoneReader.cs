@@ -48,7 +48,10 @@ public sealed class ZoneReader
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
     }
 
-    public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones() => _fileManager.isOld ? ReadZonesOld() : ReadZonesNew();
+    /// <param name="progress">The level load's bar; the Zone phase counts one item per zone. The old
+    /// engine's single zone counts as one, which is what it is - one pass over the whole level's UFrags.</param>
+    public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones(LevelLoadProgress? progress = null) =>
+        _fileManager.isOld ? ReadZonesOld(progress) : ReadZonesNew(progress);
 
     /// <summary>
     /// ToD: the prelight an unbaked Tie placement's vertex shaders read as attribute 4 - one UB256 x4
@@ -82,19 +85,21 @@ public sealed class ZoneReader
         return chroma * 20 >= vertices * 19 ? bytes : null;
     }
 
-    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesOld()
+    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesOld(LevelLoadProgress? progress)
     {
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile verticesFile = _fileManager.igfiles["vertices.dat"]!;
 
+        progress?.SetTotal(1);
         var legacyZone = new Objects.Zone(main.sh, old: true, verticesFile: verticesFile);
         zones.Add(0, ConvertZone(legacyZone, 0, 0));
+        progress?.Advance();
 
         return zones;
     }
 
-    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesNew()
+    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesNew(LevelLoadProgress? progress)
     {
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         _newZoneLightmaps.Clear();
@@ -109,8 +114,10 @@ public sealed class ZoneReader
 
         var lightingReader = new NewEngineZoneLightingReader(_fileManager);
 
+        progress?.SetTotal(zonePtrs.Length);
         for (int i = 0; i < zonePtrs.Length; i++)
         {
+            progress?.Advance();
             byte[] zonedat = NewEngineAssetLookup.ReadPayload(zoneStream, zonePtrs[i], "zone");
 
             using MemoryStream zonems = new(zonedat);

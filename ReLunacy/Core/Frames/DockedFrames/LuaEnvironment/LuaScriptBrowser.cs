@@ -2,6 +2,7 @@ using System.Numerics;
 using LibreFios;
 using ReLunacy.Engine.Scripting;
 using ReLunacy.Engine.Games;
+using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
@@ -51,9 +52,14 @@ public sealed class LuaScriptBrowser
     private string? _sharedFor;
     private List<LuaScriptSource> _sharedSources = [];
 
+    /// <summary>A write to the archive is in flight, so the handle is deliberately closed: see
+    /// <see cref="BeginCreateLevelScript"/>.</summary>
+    private bool _writing;
+
     /// <summary>Opens the shared archive for the level currently loaded, if it is not already open.</summary>
     private void EnsureArchive()
     {
+        if (_writing) return;
         string levelSource = Program.ProvidedPath;
         if (string.IsNullOrEmpty(levelSource))
         {
@@ -233,15 +239,21 @@ public sealed class LuaScriptBrowser
     /// The archive is closed first and reopened after. The write replaces the file on disk, and a
     /// handle held across it keeps reading the version that was there before - so the new script
     /// would be invisible until the level was reloaded.
+    ///
+    /// The write itself is the same one the Install button performs and takes just as long, so it
+    /// runs on a worker behind a progress bar; what can be refused on the spot still is, and the
+    /// rest arrives through <paramref name="onCompleted"/> on the main thread.
     /// </summary>
-    /// <returns>What happened, for the caller to show.</returns>
-    public LuaScriptSaveResult CreateLevelScript(string name)
+    /// <returns>An immediate refusal, or null once the write has been started.</returns>
+    public LuaScriptSaveResult? BeginCreateLevelScript(string name, Action<LuaScriptSaveResult> onCompleted)
     {
         EnsureArchive();
         if (_archive is null || _archivePath is null)
             return LuaScriptSaveResult.Refused(LM.Get("GUI_LuaEnv_ScriptsNoLevel"));
         if (!IsUsableName(name))
             return LuaScriptSaveResult.Refused(string.Format(LM.Get("GUI_LuaEnv_NewScriptBadName"), name));
+        if (_writing)
+            return LuaScriptSaveResult.Refused(LM.Get("GUI_LuaEnv_ScriptsBusy"));
 
         string path = $"/levels/{_levelName}/scripts/{name}.lua";
         if (_archive.Manifest.ContainsKey(path))
@@ -251,13 +263,33 @@ public sealed class LuaScriptBrowser
         // real from the start rather than something that has to be fixed before it will build.
         string source = $"-- {name}.lua\n-- Run with load_level_script(\"{name}\")\n";
         string archivePath = _archivePath;
+        var labels = PhaseLabels<LuaSavePhase>.Snapshot("LuaSavePhase");
 
+        // The handle has to be released before the file is replaced, and must not be reopened while
+        // the worker is rebuilding it - EnsureArchive is called from Render, every frame.
         Reset();
-        var result = LuaScriptPackWriter.Save(archivePath, path, source);
-        EnsureArchive();
+        _writing = true;
 
-        if (result.Succeeded) Open(path);
-        return result;
+        BackgroundJob.Run(
+            LM.Get("GUI_LuaEnv_NewScript"),
+            string.Format(LM.Get("GUI_LuaEnv_Installing"), Path.GetFileName(archivePath)),
+            bar => LuaScriptPackWriter.Save(archivePath, path, source,
+                report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total)),
+            result =>
+            {
+                _writing = false;
+                EnsureArchive();
+                if (result.Succeeded) Open(path);
+                onCompleted(result);
+            },
+            e =>
+            {
+                _writing = false;
+                EnsureArchive();
+                onCompleted(LuaScriptSaveResult.Refused(e.Message));
+            });
+
+        return null;
     }
 
     /// <summary>
@@ -323,16 +355,22 @@ public sealed class LuaScriptBrowser
         ImGui.SameLine();
 
         bool usable = IsUsableName(_newScript);
-        ImGui.BeginDisabled(!usable);
+        ImGui.BeginDisabled(!usable || _writing);
         if (ImGui.Button(LM.Get("GUI_LuaEnv_NewScript")))
         {
-            var result = CreateLevelScript(_newScript);
-            _newScriptStatus = result.Succeeded
-                ? result.BackupPath is { } backup
-                    ? $"{result.Summary} (backup: {Path.GetFileName(backup)})"
-                    : result.Summary
-                : result.Summary;
-            if (result.Succeeded) _newScript = "";
+            void Report(LuaScriptSaveResult result)
+            {
+                _newScriptStatus = result.Succeeded
+                    ? result.BackupPath is { } backup
+                        ? $"{result.Summary} (backup: {Path.GetFileName(backup)})"
+                        : result.Summary
+                    : result.Summary;
+                if (result.Succeeded) _newScript = "";
+            }
+
+            // A refusal comes back straight away; a write that started reports when it finishes.
+            if (BeginCreateLevelScript(_newScript, Report) is { } refused) Report(refused);
+            else _newScriptStatus = LM.Get("GUI_LuaEnv_ScriptsWriting");
         }
         ImGui.EndDisabled();
         if (ImGui.IsItemHovered())

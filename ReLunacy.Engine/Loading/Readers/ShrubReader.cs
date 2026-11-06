@@ -16,7 +16,8 @@ public sealed class ShrubReader(FileManager fileManager, MaterialReader material
     private readonly FileManager _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
     private readonly MaterialReader _materialReader = materialReader ?? throw new ArgumentNullException(nameof(materialReader));
 
-    public Dictionary<ulong, Assets.Shrubs.Shrub> ReadAllShrubs()
+    /// <param name="progress">The level load's bar; the Shrub phase counts one item per class.</param>
+    public Dictionary<ulong, Assets.Shrubs.Shrub> ReadAllShrubs(LevelLoadProgress? progress = null)
     {
         var shrubs = new Dictionary<ulong, Assets.Shrubs.Shrub>();
         if (_fileManager.isOld) return shrubs;
@@ -29,8 +30,10 @@ public sealed class ShrubReader(FileManager fileManager, MaterialReader material
             stream is null)
             return shrubs;
 
+        progress?.SetTotal(pointers.Length);
         foreach (AssetPointer pointer in pointers)
         {
+            progress?.Advance();
             byte[] slice = NewEngineAssetLookup.ReadPayload(stream, pointer, "Shrub");
             var parsed = ShrubClass.Read(slice);
             if (parsed.VertexCount == 0 || parsed.Indices.Length == 0) continue;

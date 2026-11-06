@@ -1046,7 +1046,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         string path = Path.Combine(directory, $"{safeName}.{extension}");
 
         ExportRunner.Run(LM.Get("GUI_Frame_AssetViewer_ExportingTitle"), path, directory,
-            progress => exporter(path, safeName, groups, skeleton, progress));
+            report => exporter(path, safeName, groups, skeleton, ExportRunner.MeshesOnly(report)));
     }
 
     /// <summary>The scene entity's own already-built GPU mesh for this UFrag, or null if the level

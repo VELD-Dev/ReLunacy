@@ -122,6 +122,9 @@ public class LoadingFrame : Frame
             ImGui.BeginGroup();
             ImGui.Text(load.status);
             ImGui.ProgressBar(load.Progress, new Vector2(400, 20), load.isPercentage ? $"{load.GetPercents():N1}%" : $"{load.current:N0}/{load.max:N0}");
+            // What the phase is counting through, when it counts anything - the percentage alone
+            // says nothing about whether a phase is 2 items from finishing or 2,000.
+            if (load.detail is { Length: > 0 } detail) ImGui.TextDisabled(detail);
             ImGui.EndGroup();
             ImGui.Spacing();
         }

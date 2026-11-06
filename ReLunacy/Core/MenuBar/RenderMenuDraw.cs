@@ -310,7 +310,10 @@ internal static class RenderMenuDraw
 
         float intensity = view.ReflectionIntensity;
         ImGui.SetNextItemWidth(120);
-        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.2f"))
+        // Logarithmic and three decimals: the per-game starting values differ by more than an order of
+        // magnitude (A4O 0.04 against everything else's 1.0), and on a linear two-decimal bar the
+        // whole useful range for A4O was the leftmost two percent of the track.
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.3f", ImGuiSliderFlags.Logarithmic))
             view.ReflectionIntensity = intensity;
 
         // Live cubemap knobs, so the retail values can be found by eye in the 3D view rather than by

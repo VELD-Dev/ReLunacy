@@ -121,7 +121,14 @@ public static class GameLibraryScanner
         }
     }
 
-    private static GameDefinition? MatchGame(IEnumerable<string> levelNames)
+    private static GameDefinition? MatchGame(IEnumerable<string> levelNames) =>
+        MatchGameAmong(GameDefinitions.All, levelNames);
+
+    /// <summary>The candidate whose <see cref="GameDefinition.KnownLevels"/> covers the most of
+    /// <paramref name="levelNames"/>, or null when none covers any. Restricting the candidates is what
+    /// <see cref="GameDefinitions.FromLevelPath"/> needs to break a tie between the games that share a
+    /// level name, using the folder the level sits in as the evidence.</summary>
+    internal static GameDefinition? MatchGameAmong(IEnumerable<GameDefinition> candidates, IEnumerable<string> levelNames)
     {
         var names = new HashSet<string>(levelNames, StringComparer.OrdinalIgnoreCase);
         if (names.Count == 0)
@@ -129,7 +136,7 @@ public static class GameLibraryScanner
 
         GameDefinition? best = null;
         int bestScore = 0;
-        foreach (var game in GameDefinitions.All)
+        foreach (var game in candidates)
         {
             int score = game.KnownLevels.Count(names.Contains);
             if (score > bestScore)
@@ -139,5 +146,24 @@ public static class GameLibraryScanner
             }
         }
         return best;
+    }
+
+    /// <summary>The names of every level folder beside the one at <paramref name="levelPath"/>, which
+    /// is the level's own folder or an archive inside it. Empty when the path is not on disk or is not
+    /// nested the standard way.</summary>
+    internal static IReadOnlyList<string> SiblingLevelNames(string levelPath)
+    {
+        try
+        {
+            string trimmed = levelPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string levelDir = File.Exists(trimmed) ? Path.GetDirectoryName(trimmed) ?? trimmed : trimmed;
+            string? levelsDir = Path.GetDirectoryName(levelDir);
+            if (levelsDir is null || !Directory.Exists(levelsDir)) return [];
+            return Directory.GetDirectories(levelsDir).Select(Path.GetFileName).OfType<string>().ToList();
+        }
+        catch
+        {
+            return [];
+        }
     }
 }

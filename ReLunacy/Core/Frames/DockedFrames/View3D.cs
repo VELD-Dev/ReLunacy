@@ -31,6 +31,9 @@ public class View3D : DockedFrame
     // Cubemap reflection: strength of the (normally near-invisible) reflection term, and a debug
     // view that shows the raw reflection on everything. See LitModelShaderSource's ENVIRONMENT FILL.
     public float ReflectionIntensity { get; set; } = 1f;
+    // The level ReflectionIntensity was last defaulted for. See Update: the per-game starting value
+    // is applied when the level CHANGES, so the slider stays the user's for as long as it is loaded.
+    private Engine.Loading.Readers.LevelData? reflectionIntensityLevel;
     public bool ReflectionDebugView { get => lighting.ReflectionDebugView; set => lighting.ReflectionDebugView = value; }
     public float ReflectionBase { get => lighting.ReflectionBase; set => lighting.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
@@ -206,6 +209,14 @@ public class View3D : DockedFrame
         // Intensity stays 0 when the level has no cubemap. Kept well below 1 since the cubemap decode
         // can produce HDR values that wash the scene out at full strength.
         var level = Core.LunaWindow.Instance.Level;
+        // Reflection intensity starts at the loaded game's own value - a GUESS, see
+        // GameDefinitions.DefaultReflectionIntensityGuess - and is the user's to move from there, so
+        // it is applied on a level CHANGE and never per frame, which would pin the slider.
+        if (!ReferenceEquals(reflectionIntensityLevel, level))
+        {
+            reflectionIntensityLevel = level;
+            ReflectionIntensity = Engine.Games.GameDefinitions.DefaultReflectionIntensityGuess(level?.GameDefinition?.Id);
+        }
         bool oldEngine = level?.IsOldEngine == true;
         lighting.OldEngineMode = oldEngine;
         // Old engine: the Tie shaders reflect the level's cube themselves (Render > Reflections).

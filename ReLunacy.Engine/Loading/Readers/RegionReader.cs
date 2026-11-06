@@ -26,13 +26,15 @@ public sealed class RegionReader
 
     public Assets.Levels.Region ReadRegion() => ReadAllRegions()[0];
 
-    private Assets.Levels.Region ReadRegionOld()
+    private Assets.Levels.Region ReadRegionOld(LevelLoadProgress? progress = null)
     {
         IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
 
+        progress?.SetTotal(1);
         var mobyInstances = ReadMobyInstancesOld(gameplayFile);
         var volumes = ReadVolumesOld(gameplayFile, _debugReader);
 
+        progress?.Advance();
         return new Assets.Levels.Region(
             id: 0,
             mobyInstances: mobyInstances,
@@ -46,10 +48,11 @@ public sealed class RegionReader
     /// levels routinely have several - All 4 One's are progression segments of one map (a_start, b_taxi,
     /// ... g_rooftops_2) that overlap in space and were never meant to be seen at once, which is what
     /// per-region render toggles exist for. The old engine has exactly one.</summary>
-    public List<Assets.Levels.Region> ReadAllRegions() =>
-        _fileManager.isOld ? [ReadRegionOld()] : ReadAllRegionsNew();
+    /// <param name="progress">The level load's bar; the Region phase counts one item per region.</param>
+    public List<Assets.Levels.Region> ReadAllRegions(LevelLoadProgress? progress = null) =>
+        _fileManager.isOld ? [ReadRegionOld(progress)] : ReadAllRegionsNew(progress);
 
-    private List<Assets.Levels.Region> ReadAllRegionsNew()
+    private List<Assets.Levels.Region> ReadAllRegionsNew(LevelLoadProgress? progress = null)
     {
         if (!_fileManager.igfiles.TryGetValue("gameplay.dat", out IGFile? gameplay) || gameplay is null)
         {
@@ -68,9 +71,13 @@ public sealed class RegionReader
         }
 
         var regions = new List<Assets.Levels.Region>(regionNames.Count);
+        progress?.SetTotal(regionNames.Count);
         for (int i = 0; i < regionNames.Count; i++)
+        {
             if (ReadOneRegionNew(regionNames[i], (ulong)(i + 1)) is { } region)
                 regions.Add(region);
+            progress?.Advance();
+        }
 
         // A level whose every region failed to open still needs a region to hang its zones off, or
         // nothing downstream has anywhere to put them.

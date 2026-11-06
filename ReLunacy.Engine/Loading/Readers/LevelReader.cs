@@ -51,17 +51,20 @@ public sealed class LevelReader
         _debugReader = new DebugReader(fileManager);
     }
 
-    public LevelData LoadLevel(Action<string, float>? progressCallback = null, bool loadMobys = true, bool loadTies = true, bool loadZones = true, bool loadRegions = true)
+    /// <param name="progress">The load's phase-weighted bar (see <see cref="LevelLoadProgress"/>).
+    /// Each reader below owns one phase of it and counts its own items through it, which is what
+    /// makes the bar move continuously instead of stepping between hardcoded fractions.</param>
+    public LevelData LoadLevel(LevelLoadProgress? progress = null, bool loadMobys = true, bool loadTies = true, bool loadZones = true, bool loadRegions = true)
     {
-        progressCallback?.Invoke("Loading Textures & Shaders...", 0.0f);
-        _textureShaderLoader.LoadAll();
+        _textureShaderLoader.LoadAll(progress);
 
         // Old-engine animation metadata is independent of geometry and must exist before Mobys are
         // converted so each D100 record can resolve its own +0x16/+0x24 clip list. New engine
         // intentionally receives an empty list from AnimationReader.
-        progressCallback?.Invoke("Loading Animations...", 0.02f);
+        progress?.Begin(LoadPhase.Animations);
         _animationReader = new AnimationReader(_fileManager);
         _animations = _animationReader.ReadAll();
+        progress?.CompletePhase();
 
         _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader, _animationReader);
         _tieReader = new TieReader(_fileManager, _materialReader, _debugReader)
@@ -69,7 +72,6 @@ public sealed class LevelReader
             CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
         };
 
-        progressCallback?.Invoke("Loading Debug Data...", 0.05f);
         if (_debugReader.IsAvailable)
         {
             Console.WriteLine(_debugReader.GetSummary());
@@ -77,22 +79,22 @@ public sealed class LevelReader
 
         if (loadMobys)
         {
-            progressCallback?.Invoke("Loading Mobys...", 0.1f);
-            _mobys = _mobyReader.ReadAllMobys();
+            progress?.Begin(LoadPhase.Mobys);
+            _mobys = _mobyReader.ReadAllMobys(progress);
         }
 
         if (loadTies)
         {
-            progressCallback?.Invoke("Loading Ties...", 0.3f);
-            _ties = _tieReader.ReadAllTies();
+            progress?.Begin(LoadPhase.Ties);
+            _ties = _tieReader.ReadAllTies(progress);
 
             if (loadZones)
             {
                 // Shrubs before zones: a zone's placements name their class by TUID, so the
                 // classes have to exist before the placements can resolve against them.
-                progressCallback?.Invoke("Loading Shrubs...", 0.55f);
+                progress?.Begin(LoadPhase.Shrubs);
                 _shrubReader = new ShrubReader(_fileManager, _materialReader);
-                _shrubs = _shrubReader.ReadAllShrubs();
+                _shrubs = _shrubReader.ReadAllShrubs(progress);
 
                 _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader)
                 {
@@ -100,8 +102,8 @@ public sealed class LevelReader
                     Shrubs = _shrubs,
                 };
 
-                progressCallback?.Invoke("Loading Zones...", 0.6f);
-                _zones = _zoneReader.ReadAllZones();
+                progress?.Begin(LoadPhase.Zones);
+                _zones = _zoneReader.ReadAllZones(progress);
             }
         }
 
@@ -109,8 +111,8 @@ public sealed class LevelReader
         {
             _regionReader = new RegionReader(_fileManager, _mobys!, _zones!, _debugReader);
 
-            progressCallback?.Invoke("Loading Region...", 0.8f);
-            _regions = _regionReader.ReadAllRegions();
+            progress?.Begin(LoadPhase.Regions);
+            _regions = _regionReader.ReadAllRegions(progress);
             _region = _regions[0];
 
             // Each new-engine region names its own zones (region.dat 0x1C010), and that membership is
@@ -133,15 +135,16 @@ public sealed class LevelReader
 
         // Foliage has its own asset + instance sections, so it loads regardless of the Mobys/Ties/
         // zones flags. Old engine only - FoliageReader returns empty on new-engine files.
-        progressCallback?.Invoke("Loading Foliage...", 0.9f);
+        progress?.Begin(LoadPhase.Foliage);
         // MaterialReader resolves each foliage asset's atlas from A200+0x08, a direct index into
         // the 0x5200 texture table (see FoliageMetadata.TextureIndex).
         _foliageReader = new FoliageReader(_fileManager, _materialReader);
-        _foliages = _foliageReader.ReadAll();
+        _foliages = _foliageReader.ReadAll(progress);
 
         // Old engine: main.dat 0x8150/0x8160/0x8170 + vertices.dat 0x9000/0x9100. New engine: one sky
         // per region.dat 0x81B0 record, textures in the region's sky.dat. See SkyReader.
-        progressCallback?.Invoke("Loading Sky...", 0.91f);
+        // Sky, cubemaps, lighting and fog are all per region, so the phase counts regions.
+        progress?.Begin(LoadPhase.Environment, _regions.Count);
 
         // The environment belongs to the REGION, not the level: one cubemap set, one lighting setup,
         // one fog setting and one sky each, any of which several regions may share (Fianshoo,
@@ -157,6 +160,7 @@ public sealed class LevelReader
 
             var env = new LightingEnvironmentReader(_fileManager).Read()
                 ?? LightingEnvironmentReader.ReadNewEngineSunPresentation(_fileManager, name);
+            progress?.Advance();
             if (env is not null)
             {
                 env.CameraClip = LightingEnvironmentReader.ReadNewEngineCameraClip(_fileManager, name);
@@ -210,12 +214,10 @@ public sealed class LevelReader
         if (_fileManager.isOld && _lightingEnvironment != null && _levelFog?.Bloom is { } oldBloom)
             _lightingEnvironment.Bloom = oldBloom;
 
-        progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above - see MaterialReader.GetAllTextures.
         var allTextures = _materialReader.GetAllTextures();
-
-        progressCallback?.Invoke("Complete!", 1.0f);
+        progress?.CompletePhase();
 
         return new LevelData(
             mobys: _mobys ?? [],

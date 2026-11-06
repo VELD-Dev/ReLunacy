@@ -35,6 +35,49 @@ public sealed record LuaScriptSaveResult(
 /// script live in <c>global_cached.psarc</c> beside that very index. So an add touches one archive
 /// and one index inside it, rather than the two copies a level's index would need.
 /// </summary>
+/// <summary>
+/// The stages of writing a script back into an archive, in the order they run.
+///
+/// Worth reporting because every one of them is slow on a real game archive: the whole thing is
+/// read into memory, rebuilt, read back and compared entry by entry, and copied aside once. On a
+/// 222MB archive that is seconds per stage, and the editor used to do all of it on the UI thread
+/// with nothing on screen to say so.
+/// </summary>
+public enum LuaSavePhase
+{
+    Compiling,
+    Reading,
+    Writing,
+    Verifying,
+    BackingUp,
+    Finishing,
+}
+
+/// <summary>One report from a script install: which stage, how far through the whole job, and the
+/// stage's own entry counts where it has any.</summary>
+public readonly record struct LuaSaveProgressReport(LuaSavePhase Phase, float Overall, long Done, long Total);
+
+/// <summary>Each stage's share of the bar. Rough shares: they track the amount of archive each
+/// stage touches (read all, write all, read all again, copy all) rather than a measurement.</summary>
+public static class LuaSavePhases
+{
+    private static (float Start, float End) Range(LuaSavePhase phase) => phase switch
+    {
+        LuaSavePhase.Compiling => (0f, 0.02f),
+        LuaSavePhase.Reading => (0.02f, 0.30f),
+        LuaSavePhase.Writing => (0.30f, 0.55f),
+        LuaSavePhase.Verifying => (0.55f, 0.85f),
+        LuaSavePhase.BackingUp => (0.85f, 0.97f),
+        _ => (0.97f, 1f),
+    };
+
+    public static LuaSaveProgressReport Report(LuaSavePhase phase, float within, long done = 0, long total = 0)
+    {
+        var (start, end) = Range(phase);
+        return new LuaSaveProgressReport(phase, start + (end - start) * Math.Clamp(within, 0f, 1f), done, total);
+    }
+}
+
 public static class LuaScriptPackWriter
 {
     /// <summary>
@@ -50,10 +93,15 @@ public static class LuaScriptPackWriter
         return compiled;
     }
 
-    public static LuaScriptSaveResult Save(string archivePath, string scriptPath, string source)
+    /// <param name="onProgress">Reports the stages above. Null for a caller that does not show them;
+    /// nothing here needs the UI thread, so the whole method is safe to run on a worker (see
+    /// ReLunacy.Utility.BackgroundJob, which is what the editor's Install button does).</param>
+    public static LuaScriptSaveResult Save(string archivePath, string scriptPath, string source,
+                                           Action<LuaSaveProgressReport>? onProgress = null)
     {
         // 1. Compile first. A chunk that does not exist cannot be written, and a source whose
         //    chunk failed to build must not be written either.
+        onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Compiling, 0f));
         var chunk = LuaCompiler.Compile(source, out var errors);
         if (chunk is null)
             return LuaScriptSaveResult.Refused(
@@ -91,11 +139,12 @@ public static class LuaScriptPackWriter
                       + "replacement nor a new script");
 
                 originalCount = archive.FileEntries.Count;
-                expected = ReadEverything(archive);
+                expected = ReadEverything(archive, onProgress);
             }
 
             string summary;
 
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Writing, 0f));
             if (hasSource)
             {
                 PsarcPatcher.Patch(archivePath, temporaryPath, halves);
@@ -111,7 +160,7 @@ public static class LuaScriptPackWriter
             }
 
             // 3. Verify before anything irreversible happens.
-            var problems = Verify(temporaryPath, expected, originalCount + (hasSource ? 0 : 2));
+            var problems = Verify(temporaryPath, expected, originalCount + (hasSource ? 0 : 2), onProgress);
             if (problems.Count > 0)
             {
                 File.Delete(temporaryPath);
@@ -123,12 +172,16 @@ public static class LuaScriptPackWriter
             //    with an already-edited archive.
             string backupPath = archivePath + ".bak";
             bool madeBackup = !File.Exists(backupPath);
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.BackingUp, 0f));
             if (madeBackup) File.Copy(archivePath, backupPath);
 
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Finishing, 0f));
             File.Move(temporaryPath, archivePath, overwrite: true);
 
-            return new LuaScriptSaveResult(
+            var result = new LuaScriptSaveResult(
                 true, summary + RefreshArchiveSizes(archivePath), madeBackup ? backupPath : null, []);
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Finishing, 1f));
+            return result;
         }
         catch (Exception e)
         {
@@ -256,13 +309,16 @@ public static class LuaScriptPackWriter
     }
 
     /// <summary>Every named entry of an archive, by path.</summary>
-    private static Dictionary<string, byte[]> ReadEverything(PSARC archive)
+    private static Dictionary<string, byte[]> ReadEverything(PSARC archive, Action<LuaSaveProgressReport>? onProgress = null)
     {
         var contents = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        int done = 0, total = archive.Manifest.Count;
         foreach (string path in archive.Manifest.Keys)
         {
             using var buffer = archive.OpenFile(path);
             contents[path] = buffer.Data.ToArray();
+            done++;
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Reading, done / (float)Math.Max(1, total), done, total));
         }
         return contents;
     }
@@ -273,7 +329,8 @@ public static class LuaScriptPackWriter
     /// a mis-sized block table corrupts everything after it rather than one file.
     /// </summary>
     private static List<string> Verify(
-        string path, Dictionary<string, byte[]> expected, int expectedCount)
+        string path, Dictionary<string, byte[]> expected, int expectedCount,
+        Action<LuaSaveProgressReport>? onProgress = null)
     {
         var problems = new List<string>();
         using var rebuilt = new PSARC(File.OpenRead(path));
@@ -282,8 +339,11 @@ public static class LuaScriptPackWriter
             problems.Add($"entry count is {rebuilt.FileEntries.Count} instead of {expectedCount}");
 
         int differing = 0;
+        int checked_ = 0;
         foreach (var (entryPath, contents) in expected)
         {
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Verifying,
+                ++checked_ / (float)Math.Max(1, expected.Count), checked_, expected.Count));
             if (!rebuilt.Manifest.ContainsKey(entryPath))
             {
                 problems.Add($"{entryPath} is missing from the rebuilt archive");

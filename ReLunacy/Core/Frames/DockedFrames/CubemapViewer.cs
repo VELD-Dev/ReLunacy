@@ -52,12 +52,23 @@ public class CubemapViewer : DockedFrame, ILevelListener
     private float gamma = 2.2f;
     private bool reinhard = true;
 
-    // Which stored face feeds each cube direction. Cubemap.FaceNames documents the GL/RSX order
-    // (+X, -X, +Y, -Y, +Z, -Z) and the old engine matches it, but the new-engine cubes come from a
-    // different authoring path and the arrangement does not look right, so it is adjustable rather
-    // than asserted. Identity is the documented order.
-    private readonly int[] faceMap = [0, 1, 2, 3, 4, 5];
-    private bool flipU, flipV, swapUv;
+    // Which stored face feeds each cube direction, and how it is oriented - the same type the GPU
+    // upload applies (CubemapArrangement), so a candidate tried here can be judged on real geometry
+    // instead of only in this projection. Seeded from what the 3D view is currently built with, and
+    // only pushed back to it by Apply to 3D view: looking around in here must not rebuild the scene.
+    // This viewer lists new-engine cubes only (TransmitCubemaps filters on HalfFloatFaces), so the
+    // arrangement it edits is the new-engine one.
+    private readonly CubemapArrangement arrangement = new(storedTransposed: true);
+
+    // Stepping through candidate arrangements rather than dialling each one in by hand. The sweep's
+    // index is kept separately from the arrangement itself: the arrangement can also be edited by
+    // hand, in which case the index no longer describes it and the readout says so instead of lying.
+    private CubemapArrangementSweep.Set sweepSet = CubemapArrangementSweep.Set.Orientations;
+    private int sweepIndex;
+    private bool sweepAuto;
+    private bool sweepSyncs3D;
+    private float sweepInterval = 1f;
+    private readonly System.Diagnostics.Stopwatch sweepClock = new();
 
     private float leftWidth = 320f;
     private const float SplitterWidth = 6f;
@@ -80,6 +91,7 @@ public class CubemapViewer : DockedFrame, ILevelListener
     public CubemapViewer() : base()
     {
         FrameName = LM.Get("GUI_Frame_CubemapViewer");
+        arrangement.CopyFrom(CubemapArrangement.NewEngine);
     }
 
     public void TransmitCubemaps(ReLunacy.Engine.Loading.Readers.LevelData? level)
@@ -177,8 +189,7 @@ public class CubemapViewer : DockedFrame, ILevelListener
         {
             yaw = pitch = 0f; fovDeg = 90f; exposureEv = 0f; bias = 0f; expK1 = -128f; expK2 = 16f; gamma = 2.2f;
             recon = Reconstruction.LinearBias; swizzle = Swizzle.Rgba; reinhard = true;
-            for (int i = 0; i < 6; i++) faceMap[i] = i;
-            flipU = flipV = swapUv = false;
+            arrangement.Reset();
             dirty = true;
         }
 
@@ -218,18 +229,46 @@ public class CubemapViewer : DockedFrame, ILevelListener
         { swizzle = (Swizzle)swizzleIndex; dirty = true; }
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_CubemapViewer_FaceOrder"));
-        string[] slotNames = Enumerable.Range(0, 6).Select(i => LM.Get("GUI_Frame_CubemapViewer_FaceSlot", i, Cubemap.FaceNames[i])).ToArray();
-        for (int dir = 0; dir < 6; dir++)
-        {
-            int src = faceMap[dir];
-            ImGui.SetNextItemWidth(-90f);
-            if (ImGui.Combo($"{Cubemap.FaceNames[dir]}##face{dir}", ref src, slotNames, slotNames.Length))
-            { faceMap[dir] = src; dirty = true; }
-        }
-        if (ImGui.Checkbox(LM.Get("GUI_Frame_CubemapViewer_FlipU"), ref flipU)) dirty = true;
-        ImGui.SameLine();
-        if (ImGui.Checkbox(LM.Get("GUI_Frame_CubemapViewer_FlipV"), ref flipV)) dirty = true;
-        if (ImGui.Checkbox(LM.Get("GUI_Frame_CubemapViewer_SwapUV"), ref swapUv)) dirty = true;
+
+        // Two independent settings, not nine loose toggles: where a face's (u, v) lives in the file,
+        // and which way the assembled cube faces. The per-face rotations follow from the orientation,
+        // so every one of the 48 is a consistent cube - see CubemapArrangement.
+        int storage = arrangement.Storage;
+        string[] storageNames = CubemapArrangement.StorageNames
+            .Select((n, i) => i == CubemapArrangement.TransposedStorage
+                ? LM.Get("GUI_Frame_CubemapViewer_StorageMeasured", n)
+                : n).ToArray();
+        ImGui.SetNextItemWidth(-90f);
+        if (ImGui.Combo(LM.Get("GUI_Frame_CubemapViewer_Storage"), ref storage, storageNames, storageNames.Length))
+        { arrangement.Storage = storage; dirty = true; }
+
+        int orientation = arrangement.Orientation;
+        string[] orientationNames = Enumerable.Range(0, CubemapArrangement.OrientationCount)
+            .Select(i => i == 0
+                ? LM.Get("GUI_Frame_CubemapViewer_OrientationIdentity", CubemapArrangement.DescribeOrientation(i))
+                : CubemapArrangement.DescribeOrientation(i)).ToArray();
+        ImGui.SetNextItemWidth(-90f);
+        if (ImGui.Combo(LM.Get("GUI_Frame_CubemapViewer_Orientation"), ref orientation, orientationNames, orientationNames.Length))
+        { arrangement.Orientation = orientation; dirty = true; }
+
+        ImGui.TextDisabled(LM.Get("GUI_Frame_CubemapViewer_OrientationNote"));
+        ImGui.TextDisabled(LM.Get("GUI_Frame_CubemapViewer_FaceSources",
+            string.Join(", ", Enumerable.Range(0, 6).Select(d => $"{Cubemap.FaceNames[d]}<-{Cubemap.FaceNames[arrangement.Source(d)]}"))));
+
+        // The point of the whole section: the 3D view uploads under CubemapArrangement.NewEngine, so
+        // pushing this one into it and asking for a rebuild is what lets a candidate be compared
+        // against the retail game on real geometry rather than in this projection alone.
+        bool applied = arrangement.SameAs(CubemapArrangement.NewEngine);
+        var assetManager = LunaWindow.Instance?.AssetManager;
+        ImGui.BeginDisabled(applied || assetManager is null);
+        if (ImGui.Button(LM.Get("GUI_Frame_CubemapViewer_ApplyTo3D")))
+            PushToSceneView(assetManager);
+        ImGui.EndDisabled();
+        ImGui.TextDisabled(applied
+            ? LM.Get("GUI_Frame_CubemapViewer_ApplyTo3D_Matches")
+            : LM.Get("GUI_Frame_CubemapViewer_ApplyTo3D_Differs", CubemapArrangement.NewEngine.Describe()));
+
+        RenderSweep(assetManager);
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_CubemapViewer_Camera"));
         ImGui.SetNextItemWidth(-90f);
@@ -241,6 +280,104 @@ public class CubemapViewer : DockedFrame, ILevelListener
         ImGui.SetNextItemWidth(-90f);
         if (ImGui.SliderFloat(LM.Get("GUI_Frame_CubemapViewer_Gamma"), ref gamma, 1f, 3f, "%.2f")) dirty = true;
         if (ImGui.Checkbox(LM.Get("GUI_Frame_CubemapViewer_Tonemap"), ref reinhard)) dirty = true;
+    }
+
+    /// <summary>The candidate sweep: pick a set, step or auto-advance through it, optionally pushing
+    /// each candidate to the 3D view. See CubemapArrangementSweep for why the sets are graded.</summary>
+    private void RenderSweep(Engine.Rendering.AssetManager? assetManager)
+    {
+        ImGui.SeparatorText(LM.Get("GUI_Frame_CubemapViewer_Sweep"));
+
+        int setIndex = (int)sweepSet;
+        string[] setNames = [
+            LM.Get("GUI_Frame_CubemapViewer_SweepSet_Orientations", CubemapArrangementSweep.Count(CubemapArrangementSweep.Set.Orientations)),
+            LM.Get("GUI_Frame_CubemapViewer_SweepSet_Storage", CubemapArrangementSweep.Count(CubemapArrangementSweep.Set.StorageTransforms)),
+            LM.Get("GUI_Frame_CubemapViewer_SweepSet_All", CubemapArrangementSweep.Count(CubemapArrangementSweep.Set.All))];
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.Combo("##sweepset", ref setIndex, setNames, setNames.Length))
+        {
+            sweepSet = (CubemapArrangementSweep.Set)setIndex;
+            // Carry the candidate on view across the change where the new set also contains it, so
+            // switching to a wider set to keep looking does not throw away where you had got to.
+            sweepIndex = Math.Max(0, CubemapArrangementSweep.IndexOf(sweepSet, arrangement));
+            GoToSweepIndex(sweepIndex, assetManager);
+        }
+
+        int count = CubemapArrangementSweep.Count(sweepSet);
+        if (ImGui.Button(LM.Get("GUI_Frame_CubemapViewer_SweepPrev"))) GoToSweepIndex(sweepIndex - 1, assetManager);
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Frame_CubemapViewer_SweepNext"))) GoToSweepIndex(sweepIndex + 1, assetManager);
+        ImGui.SameLine();
+        int shown = sweepIndex + 1;
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.InputInt("##sweepindex", ref shown)) GoToSweepIndex(shown - 1, assetManager);
+
+        // Whether the sweep's index still describes what is on screen: the orientation and storage
+        // combos write to the same arrangement, so a hand edit can leave the two disagreeing.
+        bool onCandidate = CubemapArrangementSweep.At(sweepSet, sweepIndex).SameAs(arrangement);
+        ImGui.TextWrapped(onCandidate
+            ? LM.Get("GUI_Frame_CubemapViewer_SweepAt", sweepIndex + 1, count, arrangement.Describe())
+            : LM.Get("GUI_Frame_CubemapViewer_SweepOffCandidate", arrangement.Describe()));
+        if (!onCandidate)
+        {
+            var (where, at) = CubemapArrangementSweep.Locate(arrangement);
+            ImGui.TextDisabled(LM.Get("GUI_Frame_CubemapViewer_SweepFoundIn", setNames[(int)where], at + 1));
+            ImGui.SameLine();
+            if (ImGui.SmallButton(LM.Get("GUI_Frame_CubemapViewer_SweepResume")))
+            {
+                sweepSet = where;
+                GoToSweepIndex(at, assetManager);
+            }
+        }
+
+        if (ImGui.Checkbox(LM.Get("GUI_Frame_CubemapViewer_SweepAuto"), ref sweepAuto))
+            sweepClock.Restart();
+        ImGui.SetNextItemWidth(-90f);
+        ImGui.SliderFloat(LM.Get("GUI_Frame_CubemapViewer_SweepInterval"), ref sweepInterval, 0.1f, 5f, "%.1f s");
+
+        bool sync = sweepSyncs3D;
+        ImGui.BeginDisabled(assetManager is null);
+        if (ImGui.Checkbox(LM.Get("GUI_Frame_CubemapViewer_SweepSync"), ref sync))
+        {
+            sweepSyncs3D = sync;
+            if (sync) PushToSceneView(assetManager);
+        }
+        ImGui.EndDisabled();
+        if (sweepSyncs3D)
+            ImGui.TextDisabled(LM.Get("GUI_Frame_CubemapViewer_SweepSyncCost"));
+
+        if (!sweepAuto)
+        {
+            sweepClock.Reset();
+            return;
+        }
+        // One rebuild runs per frame at the renderer's safe point, so while one is outstanding the
+        // clock is left alone: advancing anyway would march through candidates the 3D view never got
+        // round to showing, which is the one thing this is for.
+        if (sweepSyncs3D && assetManager is { EnvironmentCubemapRebuildPending: true })
+            return;
+        if (!sweepClock.IsRunning) sweepClock.Restart();
+        if (sweepClock.Elapsed.TotalSeconds < sweepInterval) return;
+        sweepClock.Restart();
+        GoToSweepIndex(sweepIndex + 1, assetManager);
+    }
+
+    /// <summary>Moves the sweep to <paramref name="index"/> (wrapping), loads that candidate and, when
+    /// the sweep is synced, pushes it to the 3D view.</summary>
+    private void GoToSweepIndex(int index, Engine.Rendering.AssetManager? assetManager)
+    {
+        int count = CubemapArrangementSweep.Count(sweepSet);
+        sweepIndex = ((index % count) + count) % count;
+        arrangement.CopyFrom(CubemapArrangementSweep.At(sweepSet, sweepIndex));
+        dirty = true;
+        if (sweepSyncs3D) PushToSceneView(assetManager);
+    }
+
+    private void PushToSceneView(Engine.Rendering.AssetManager? assetManager)
+    {
+        if (assetManager is null || arrangement.SameAs(CubemapArrangement.NewEngine)) return;
+        CubemapArrangement.NewEngine.CopyFrom(arrangement);
+        assetManager.RequestEnvironmentCubemapRebuild();
     }
 
     private void RenderPreview()
@@ -416,9 +553,9 @@ public class CubemapViewer : DockedFrame, ILevelListener
     }
 
     /// <summary>Bilinear sample of the half-float faces. The direction picks a cube face the usual
-    /// way; which STORED face that reads from goes through <see cref="faceMap"/>, and the uv is then
-    /// flipped or transposed per the orientation toggles - the whole point being that the new-engine
-    /// arrangement is adjustable instead of assumed.</summary>
+    /// way; which STORED face that reads from and how its texels are transformed both come from
+    /// <see cref="arrangement"/> - the whole point being that the new-engine arrangement is
+    /// adjustable instead of assumed, and identical here and on the GPU.</summary>
     private (float r, float g, float b, float a) Sample(Cubemap cube, Vector3 d)
     {
         float ax = MathF.Abs(d.X), ay = MathF.Abs(d.Y), az = MathF.Abs(d.Z);
@@ -441,15 +578,11 @@ public class CubemapViewer : DockedFrame, ILevelListener
         if (ma <= 0f) return (0f, 0f, 0f, 0f);
 
         int size = cube.FaceSize;
-        byte[] data = cube.HalfFloatFaces![Math.Clamp(faceMap[face], 0, cube.HalfFloatFaces.Count - 1)];
-        // GL/Vulkan convention, row 0 at the top - the same mapping the GPU's cube sampler uses.
-        // This used to carry a V flip, which made the viewer disagree with the 3D view about what a
-        // correctly oriented face looks like.
-        float fu = (sc / ma + 1f) * 0.5f;
-        float fv = (tc / ma + 1f) * 0.5f;
-        if (swapUv) (fu, fv) = (fv, fu);
-        if (flipU) fu = 1f - fu;
-        if (flipV) fv = 1f - fv;
+        byte[] data = cube.HalfFloatFaces![Math.Clamp(arrangement.Source(face), 0, cube.HalfFloatFaces.Count - 1)];
+        // GL/Vulkan convention, row 0 at the top - the same mapping the GPU's cube sampler uses - put
+        // through the arrangement's own per-face mapping, so this projection and the uploaded cube
+        // cannot disagree about what a correctly oriented face looks like.
+        var (fu, fv) = arrangement.Map(face, (sc / ma + 1f) * 0.5f, (tc / ma + 1f) * 0.5f);
         float u = fu * size - 0.5f;
         float v = fv * size - 0.5f;
         int x0 = (int)MathF.Floor(u), y0 = (int)MathF.Floor(v);

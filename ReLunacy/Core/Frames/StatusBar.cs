@@ -112,6 +112,7 @@ public static class StatusBar
                               new Vector2(MathF.Max(width, 260f), ImGui.GetFrameHeight()),
                               progress.isPercentage ? $"{progress.GetPercents():N1}%"
                                                     : $"{progress.current:N0}/{progress.max:N0}");
+            if (progress.detail is { Length: > 0 } detail) ImGui.TextDisabled(detail);
             ImGui.TextDisabled($"{task.Elapsed.TotalSeconds:N0}s");
 
             // The way back to a window that was hidden or closed while its work carried on.
