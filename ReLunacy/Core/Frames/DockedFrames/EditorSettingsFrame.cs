@@ -111,6 +111,7 @@ internal class EditorSettingsFrame : Frame
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_VolumeWireThicknessHelp"));
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeColor"), ref Program.Settings.VolumeColor);
+                ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_NavmeshColor"), ref Program.Settings.NavmeshColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_SelectionOutlineColor"), ref Program.Settings.SelectionOutlineColor);
                 ImGui.EndGroup();

@@ -913,6 +913,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreateRenderPasses();
         CreatePipelines();
         CreateBloomPipelines();
+        CreateNavmeshPipelines();
         BuildRetailShaders(materials, instanceLights);
         long tPipelines = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateTargets(graphicsDevice);
@@ -1793,6 +1794,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         DrawVisible(_pipelineOpaque, _visibleOpaqueLate, _visOpaqueLateCount);
         DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
         DrawVolumes();
+        // After the volumes so the navmesh overlay blends over the finished scene, and in the load
+        // pass so it is not cleared away.
+        DrawNavmesh();
         _api.vkCmdEndRenderPass(_cmd);
 
         VkClearValue* clearsA = stackalloc VkClearValue[2];
@@ -2516,6 +2520,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroySampler(_samplerBaked);
         DestroyRetailShaders();
         DestroyBloomPipelines();
+        DestroyNavmeshPipelines();
         _api.vkDestroyPipeline(_pipelineOpaque);
         _api.vkDestroyPipeline(_pipelineOpaqueCull);
         _api.vkDestroyPipeline(_pipelineOpaqueCullCw);

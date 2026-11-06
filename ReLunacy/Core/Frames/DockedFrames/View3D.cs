@@ -34,6 +34,11 @@ public class View3D : DockedFrame
     // The level ReflectionIntensity was last defaulted for. See Update: the per-game starting value
     // is applied when the level CHANGES, so the slider stays the user's for as long as it is loaded.
     private Engine.Loading.Readers.LevelData? reflectionIntensityLevel;
+
+    // The navmesh is uploaded once per (level, renderer) pair: a scene rebuild disposes the renderer
+    // and its buffers with it, so tracking the level alone would leave the overlay silently empty.
+    private Engine.Loading.Readers.LevelData? navmeshLevel;
+    private Engine.Rendering.Vulkan.VulkanRenderer? navmeshRenderer;
     public bool ReflectionDebugView { get => lighting.ReflectionDebugView; set => lighting.ReflectionDebugView = value; }
     public float ReflectionBase { get => lighting.ReflectionBase; set => lighting.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
@@ -177,6 +182,28 @@ public class View3D : DockedFrame
     // per volume), handed to the VK renderer to draw as depth-tested thin-box edges. Rebuilt every
     // frame so selection colour, edits and the Render>Volumes toggle take effect immediately.
     private readonly List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> _vkVolumes = new();
+    /// <summary>Flattens the level's zone navmeshes into the renderer's buffers, when they are not
+    /// already there. A level with no navmesh uploads nothing, which clears what a previous level
+    /// left behind.</summary>
+    private void UploadNavmeshIfStale(Engine.Rendering.Vulkan.VulkanRenderer renderer)
+    {
+        var level = Core.LunaWindow.Instance.Level;
+        if (ReferenceEquals(navmeshLevel, level) && ReferenceEquals(navmeshRenderer, renderer)) return;
+        navmeshLevel = level;
+        navmeshRenderer = renderer;
+
+        var navmeshes = level?.Zones?.Values
+            .Select(z => (z as Engine.Assets.Levels.Zone)?.Navmesh)
+            .Where(n => n is not null)
+            .Select(n => n!)
+            .ToList() ?? [];
+        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes);
+        renderer.SetNavmesh(vertices, indices, edges);
+        if (vertices.Length > 0)
+            Console.WriteLine($"[Navmesh] {navmeshes.Count} zone(s), {vertices.Length} vertices, " +
+                              $"{indices.Length / 3} triangles, {edges.Length} wireframe edges.");
+    }
+
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
@@ -204,6 +231,7 @@ public class View3D : DockedFrame
         // EntityManager.VolumeWireThickness's own comment.
         EntityManager.Singleton.VolumeWireThickness = Program.Settings.VolumeWireThickness;
         EntityManager.Singleton.VolumeColor = Program.Settings.VolumeColor;
+        EntityManager.Singleton.NavmeshColor = Program.Settings.NavmeshColor;
         EntityManager.Singleton.VolumeSelectedColor = Program.Settings.VolumeSelectedColor;
         // Flat stand-in for the level's environment cubemap (see LevelData.EnvironmentAverage).
         // Intensity stays 0 when the level has no cubemap. Kept well below 1 since the cubemap decode
@@ -305,6 +333,11 @@ public class View3D : DockedFrame
                 // gates it so the editor can still inspect geometry double-sided. Pushed per frame so
                 // the toggle takes effect live, without a scene rebuild.
                 vkStage.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
+                // The navmesh overlay. Colour and visibility are live; the geometry is uploaded only
+                // when the level or the renderer instance changes (a scene rebuild makes a new one).
+                vkStage.NavmeshColor = EntityManager.Singleton.NavmeshColor;
+                vkStage.NavmeshVisible = EntityManager.Singleton.renderNavmesh;
+                UploadNavmeshIfStale(vkStage);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(

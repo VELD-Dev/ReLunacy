@@ -55,6 +55,7 @@ public class EditorSettings
     public bool RenderUFrags;
     public bool RenderFoliage;
     public bool RenderVolumes;
+    public bool RenderNavmesh;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -90,6 +91,7 @@ public class EditorSettings
     public float GizmoSnapScale;
     public float VolumeWireThickness;
     public Vector4 VolumeColor;
+    public Vector4 NavmeshColor;
     public Vector4 VolumeSelectedColor;
     public Vector4 SelectionOutlineColor;
     internal LunaLog.LogLevel LogLevel;
@@ -160,6 +162,7 @@ public class EditorSettings
         RenderUFrags = true;
         RenderFoliage = true;
         RenderVolumes = true;
+        RenderNavmesh = false;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;
@@ -195,6 +198,8 @@ public class EditorSettings
         GizmoSnapScale = 0.25f;
         VolumeWireThickness = 0.1f;
         VolumeColor = new Vector4(1f, 1f, 0f, 1f);
+        // Semi-transparent blue; alpha is the overlay's opacity over the level.
+        NavmeshColor = new Vector4(0.2f, 0.45f, 1f, 0.35f);
         VolumeSelectedColor = new Vector4(1f, 1f, 1f, 1f);
         SelectionOutlineColor = new Vector4(1f, 0.65f, 0f, 1f);
         BackfaceCulling = false;

@@ -18,6 +18,8 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderFoliage = true;
     public bool renderVolumes = true;
+    /// <summary>Off by default: the navmesh is an inspection overlay, not part of the level.</summary>
+    public bool renderNavmesh = false;
     /// <summary>Not currently drawn; the raw-Vulkan renderer has no debug-shape pass yet. Kept for when one is added.</summary>
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
@@ -32,6 +34,8 @@ public class EntityManager : IDisposable
     /// <summary>RGBA tint for a Volume's wireframe box, unselected/selected. Synced from
     /// EditorSettings by View3D each frame.</summary>
     public Vector4 VolumeColor = new(1f, 1f, 0f, 1f);
+    /// <summary>Synced in from the app layer's settings, same as VolumeColor.</summary>
+    public Vector4 NavmeshColor = new(0.2f, 0.45f, 1f, 0.35f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
 
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);

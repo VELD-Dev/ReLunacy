@@ -22,6 +22,7 @@ internal static class RenderMenuDraw
         settings.RenderUFrags = em.renderUFrags;
         settings.RenderFoliage = em.renderFoliage;
         settings.RenderVolumes = em.renderVolumes;
+        settings.RenderNavmesh = em.renderNavmesh;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;
         settings.MobyDistanceCullingEnabled = em.MobyDistanceCullingEnabled;
         settings.SaveSettingsToFile();
@@ -59,6 +60,13 @@ internal static class RenderMenuDraw
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes)) return;
         EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
+        PersistRenderSettings();
+    }
+
+    internal static void ShowNavmesh()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderNavmesh"), "", EntityManager.Singleton.renderNavmesh)) return;
+        EntityManager.Singleton.renderNavmesh = !EntityManager.Singleton.renderNavmesh;
         PersistRenderSettings();
     }
 

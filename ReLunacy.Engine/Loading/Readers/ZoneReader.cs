@@ -185,7 +185,10 @@ public sealed class ZoneReader
             name: ZoneNames.TryGetValue(tuid, out string? zoneName) && !string.IsNullOrEmpty(zoneName)
                 ? zoneName
                 : $"Zone_{tuid:X}",
-            shrubInstances: ReadShrubInstances(legacyZone));
+            shrubInstances: ReadShrubInstances(legacyZone),
+            // Only a handful of zones have one, so this is a no-op on most (NavmeshReader returns
+            // null when 0x19000/0x19200 are absent).
+            navmesh: NavmeshReader.Read(legacyZone.zoneIGFile, legacyZone.zoneStream));
     }
 
     /// <summary>

@@ -841,6 +841,7 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowUFrags();
             RenderMenuDraw.ShowFoliage();
             RenderMenuDraw.ShowVolumes();
+            RenderMenuDraw.ShowNavmesh();
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
             RenderMenuDraw.ZoneVisibility();
