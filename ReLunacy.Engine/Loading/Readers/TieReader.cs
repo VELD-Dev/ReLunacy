@@ -13,6 +13,11 @@ public sealed class TieReader
     private readonly MaterialReader _materialReader;
     private readonly DebugReader _debugReader;
 
+    /// <summary>A Crack in Time writes a shorter animated-UV record; see
+    /// UvAnimation.CrackInTimeRecordSize. Set from the level's game, as MaterialReader and
+    /// ZoneReader already are.</summary>
+    public bool CrackInTimeLayout { get; init; }
+
     public TieReader(FileManager fileManager, MaterialReader materialReader, DebugReader debugReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
@@ -20,9 +25,11 @@ public sealed class TieReader
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
     }
 
-    public Dictionary<ulong, Assets.Ties.Tie> ReadAllTies() => _fileManager.isOld ? ReadTiesOld() : ReadTiesNew();
+    /// <param name="progress">The level load's bar; the Tie phase counts one item per class.</param>
+    public Dictionary<ulong, Assets.Ties.Tie> ReadAllTies(LevelLoadProgress? progress = null) =>
+        _fileManager.isOld ? ReadTiesOld(progress) : ReadTiesNew(progress);
 
-    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesOld()
+    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesOld(LevelLoadProgress? progress)
     {
         var ties = new Dictionary<ulong, Assets.Ties.Tie>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
@@ -31,8 +38,10 @@ public sealed class TieReader
         // ToD's animated UVs are level-wide (main.dat 0x5C00), keyed by the Tie's class index.
         var uvAnimations = Assets.Geometry.OldEngineUvAnimations.Read(main);
         main.sh.Seek(tieSection.offset, SeekOrigin.Begin);
+        progress?.SetTotal(tieSection.count);
         for (uint i = 0; i < tieSection.count; i++)
         {
+            progress?.Advance();
             var legacyTie = new Objects.Tie(main, _fileManager, old: true, index: i);
             if (uvAnimations != null)
                 legacyTie.UvAnimations = uvAnimations.ForTie(i);
@@ -46,7 +55,7 @@ public sealed class TieReader
         return ties;
     }
 
-    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesNew()
+    private Dictionary<ulong, Assets.Ties.Tie> ReadTiesNew(LevelLoadProgress? progress)
     {
         var ties = new Dictionary<ulong, Assets.Ties.Tie>();
 
@@ -56,13 +65,16 @@ public sealed class TieReader
             tieStream is null)
             return ties;
 
+        progress?.SetTotal(tiePtrs.Length);
         for (int i = 0; i < tiePtrs.Length; i++)
         {
+            progress?.Advance();
             byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, tiePtrs[i], "Tie");
 
             using MemoryStream tiems = new(tiedat);
 
-            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false);
+            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
+                                            crackInTime: CrackInTimeLayout);
             // Keyed by the assetlookup pointer-table TUID, not the tie's own embedded TUID field
             // (0x68) - the embedded field isn't reliably unique.
             ties.Add(tiePtrs[i].TUID, ConvertTie(legacyTie, tiePtrs[i].TUID));

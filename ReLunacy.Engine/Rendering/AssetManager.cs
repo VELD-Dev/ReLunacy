@@ -14,7 +14,9 @@ namespace ReLunacy.Engine.Rendering;
 public sealed class AssetManager : IDisposable
 {
     private readonly GraphicsDevice _gd;
-    private readonly ReLunacy.Engine.Assets.Lighting.LightingEnvironment? _oldLightingEnvironment;
+    // Not readonly: on NewEngine+ this is the REGION's sun/atmosphere, read from its region.dat, and
+    // it is replaced when the rendered region changes.
+    private ReLunacy.Engine.Assets.Lighting.LightingEnvironment? _oldLightingEnvironment;
     /// <summary>Whether the level's Mobys follow the old engine's shading contract (see VkInstanceLight).</summary>
     private readonly bool _oldEngineMobys;
 
@@ -223,14 +225,33 @@ public sealed class AssetManager : IDisposable
     // means the decode was attempted and failed.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, TextureLevels?> _prepared = new();
 
+    /// <summary>Vertex/index/interleave arrays packed off the main thread by the load's pre-pass, for
+    /// the asset build and the scene entities to consume instead of packing them here. Null outside a
+    /// level load (an editor path building one model), where each caller packs its own.</summary>
+    public Loading.PreparedGeometry? PreparedGeometry => _preparedGeometry;
+    private readonly Loading.PreparedGeometry? _preparedGeometry;
+
     /// <param name="preparedTextures">Textures already decoded by <see cref="PrepareTextures"/>. Null
     /// decodes them here instead, which blocks whatever thread this runs on.</param>
-    public AssetManager(LevelData level, GraphicsDevice gd, IDictionary<ulong, TextureLevels?>? preparedTextures = null)
+    /// <param name="preparedGeometry">Geometry already packed by <see cref="Loading.PreparedGeometry.Build"/>,
+    /// for the same reason. Null packs it here.</param>
+    /// <param name="progress">The level load's bar, so the asset build reports its own share of it.</param>
+    public AssetManager(LevelData level, GraphicsDevice gd, IDictionary<ulong, TextureLevels?>? preparedTextures = null,
+        Loading.PreparedGeometry? preparedGeometry = null, Loading.LevelLoadProgress? progress = null)
     {
+        _preparedGeometry = preparedGeometry;
         _gd = gd;
         _sourceMobys = level.Mobys;
         _oldLightingEnvironment = level.LightingEnvironment;
         _oldEngineMobys = level.IsOldEngine;
+
+        // No ceiling by default. It was introduced when the scene was displayed by CLAMPING, where a
+        // placement scale of 20 or 184 could only blow out - but those values look authored rather
+        // than misdecoded, and an HDR scene needs a display mapping, not a cap. Capping instead threw
+        // away 95% of a bright surface's light and left it dark with its lightmap's own chroma, which
+        // reads as the blue and black patches it was meant to cure. Use Render > Tonemap and its
+        // exposure for the display range; the ceiling stays on the slider for A/B work.
+        Vulkan.VulkanRenderer.MaxBakedScale = 0f;
         // The retail-shader routes and patch groups were measured on QForce (RsxShaders); the other
         // new-engine games keep the generic path until theirs are (seaside's water drew flat white).
         // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's shaders are
@@ -251,6 +272,12 @@ public sealed class AssetManager : IDisposable
 
         foreach (var (id, levels) in preparedTextures ?? PrepareTextures(level)) _prepared[id] = levels;
 
+        // Mobys, ties and the two zone-lighting lists: one item each, which is what the bar counts
+        // through. Every one of them allocates graphics-device resources, so this phase is the main
+        // thread's and cannot be spread across cores the way the pre-passes are.
+        progress?.Begin(Loading.LoadPhase.BuildingAssets,
+            level.Mobys.Count + level.Ties.Count + level.ZoneLightmaps.Count + level.ZoneDirectionals.Count);
+
         foreach (var (id, moby) in level.Mobys)
         {
             var models = new RenderModel[moby.Bangles.Count];
@@ -259,6 +286,7 @@ public sealed class AssetManager : IDisposable
                 models[i] = BuildModel(moby.Bangles[i].Meshes);
             }
             Mobys[id] = models;
+            progress?.Advance();
         }
         LogBangleAudit(level);
 
@@ -266,6 +294,7 @@ public sealed class AssetManager : IDisposable
         foreach (var (id, tie) in level.Ties)
         {
             Ties[id] = BuildModel(tie.Meshes);
+            progress?.Advance();
         }
         long tTies = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
 
@@ -280,13 +309,14 @@ public sealed class AssetManager : IDisposable
             _sourceTextures.TryAdd(texture.Id, texture);
 
         long tTextures = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
-        ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap");
-        ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional");
+        ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap", progress);
+        ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional", progress);
         if (ZoneLightmaps.Count != 0)
             Console.WriteLine($"Zone lighting: {ZoneLightmaps.Count} light-colour and {ZoneDirectionals.Count} light-direction textures built.");
 
         long tZone = sw.ElapsedMilliseconds - t0;
         BuildEnvironmentCubemap(level);
+        ActiveEnvironmentRegion = level.Region?.Name;
         if (!_prepared.IsEmpty)
             Console.WriteLine($"Warning: {_prepared.Count} decoded textures were prepared but never built - they are holding memory for nothing.");
         // GPU upload happens separately (see GetOrBuildTexture/UploadOnePendingTexture); these timings
@@ -296,7 +326,9 @@ public sealed class AssetManager : IDisposable
 
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run
     /// concurrently: pixel data is already in memory, and the block decoders hold only readonly state.</summary>
-    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level)
+    /// <param name="progress">The level load's bar. The texture count is only known once the working
+    /// set has been walked, so the phase is given its total here rather than by the caller.</param>
+    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level, Loading.LevelLoadProgress? progress = null)
     {
         // Generated mips remain disabled for atlases because a generic box filter bleeds their black
         // gutters into neighbouring islands. TextureUploadPreparer overrides this only when the source
@@ -330,6 +362,7 @@ public sealed class AssetManager : IDisposable
             foreach (var mesh in tie.Meshes) NeedMaterial(mesh.Material);
 
         var prepared = new System.Collections.Concurrent.ConcurrentDictionary<ulong, TextureLevels?>();
+        progress?.AddTotal(needed.Count);
         Parallel.ForEach(needed.Values, texture =>
         {
             try
@@ -344,6 +377,7 @@ public sealed class AssetManager : IDisposable
                 prepared[texture.Id] = null;
                 Console.WriteLine($"Warning: Failed to decode texture {texture.Id:X}: {ex.Message}");
             }
+            progress?.Advance();
         });
         return new Dictionary<ulong, TextureLevels?>(prepared);
     }
@@ -352,6 +386,16 @@ public sealed class AssetManager : IDisposable
     // Always non-null once constructed: a level with no cubemap gets a 1x1 grey fallback so the
     // descriptor set is never left unbound.
     private NeoVeldrid.Texture? _environmentCubemap;
+    private IReadOnlyList<Assets.Cubemaps.Cubemap> _levelCubemaps = [];
+    // The CubemapArrangement.Revision the uploaded cubes were built with, so a caller can ask whether
+    // what the shaders sample still matches the arrangement.
+    private int _environmentCubemapRevision = -1;
+    private bool _environmentCubemapRebuildPending;
+
+    /// <summary>Which region's environment is currently uploaded. On NewEngine+ the cubemap set
+    /// belongs to the region, and several regions may share one, so this follows whichever region is
+    /// being rendered rather than being fixed at load.</summary>
+    public string? ActiveEnvironmentRegion { get; private set; }
     public NeoVeldrid.TextureView? EnvironmentCubemapView { get; private set; }
 
     /// <summary>
@@ -360,6 +404,16 @@ public sealed class AssetManager : IDisposable
     /// (EntityTie / NewUFrag .NewEngineCubeTuid). Empty on the old engine.
     /// </summary>
     public IReadOnlyDictionary<ulong, int> EnvironmentCubeResources { get; private set; } = new Dictionary<ulong, int>();
+
+
+    /// <summary>The retail shader table and engine flag the scene renderer was built with, so a second
+    /// renderer over the same assets (the Asset Viewer's preview) can be given the same ones. Taking the
+    /// constructor defaults instead left the preview with no standard shaders at all - every draw fell
+    /// back to the generic path, which applies vertex alpha unconditionally where the retail shaders
+    /// apply it per permutation - and with oldEngineMobys true even on a new-engine level.</summary>
+    public Loading.Shaders.NewEngineStandardShaders? StandardShaders => _standardShaders;
+
+    public bool OldEngineMobys => _oldEngineMobys;
 
     /// <summary>
     /// New engine: every cube resource the region declares, four cubes each, uploaded as
@@ -388,10 +442,10 @@ public sealed class AssetManager : IDisposable
     /// is the raw Vulkan layer - so ArrayLayers is the cube count and cube c, face f is layer 6c + f.
     /// (Both builders used to pass 6 per cube, which allocated six times the layers they wrote.)
     /// </summary>
-    private bool TryBuildNewEngineHdrCubes(LevelData level, NeoVeldrid.ResourceFactory factory)
+    private bool TryBuildNewEngineHdrCubes(IReadOnlyList<Assets.Cubemaps.Cubemap> levelCubemaps, NeoVeldrid.ResourceFactory factory)
     {
         var resources = new List<(ulong Tuid, List<Assets.Cubemaps.Cubemap> Cubes)>();
-        foreach (var cube in level.Cubemaps)
+        foreach (var cube in levelCubemaps)
         {
             if (cube.HalfFloatFaces is not { Count: 6 })
                 continue;
@@ -418,14 +472,20 @@ public sealed class AssetManager : IDisposable
         var tex = factory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
             (uint)size, (uint)size, 1, (uint)cubes.Count, NeoVeldrid.PixelFormat.R16_G16_B16_A16_Float,
             NeoVeldrid.TextureUsage.Sampled | NeoVeldrid.TextureUsage.Cubemap));
+        // The storage transform is measured, the orientation is not (CubemapArrangement): direction f
+        // takes the stored face the arrangement names, with the per-face rotation that the chosen cube
+        // symmetry implies - the same mapping the Cubemap Viewer's projection reads it through.
+        var arrangement = Assets.Cubemaps.CubemapArrangement.NewEngine;
         for (int c = 0; c < cubes.Count; c++)
             for (int f = 0; f < 6; f++)
-                _gd.UpdateTexture(tex, HalfFace(cubes[c].HalfFloatFaces![f], cubes[c].FaceSize, size),
+                _gd.UpdateTexture(tex,
+                    arrangement.Orient(f, HalfFace(cubes[c].HalfFloatFaces![arrangement.Source(f)], cubes[c].FaceSize, size), size, 8),
                     0, 0, 0, (uint)size, (uint)size, 1, 0, (uint)(6 * c + f));
+        _environmentCubemapRevision = arrangement.Revision;
 
         Console.WriteLine(
             $"[Environment] new-engine HDR cubes: {resources.Count} resource(s), {cubes.Count} x {size}x{size} " +
-            "R16G16B16A16_Float, retail channels (rgb tint, a intensity), Morton-deswizzled.");
+            $"R16G16B16A16_Float, retail channels (rgb tint, a intensity), Morton-deswizzled, faces {arrangement.Describe()}.");
         _environmentCubemap = tex;
         EnvironmentCubemapView = factory.CreateTextureView(tex);
         EnvironmentCubeResources = map;
@@ -462,11 +522,18 @@ public sealed class AssetManager : IDisposable
         return bytes;
     }
 
-    private void BuildEnvironmentCubemap(LevelData level)
+    private void BuildEnvironmentCubemap(LevelData level) => BuildEnvironmentCubemap(level.Cubemaps);
+
+    private void BuildEnvironmentCubemap(IReadOnlyList<Assets.Cubemaps.Cubemap> levelCubemaps)
     {
-        if (TryBuildNewEngineHdrCubes(level, _gd.ResourceFactory))
+        // Retained so the upload can be redone under a different arrangement without reloading the
+        // level (RequestEnvironmentCubemapRebuild). The Cubemap objects are the loader's, not copies.
+        _levelCubemaps = levelCubemaps;
+        if (TryBuildNewEngineHdrCubes(levelCubemaps, _gd.ResourceFactory))
             return;
-        var cubemap = level.Cubemaps.Count > 0 ? level.Cubemaps[0] : null;
+        var oldArrangement = Assets.Cubemaps.CubemapArrangement.OldEngine;
+        _environmentCubemapRevision = oldArrangement.Revision;
+        var cubemap = levelCubemaps.Count > 0 ? levelCubemaps[0] : null;
         int size = cubemap?.FaceSize ?? 1;
         int mipCount = cubemap is { Faces.Count: > 0 }
             ? cubemap.Faces.Min(face => Math.Max(1, face.MipmapCount))
@@ -495,13 +562,14 @@ public sealed class AssetManager : IDisposable
             for (uint mip = 0; mip < (uint)mipCount; mip++)
             {
                 byte[] rgba;
-                if (cubemap != null && f < cubemap.Faces.Count)
+                int sourceFace = oldArrangement.Source((int)f);
+                if (cubemap != null && sourceFace < cubemap.Faces.Count)
                 {
-                    var face = cubemap.Faces[(int)f];
+                    var face = cubemap.Faces[sourceFace];
                     if (face.Format != ReLunacy.Engine.Assets.Interfaces.TextureFormat.A8R8G8B8)
                         throw new InvalidDataException($"0x5920 cubemap face {f} has unsupported format {face.Format}.");
                     byte[] argb = face.GetMipmapData((int)mip);
-                    rgba = TextureUtils.ARGB8888ToRGBA8888(argb, (int)w, (int)h);
+                    rgba = oldArrangement.Orient((int)f, TextureUtils.ARGB8888ToRGBA8888(argb, (int)w, (int)h), (int)w, 4);
                 }
                 else
                 {
@@ -514,7 +582,7 @@ public sealed class AssetManager : IDisposable
             }
         }
 
-        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {size}x{size}, {mipCount} authored mip(s), 6 faces{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}.");
+        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {size}x{size}, {mipCount} authored mip(s), 6 faces{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}, faces {oldArrangement.Describe()}.");
         _environmentCubemap = tex;
         EnvironmentCubemapView = factory.CreateTextureView(tex);
     }
@@ -564,7 +632,7 @@ public sealed class AssetManager : IDisposable
     public IReadOnlyList<GpuTexture?> ZoneLightmaps { get; } = [];
     public IReadOnlyList<GpuTexture?> ZoneDirectionals { get; } = [];
 
-    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture> source, string label)
+    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture> source, string label, Loading.LevelLoadProgress? progress = null)
     {
         var built = new List<GpuTexture?>(source.Count);
         foreach (var tex in source)
@@ -578,6 +646,7 @@ public sealed class AssetManager : IDisposable
                 Console.WriteLine($"Warning: Failed to build zone {label} {built.Count}: {ex.Message}");
                 built.Add(null);
             }
+            progress?.Advance();
         }
         return built;
     }
@@ -621,11 +690,24 @@ public sealed class AssetManager : IDisposable
             var material = twoLayer != null
                 ? GetOrBuildMaterial(source, Loading.Objects.UFragMetadata.NoLightmap, twoLayer.SecondMaterial, twoLayer.BlendMask)
                 : GetOrBuildMaterial(source);
-            var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
-            var indices = mesh.Geometry.GetIndices();
+
+            // Normally packed by the load's parallel pre-pass (Loading.PreparedGeometry), which is
+            // where a whole level's vertex packing belongs - it needs no graphics device. A variant
+            // or editor build passes a material the pre-pass could not know about, and the packed
+            // layout depends on that material's vertex-alpha use, so those are packed here.
+            Loading.PreparedGeometry.Entry geometry = default;
+            bool packed = ReferenceEquals(source, mesh.Material)
+                && _preparedGeometry is { } pre && pre.TryTake(mesh, out geometry);
+            if (!packed)
+            {
+                var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
+                var indices = mesh.Geometry.GetIndices();
+                geometry = new Loading.PreparedGeometry.Entry(
+                    vertices, indices, Loading.PreparedGeometry.Interleaved(vertices, indices), HasValidLightmapUVs: false);
+            }
 
             var oldTieShaderUse = mesh is Assets.Geometry.Mesh sourceMesh ? sourceMesh.OldTieShaderUse : null;
-            var bMesh = new RenderMesh(vertices, indices, material, oldTieShaderUse)
+            var bMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material, oldTieShaderUse)
             {
                 NewEngineTiePrimitive = mesh is Assets.Geometry.Mesh sourcePrimitive ? sourcePrimitive.NewEngineTiePrimitive : null,
                 NewEngineFadeDistances = mesh is Assets.Geometry.Mesh fadeSource
@@ -636,8 +718,8 @@ public sealed class AssetManager : IDisposable
 
             // Register this mesh's raw geometry keyed by the mesh instance, so the renderer can
             // upload it once and resolve every scene instance back to it.
-            if (vertices.Length > 0 && indices.Length >= 3)
-                Vulkan.VulkanSceneCapture.Register(bMesh, Vulkan.VulkanSceneCapture.Interleave(vertices), indices);
+            if (geometry.Interleaved.Length > 0)
+                Vulkan.VulkanSceneCapture.Register(bMesh, geometry.Interleaved, geometry.Indices);
 
             bMeshes[i] = bMesh;
         }
@@ -1079,7 +1161,7 @@ public sealed class AssetManager : IDisposable
 
     // When useVertexAlpha is set, decoded vertex alpha is written into each vertex's color alpha
     // instead of the default fully-opaque white.
-    private static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, bool useVertexAlpha)
+    internal static Vertex3D[] ConvertGeometryToVertices(IGeometry geometry, bool useVertexAlpha)
     {
         var positions = geometry.GetVertexPositions();
         var uvs = geometry.GetTextureCoordinates();
@@ -1309,6 +1391,56 @@ public sealed class AssetManager : IDisposable
         InvalidateSceneRenderer();
     }
 
+    /// <summary>Uploads the environment belonging to <paramref name="regionName"/>, when it is not the
+    /// one already uploaded. Returns true if anything changed, in which case the caller must
+    /// invalidate the scene: the renderer binds the cube views at construction, so a new texture only
+    /// reaches the shaders once the scene is rebuilt.
+    ///
+    /// A region with no environment of its own keeps whatever is bound rather than losing its
+    /// reflections - several regions legitimately share one set, and the maps only hold the regions
+    /// that declared their own.</summary>
+    public bool SetActiveEnvironmentRegion(LevelData level, string? regionName)
+    {
+        if (regionName == null || regionName == ActiveEnvironmentRegion) return false;
+        if (!level.LightingByRegion.TryGetValue(regionName, out var env)) return false;
+
+        // Only the lighting. The cube ARRAY is deliberately the union of every region's resources
+        // (LevelReader), because an instance names the resource it wants and the renderer resolves
+        // that per instance - narrowing the upload to one region's set is what left instances
+        // referencing another region's cube falling back to resource 0. Nothing is disposed here, so
+        // there is also no texture being freed under a renderer that still holds views on it.
+        _oldLightingEnvironment = env;
+        ActiveEnvironmentRegion = regionName;
+        Console.WriteLine($"[Environment] lighting now from region '{regionName}'.");
+        return true;
+    }
+
+    /// <summary>True while a requested cube rebuild has not run yet. A sweep that syncs each step to
+    /// the 3D view has to wait on this: one rebuild happens per frame at the safe point, so advancing
+    /// faster than that would skip candidates without ever showing them.</summary>
+    public bool EnvironmentCubemapRebuildPending => _environmentCubemapRebuildPending;
+
+    /// <summary>True when the uploaded cubes no longer match the arrangement the level's engine uses,
+    /// i.e. a rebuild would change what the 3D view reflects.</summary>
+    public bool EnvironmentCubemapArrangementStale(bool oldEngine) =>
+        _environmentCubemapRevision != Assets.Cubemaps.CubemapArrangement.For(oldEngine).Revision;
+
+    /// <summary>
+    /// Uploads the level's cubes again under the current <see cref="Assets.Cubemaps.CubemapArrangement"/>.
+    ///
+    /// The work is deferred to <see cref="FlushSceneRendererInvalidation"/> rather than done here: the
+    /// captured scene's descriptor sets are what still reference the cube image, so the texture can
+    /// only be replaced once that capture has been torn down, and that safe point is post-Draw - after
+    /// the frame has been presented and waited on - which is also the only place the existing teardown
+    /// runs. Calling this from a UI callback mid-frame and disposing immediately would free an image
+    /// the frame in flight is still sampling.
+    /// </summary>
+    public void RequestEnvironmentCubemapRebuild()
+    {
+        _environmentCubemapRebuildPending = true;
+        InvalidateSceneRenderer();
+    }
+
     public void InvalidateSceneRenderer()
     {
         // If no retained scene exists, BuildVkScene will consume the latest registry naturally;
@@ -1319,10 +1451,23 @@ public sealed class AssetManager : IDisposable
     /// <summary>Executes a requested invalidation at LunaWindow's post-Draw safe point.</summary>
     public void FlushSceneRendererInvalidation()
     {
-        if (!_sceneRendererInvalidationPending) return;
+        if (!_sceneRendererInvalidationPending && !_environmentCubemapRebuildPending) return;
         _sceneRendererInvalidationPending = false;
         SceneRenderer?.Dispose();
         SceneRenderer = null;
+        // Only now, with the capture gone, is nothing holding the old cube image. The next capture
+        // reads EnvironmentCubemapView afresh (see BuildVkScene), so the new texture reaches the
+        // shaders without anything else having to be told about it.
+        if (_environmentCubemapRebuildPending)
+        {
+            _environmentCubemapRebuildPending = false;
+            EnvironmentCubemapView?.Dispose();
+            EnvironmentCubemapView = null;
+            EnvironmentCubeResources = new Dictionary<ulong, int>();
+            _environmentCubemap?.Dispose();
+            _environmentCubemap = null;
+            BuildEnvironmentCubemap(_levelCubemaps);
+        }
     }
 
     /// <summary>Tears down the captured scene. Must be called before EntityManager.Singleton.Dispose()

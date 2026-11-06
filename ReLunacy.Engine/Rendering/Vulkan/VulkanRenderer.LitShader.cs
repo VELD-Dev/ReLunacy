@@ -99,8 +99,26 @@ bool newEngineAtmosphereOn() { return uNewEngineFog.y > 0.5 || uAtmExtinction.w 
 vec3 newEngineAtmosphere(vec3 c, float d, vec3 dir) {
     float t = clamp(d * uAtmPhase.w, 0.0, 1.0);
     if (uAtmExtinction.w > 0.5) {
+        // c += c L (1 - c), the pass's own form above - and (1 - c) is a HEADROOM, which it only is
+        // while c <= 1. That was all the RSX could hand this pass: it read and wrote an LDR target.
+        // Here c is real radiance, so a lit surface arrives at tens or hundreds, (1 - c) turns large
+        // and negative, and c (1 + L (1 - c)) is a downward parabola - it crosses zero at 1 + 1/L and
+        // then runs away. L is PER CHANNEL and indexed by depth, so every channel of every pixel
+        // inverts at its own threshold: all 53 A4O regions carry this table with L ~ 0.4 .. 1.0, i.e.
+        // thresholds between 2.0 and 3.4 radiance, and the channel order varies with distance (near
+        // crumbler R dies first, at mid depth G, far B). Past a threshold the channel is negative and
+        // sanitiseColour clamps it to exactly 0, so a bright Tie or Moby loses its channels one at a
+        // time - a single-channel fluorescent patch, then black. An INVERSION, not clipping: it is why
+        // raising the baked scale made surfaces darker instead of whiter, why the colour marched
+        // green -> blue -> black as it rose, and why capping the scale at 8 never cured the patches,
+        // 8 being four times over the threshold already.
+        //
+        // Measuring the headroom on the displayable colour is exact on [0,1], where the hardware ran
+        // this, and above it the pass adds nothing - which is also what the hardware did there, having
+        // no headroom left to fill. Monotonic in c and per-channel hue-preserving, so an over-bright
+        // surface now reads as over-bright and Render > Tonemap maps it for the display.
         vec3 l = c * newEngineAtmosphereSample(false, t).rgb;
-        c = c - c * l + l;
+        c = c + l * (1.0 - clamp(c, 0.0, 1.0));
     }
     if (uNewEngineFog.y > 0.5) {
         vec4 f = newEngineAtmosphereSample(true, t);
@@ -205,7 +223,65 @@ vec4 newEngineFog() {
 // S, the retail shaders' tex5(WPOS).z (1 lit, 0 in the sun shadow of the world or of a moving
 // Moby). The game's producer of that mask is not reconstructed, so every pixel is fully lit.
 float sunShadowTerm() { return 1.0; }
+// Debug only (Render > Reflections > Tonemap preview). The scene target is float, so an over-bright
+// reflection survives to the display clamp - which is PER CHANNEL, so it separates into hue bands
+// instead of blowing out to white. Rolling off here shows whether what is underneath is a correct
+// picture that is merely too hot, or an actually wrong colour.
+vec3 debugTonemap(vec3 c) {
+    if (uPostParams.z <= 0.0) return c;
+    // Reinhard at the given exposure. The scene is genuinely HDR - a new-engine cube reaches ~50x
+    // and a baked placement scale 184 - so mapping it to an 8-bit display by CLAMPING loses the
+    // hue as well as the brightness: the channels reach 1.0 at different points, so an over-bright
+    // surface turns a different colour rather than going white. Rolling off keeps the ratio between
+    // channels, which is what makes a bright surface read as bright instead of as miscoloured.
+    vec3 e = max(c, vec3(0.0)) * uPostParams.z;
+    return e / (1.0 + e);
+}
+
+void shadeInner(out vec3 litColor, out float litAlpha);
+
+// A non-finite colour reads as BLACK, and does so exactly where the image is brightest - which is
+// how an overflow presents, the opposite way round from clipping, which saturates to white. It also
+// spreads: NaN survives alpha blending, the OIT accumulate/reveal divide and every tap of the bloom
+// chain, so one bad pixel takes its neighbourhood with it. The 8-bit targets used to clamp this away
+// for free; float ones do not, so it is clamped here instead.
+//
+// 1e3, not half float's own 65504: this value is also what the bloom chain samples, and the combine
+// sums three taps of a downsample that already weighs ~1.6, so the ceiling has to leave room for
+// roughly 5x on top of it. The scene's own peak radiance is ~50 (a cube) and a few hundred (a baked
+// scale), so this is ~5x above anything legitimate while keeping every bloom sum two orders clear of
+// overflow - and Inf there would come back as NaN through the combine's mix(c, s3, 1) = Inf * 0.
+vec3 sanitiseColour(vec3 c) {
+    c = mix(c, vec3(0.0), bvec3(isnan(c.x), isnan(c.y), isnan(c.z)));
+    return clamp(c, vec3(0.0), vec3(1.0e3));
+}
+
 void shade(out vec3 litColor, out float litAlpha) {
+    shadeInner(litColor, litAlpha);
+
+    // Mode 8, before anything is sanitised or rolled off: RED where a channel is NaN, BLUE where it
+    // is Inf, grey by luminance where it is finite (mid grey = 1.0, so anything brighter than that
+    // reads as a plateau rather than as detail). Black here therefore means a genuinely small
+    // finite value, not an overflow - which is the distinction every theory about these patches has
+    // turned on, and the one thing that cannot be settled by looking at the shaded result.
+    if (int(uBakedDebugView + 0.5) == 8) {
+        bvec3 n = bvec3(isnan(litColor.x), isnan(litColor.y), isnan(litColor.z));
+        bvec3 f = bvec3(isinf(litColor.x), isinf(litColor.y), isinf(litColor.z));
+        float lum = dot(max(litColor, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+        litColor = any(n) ? vec3(1.0, 0.0, 0.0)
+                 : any(f) ? vec3(0.0, 0.3, 1.0)
+                 : vec3(clamp(lum * 0.5, 0.0, 1.0));
+        litAlpha = 1.0;
+    }
+    litColor = sanitiseColour(debugTonemap(litColor));
+    // 0..1, not the colour's headroom: this alpha is coverage, and in the opaque pass it is also the
+    // BLOOM SOURCE (gGlow). Left unbounded it feeds the bloom chain values that overflow half float,
+    // and the combine's mix(c, s3, h) then evaluates Inf * 0 = NaN at h = 1 - which renders black,
+    // exactly where bloom is strongest and so exactly where the image is brightest.
+    litAlpha = isnan(litAlpha) ? 0.0 : clamp(litAlpha, 0.0, 1.0);
+}
+
+void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 n = normalize(fWorldNormal);
     vec3 t = normalize(fWorldTangent - n * dot(fWorldTangent, n));
     vec3 b = cross(n, t) * fHandedness;
@@ -230,11 +306,28 @@ void shade(out vec3 litColor, out float litAlpha) {
     // The permutation bits the game draws with (QForce EBOOT 0x006AE85C / 0x006B7380): the material's
     // +0x20 (uMat6.w) AND the Tie primitive's +0x20 / UFrag record's +0x54 (tieShaderUse0.w - 1).
     // Only shaders of bit 0x04 sample the reflection cube, only 0x08 the normal map, only 0x10 the
-    // detail map, and 0x01 is parallax. No mask (Mobys, old engine): nothing is gated.
+    // detail map, and 0x01 is parallax.
+    //
+    // The record mask is a MODIFIER on the material's bits, not a precondition for reading them.
+    // A draw that carries no mask - every Moby, which picks its shaders from other key bits - is
+    // still gated by its own material. Substituting 0x1F there discarded uMat6.w entirely and
+    // force-enabled all four features: on zolar_forest that was 1331 of 1458 Moby meshes, 802 of
+    // them declaring 0x0C (specular + normal map, explicitly NO parallax and NO detail) and being
+    // given parallax and detail anyway, and 95 taking parallax with no properties texture bound at
+    // all. Parallax offsets the albedo lookup by the expensive map's green channel, so that lands
+    // as smeared UVs and blown specular, and only in this shader - nothing unlit samples uProps.
+    // The retail route already does it this way (see StandardRoute / the RSX fragment prologue in
+    // VulkanRenderer.RsxShaders): it starts from uMat6.w and only ANDs a mask when one exists.
+    // Old-engine materials carry no +0x20 (uMat6 is their detail tiling), so they keep 0x1F.
     bool hasPermutationMask = uOldEngineMode < 0.5 && instanceLight.tieShaderUse0.w > 0.5;
-    int permutationBits = hasPermutationMask
-        ? int(uMat6.w + 0.5) & (int(instanceLight.tieShaderUse0.w + 0.5) - 1)
-        : 0x1F;
+    int permutationBits = uOldEngineMode > 0.5
+        ? 0x1F
+        : hasPermutationMask
+            ? int(uMat6.w + 0.5) & (int(instanceLight.tieShaderUse0.w + 0.5) - 1)
+            : int(uMat6.w + 0.5);
+    // A detail bit with no detail map bound reads the fallback texture as a full-strength map,
+    // the same guard StandardRoute applies before it picks a retail shader.
+    if (uMat6.z < 0.5) permutationBits &= ~0x10;
     bool allowParallax = (permutationBits & 0x01) != 0;
     bool allowSpecular = (permutationBits & 0x04) != 0;
     bool allowNormalMap = (permutationBits & 0x08) != 0;
@@ -284,10 +377,12 @@ void shade(out vec3 litColor, out float litAlpha) {
     float oldDistanceFade = oldFadeKnown
         ? clamp((1.0 / gl_FragCoord.w) * instanceLight.tieShaderUseMeta.z + instanceLight.tieShaderUseMeta.w, 0.0, 1.0)
         : 1.0;
-    vec2 derivativeSum = derivativeRaw * (uOldEngineMode > 0.5 ? oldDistanceFade : uMat5.y * normalFade);
+    vec2 derivativeSum = derivativeRaw * (uOldEngineMode > 0.5 ? oldDistanceFade : clamp(uMat5.y * normalFade, 0.0, 1.0));
     if (normalPermutation) derivativeSum -= detail.xy * (1.0 - dot(derivativeRaw, derivativeRaw));
     vec3 worldNormal = normalize(tbn * normalize(vec3(derivativeSum, 1.0)));
-    float specIntensity = props.r * (1.0 + detail.w);
+    // uPostParams.w < 0 leaves the material's own specular map alone; >= 0 replaces it, so a
+    // reflection can be judged without the props texture deciding where it appears.
+    float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w : props.r * (1.0 + detail.w);
     float emissive = props.b;
     // PROVEN (retail Moby, Tie and prelit-Tie shaders): the sun term is multiplied by S, and all the
     // non-emissive light by 0.2 S + 0.8 (below, where lighting is summed). S is 1 on the old engine.
@@ -546,7 +641,7 @@ void shade(out vec3 litColor, out float litAlpha) {
                  : cubeSlot == 3 ? texture(uEnvCube3, newReflDir)
                  : texture(uEnvCube, newReflDir);
     float newReflects = step(1e-6, dot(abs(uMat4), vec4(1.0)));
-    vec3 newReflRadiance = newCube.rgb * max(newCube.a + uMat4.z, 0.0);
+    vec3 newReflRadiance = newCube.rgb * max(newCube.a + uMat4.z + uPostParams.y, 0.0);
     // Reflection occlusion (QForce EBOOT fragment-constant group 1, 0x0079DE48): the shaders scale the
     // reflection by saturate(b + (1 - b) * lum(light) / a), light being the diffuse lighting plus
     // 4 * emissive. b, a come from region.dat 0x8B00 +0x90/+0x94 (uReflOcclusion*, STRONG); (0.01, 0.6) -
@@ -557,7 +652,7 @@ void shade(out vec3 litColor, out float litAlpha) {
     float newLitMask = clamp(occlusionFloor + (1.0 - occlusionFloor)
         * dot(lighting, vec3(0.2126, 0.7152, 0.0722)) / occlusionFull, 0.0, 1.0);
     // PROVEN: the reflection mask also takes material +0x34 (c[21].y, faded into TEX2.w).
-    vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * uMat5.z * reflectionFade * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
+    vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
     // New-engine Mobys take the cube too: QForce's skinned-Moby FPs sample unit 7 by the reflect
     // vector (RPCS3 pipeline cache: unit 7 is a cube for FP 1a28fd1dc600), unlike ToD's, which never
     // do. isOldMoby is what keeps the old engine's Mobys out of it. uEnvironmentIntensity stays as the
@@ -565,12 +660,36 @@ void shade(out vec3 litColor, out float litAlpha) {
     vec3 envFill = uOldEngineMode > 0.5
         ? oldReflection * uEnvironmentIntensity * oldTieDraw
         : newReflection * uEnvironmentIntensity * (1.0 - isOldMoby);
+
+    // uReflectionDebug as a MODE (it was declared and never read, and the menu toggle it backed did
+    // nothing): 1 isolates the reflection, 2 shows the cube radiance as the shader sampled it - the
+    // view to compare against the Cubemap Viewer - and 3 removes the reflection entirely, which is
+    // the kill switch Reflection base was mistaken for - that slider only gates the Fresnel term,
+    // which this path does not use at all.
+    int reflMode = int(uReflectionDebug + 0.5);
+    if (reflMode == 3) envFill = vec3(0.0);
     // UNLIT (uMat1.z == 0): the albedo straight through, still parallax-offset and alpha-tested so the
     // surface keeps its real silhouette and texel. Everything above still runs - the compiler drops it,
     // and branching around it would need the texture fetches hoisted out anyway (they feed the test).
     litColor = uMat1.z > 0.5
         ? (albedo * lighting + envFill)
         : albedoTex.rgb * fColor.rgb;
+    if (reflMode == 1) litColor = envFill;
+    else if (reflMode == 2) litColor = uOldEngineMode > 0.5 ? envColour : newReflRadiance;
+
+    // uBakedDebugView as a MODE, over the same dead uniform uReflectionDebug was. Lighting is where
+    // a Tie and a Moby finally meet: a Tie takes bakedDiffuseLight from the lightmaps, a Moby takes
+    // unbakedFill from its prelight, and both are multiplied into the albedo the same way. So mode 1
+    // is the one that says whether a fault shared by both lives here at all, and the rest split it
+    // into the inputs that feed it.
+    int lightMode = int(uBakedDebugView + 0.5);
+    if (lightMode == 1) litColor = lighting;
+    else if (lightMode == 2) litColor = bakedColour.rgb;                 // LM.rgb, the indirect colour
+    else if (lightMode == 3) litColor = bakedDirSample.rgb;              // the per-basis direction weights
+    else if (lightMode == 4) litColor = vec3(bakedColour.a);             // LM.a, baked sun visibility
+    else if (lightMode == 5) litColor = unbakedFill;                     // what a Moby uses instead
+    else if (lightMode == 6) litColor = max(bakedDiffuseLight, vec3(0.0));
+    else if (lightMode == 7) litColor = albedo;                          // the albedo alone, no lighting
     // Class 0x13 with a decoded shader (uMat1.x, NewEngineEmbeddedShaders): its own equation replaces
     // the generic one. 1 = family be10f7bae86f, a veil whose albedo holds masks: scrolling, facing-weighted
     // alpha over a flat (props.z + 0.25) * 4, faded out over the first 30 units of depth.

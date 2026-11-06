@@ -32,8 +32,9 @@ public class Tie : IDisposable
     /// here is real UV data; decide PER MESH before use, as TieReader does.</summary>
     public float[]? LightmapUVs { get; private set; }
 
-    public Tie(IGFile file, FileManager fm, bool old = false, uint index = 0)
+    public Tie(IGFile file, FileManager fm, bool old = false, uint index = 0, bool crackInTime = false)
     {
+        _crackInTime = crackInTime;
         tieStream = file.sh;
         isOld = old;
         var igFile = new IGFile(tieStream.BaseStream);
@@ -132,14 +133,18 @@ public class Tie : IDisposable
     public IReadOnlyDictionary<uint, Assets.Geometry.UvAnimation> UvAnimations { get; internal set; } =
         new Dictionary<uint, Assets.Geometry.UvAnimation>();
 
+    /// <summary>A Crack in Time writes a shorter 0x5C00 record; see UvAnimation.CrackInTimeRecordSize.</summary>
+    private readonly bool _crackInTime;
+
     private void ReadUvAnimations(IGFile igFile)
     {
         var section = igFile.QuerySection(Assets.Geometry.UvAnimation.SectionId);
         if (section.id != Assets.Geometry.UvAnimation.SectionId) return;
         uint bytes = section.count <= 1 ? section.length : section.count * section.length;
-        if (bytes < Assets.Geometry.UvAnimation.RecordSize || section.offset + (long)bytes > igFile.sh.BaseStream.Length) return;
+        var layout = Assets.Geometry.UvAnimation.LayoutFor(_crackInTime);
+        if (bytes < layout.RecordSize || section.offset + (long)bytes > igFile.sh.BaseStream.Length) return;
         igFile.sh.Seek(section.offset);
-        UvAnimations = Assets.Geometry.UvAnimation.ReadAll(igFile.sh.ReadBytes((int)bytes));
+        UvAnimations = Assets.Geometry.UvAnimation.ReadAll(igFile.sh.ReadBytes((int)bytes), layout: layout);
     }
 
     /// <summary>Each primitive's second material, 0xFFFF for a single-layer one: new engine its index in the

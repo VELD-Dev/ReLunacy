@@ -40,8 +40,14 @@ public record struct UFragVertex
     public readonly float VertexAlphaNewEngineA => Math.Clamp(((ushort)unk - 0x7F80) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)unk) / 127f, 0f, 1f);
+    // D (0x9980 -> 0.0, ascending) and E (0x8C00 -> 0.0, descending) as VertexFormat0 lists them.
+    // Both were measured on TIE vertices, not UFrag ones; they are carried here because the two
+    // share the encoding and because omitting a band fails silently - the value misses every range,
+    // the fallback returns 1.0, and the surface renders opaque with no sign anything was dropped.
+    public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)unk - 0x9980) / 127f, 0f, 1f);
+    public readonly float VertexAlphaNewEngineE => Math.Clamp((0x8C00 - (ushort)unk) / 127f, 0f, 1f);
 
-    // Picks whichever new-engine range the raw value falls into. Outside all three = 1.0 (opaque).
+    // Picks whichever new-engine range the raw value falls into. Outside the applied ranges = 1.0 (opaque).
     public readonly float VertexAlphaNewEngineAuto
     {
         get
@@ -50,6 +56,18 @@ public record struct UFragVertex
             if (raw is >= 0x7F80 and <= 0x7FFF) return VertexAlphaNewEngineA;
             if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaNewEngineB;
             if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaNewEngineC;
+            // Bands D and E are deliberately NOT applied.
+            //
+            // Listing E (0x8C00 -> 0.0) turned whole meshes translucent that had been opaque: on
+            // zolar_forest, meshes of 42, 56 and 31 vertices with EVERY vertex in the band, on
+            // vertex-alpha materials, decoding to a mean alpha of 0.25 to 0.48 where the fallback
+            // had given 1.0. That is what reached the screen as see-through surfaces in the 3D
+            // view while the Asset Viewer, which does not apply vertex alpha, looked right.
+            //
+            // So the raw values are real - the band is there in the data - but reading them as
+            // alpha is not what the game does with them, at least not for these meshes. Until the
+            // EBOOT says how that field is actually consumed, the opaque fallback is the honest
+            // answer: it is what shipped before and it is visibly correct.
             return 1f;
         }
     }

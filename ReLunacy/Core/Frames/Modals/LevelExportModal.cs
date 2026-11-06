@@ -55,7 +55,7 @@ public class LevelExportModal : Modal
         var options = new LevelExportOptions(exportMobys, exportTies, exportUFrags);
 
         ExportRunner.Run(LM.Get("GUI_Frame_LevelExportModal_ExportingTitle"), path, directory,
-            progress => LevelExporter.Export(path, levelName, EntityManager.Singleton, options, progress));
+            report => LevelExporter.Export(path, levelName, EntityManager.Singleton, options, report));
     }
 
     public override void RenderAsWindow(double deltaTime)

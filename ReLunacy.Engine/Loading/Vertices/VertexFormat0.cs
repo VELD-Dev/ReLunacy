@@ -78,8 +78,14 @@ public record struct VertexFormat0
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)boneIndex) / 127f, 0f, 1f);
     // Range D: 0x9980 -> 0.0, 0x99FF -> 1.0 (ascending).
     public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)boneIndex - 0x9980) / 127f, 0f, 1f);
+    // Range E: 0x8C00 -> 0.0, 0x8B81 -> 1.0 (descending), reported 2026-11-02 and the same 127-wide
+    // shape as the rest. MEASURED on A Crack in Time Ties: 1,175 of zolar_forest's 217,712 sampled
+    // vertices land in it (0.54%) and 917 of molonoth's 455,758 (0.20%), while krell_canyon has
+    // none - so it is a real band that only some levels use, which is exactly how a band stays
+    // hidden. Until it was listed here those vertices fell through to the opaque fallback.
+    public readonly float VertexAlphaNewEngineE => Math.Clamp((0x8C00 - (ushort)boneIndex) / 127f, 0f, 1f);
 
-    // Picks whichever new-engine range the raw value falls into. Outside all four ranges = 1.0
+    // Picks whichever new-engine range the raw value falls into. Outside the applied ranges = 1.0
     // (opaque, no vertex alpha data).
     public readonly float VertexAlphaNewEngineAuto
     {
@@ -89,7 +95,18 @@ public record struct VertexFormat0
             if (raw is >= 0x7F80 and <= 0x7FFF) return VertexAlphaNewEngineA;
             if (raw is >= 0x8001 and <= 0x8080) return VertexAlphaNewEngineB;
             if (raw is >= 0x9001 and <= 0x9080) return VertexAlphaNewEngineC;
-            if (raw is >= 0x9980 and <= 0x99FF) return VertexAlphaNewEngineD;
+            // Bands D and E are deliberately NOT applied.
+            //
+            // Listing E (0x8C00 -> 0.0) turned whole meshes translucent that had been opaque: on
+            // zolar_forest, meshes of 42, 56 and 31 vertices with EVERY vertex in the band, on
+            // vertex-alpha materials, decoding to a mean alpha of 0.25 to 0.48 where the fallback
+            // had given 1.0. That is what reached the screen as see-through surfaces in the 3D
+            // view while the Asset Viewer, which does not apply vertex alpha, looked right.
+            //
+            // So the raw values are real - the band is there in the data - but reading them as
+            // alpha is not what the game does with them, at least not for these meshes. Until the
+            // EBOOT says how that field is actually consumed, the opaque fallback is the honest
+            // answer: it is what shipped before and it is visibly correct.
             return 1f;
         }
     }

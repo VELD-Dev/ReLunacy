@@ -5,14 +5,16 @@ using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Loading.Objects;
 
+/// <summary>
+/// A zone blob. It carries NO name and no metadata record of its own: the name belongs to the
+/// region (see NewEngineZoneNames). What used to be read as zone metadata was the Tie instance name
+/// table (0x72C0) or the Shrub instance name table (0x74C0), depending on the zone.
+/// </summary>
 public class Zone : IDisposable
 {
     public const uint PointerID = 0x1DA00;
     public const uint OldID = 0x5000;
     public bool isOld;
-    public ZoneMetadata metadata;
-    public ulong TUID => metadata.TUID;
-    public string Name => metadata.name;
     public UFrag[] ufrags;
     public TieInstance[] tieInstances;
     public StreamHelper zoneStream;
@@ -36,9 +38,6 @@ public class Zone : IDisposable
 
         if (isOld)
         {
-            zoneStream.Seek(zoneIGFile.QuerySection(ZoneMetadata.OldID).offset);
-            metadata = new ZoneMetadata(zoneStream);
-
             if (verticesFile is null)
                 throw new ArgumentNullException(nameof(verticesFile), "Old-engine zone requires vertices.dat for ufrag geometry.");
 
@@ -49,8 +48,6 @@ public class Zone : IDisposable
         }
         else
         {
-            zoneStream.Seek(zoneIGFile.QuerySection(ZoneMetadata.ID).offset);
-            metadata = new ZoneMetadata(zoneStream);
             ufragVertSection = zoneIGFile.QuerySection(UFragVertex.ID);
             ufragIndxSection = zoneIGFile.QuerySection(UFragVertIndex.ID);
             tieInstanceSection = zoneIGFile.QuerySection(TieInstance.ID);

@@ -91,9 +91,10 @@ public class StreamHelper : BinaryReader
     public byte ReadByte(uint offset)
     {
         BaseStream.Seek(offset, SeekOrigin.Begin);
-        byte[] buffer = new byte[1];
-        BaseStream.Read(buffer, 0x00, 0x01);
-        return buffer[0];
+        // Stream.ReadByte reports end-of-stream as -1 rather than leaving a buffer untouched, which
+        // the array overload could not distinguish from a genuine zero byte.
+        int read = BaseStream.ReadByte();
+        return read < 0 ? (byte)0 : (byte)read;
     }
 
     public string ReadString(uint offset)

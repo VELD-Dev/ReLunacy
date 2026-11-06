@@ -165,9 +165,9 @@ public class GameBrowserFrame : DockedFrame
             }
             else
             {
-                var loadingModal = new LoadingModal(LM.Get("GUI_LoadLevelModal_Title"), 1);
-                LunaWindow.Instance.AddFrame(loadingModal);
-                LunaWindow.Instance.LoadExternalDebugDatAndReload(debugDatPathInput, loadingModal);
+                var loadingFrame = new LoadingFrame(LM.Get("GUI_LoadLevelModal_Title"), 1);
+                LunaWindow.Instance.AddFrame(loadingFrame);
+                LunaWindow.Instance.LoadExternalDebugDatAndReload(debugDatPathInput, loadingFrame);
             }
         }
 
@@ -210,9 +210,9 @@ public class GameBrowserFrame : DockedFrame
 
     private static void LoadLevel(Level level)
     {
-        var loadingModal = new LoadingModal(LM.Get("GUI_LoadLevelModal_Title"), 1);
-        LunaWindow.Instance.AddFrame(loadingModal);
-        LunaWindow.Instance.LoadLevelDataAsync(level.SourcePath, loadingModal, level.DebugDatPath);
+        var loadingFrame = new LoadingFrame(LM.Get("GUI_LoadLevelModal_Title"), 1);
+        LunaWindow.Instance.AddFrame(loadingFrame);
+        LunaWindow.Instance.LoadLevelDataAsync(level.SourcePath, loadingFrame, level.DebugDatPath);
     }
 
     public override void RenderAsWindow(double deltaTime)

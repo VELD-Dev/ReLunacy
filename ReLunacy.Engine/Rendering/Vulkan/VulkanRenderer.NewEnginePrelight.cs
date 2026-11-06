@@ -158,8 +158,11 @@ public sealed unsafe partial class VulkanRenderer
             };
             if (uvAnimation is { } uv)
             {
-                lights[i].UvAnim = new Vector4(uv.Pivot, uv.RotationPerFrame, 1f);
-                lights[i].UvScroll = new Vector4(uv.ScrollPerSecond, uv.FrameRate, 0f);
+                // Both per second: the shader runs on the editor's clock, not the game's frame
+                // count, so the game's rate is spent here converting the rotation and goes no
+                // further.
+                lights[i].UvAnim = new Vector4(uv.Pivot, uv.RotationPerSecond, 1f);
+                lights[i].UvScroll = new Vector4(uv.ScrollPerSecond, 0f, 0f);
             }
 
             // Feature mask ANDed with the material's +0x20 at load: Tie primitive +0x20 (0x006AE85C),

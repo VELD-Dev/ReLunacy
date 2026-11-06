@@ -14,6 +14,15 @@ public sealed class ZoneReader
     private readonly FileManager _fileManager;
     private readonly MaterialReader _materialReader;
     private readonly Dictionary<ulong, Assets.Ties.Tie> _ties;
+
+    /// <summary>Zone names by TUID, from the regions (see NewEngineZoneNames). Empty on the old
+    /// engine and before regions are readable, in which case a zone keeps its Zone_TUID fallback.</summary>
+    public IReadOnlyDictionary<ulong, string> ZoneNames { get; init; } = new Dictionary<ulong, string>();
+
+    /// <summary>Shrub classes by the TUID a zone's 0x7500 table names them with; empty on the old
+    /// engine and on levels that ship no shrubs.dat.</summary>
+    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; init; } =
+        new Dictionary<ulong, Assets.Shrubs.Shrub>();
     private readonly DebugReader _debugReader;
     private readonly List<ITexture> _newZoneLightmaps = [];
     private readonly List<ITexture> _newZoneDirectionals = [];
@@ -43,7 +52,10 @@ public sealed class ZoneReader
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
     }
 
-    public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones() => _fileManager.isOld ? ReadZonesOld() : ReadZonesNew();
+    /// <param name="progress">The level load's bar; the Zone phase counts one item per zone. The old
+    /// engine's single zone counts as one, which is what it is - one pass over the whole level's UFrags.</param>
+    public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones(LevelLoadProgress? progress = null) =>
+        _fileManager.isOld ? ReadZonesOld(progress) : ReadZonesNew(progress);
 
     /// <summary>
     /// ToD: the prelight an unbaked Tie placement's vertex shaders read as attribute 4 - one UB256 x4
@@ -77,19 +89,21 @@ public sealed class ZoneReader
         return chroma * 20 >= vertices * 19 ? bytes : null;
     }
 
-    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesOld()
+    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesOld(LevelLoadProgress? progress)
     {
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile verticesFile = _fileManager.igfiles["vertices.dat"]!;
 
+        progress?.SetTotal(1);
         var legacyZone = new Objects.Zone(main.sh, old: true, verticesFile: verticesFile);
         zones.Add(0, ConvertZone(legacyZone, 0, 0));
+        progress?.Advance();
 
         return zones;
     }
 
-    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesNew()
+    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesNew(LevelLoadProgress? progress)
     {
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         _newZoneLightmaps.Clear();
@@ -104,8 +118,10 @@ public sealed class ZoneReader
 
         var lightingReader = new NewEngineZoneLightingReader(_fileManager);
 
+        progress?.SetTotal(zonePtrs.Length);
         for (int i = 0; i < zonePtrs.Length; i++)
         {
+            progress?.Advance();
             byte[] zonedat = NewEngineAssetLookup.ReadPayload(zoneStream, zonePtrs[i], "zone");
 
             using MemoryStream zonems = new(zonedat);
@@ -164,7 +180,58 @@ public sealed class ZoneReader
             id: tuid,
             uFrags: ufrags,
             tieInstances: tieInstances,
-            name: string.IsNullOrEmpty(legacyZone.Name) ? $"Zone_{tuid:X}" : legacyZone.Name);
+            // The name comes from the region, not the zone: a zone blob has no name of its own, only
+            // its Tie (0x72C0) and Shrub (0x74C0) instance name tables. See NewEngineZoneNames.
+            name: ZoneNames.TryGetValue(tuid, out string? zoneName) && !string.IsNullOrEmpty(zoneName)
+                ? zoneName
+                : $"Zone_{tuid:X}",
+            shrubInstances: ReadShrubInstances(legacyZone),
+            // Only a handful of zones have one, so this is a no-op on most (NavmeshReader returns
+            // null when 0x19000/0x19200 are absent).
+            navmesh: NavmeshReader.Read(legacyZone.zoneIGFile, legacyZone.zoneStream));
+    }
+
+    /// <summary>
+    /// A zone's shrub placements (0x7540), each resolved against the zone's own class table
+    /// (0x7500) by the index at the placement's +0x3C.
+    ///
+    /// The culling groups in 0x75D0 are not read: they partition the placements for the game's own
+    /// visibility work, and the editor culls its own way. Nothing here depends on them.
+    /// </summary>
+    private List<IPlacedInstance<IShrub>> ReadShrubInstances(Objects.Zone legacyZone)
+    {
+        var placements = new List<IPlacedInstance<IShrub>>();
+        if (legacyZone.isOld || Shrubs.Count == 0) return placements;
+
+        IGFile.SectionHeader classes = legacyZone.zoneIGFile.QuerySection(Objects.ShrubInstance.ClassTableID);
+        IGFile.SectionHeader instances = legacyZone.zoneIGFile.QuerySection(Objects.ShrubInstance.ID);
+        if (classes.id != Objects.ShrubInstance.ClassTableID || instances.id != Objects.ShrubInstance.ID)
+            return placements;
+        if (classes.count == 0 || instances.count == 0) return placements;
+
+        var classTuids = new ulong[classes.count];
+        legacyZone.zoneStream.Seek(classes.offset);
+        for (int i = 0; i < classTuids.Length; i++)
+            classTuids[i] = legacyZone.zoneStream.ReadUInt64();
+
+        var record = new byte[Objects.ShrubInstance.Size];
+        for (int i = 0; i < instances.count; i++)
+        {
+            legacyZone.zoneStream.Seek(instances.offset + (long)i * Objects.ShrubInstance.Size);
+            legacyZone.zoneStream.BaseStream.ReadExactly(record, 0, record.Length);
+            var placement = Objects.ShrubInstance.Read(record);
+
+            // Out of range should not happen - it does not on any of the 142,644 measured - but a
+            // bad index would otherwise index the wrong model rather than fail, so it is dropped.
+            if (placement.ClassIndex >= classTuids.Length) continue;
+            if (!Shrubs.TryGetValue(classTuids[placement.ClassIndex], out var shrub)) continue;
+
+            placements.Add(new PlacedInstance<IShrub>(
+                shrub, placement.ToMatrix(), classTuids[placement.ClassIndex],
+                name: shrub.Name ?? string.Empty));
+        }
+
+        return placements;
     }
 
     private ulong AllocateZoneLightingTextureId(ulong zoneTuid, ushort localIndex, bool directional)
@@ -223,7 +290,8 @@ public sealed class ZoneReader
 
     /// <summary>The zone's animated UVs (section 0x5C00), keyed by UFrag index - ToD's level-wide main.dat
     /// one on the old engine (<see cref="Assets.Geometry.OldEngineUvAnimations"/>).</summary>
-    private static Dictionary<uint, Assets.Geometry.UvAnimation>? ReadUFragUvAnimations(Objects.Zone legacyZone)
+    private static Dictionary<uint, Assets.Geometry.UvAnimation>? ReadUFragUvAnimations(
+        Objects.Zone legacyZone, bool crackInTime)
     {
         if (legacyZone.isOld)
             return Assets.Geometry.OldEngineUvAnimations.Read(legacyZone.zoneIGFile)?.UFrags;
@@ -231,10 +299,12 @@ public sealed class ZoneReader
         if (header.id != Assets.Geometry.UvAnimation.SectionId)
             return null;
         uint bytes = header.count <= 1 ? header.length : header.count * header.length;
-        if (bytes < Assets.Geometry.UvAnimation.RecordSize || header.offset + (long)bytes > legacyZone.zoneStream.BaseStream.Length)
+        var layout = Assets.Geometry.UvAnimation.LayoutFor(crackInTime);
+        if (bytes < layout.RecordSize || header.offset + (long)bytes > legacyZone.zoneStream.BaseStream.Length)
             return null;
         legacyZone.zoneStream.Seek(header.offset);
-        return Assets.Geometry.UvAnimation.ReadAll(legacyZone.zoneStream.ReadBytes((int)bytes), byUFragIndex: true);
+        return Assets.Geometry.UvAnimation.ReadAll(legacyZone.zoneStream.ReadBytes((int)bytes),
+                                                   byUFragIndex: true, layout: layout);
     }
 
     private static ulong PaletteCube(ulong[]? palette, byte[]? record, int index) =>
@@ -315,7 +385,7 @@ public sealed class ZoneReader
         }
 
         ulong[]? cubes = ReadCubePalette(legacyZone, 0x71C0);
-        Dictionary<uint, Assets.Geometry.UvAnimation>? uvAnimations = ReadUFragUvAnimations(legacyZone);
+        Dictionary<uint, Assets.Geometry.UvAnimation>? uvAnimations = ReadUFragUvAnimations(legacyZone, CrackInTimeLayout);
         ushort[]? oldSeconds = legacyZone.isOld ? ReadOldSecondMaterials(legacyZone) : null;
         for (int i = 0; i < ufragSection.count; i++)
         {

@@ -22,6 +22,7 @@ internal static class RenderMenuDraw
         settings.RenderUFrags = em.renderUFrags;
         settings.RenderFoliage = em.renderFoliage;
         settings.RenderVolumes = em.renderVolumes;
+        settings.RenderNavmesh = em.renderNavmesh;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;
         settings.MobyDistanceCullingEnabled = em.MobyDistanceCullingEnabled;
         settings.SaveSettingsToFile();
@@ -62,6 +63,13 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
+    internal static void ShowNavmesh()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderNavmesh"), "", EntityManager.Singleton.renderNavmesh)) return;
+        EntityManager.Singleton.renderNavmesh = !EntityManager.Singleton.renderNavmesh;
+        PersistRenderSettings();
+    }
+
     internal static void ShowBoundingSpheres()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres)) return;
@@ -72,8 +80,9 @@ internal static class RenderMenuDraw
     /// <summary>Per-zone render toggles - zones are the level's own streaming/culling unit (mostly
     /// relevant on new engine, which routinely has many; old engine levels have exactly one, id 0),
     /// so this is what lets the user turn a zone's Ties/UFrags off without hiding anything else.
-    /// Mobys/Volumes are per-REGION, not per-zone (see EntityRegion vs EntityZone), so they're
-    /// untouched by this - there's normally only one region per level anyway.
+    /// Mobys/Volumes are per-REGION, not per-zone (see EntityRegion vs EntityZone), so a zone tick
+    /// leaves them alone; the per-region tick above each group is what hides those, along with every
+    /// zone the region holds.
     ///
     /// Skips building the submenu entirely when there are no zones (no level loaded, or a level
     /// with none) rather than showing an empty one - same pattern ViewMenuDraw.LayoutPresets uses
@@ -84,8 +93,36 @@ internal static class RenderMenuDraw
         if (em.ZonesCount == 0) return;
         if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderZones"))) return;
 
-        foreach (var region in em.Regions)
+        // One region is the norm (every old-engine level, and most new-engine ones), so a lone region
+        // lists its zones directly rather than behind a submenu nobody needs to open. Several regions
+        // is the case this grouping exists for: A4O's levels overlap in space, and a region is how
+        // NewEngine+ groups the zones meant to be seen together.
+        var regions = em.Regions;
+        bool nest = regions.Count > 1;
+
+        for (int r = 0; r < regions.Count; r++)
         {
+            var region = regions[r];
+            // Region names are no more unique than zone names and EntityRegion carries no TUID,
+            // so the list index is what keeps the ImGui IDs distinct.
+            if (nest && !ImGui.BeginMenu($"{region.RegionName}###region_{r}")) continue;
+
+            // The region's own tick, always present so it can be found: at the head of its submenu
+            // when regions are nested, inline and labelled with the region name when there is only
+            // one (nesting a single region would just add a click to reach the zones).
+            if (ImGui.MenuItem(
+                    nest ? LM.Get("GUI_MenuItem_RenderWholeRegion") : $"{region.RegionName}###region_{r}",
+                    "", region.allowRender))
+            {
+                region.allowRender = !region.allowRender;
+                LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+            }
+            ImGui.Separator();
+
+            // A region turned off hides its zones whatever their own flags say (see
+            // EntityManager.AllRenderableEntities), so show them as overridden instead of letting a
+            // ticked zone claim it is drawing when it is not.
+            if (!region.allowRender) ImGui.BeginDisabled();
             foreach (var zone in region.Zones)
             {
                 // ###-scoped by TUID, not just the name - zone names are not guaranteed unique
@@ -97,14 +134,20 @@ internal static class RenderMenuDraw
                     LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
                 }
             }
+            if (!region.allowRender) ImGui.EndDisabled();
+
+            if (nest) ImGui.EndMenu();
         }
 
         ImGui.Separator();
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ShowAllZones")))
         {
             foreach (var region in em.Regions)
+            {
+                region.allowRender = true;
                 foreach (var zone in region.Zones)
                     zone.allowRender = true;
+            }
             LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
         }
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_HideAllZones")))
@@ -211,13 +254,96 @@ internal static class RenderMenuDraw
         var view = LunaWindow.Instance.GetFirstFrame<Core.Frames.DockedFrames.View3D>();
         if (view == null) return;
 
-        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ReflectionDebug"), "", view.ReflectionDebugView))
-            view.ReflectionDebugView = !view.ReflectionDebugView;
+        // Rebuilds the scene: the instance lights this feeds are built when the scene is captured.
+        bool trustScale = Engine.Rendering.Vulkan.VulkanRenderer.UseRetailBakedScale;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_RetailBakedScale"), "", trustScale))
+        {
+            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailBakedScale = !trustScale;
+            LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_RetailBakedScaleHint"));
+
+        if (trustScale)
+        {
+            float maxScale = Engine.Rendering.Vulkan.VulkanRenderer.MaxBakedScale;
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_MaxBakedScale"), ref maxScale, 0f, 32f, maxScale > 0f ? "%.1f" : "off"))
+            {
+                Engine.Rendering.Vulkan.VulkanRenderer.MaxBakedScale = maxScale;
+                LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+            }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_MaxBakedScaleHint"));
+        }
+
+        // Lighting first: it is the term a Tie and a Moby share, so it is where a fault common to
+        // both has to be looked for before the reflection path is suspected.
+        int lightMode = Engine.Rendering.Vulkan.VulkanRenderer.LightingDebugMode;
+        string[] lightModes = [
+            LM.Get("GUI_MenuItem_LightMode_Normal"),
+            LM.Get("GUI_MenuItem_LightMode_Lighting"),
+            LM.Get("GUI_MenuItem_LightMode_BakedColour"),
+            LM.Get("GUI_MenuItem_LightMode_BakedDir"),
+            LM.Get("GUI_MenuItem_LightMode_BakedSun"),
+            LM.Get("GUI_MenuItem_LightMode_Prelight"),
+            LM.Get("GUI_MenuItem_LightMode_BakedResult"),
+            LM.Get("GUI_MenuItem_LightMode_Albedo"),
+            LM.Get("GUI_MenuItem_LightMode_NonFinite")];
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.Combo(LM.Get("GUI_MenuItem_LightMode"), ref lightMode, lightModes, lightModes.Length))
+            Engine.Rendering.Vulkan.VulkanRenderer.LightingDebugMode = lightMode;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_LightModeHint"));
+
+        // Replaces the old Reflection debug toggle, which set a uniform no shader ever read.
+        var vk = typeof(Engine.Rendering.Vulkan.VulkanRenderer);
+        int mode = Engine.Rendering.Vulkan.VulkanRenderer.ReflectionDebugMode;
+        string[] modes = [
+            LM.Get("GUI_MenuItem_ReflMode_Normal"),
+            LM.Get("GUI_MenuItem_ReflMode_Only"),
+            LM.Get("GUI_MenuItem_ReflMode_Cube"),
+            LM.Get("GUI_MenuItem_ReflMode_Off")];
+        ImGui.SetNextItemWidth(180);
+        if (ImGui.Combo(LM.Get("GUI_MenuItem_ReflMode"), ref mode, modes, modes.Length))
+            Engine.Rendering.Vulkan.VulkanRenderer.ReflectionDebugMode = mode;
+
+        float specOverride = Engine.Rendering.Vulkan.VulkanRenderer.SpecularOverride;
+        bool forceSpec = specOverride >= 0f;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ForceSpecular"), "", forceSpec))
+            Engine.Rendering.Vulkan.VulkanRenderer.SpecularOverride = forceSpec ? -1f : 1f;
+        if (forceSpec)
+        {
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_SpecularValue"), ref specOverride, 0f, 1f, "%.2f"))
+                Engine.Rendering.Vulkan.VulkanRenderer.SpecularOverride = specOverride;
+        }
 
         float intensity = view.ReflectionIntensity;
         ImGui.SetNextItemWidth(120);
-        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.2f"))
+        // Logarithmic and three decimals: the per-game starting values differ by more than an order of
+        // magnitude (A4O 0.04 against everything else's 1.0), and on a linear two-decimal bar the
+        // whole useful range for A4O was the leftmost two percent of the track.
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_ReflectionIntensity"), ref intensity, 0f, 2f, "%.3f", ImGuiSliderFlags.Logarithmic))
             view.ReflectionIntensity = intensity;
+
+        // Live cubemap knobs, so the retail values can be found by eye in the 3D view rather than by
+        // rebuilding. Both feed the spare lanes of uPostParams (VulkanRenderer.CubeBiasOffset /
+        // TonemapPreview) and apply to the generic and the retail shader path alike.
+        float cubeBias = Engine.Rendering.Vulkan.VulkanRenderer.CubeBiasOffset;
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_CubeBias"), ref cubeBias, -4f, 4f, "%.3f"))
+            Engine.Rendering.Vulkan.VulkanRenderer.CubeBiasOffset = cubeBias;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_CubeBiasHint"));
+
+        float exposure = Engine.Rendering.Vulkan.VulkanRenderer.TonemapExposure;
+        bool tonemap = exposure > 0f;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_TonemapPreview"), "", tonemap))
+            Engine.Rendering.Vulkan.VulkanRenderer.TonemapExposure = tonemap ? 0f : 1f;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_MenuItem_TonemapPreviewHint"));
+        if (tonemap)
+        {
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_Exposure"), ref exposure, 0.01f, 4f, "%.3f"))
+                Engine.Rendering.Vulkan.VulkanRenderer.TonemapExposure = MathF.Max(exposure, 0.001f);
+        }
 
         // Reflectivity floor (Fresnel F0): 0 reflects only where the specular map says to, 1 is a near-mirror everywhere.
         float reflBase = view.ReflectionBase;

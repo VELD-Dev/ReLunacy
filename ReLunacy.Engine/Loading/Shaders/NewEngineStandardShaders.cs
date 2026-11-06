@@ -58,10 +58,43 @@ public sealed class NewEngineStandardShaders
     private static readonly object CacheLock = new();
     private static (string Path, DateTime Stamp, NewEngineStandardShaders? Shaders)? _cache;
 
+    /// <summary>How the last <see cref="Find"/> resolved. <see cref="Resolution.Path"/> is null when no
+    /// decrypted EBOOT was found at all; <see cref="Resolution.FromOwnInstall"/> is false when the table
+    /// came from a sibling game's EBOOT instead of this level's own install. The level load warns on
+    /// both, because which sibling gets borrowed silently depends on what else is installed beside the
+    /// level - and on the path it was browsed through, since a symlinked install has different
+    /// neighbours than its target does.</summary>
+    public readonly record struct Resolution(string? Path, bool FromOwnInstall);
+
+    public static Resolution? LastResolution { get; private set; }
+
     /// <summary>The standard shaders of the first decrypted EBOOT found under <see cref="SearchRoots"/>,
     /// read once per file; null when there is none (the renderer keeps its generic shading).</summary>
-    public static NewEngineStandardShaders? Find(Games.GameId? game = null) =>
-        FindFor(game, strict: true) ?? FindFor(game, strict: false);
+    public static NewEngineStandardShaders? Find(Games.GameId? game = null)
+    {
+        var shaders = FindFor(game, strict: true) ?? FindFor(game, strict: false);
+        LastResolution = new Resolution(shaders?.SourcePath, shaders != null && IsOwnInstall(shaders.SourcePath));
+        return shaders;
+    }
+
+    /// <summary>Whether this ELF lies in the USRDIR of the level being loaded, rather than a sibling
+    /// game's. Decided by path, not by which pass found it: when the level's GameId is unknown both
+    /// passes already consider siblings, so the pass alone cannot tell the two apart.</summary>
+    private static bool IsOwnInstall(string elfPath)
+    {
+        string? elfDir = Path.GetDirectoryName(elfPath);
+        if (elfDir == null) return false;
+        foreach (var (root, _) in SearchRoots)
+        {
+            string? usrdir = FindUsrdir(root);
+            if (usrdir != null && string.Equals(
+                    Path.TrimEndingDirectorySeparator(usrdir),
+                    Path.TrimEndingDirectorySeparator(elfDir),
+                    StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 
     private static NewEngineStandardShaders? FindFor(Games.GameId? game, bool strict)
     {
@@ -91,9 +124,12 @@ public sealed class NewEngineStandardShaders
                 _cache = (elf, stamp, shaders);
             if (shaders != null)
             {
-                Console.WriteLine($"[StandardShaders] {shaders.ShaderCount} shaders from {Path.GetFileName(elf)} (table 0x{shaders.TableAddress:X8}).");
+                // Full path, not the file name: every candidate is called EBOOT.elf, so the name alone
+                // cannot tell this level's own install from a sibling game's borrowed one.
+                Console.WriteLine($"[StandardShaders] {shaders.ShaderCount} shaders from {elf} (table 0x{shaders.TableAddress:X8}).");
                 return shaders;
             }
+            Console.WriteLine($"[StandardShaders] no usable table in {elf}; trying the next candidate.");
         }
         return null;
     }
