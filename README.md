@@ -35,9 +35,11 @@
 </p>
 
 <h2 id="disclaimer">⚠️ PC-Ports Disclaimer ⚠️</h2>
+
 ### Although ReLunacy has been rewritten and is being improved through the heavy help of AI, none of the contributors approve the usage of ReLunacy to make custom levels for slop PC ports.
 The original ReLunacy codebase was handwritten, by NefariousTechSupport and then by myself.  
 The researches put into the games were and are still also made by humans.  
+
 These AI ports bring absolutely nothing to the reverse engineering of the Ratchet & Clank franchise, nor to the Resistance's.  
   
 Hence, as the maintainer, I do not approve the usage of ReLunacy, nor the reusage of ReLunacy codebase for the new Ratchet & Clank: Future PC ports.  
