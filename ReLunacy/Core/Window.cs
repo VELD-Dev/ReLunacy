@@ -241,6 +241,11 @@ public class LunaWindow : IDisposable
         em.renderUFrags = EditorSettings.RenderUFrags;
         em.renderFoliage = EditorSettings.RenderFoliage;
         em.renderVolumes = EditorSettings.RenderVolumes;
+        em.renderNavmesh = EditorSettings.RenderNavmesh;
+        // The RSX shaders only apply while lit (see View3D, which keeps this in step afterwards); set
+        // before the first scene is built so it is not built once with the wrong set and rebuilt.
+        Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = EditorSettings.EnableLighting && EditorSettings.GameShaders;
+        em.renderCollision = EditorSettings.RenderCollision;
         em.renderBoundingSpheres = EditorSettings.RenderBoundingSpheres;
         em.MobyDistanceCullingEnabled = EditorSettings.MobyDistanceCullingEnabled;
 
@@ -841,14 +846,14 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowUFrags();
             RenderMenuDraw.ShowFoliage();
             RenderMenuDraw.ShowVolumes();
-            RenderMenuDraw.ShowNavmesh();
+            RenderMenuDraw.ShowCollision();
             RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
             RenderMenuDraw.ZoneVisibility();
             RenderMenuDraw.SkyVisibility();
             ImGui.Separator();
+            // Old engine only, and it draws its own separator after it.
             RenderMenuDraw.GameFidelity();
-            ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
             ImGui.Separator();
             RenderMenuDraw.ReflectionControls();

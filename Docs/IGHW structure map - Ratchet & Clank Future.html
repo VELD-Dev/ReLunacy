@@ -64,6 +64,10 @@ svg.wires{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .nt{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .nt b{font-weight:600;font-size:15px}
 .nt .sz{font-size:12px;color:var(--muted)}
+.nb{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;font-weight:500;padding:0 5px;border-radius:3px;background:var(--ext);color:var(--card);margin-left:6px;vertical-align:2px}
+.r.nw::before{content:"";position:absolute;left:3px;top:4px;bottom:4px;width:3px;border-radius:2px;background:var(--ext)}
+body.only-new .node:not(.has-new){display:none}
+.nb.dev{background:var(--ref)}
 .loc{font-size:12px;color:var(--muted);margin-top:1px}
 .bytes{display:flex;height:8px;margin-top:7px;border-radius:2px;overflow:hidden;gap:1px}
 .bytes i{display:block;height:100%}
@@ -111,12 +115,17 @@ a{color:var(--ptr)}
     <span><i class="sw ref"></i>index or TUID</span>
     <span><i class="sw ext"></i>offset into a buffer / another file</span>
     <span><i class="sq k-unk"></i>unidentified bytes</span>
+    <span><span class="nb" style="margin:0">0.06</span>added or changed in v0.06-alpha.1</span>
+    <span><span class="nb dev" style="margin:0">dev</span>added after v0.06-alpha.1 (unreleased)</span>
+    <label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="onlynew">show only changes since 0.05</label>
   </div>
 </div>
 <p class="hint">Click a structure header to isolate its incoming and outgoing links; click again (or press Esc) to reset. Hover a linked field to highlight its link. The map scrolls horizontally.</p>
 <div class="scroller"><div class="canvas" id="canvas"><svg class="wires" id="wires" aria-hidden="true"></svg></div></div>
 <footer>
-  <p>Source: code of <a href="https://github.com/VELD-Dev/ReLunacy">VELD-Dev/ReLunacy</a> (<span class="mono">[FileOffset]</span> attributes and manual reads in the readers). Only fields read by the tool are named; the rest is marked “unk”. Names and roles are the repository’s, not an official Insomniac specification.</p>
+  <p>Source: code of <a href="https://github.com/VELD-Dev/ReLunacy">VELD-Dev/ReLunacy</a> at tag <span class="mono">0.06-alpha.1</span> (commit a906962) (<span class="mono">[FileOffset]</span> attributes and manual reads in the readers). Only fields read by the tool are named; the rest is marked “unk”. Names and roles are the repository’s, not an official Insomniac specification.</p>
+  <p>Not shown: the Lua scripts edited by 0.06 live in <span class="mono">global_cached.psarc</span> (indexed by <span class="mono">game.toc</span>), outside the IGHW level files. Labels such as INFERRED or STRONG in notes repeat the confidence level stated in the ReLunacy source.</p>
+  <p>Collision (<span class="nb dev" style="margin:0">dev</span>): <span class="mono">collision.dat</span> on Tools of Destruction / Quest for Booty is a raw big-endian blob, not IGHW; the new engine wraps the same blob in section <span class="mono">0x2900</span> of each region’s <span class="mono">collision.dat</span>. The ToD layout was first decoded by @sowelilili (ReLunacy-ToD-tools); the new-engine mesh, instance order and primitive sets were decoded for ReLunacy. Evidence and open questions: <span class="mono">docs/reverse/collision.md</span>.</p>
   <p>Structures shared between engines (MobyBangle, MobyMesh, MobySkeleton, MobyBone, TiePrimitiveBounds, vertex formats): same layout, but some fields are interpreted differently (absolute offset vs. section-relative offset, direct index vs. index into a TUID table).</p>
 </footer>
 
@@ -130,8 +139,8 @@ const IGHW = (loc) => ({id:'ighw', name:'IGHW header', size:0x20, sizeLabel:'0x2
      [0x04,2,'u16','versionMajor'],[0x06,2,'u16','versionMinor'],
      [0x08,4,'u32','sectionCount'],
      [0x0C,4,'u32','headerLength',null,null,'v1.1 only'],
-     [0x10,4,'u32','fileLength',null,null,'v1.1 only'],
-     [0x14,4,'u32','unknown',null,null,'v1.1 only'],
+     [0x10,4,'u32','fileLength / relocStart',null,null,'v1.1 only. IGFile names it fileLength; SkyReader (0.06) reads it as the relocation-table start',1],
+     [0x14,4,'u32','relocCount',null,null,'v1.1 only. Embedded IGHW length = relocStart + 4 × relocCount (SkyReader)',1],
      U(0x18,8),
      [0x20,0,'[]','SectionHeader[sectionCount]','ptr',['sect'],'table at 0x20 (v1.1) or 0x10 (v0.2)']]});
 const SECT = {id:'sect', name:'SectionHeader', size:0x10, loc:'section table',
@@ -153,13 +162,13 @@ const SKEL = {id:'skel', name:'MobySkeleton', size:0x1C, loc:'pointed to by the 
 const BONE = {id:'bone', name:'MobyBone', size:0x08, loc:'skeleton array',
   f:[[0x00,2,'u16','flags'],[0x02,2,'s16','parentIndex',null,null,'-1 = root'],[0x04,2,'u16','child'],[0x06,2,'u16','sibling']]};
 const VF0 = {id:'vf0', name:'VertexFormat0', size:0x14, loc:'rigid vertex (tie, moby type 0)',
-  f:[[0x00,6,'s16×3','position',null,null,'quantized, × class scale'],[0x06,2,'s16','boneIndex'],
+  f:[[0x00,6,'s16×3','position',null,null,'quantized, × class scale'],[0x06,2,'s16','boneIndex / vertexAlpha',null,null,'banded alpha, e.g. new engine 0x7F80–0x7FFF, 0x8001–0x8080, 0x9001–0x9080',1],
      [0x08,4,'half×2','uv'],[0x0C,4,'u32','normal (packed)'],[0x10,4,'u32','tangent (packed)']]};
 const VF1 = {id:'vf1', name:'VertexFormat1', size:0x1C, loc:'skinned vertex (moby type 1)',
-  f:[[0x00,6,'s16×3','position'],U(0x06,2),[0x08,4,'u8×4','bones'],[0x0C,4,'u8×4','weights'],
+  f:[[0x00,6,'s16×3','position'],[0x06,2,'u16','vertexAlpha',null,null,'banded encoding (same ranges as VertexFormat0)',1],[0x08,4,'u8×4','bones'],[0x0C,4,'u8×4','weights'],
      [0x10,4,'half×2','uv'],[0x14,4,'u32','normal (packed)'],[0x18,4,'u32','tangent (packed)']]};
 const UFV = {id:'ufv', name:'UFragVertex', size:0x18, loc:'zone geometry vertex',
-  f:[[0x00,6,'s16×3','position'],U(0x06,2),[0x08,4,'half×2','uv'],[0x0C,4,'half×2','uv2 (lightmap)'],
+  f:[[0x00,6,'s16×3','position'],[0x06,2,'u16','vertexAlpha',null,null,'old: 0xBF81–0xC000, 0x8001–0x8080; new: 5 bands',1],[0x08,4,'half×2','uv'],[0x0C,4,'half×2','uv2 (lightmap)'],
      [0x10,4,'u32','normal (packed)'],[0x14,4,'u32','tangent (packed)']]};
 
 const MOBYMESH = (shaderTarget, shaderNote, vbuf, ibuf) => ({id:'mobymesh', name:'MobyMesh', size:0x40, loc:'array pointed to by the bangle',
@@ -172,6 +181,71 @@ const MOBYMESH = (shaderTarget, shaderNote, vbuf, ibuf) => ({id:'mobymesh', name
      [0x0E,1,'u8','boneMapIndex'],U(0x0F,3),
      [0x12,2,'u16','indicesCount'],U(0x14,12),
      [0x20,4,'u32','boneMapOffset'],U(0x24,28)]});
+
+
+const A = n => Object.assign(n, {added:true});
+const SKYDEFS = (id, loc, vbuf, ibuf, tex, texNote, vNote, iNote) => A({id, name:'SkyDefs', size:0x100, loc,
+  f:[U(0x00,4),[0x04,4,'f32','domeVerticalProfileScale'],[0x08,4,'f32','domeVerticalProfileOffset'],
+     [0x0C,4,'f32','domeProfileScalar'],[0x10,4,'f32','domeColourTransition'],
+     [0x14,16,'vec4','domeColour14'],[0x24,16,'vec4','domeColour24'],[0x34,16,'vec4','domeColour34'],
+     [0x44,16,'vec4','domeRuntimeColourSource'],[0x54,4,'f32','domeGradient54'],[0x58,4,'f32','domeGradient58'],
+     [0x5C,4,'f32','skyTimeScale',null,null,'multiplies frame delta for shell / cloud phases'],
+     [0x60,24,'f32×6','cloud0 (period, angle, scrolls, biases)'],[0x78,4,'f32','cloudTex4PerturbScale'],
+     [0x7C,24,'f32×6','cloud1 (period, angle, scrolls, biases)'],[0x94,4,'f32','cloudTex5PerturbScale'],
+     [0x98,4,'f32','cloudColourAlpha'],[0x9C,4,'f32','cloudLayerBlend',null,null,'TEX4 / TEX5 blend'],U(0xA0,8),
+     [0xA8,12,'f32×3','cloudColourRGB'],U(0xB4,44),
+     [0xE0,4,'f32','bloomShellScale'],U(0xE4,4),
+     [0xE8,4,'u32','cloudTexture (TEX4)','ref',[tex],texNote],[0xEC,4,'u32','cloudTexture (TEX5)','ref',[tex]],[0xF0,4,'u32','cloudTexture (TEX6)','ref',[tex]],U(0xF4,4),
+     [0xF8,4,'u32','shellVertexOffset','ext',[vbuf],vNote],[0xFC,4,'u32','shellIndexOffset','ext',[ibuf],iNote]]});
+const SKYFAM = (id, loc, ibuf) => A({id, name:'SkyShellRecord', size:0x20, loc,
+  f:[[0x00,4,'u32','firstIndex','ext',[ibuf],'first u16 of the shell index window'],
+     [0x04,2,'u16','indexCount'],[0x06,2,'u16','drawOrder'],U(0x08,4),
+     [0x0C,4,'u32','flags',null,null,'bit 0: 0 = colour shell, 1 = bloom shell'],
+     [0x10,4,'f32','rotationZ'],[0x14,4,'f32','rotationY',null,null,'local = Ry(phase) · Rz(+0x10) · Ry(+0x14)'],
+     [0x18,4,'f32','spinRate'],[0x1C,4,'f32','phase']]});
+const SKYVERT = A({id:'skyvert', name:'SkyShellVertex', size:0x10, loc:'shell vertex stream',
+  f:[[0x00,8,'half×4','position'],[0x08,4,'u8×4','colour (unorm)'],[0x0C,4,'half×2','uv']]});
+
+/* Collision (unreleased). Same blob on both engines; the instance record is reordered and the
+   new engine drops the mesh's oriented box and adds primitive sets. See docs/reverse/collision.md. */
+const D = n => Object.assign(n, {added:true, ver:'dev'});
+const COLHDR = (loc, isNew) => D({id:'colhdr', name:'CollisionHeader', size:0x80, loc,
+  f:[[0x00,4,'u32','instanceOffset','ptr',['colinst'],isNew?'0x280: after the +0x6C table':'0x80'],[0x04,4,'u32','instanceCount'],
+     [0x08,4,'u32','shapeBlobOffset','ptr',isNew?['colmesh','primset']:['colmesh'],'base of every instance’s shape offset'],[0x0C,4,'u32','shapeBlobLength'],
+     U(0x10,0x10),[0x20,4,'f32','gridCellSize',null,null,isNew?'12':'10'],[0x24,4,'f32','1 / gridCellSize'],U(0x28,8),
+     [0x30,4,'u32','gridOffset','ptr',['b_colgrid']],U(0x34,0xC),
+     [0x40,12,'vec3','boundsMin'],U(0x4C,4),[0x50,12,'vec3','boundsMax'],
+     ...(isNew ? [U(0x5C,0xC),[0x68,4,'u32','tableCount',null,null,'8-byte records'],[0x6C,4,'u32','tableOffset','ptr',['b_coltab']],U(0x70,0x10)]
+               : [U(0x5C,0x24)])]});
+const COLINST_OLD = D({id:'colinst', name:'CollisionInstance', size:0x80, loc:'collision.dat · instance array',
+  f:[[0x00,64,'mat4','transform',null,null,'row-vector; a TIE placement’s exact matrix, identity on world chunks'],
+     [0x40,16,'vec4','boundingSphere'],[0x50,12,'vec3','boxMin'],U(0x5C,4),[0x60,12,'vec3','boxMax'],U(0x6C,4),
+     [0x70,4,'u32','flagsAndId',null,null,'bit 29 = TIE collision; low 28 bits: id, counts up across a TIE class’s chunks'],
+     [0x74,4,'u32','shapeOffset','ext',['colmesh'],'relative to header +0x08'],
+     [0x78,2,'u16','shapeFlags',null,null,'0x2E 0x4A 0x4E 0x4F 0x6A 0x6E 0x6F seen; 0x02 and 0x08 always set'],
+     [0x7A,2,'u16','shapeLength']]});
+const COLINST_NEW = D({id:'colinst', name:'CollisionInstance', size:0x80, loc:'<region>/collision.dat · 0x2900 instance array',
+  f:[[0x00,12,'vec3','boxMin',null,null,'tight on every instance'],U(0x0C,4),[0x10,12,'vec3','boxMax'],U(0x1C,4),
+     [0x20,4,'u32','shapeOffset','ext',['colmesh','primset'],'relative to header +0x08'],
+     [0x24,2,'u16','shapeLength'],[0x26,2,'u16','shapeFlags',null,null,'0x400 = primitive set; else the ToD bits, mostly with 0x100'],
+     [0x28,4,'u32','flagsAndId',null,null,'bit 29 = TIE collision; low 28 bits: id'],U(0x2C,4),
+     [0x30,64,'mat4','transform',null,null,'row-vector, translation in the 4th row'],[0x70,16,'vec4','boundingSphere']]});
+const COLMESH = (isNew) => D({id:'colmesh', name:'CollisionMesh', size:isNew?0x10:0x60, loc:isNew?'0x2900 shape blob (shape flags without 0x400)':'collision.dat · shape blob',
+  f:[[0x00,2,'u16','vertexCount',null,null,'≤ 512 (9-bit indices)'],[0x02,2,'u16','vertexBlockOffset','ptr',['colvblock'],isNew?'0x10':'0x60'],
+     [0x04,2,'u16','one',null,null,isNew?'0x100':'1'],[0x06,2,'u16','triangleCount'],
+     [0x08,2,'u16','triangleOffset','ptr',['coltri']],U(0x0A,2),
+     [0x0C,2,'u16','materialOffset','ptr',['b_colmat']],
+     ...(isNew ? [U(0x0E,2)]
+               : [U(0x0E,6),[0x14,48,'vec4×3','obbAxes',null,null,'axis xyz + half extent; dropped by the new engine'],[0x44,12,'vec3','obbCentre'],[0x50,4,'f32','1.0'],U(0x54,0xC)])]});
+const COLVBLOCK = D({id:'colvblock', name:'CollisionVertexBlock', size:0x40, sizeLabel:'0x10 + 0x30 × ⌈V/8⌉', loc:'at the mesh’s vertexBlockOffset',
+  f:[[0x00,12,'s32×3','origin'],U(0x0C,4),
+     [0x10,48,'u16×8 ×3','vertex group',null,null,'x line, y line, z line; slots hold vertices 0,4,1,5,2,6,3,7; position = (origin + value) / 1024']]});
+const COLTRI = D({id:'coltri', name:'CollisionTriangle', size:0x04, loc:'at the mesh’s triangleOffset',
+  f:[[0x00,4,'u32','packed','ref',['colvblock'],'v0 bits 18-26, v1 9-17, v2 0-8; flags 27-31 (bit 0: no wall jump). Winding not consistent']]});
+const COLBLOBS = (isNew) => [
+  D({id:'b_colmat', blob:true, name:'material bytes', loc:'at the mesh’s materialOffset', note:'One u8 per triangle, the surface type. Ids 0-67 on ToD/QfB; meanings not decoded (the queries run on SPU).'}),
+  D({id:'b_colgrid', blob:true, name:'spatial grid', loc:'header +0x30', note:isNew?'Query structure; header differs from ToD’s. Not decoded.':'Origin, 1 / cell size, then cell words count << 20 | first. Query structure, not decoded further.'}),
+];
 
 const ENGINES = {
 old: {
@@ -187,14 +261,16 @@ old: {
       {id:'tieinst', name:'TieInstance', size:0x80, loc:'main.dat · 0x9240',
        f:[[0x00,64,'mat4','transform'],[0x40,16,'vec4','boundingSphere'],
           [0x50,4,'u32','tieIndex','ptr',['tie'],'offset of the class in main.dat (not a sequential index)'],
-          U(0x54,6),[0x5A,2,'u16','lightmapIndex',null,null,'entry in the main.dat 0x5400/0x5410 pools; 0xFFFF = none'],U(0x5C,36)]},
+          U(0x54,6),[0x5A,2,'u16','lightmapIndex','ref',['lmap'],'main.dat 0x5400/0x5410 pools; 0xFFFF = none'],U(0x5C,4),
+          [0x60,4,'f32','bakedLightScale',null,null,'with +0x64, feeds VP constant c[4] (STRONG, not proven)',1],[0x64,4,'f32','bakedLightScale2',null,null,null,1],U(0x68,24)]},
       {id:'ufrag', name:'UFragMetadata', size:0x80, loc:'main.dat · 0x6200',
        f:[U(0x00,48),[0x30,16,'vec4','boundingSphere'],
           [0x40,4,'u32','indexOffset','ext',['b_ind'],'in u16 units (×2 for bytes)'],
           [0x44,4,'u32','vertexOffset','ext',['b_vert'],'UFragVertex-format vertices'],
           [0x48,2,'u16','indexCount'],[0x4A,2,'u16','vertexCount'],U(0x4C,2),
-          [0x4E,2,'u16','lightmapIndex',null,null,'0x5400/0x5410 atlas; 0xFFFF = none'],
-          [0x50,2,'u16','shaderIndex','ref',['shader'],'through the 0x71A0 table'],U(0x52,14),
+          [0x4E,2,'u16','lightmapIndex','ref',['lmap'],'0x5400/0x5410 atlas; 0xFFFF = none'],
+          [0x50,2,'u16','shaderIndex','ref',['shader'],'through the 0x71A0 table'],U(0x52,6),
+          [0x58,1,'u8','blendMaskIndex','ref',['mask'],'two-layer mask in main.dat 0x5700; 0xFF = none. Second material: 0x6400 +0x06',1],U(0x59,7),
           [0x60,12,'vec3','position'],U(0x6C,20)]},
     ]},
     {h:'Classes (main.dat)', nodes:[
@@ -210,7 +286,7 @@ old: {
           [0x40,4,'ptr','runtimeAnimationState','ptr'],U(0x44,4),
           [0x48,4,'ptr','d900Pointer','ptr'],[0x4C,4,'ptr','da00Pointer','ptr'],U(0x50,40),
           [0x78,4,'ptr','section10200Pointer','ptr'],U(0x7C,4),
-          [0x80,4,'ptr','animationAuxF400','ptr',null,'section 0xF400'],U(0x84,20),
+          [0x80,4,'ptr','animationAuxF400','ptr',['animaux'],'first F400 record of the animation list',1],U(0x84,20),
           [0x98,4,'ptr','e500Pointer','ptr'],U(0x9C,8),
           [0xA4,4,'ptr','section10400Pointer','ptr'],[0xA8,4,'ptr','e900Pointer','ptr'],U(0xAC,20)]},
       {id:'tie', name:'TieMetadataOld', size:0x80, loc:'main.dat · 0x3400',
@@ -234,8 +310,8 @@ old: {
       {id:'tiemesh', name:'TieMesh', size:0x40, loc:'array pointed to by the tie class',
        f:[[0x00,4,'u32','indicesIndex','ext',['b_ind']],
           [0x04,2,'u16','verticesIndex','ext',['b_vert'],'VertexFormat0-format vertices'],U(0x06,2),
-          [0x08,2,'u16','verticesCount'],U(0x0A,8),[0x12,2,'u16','indicesCount'],U(0x14,20),
-          [0x28,2,'u16','oldShaderIndex','ref',['shader'],'index into main.dat 0x5000'],U(0x2A,2),
+          [0x08,2,'u16','verticesCount'],[0x0A,2,'u16','blendMaskIndex','ref',['mask'],'main.dat 0x5700; 0xFFFF = none',1],U(0x0C,6),[0x12,2,'u16','indicesCount'],U(0x14,20),
+          [0x28,2,'u16','oldShaderIndex','ref',['shader'],'index into main.dat 0x5000'],[0x2A,2,'u16','secondMaterial','ref',['shader'],'0x5000 ordinal; 0xFFFF = single layer',1],
           [0x2C,1,'u8','authoredShaderUseMask'],U(0x2D,3),
           [0x30,2,'s16','fadeNormalDistance'],[0x32,2,'s16','fadeReflectionDistance'],
           [0x34,2,'s16','fadeDetailDistance'],[0x36,2,'s16','fadeUnitDistance'],U(0x38,8)]},
@@ -243,6 +319,11 @@ old: {
     ]},
     {h:'Geometry', nodes:[
       MOBYMESH('shader','index into main.dat 0x5000','b_vert','b_ind'), BONE,
+      A({id:'animaux', name:'AnimationAuxMetadataOld', size:0x30, loc:'main.dat · 0xF400 (parallel to 0xF000)',
+       f:[U(0x00,12),[0x0C,4,'f32','linearSpeed × frameRate'],[0x10,4,'f32','lastFrameTime (s)'],[0x14,4,'f32','duration (s)'],
+          [0x18,4,'u32','frameAuxCount'],[0x1C,4,'ptr','frameAuxPointer','ptr',['animframe'],'into 0xF500'],U(0x20,16)]}),
+      A({id:'animframe', name:'AnimationFrameAuxOld', size:0x14, loc:'main.dat · 0xF500',
+       f:[U(0x00,8),[0x08,4,'f32','unk08'],[0x0C,4,'f32','unk0C'],U(0x10,4)]}),
       VF0, VF1, UFV,
     ]},
     {h:'Materials and buffers', nodes:[
@@ -259,7 +340,7 @@ old: {
        note:'Triangle indices, addressed by offset or by index ×2.'},
     ]},
     {h:'Textures', nodes:[
-      {id:'tex', name:'TextureMetadataOld', size:0x20, loc:'main.dat · 0x5200',
+      {id:'tex', name:'TextureMetadataOld', size:0x20, loc:'main.dat · 0x5200 (same layout: 0x5400, 0x5410, 0x5700, 0x5920)',
        f:[[0x00,4,'u32','offset','ext',['b_tex','b_res'],'bits 0–30; memory location comes from formatBitfield'],
           [0x04,2,'u16','mipmapCount'],
           [0x06,2,'u16','formatBitfield',null,null,'RSX format, location (MAIN/LOCAL), cubemap, dimension'],
@@ -279,6 +360,44 @@ old: {
        note:'Texels in MAIN memory, read when the descriptor location is MAIN.'},
       {id:'b_tstream', blob:true, name:'texstream.dat', loc:'raw file, optional',
        note:'One extra mip level per streamed texture.'},
+    ]},
+    {h:'Environment (0.06)', nodes:[
+      A({id:'uvanim', name:'UvAnimationOld', size:0x40, loc:'main.dat · 0x5C00, after a 0x20 header (UFrag, Tie, Moby counts)',
+       f:[[0x00,2,'u16','tag',null,null,'high nibble: 0 Tie, 1 UFrag, 2 Moby, 3 skinned Moby'],[0x02,2,'u16','vertexCount',null,null,'rounded up to 4'],
+          [0x04,2,'u16','owner','ref',['ufrag','tie','moby'],'0x6200 / 0x3400 / 0xD100 ordinal, by tag'],U(0x06,2),
+          [0x08,4,'u32','frag','ext',['b_vert'],'Tie: first vertex index; Moby: mesh vertex byte offset'],
+          [0x0C,4,'u32','baseUvOffset',null,null,'base UVs in 0x5C01'],
+          [0x10,4,'f32','scrollU (/s)'],[0x14,4,'f32','scrollV (/s)'],[0x18,4,'f32','rotation (rad/frame, 60 Hz)'],
+          [0x1C,4,'f32','angle',null,null,'runtime state'],[0x20,8,'f32×2','rotationRow0'],U(0x28,4),[0x2C,4,'f32','offsetU'],
+          [0x30,8,'f32×2','rotationRow1'],U(0x38,4),[0x3C,4,'f32','offsetV']]}),
+      SKYDEFS('sky','main.dat · 0x8150','b_vert','b_ind','tex','0x5200 index','byte offset in vertices.dat 0x9000','byte offset in vertices.dat 0x9100'),
+      SKYFAM('skyfam','main.dat · 0x8160 (pre) / 0x8170 (post)','b_ind'),
+      SKYVERT,
+      A({id:'fog', name:'LevelFog', size:0xF0, loc:'main.dat · 0x7100',
+       f:[U(0x00,0x40),[0x40,12,'vec3','fogColour'],[0x4C,4,'f32','nearDistance'],[0x50,4,'f32','farDistance'],
+          [0x54,4,'f32','amount',null,null,'scale = amount / (far − near)'],U(0x58,0x18),
+          [0x70,4,'u32','bloomEnabled'],[0x74,4,'f32','bloomMipWeight'],[0x78,4,'f32','bloomHistory'],U(0x7C,4),
+          [0x80,4,'f32','bloomExtractScale'],[0x84,4,'f32','bloomExtractExponent'],[0x88,4,'f32','bloomIntensity'],
+          [0x8C,4,'f32','bloomColourExtract'],U(0x90,0x60)]}),
+      A({id:'lroot', name:'LightingRoot', size:0x80, loc:'main.dat · 0x8B00',
+       f:[[0x00,4,'u32','version',null,null,'2 on known fixtures'],[0x04,4,'ptr','volumes','ptr',['lvol'],'0x8C00'],
+          [0x08,4,'u32','volumeCount'],U(0x0C,0x14),[0x20,12,'vec3','ambient'],U(0x2C,4),
+          [0x30,12,'vec3','lightColour0'],U(0x3C,4),[0x40,12,'vec3','lightColour1'],U(0x4C,4),
+          [0x50,12,'vec3','lightDirection0'],U(0x5C,4),[0x60,12,'vec3','lightDirection1'],U(0x6C,0x14)]}),
+      A({id:'lvol', name:'LightingVolume', size:0x80, loc:'main.dat · 0x8C00',
+       f:[[0x00,4,'u32','field00'],[0x04,4,'u32','colour0 (rgb8 packed)'],[0x08,4,'u32','colour1 (rgb8 packed)'],[0x0C,4,'u32','colour2 (rgb8 packed)'],
+          [0x10,4,'u32','field10'],[0x14,1,'u8','gridExpX',null,null,'grid size = 1 << exp'],[0x15,1,'u8','gridExpY'],[0x16,1,'u8','gridExpZ'],[0x17,1,'u8','gridFlags'],
+          [0x18,4,'ptr','voxelPointer','ptr',['b_vox']],[0x1C,4,'f32','field1C'],
+          [0x20,12,'vec3','direction0'],U(0x2C,4),[0x30,12,'vec3','direction1'],U(0x3C,4),
+          [0x40,16,'vec4','axisX'],[0x50,16,'vec4','axisY'],[0x60,16,'vec4','axisZ'],[0x70,16,'vec4','centre']]}),
+      A({id:'lmap', blob:true, name:'main.dat · 0x5400 / 0x5410', loc:'lightmap descriptors',
+       note:'TextureMetadataOld-layout descriptors (colour / direction pools) referenced by Tie and UFrag lightmap indices.'}),
+      A({id:'mask', blob:true, name:'main.dat · 0x5700', loc:'two-layer blend masks',
+       note:'Descriptors for the masks that blend a second material over Tie primitives and UFrags.'}),
+      A({id:'b_vox', blob:true, name:'main.dat · 0x8D00', loc:'lighting voxel grid', note:'Per-volume grid data sampled by position.'}),
+    ]},
+    {h:'Collision (dev)', nodes:[
+      COLHDR('collision.dat (raw, not IGHW) · ToD and QfB', false), COLINST_OLD, COLMESH(false), COLVBLOCK, COLTRI, ...COLBLOBS(false),
     ]},
   ]
 },
@@ -302,15 +421,19 @@ new: {
       {id:'tieinst', name:'TieInstance', size:0x80, loc:'zones.dat (payload) · 0x7240',
        f:[[0x00,64,'mat4','transform'],[0x40,16,'vec4','boundingSphere'],
           [0x50,4,'u32','tieIndex','ref',['zlut'],'index into the zone’s 0x7200 TUID table'],
-          [0x54,4,'u32','mainDataOffset'],U(0x58,2),
-          [0x5A,2,'u16','lightMapId',null,null,'zone’s 0x5400/0x5410 pair; 0xFFFF = none'],
-          [0x5C,1,'u8','mirrored',null,null,'1 when the matrix has a negative determinant'],U(0x5D,35)]},
+          [0x54,4,'u32','prelightOffset','ext',['b_light'],'prelight words in the zone’s lighting.dat slice; 0xFFFFFFFF = none',1],U(0x58,2),
+          [0x5A,2,'u16','lightMapId','ref',['lmap'],'zone’s 0x5400/0x5410 pair; 0xFFFF = none'],
+          [0x5C,1,'u8','mirrored',null,null,'1 when the matrix has a negative determinant'],
+          [0x5D,1,'u8','cubemapIndex','ref',['cubetab'],'palette index (zone 0x72C1), rewritten at load into a cube-table index',1],U(0x5E,6),
+          [0x64,2,'u16','bakedScaleRNM',null,null,'baked-light constant c[4] (RNM shaders)',1],[0x66,2,'u16','bakedScaleFlat',null,null,'flat shaders',1],[0x68,2,'u16','bakedScaleZ',null,null,'c[4].z, .w = z / 3',1],U(0x6A,20),
+          [0x7E,2,'u16','materialSet',null,null,'picks a 0x3900 two-layer set (rare)',1]]},
       {id:'ufrag', name:'UFragMetadata', size:0x80, loc:'zones.dat (payload) · 0x6200',
        f:[U(0x00,48),[0x30,16,'vec4','boundingSphere'],
           [0x40,4,'u32','indexOffset','ext',['b_zind']],[0x44,4,'u32','vertexOffset','ext',['b_zvert']],
           [0x48,2,'u16','indexCount'],[0x4A,2,'u16','vertexCount'],U(0x4C,2),
-          [0x4E,2,'u16','lightmapIndex',null,null,'zone-local'],
-          [0x50,2,'u16','shaderIndex',null,null,'through the 0x71A0 table'],U(0x52,30),
+          [0x4E,2,'u16','lightmapIndex','ref',['lmap'],'zone-local'],
+          [0x50,2,'u16','shaderIndex',null,null,'through the 0x71A0 table'],[0x52,2,'u16','secondMaterial',null,null,'zone shader index; two-layer surfaces',1],U(0x54,4),
+          [0x58,1,'u8','blendMaskIndex','ref',['mask'],'zone 0x5700, texels in lighting.dat',1],[0x59,1,'u8','cubemapIndex','ref',['cubetab'],'palette index (zone 0x71C0)',1],U(0x5A,22),
           [0x70,12,'vec3','position'],U(0x7C,4)]},
     ]},
     {h:'TUID resolution', nodes:[
@@ -343,7 +466,7 @@ new: {
           [0x20,12,'vec3','scale'],[0x2C,4,'f32','scaleW'],[0x30,16,'vec4','boundingSphere'],
           [0x40,12,'vec3','boundsHalfExtents'],U(0x4C,4),[0x50,12,'vec3','boundsCenter'],U(0x5C,8),
           [0x64,4,'ptr','nameOffset','ptr'],[0x68,8,'u64','TUID'],U(0x70,4),
-          [0x74,4,'ptr','auxiliaryPointer','ptr',null,'0xFFFFFFFF = none; sections 0x3900, 0x5700–0x5900'],U(0x78,8)]},
+          [0x74,4,'ptr','auxiliaryPointer','ptr',['twolayer'],'0xFFFFFFFF = none; points at section 0x3900',1],U(0x78,8)]},
       {id:'shader', name:'ShaderMetadataNew', size:0x80, loc:'shaders.dat (payload) · 0x5000',
        f:[[0x00,4,'s32','albedo',null,null,'texture key, resolved by the loader'],
           [0x04,4,'s32','normal'],[0x08,4,'s32','expensive'],[0x0C,4,'s32','detailMap'],
@@ -355,13 +478,34 @@ new: {
       {id:'tiemesh', name:'TieMesh', size:0x40, loc:'array pointed to by the tie class',
        f:[[0x00,4,'u32','indicesIndex','ext',['b_tind']],
           [0x04,2,'u16','verticesIndex','ext',['b_tvert']],U(0x06,2),
-          [0x08,2,'u16','verticesCount'],U(0x0A,8),[0x12,2,'u16','indicesCount'],U(0x14,12),
+          [0x08,2,'u16','verticesCount'],[0x0A,2,'u16','blendMaskIndex','ref',['mask'],'tie payload 0x5700 / 0x5800; 0xFFFF = none',1],U(0x0C,6),[0x12,2,'u16','indicesCount'],U(0x14,12),
           [0x20,1,'u8','featureMask'],U(0x21,5),
           [0x26,1,'u8','shaderIndexA4O',null,null,'slot used by All 4 One'],U(0x27,3),
           [0x2A,1,'u8','shaderIndex','ref',['stuid'],'index into the payload’s 0x5600'],U(0x2B,5),
           [0x30,2,'s16','fadeNormalDistance'],[0x32,2,'s16','fadeReflectionDistance'],
           [0x34,2,'s16','fadeDetailDistance'],[0x36,2,'s16','fadeUnitDistance'],U(0x38,8)]},
       TIEPRIM,
+      A({id:'twolayer', name:'TwoLayerEntry', size:0x04, loc:'tie payload · 0x3900 (per primitive, per material set)',
+       f:[[0x00,2,'u16','material','ref',['stuid'],'0x5600 index'],[0x02,2,'u16','secondMaterial','ref',['stuid'],'0xFFFF = single layer']]}),
+      A({id:'uvanimnew', name:'UvAnimationNew', size:0x60, sizeLabel:'0x60 (ACiT 0x50)', loc:'moby / tie payload · 0x5C00, zone UFrags',
+       f:[[0x00,2,'u16','tag',null,null,'high nibble: 0 Tie, 1 UFrag, 2 Moby, 3 skinned Moby'],[0x02,2,'u16','vertexCount'],
+          [0x04,2,'u16','ufragIndex',null,null,'UFrag records only'],U(0x06,2),
+          [0x08,4,'u32','frag','ext',['b_mvert','b_tvert'],'Moby: offset in 0xE200; Tie: vertex index'],
+          [0x0C,4,'u32','baseUvOffset',null,null,'base UVs in 0x5C01'],U(0x10,16),
+          [0x20,8,'f32×2','pivot',null,null,'absent in ACiT (fields below shift by −0x10)'],[0x28,8,'f32×2','99999 pair'],
+          [0x30,8,'f32×2','scroll (/s)'],[0x38,4,'f32','rotation (rad/frame, 30 Hz)'],U(0x3C,0x24)]}),
+      A({id:'animblock', name:'AnimationAuxBlockNew', size:0x80, loc:'animsets.dat (payload) · 0xF990',
+       f:[[0x00,64,'mat4','matrix'],[0x40,4,'ptr','f000Pointer','ptr',['animnew']],[0x44,4,'ptr','f400Pointer','ptr',['animauxnew']],
+          [0x48,4,'ptr','fc00Pointer','ptr'],[0x4C,4,'ptr','fd00Pointer','ptr'],U(0x50,0x30)]}),
+      A({id:'animnew', name:'AnimationMetadataNew', size:0x60, sizeLabel:'0x60 / 0x40', loc:'animsets.dat (payload) · 0xF000',
+       f:[[0x00,2,'u16','localAnimationIndex'],[0x02,2,'u16','flags'],[0x04,2,'u16','numBones'],[0x06,2,'u16','numFrames'],
+          [0x08,4,'ptr','namePtr','ptr'],[0x0C,4,'ptr','frameRemapPtr','ptr'],U(0x10,4),
+          [0x14,4,'f32','linearSpeed'],[0x18,4,'f32','frameRate'],U(0x1C,4),
+          [0x20,4,'ptr','controlPtr','ptr'],[0x24,4,'ptr','framesPtr','ptr'],U(0x28,8),
+          [0x30,2,'u16','controlByteSize'],[0x32,2,'u16','frameStride'],[0x34,2,'u16','numReferenceValues'],
+          [0x36,2,'u16','num16BitTracks'],[0x38,2,'u16','num8BitTracks'],[0x3A,2,'u16','auxiliarySampleCount'],U(0x3C,0x24)]}),
+      A({id:'animauxnew', name:'AnimationAuxMetadataNew', size:0x20, loc:'animsets.dat (payload) · 0xF400',
+       f:[U(0x00,12),[0x0C,4,'f32','linearSpeed × frameRate'],[0x10,4,'f32','lastSampleTime'],[0x14,4,'f32','duration'],U(0x18,8)]}),
     ]},
     {h:'Geometry', nodes:[
       MOBYMESH('stuid','index into the payload’s 0x5600','b_mvert','b_mind'), BONE,
@@ -377,6 +521,93 @@ new: {
       {id:'b_zind', blob:true, name:'zone payload · 0x6100', loc:'zone UFrag indices (u16)', note:'Section-relative.'},
       {id:'b_texd', blob:true, name:'textures.dat / highmips.dat', loc:'raw files',
        note:'Low-resolution mips through 0x1D180, high-resolution through 0x1D1C0. Both pointers of a texture share its TUID and its 0x1D140 index.'},
+    ]},
+    {h:'Region environment (0.06)', nodes:[
+      A({id:'ztuid', name:'Zone TUID', size:0x08, loc:'<region>/region.dat · 0x1C010',
+       f:[[0x00,8,'u64','zoneTUID','ref',['aptr'],'assetlookup 0x1DA00 → zones.dat']]}),
+      A({id:'zname', name:'Zone name pointer', size:0x04, loc:'<region>/region.dat · 0x1C000',
+       f:[[0x00,4,'ptr','nameOffset','ptr',null,'string in region.dat; index-parallel to 0x1C010 (1010/1010 zones named)']]}),
+      A({id:'cubetab', name:'Cubemap TUID', size:0x08, loc:'<region>/region.dat · 0x1C200 (+ 0x8100)',
+       f:[[0x00,8,'u64','cubemapTUID','ref',['aptr'],'assetlookup 0x1D200 → cubemaps.dat (0x5920 descriptors, 0x5940 texels, 0x5A00 keys)']]}),
+      A({id:'cam', name:'RegionCamera', size:0x30, loc:'<region>/region.dat · 0x8100',
+       f:[U(0x00,4),[0x04,4,'f32','farClip'],[0x08,4,'f32','nearClip'],U(0x0C,0x14),
+          [0x20,8,'u64','cubemapTUID','ref',['aptr']],[0x28,8,'u64','cubemapTUID (alt)','ref',['aptr'],'ACiT uses a 0x100 record with another layout']]}),
+      A({id:'atmos', name:'Atmosphere / bloom', size:0x94, sizeLabel:'≥ 0x94', loc:'<region>/region.dat · 0x34000',
+       f:[[0x00,4,'u32','version',null,null,'5'],U(0x04,12),[0x10,12,'vec3','scatterDirection'],[0x1C,12,'vec3','scatterColour'],
+          [0x28,4,'f32','intensity'],[0x2C,4,'f32','turbidity'],[0x30,4,'f32','phaseG',null,null,'Henyey-Greenstein'],U(0x34,0x4C),
+          [0x80,4,'f32','bloomExtractScale'],[0x84,4,'f32','bloomExtractExponent'],[0x88,4,'f32','bloomLevelWeight'],
+          [0x8C,4,'f32','bloomHistoryBlend'],[0x90,4,'f32','bloomIntensity']]}),
+      A({id:'fogtab', blob:true, name:'region.dat · 0x34004 / 0x34003', loc:'fog / in-scatter tables',
+       note:'512 big-endian ARGB words each (0x800 bytes). Fog K = pow(lerp(entry, t × 512), 2.2), t = distance / far plane.'}),
+      A({id:'sun', name:'RegionSun', size:0x80, loc:'<region>/region.dat · 0x1DB03 (QForce, A4O)',
+       f:[U(0x00,0x10),[0x10,12,'vec3','towardSun'],U(0x1C,4),[0x20,3,'u8×3','sunColour',null,null,'(byte / 256)² × intensity'],U(0x23,1),
+          [0x24,4,'f32','sunIntensity'],U(0x28,0x38),[0x60,3,'u8×3','ambientColour'],U(0x63,1),[0x64,4,'f32','ambientIntensity'],U(0x68,0x18)]}),
+      A({id:'rroot', name:'RegionLighting', size:0xC0, sizeLabel:'0xC0 (ACiT 0xA0)', loc:'<region>/region.dat · 0x8B00',
+       f:[U(0x00,0x30),[0x30,12,'vec3','sunDirection'],U(0x3C,4),[0x40,12,'vec3','sunDirection (copy)',null,null,'ACiT 0xA0 layout: ambient here, colours +0x50/+0x60, directions +0x70/+0x80'],U(0x4C,4),
+          [0x50,12,'vec3','towardSun'],U(0x5C,0x34),
+          [0x90,4,'f32','reflOcclusionFloor'],[0x94,4,'f32','reflOcclusionFullLum',null,null,'refl *= saturate(b + (1 − b) · lum / a)'],U(0x98,0x28)]}),
+      A({id:'skyptr', name:'SkyPointer', size:0x20, loc:'<region>/region.dat · 0x81B0 (one per sky)',
+       f:[[0x00,8,'u64','skyTUID'],[0x08,4,'u32','skyOffset','ptr',['ighw'],'embedded sky IGHW inside region.dat (0x81C0)'],
+          [0x0C,4,'u32','skyEnd'],[0x10,4,'u32','texelBase','ext',['b_sky']],U(0x14,12)]}),
+      A({id:'skyslot', name:'set_sky slot', size:0x04, loc:'<region>/region.dat · 0x81E0',
+       f:[[0x00,4,'s32','skyIndex','ref',['skyptr'],'which 0x81B0 sky a SKY_* slot selects']]}),
+      SKYDEFS('sky','embedded sky IGHW · 0x8150','b_skymesh','b_skymesh','b_sky','index into the sky’s own 0x5200','offset in the sky’s 0x8180','offset in the sky’s 0x8190'),
+      SKYFAM('skyfam','embedded sky IGHW · 0x8160 / 0x8170','b_skymesh'),
+      SKYVERT,
+      A({id:'b_skymesh', blob:true, name:'sky IGHW · 0x8180 / 0x8190', loc:'shell vertices / indices', note:'Replaces vertices.dat 0x9000 / 0x9100 for the new-engine sky.'}),
+      A({id:'b_sky', blob:true, name:'<region>/sky.dat', loc:'raw file', note:'Sky texels, from texelBase + descriptor offset.'}),
+    ]},
+    {h:'Zone extras (0.06)', nodes:[
+      A({id:'iname', name:'InstanceNameRecord', size:0x10, loc:'zone · 0x72C0 (Tie) / 0x74C0 (Shrub)',
+       f:[[0x00,8,'u64','TUID'],[0x08,4,'ptr','namePointer','ptr'],U(0x0C,4)],}),
+      A({id:'shrubinst', name:'ShrubInstance', size:0x40, loc:'zone · 0x7540',
+       f:[[0x00,12,'vec3','position'],[0x0C,4,'f32','scale'],[0x10,12,'vec3','axisA'],[0x1C,4,'f32','variant'],
+          [0x20,12,'vec3','axisB'],U(0x2C,4),[0x30,12,'vec3','colour'],
+          [0x3C,4,'u32','classIndex','ref',['shrubcls'],'index into zone 0x7500']]}),
+      A({id:'shrubgrp', name:'ShrubCullGroup', size:0x20, loc:'zone · 0x75D0',
+       f:[[0x00,16,'vec4','boundingSphere'],[0x10,4,'u32','firstPlacement','ref',['shrubinst']],U(0x14,4),
+          [0x18,2,'u16','placementCount'],U(0x1A,6)]}),
+      A({id:'shrubcls', name:'Shrub class TUID', size:0x08, loc:'zone · 0x7500',
+       f:[[0x00,8,'u64','shrubTUID','ref',['aptr'],'assetlookup 0x1D500 → shrubs.dat']]}),
+      A({id:'shrubhdr', name:'ShrubClass', size:0x80, loc:'shrubs.dat (payload) · 0xB100',
+       f:[U(0x00,8),[0x08,4,'u32','indexCount',null,null,'= 0xB400 length / 2'],U(0x0C,4),[0x10,4,'f32','unk10'],
+          [0x14,4,'f32','farDistance',null,null,'INFERRED from value ranges'],[0x18,4,'f32','nearDistance'],[0x1C,4,'f32','unk1C'],U(0x20,8),
+          [0x28,8,'u64','TUID'],U(0x30,0x50)]}),
+      A({id:'shrubvert', name:'ShrubVertex', size:0x10, loc:'shrubs.dat (payload) · 0xB300',
+       f:[[0x00,6,'s16×3','position',null,null,'divided by w'],[0x06,2,'s16','w (32767)'],[0x08,4,'half×2','uv'],
+          [0x0C,2,'half','bendWeight',null,null,'0 at the base (INFERRED)'],[0x0E,2,'half','zero']]}),
+      A({id:'navchunk', name:'NavmeshChunk', size:0x40, loc:'zone · 0x19000',
+       f:[U(0x00,2),[0x02,2,'u16','vertexCount'],U(0x04,2),[0x06,2,'u16','edgeCount'],U(0x08,2),[0x0A,2,'u16','faceCount'],U(0x0C,0x14),
+          [0x20,4,'u32','dataOffset','ptr',['navvert','navedge','navface'],'into 0x19200, 128-byte aligned: V vertices, then E edges, then F faces'],U(0x24,12),
+          [0x30,16,'vec4','boundingSphere']]}),
+      A({id:'navvert', name:'NavmeshVertex', size:0x10, loc:'zone · 0x19200', f:[[0x00,12,'vec3','position'],[0x0C,4,'u32','zero']]}),
+      A({id:'navedge', name:'NavmeshEdge', size:0x10, loc:'zone · 0x19200',
+       f:[[0x00,2,'u16','v0','ref',['navvert']],[0x02,2,'u16','v1','ref',['navvert']],U(0x04,4),
+          [0x08,2,'u16','ownerChunk','ref',['navchunk']],[0x0A,2,'u16','farChunk','ref',['navchunk'],'0xFFFF = boundary'],U(0x0C,4)]}),
+      A({id:'navface', name:'NavmeshFace', size:0x30, loc:'zone · 0x19200',
+       f:[[0x00,2,'u16','edge0','ref',['navedge'],'bit 15 = traverse backwards'],[0x02,2,'u16','edge1','ref',['navedge']],[0x04,2,'u16','edge2','ref',['navedge']],U(0x06,0x2A)]}),
+      A({id:'lmap', blob:true, name:'zone · 0x5400 / 0x5410', loc:'lightmap descriptors (colour / direction)',
+       note:'TextureMetadataOld-layout RSX descriptors; texels in lighting.dat (assetlookup 0x1DB00, same zone TUID), high-res half in highlight.dat.'}),
+      A({id:'mask', blob:true, name:'zone / tie · 0x5700 / 0x5800', loc:'two-layer blend masks', note:'Descriptors (0x5700) over texels (0x5800, keyed by 0x5900); zone masks keep texels in lighting.dat.'}),
+      A({id:'b_light', blob:true, name:'lighting.dat / highlight.dat', loc:'raw files', note:'Per-zone slices: lightmap texels, blend-mask texels and Tie prelight words.'}),
+    ]},
+    {h:'Collision (dev)', nodes:[
+      COLHDR('<region>/collision.dat · 0x2900', true), COLINST_NEW, COLMESH(true), COLVBLOCK, COLTRI,
+      D({id:'primset', name:'CollisionPrimitiveSet', size:0x20, loc:'0x2900 shape blob (shape flags & 0x400)',
+       f:[[0x00,2,'u16','firstBlockOffset','ptr',['primdesc'],'0x20'],[0x02,2,'u16','primitiveCount',null,null,'≤ 16'],U(0x04,0xC),
+          [0x10,4,'u8×4','countPerKind',null,null,'box, sphere, capsule, cylinder; sums to the count'],U(0x14,0xC)]}),
+      D({id:'primdesc', name:'CollisionPrimitiveDescriptor', size:0x10, loc:'per kind, per group of 4: 4 descriptors, then the group’s data',
+       f:[[0x00,1,'u8','kindCode',null,null,'4 box, 5 sphere, 6 capsule, 8 cylinder'],[0x01,1,'u8','unk01',null,null,'0..2'],U(0x02,1),
+          [0x03,1,'u8','unk03',null,null,'0xFF on most'],U(0x04,4),
+          [0x08,2,'u16','index',null,null,'primitive’s index in the set'],[0x0A,1,'u8','mask?',null,null,'0x1F most, 0x17 most cylinders'],U(0x0B,1),
+          [0x0C,4,'f32','unk0C',null,null,'1.0 (0.0 on most ACiT sets)'],
+          [0x10,0,'[]','group data','ext',['b_primdata'],'follows the 4 descriptors']]}),
+      D({id:'b_primdata', blob:true, name:'primitive group data (SoA)', loc:'after each group’s 4 descriptors',
+       note:'One vec4 row per value, lane k = primitive k, unused lanes 1.0. Box 15 rows: centre, 3×3 rotation (rows = axes), half extents. Sphere 4: centre, radius. Capsule and cylinder 7: end A, end B, radius.'}),
+      ...COLBLOBS(true),
+      D({id:'b_coltab', blob:true, name:'header table', loc:'header +0x6C (before the instances)', note:'8-byte records; the second word (0xD2xxxxxx) recurs in 0x8200. Not decoded.'}),
+      D({id:'b_col8200', blob:true, name:'<region>/collision.dat · 0x8200', loc:'little-endian table', note:'+0x14 record count; 16-byte records {u16 index, u16 value (multiples of 60, likely frames), …}. Not geometry, not decoded.'}),
+      D({id:'b_col8300', blob:true, name:'<region>/collision.dat · 0x8300', loc:'grid of some kind', note:'+0x10 = 3.0 then signed 16-bit cell bounds. Not geometry, not decoded.'}),
     ]},
   ]
 }};
@@ -404,10 +635,12 @@ function render(engine){
 
 function buildNode(n){
   const el = document.createElement('article');
-  el.className = 'node' + (n.blob?' blob':''); el.id = 'n-'+n.id;
+  const hasNew = n.added || (!n.blob && n.f.some(f=>f[7]));
+  el.className = 'node' + (n.blob?' blob':'') + (hasNew?' has-new':''); el.id = 'n-'+n.id;
   const head = document.createElement('div'); head.className='nh'; head.tabIndex=0; head.setAttribute('role','button');
   head.setAttribute('aria-label', `Isolate links of ${n.name}`);
-  let html = `<div class="nt"><b>${n.name}</b>${n.blob?'':`<span class="sz mono">${n.sizeLabel||hex(n.size)}</span>`}</div><div class="loc mono">${n.loc}</div>`;
+  const badge = n.ver ? `<span class="nb dev" title="Added after v0.06-alpha.1 (unreleased)">${n.ver}</span>` : '<span class="nb" title="New in v0.06-alpha.1">0.06</span>';
+  let html = `<div class="nt"><b>${n.name}${n.added?badge:''}</b>${n.blob?'':`<span class="sz mono">${n.sizeLabel||hex(n.size)}</span>`}</div><div class="loc mono">${n.loc}</div>`;
   if(!n.blob){
     html += '<div class="bytes" aria-hidden="true">';
     n.f.forEach(f => { if(f[1]>0) html += `<i class="k-${kindClass(f[4])}" style="flex:${f[1]}"></i>`; });
@@ -422,10 +655,10 @@ function buildNode(n){
   } else {
     const rows=document.createElement('div'); rows.className='rows mono';
     n.f.forEach((f,i)=>{
-      const [o,s,t,name,kind,targets,note]=f;
+      const [o,s,t,name,kind,targets,note,isNew]=f;
       const r=document.createElement('div');
       const k=kindClass(kind);
-      r.className='r'+(k==='unk'?' unk':'')+(targets&&targets.length?` link k-${k}-row`:(k==='ptr'||k==='ref'||k==='ext'?` k-${k}-row`:''));
+      r.className='r'+(isNew?' nw':'')+(k==='unk'?' unk':'')+(targets&&targets.length?` link k-${k}-row`:(k==='ptr'||k==='ref'||k==='ext'?` k-${k}-row`:''));
       const label = k==='unk' ? `${s} bytes` : name;
       r.innerHTML=`<span class="o">${hex(o)}</span><span class="t">${k==='unk'?'unk':t}</span><span class="n">${label}</span>${note?`<span class="note">${note}</span>`:''}`;
       if(targets&&targets.length){
@@ -510,6 +743,7 @@ function route(){
   render(h==='new' ? 'new' : 'old');
 }
 window.addEventListener('hashchange', route);
+document.getElementById('onlynew').addEventListener('change', e=>{ document.body.classList.toggle('only-new', e.target.checked); requestAnimationFrame(drawWires); });
 window.addEventListener('keydown', e=>{ if(e.key==='Escape' && selected){ selected=null; applySelection(); } });
 let rt; window.addEventListener('resize', ()=>{ clearTimeout(rt); rt=setTimeout(drawWires,80); });
 route();

@@ -36,6 +36,7 @@ public sealed class LevelReader
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
     private IReadOnlyList<Assets.Sky.LevelSky>? _skies;
     private Assets.Lighting.LevelFog? _levelFog;
+    private readonly Dictionary<string, Assets.Collision.LevelCollision> _collisionByRegion = [];
 
     private readonly Games.GameDefinition? _gameDefinition;
 
@@ -217,6 +218,20 @@ public sealed class LevelReader
         if (_fileManager.isOld && _lightingEnvironment != null && _levelFog?.Bloom is { } oldBloom)
             _lightingEnvironment.Bloom = oldBloom;
 
+        // Static collision: the level's collision.dat on the old engine, each region's on the new.
+        var collisionReader = new CollisionReader(_fileManager);
+        if (_fileManager.isOld)
+        {
+            if (collisionReader.Read(null) is { } oldCollision)
+                _collisionByRegion[""] = oldCollision;
+        }
+        else
+        {
+            foreach (var region in _regions)
+                if (region.Name is { } name && collisionReader.Read(name) is { } regionCollision)
+                    _collisionByRegion[name] = regionCollision;
+        }
+
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above - see MaterialReader.GetAllTextures.
         var allTextures = _materialReader.GetAllTextures();
@@ -250,7 +265,8 @@ public sealed class LevelReader
             lightingEnvironment: _lightingEnvironment,
             skies: _skies,
             gameDefinition: _gameDefinition,
-            levelFog: _levelFog);
+            levelFog: _levelFog,
+            collisionByRegion: _collisionByRegion);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -337,6 +353,11 @@ public sealed class LevelData
     /// whose fog lives in <see cref="LightingEnvironment"/>.</summary>
     public Assets.Lighting.LevelFog? LevelFog { get; }
 
+    /// <summary>Static collision, keyed by region name on the new engine (each region has its own
+    /// collision.dat, and a TIE several regions share is in each of them). The old engine has one,
+    /// under the empty name. Empty when the level ships none.</summary>
+    public IReadOnlyDictionary<string, Assets.Collision.LevelCollision> CollisionByRegion { get; }
+
     /// <summary>The game the level belongs to, when its name is one a game lists (see
     /// Games.GameDefinitions.FromLevelPath); null otherwise.</summary>
     public Games.GameDefinition? GameDefinition { get; }
@@ -366,7 +387,8 @@ public sealed class LevelData
         Assets.Lighting.LightingEnvironment? lightingEnvironment = null,
         IReadOnlyList<Assets.Sky.LevelSky>? skies = null,
         Games.GameDefinition? gameDefinition = null,
-        Assets.Lighting.LevelFog? levelFog = null)
+        Assets.Lighting.LevelFog? levelFog = null,
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisionByRegion = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -390,5 +412,6 @@ public sealed class LevelData
         Skies = skies ?? [];
         GameDefinition = gameDefinition;
         LevelFog = levelFog;
+        CollisionByRegion = collisionByRegion ?? new Dictionary<string, Assets.Collision.LevelCollision>();
     }
 }

@@ -86,6 +86,10 @@ void main() {
     float m = p.b.x * c.a;
     float g = m > 0.0 ? exp2(log2(m) * p.b.y) : 0.0;
     o = p.b.z > 0.5 ? c * g : vec4(g);
+    // Whatever the scene holds, nothing non-finite may enter the bloom chain: the combine pass mixes
+    // in last frame's result, so a single NaN or Inf would stay forever and spread through the
+    // downsampled levels as a growing black square (seen with the collision overlay, see its shader).
+    if (any(isnan(o)) || any(isinf(o))) o = vec4(0.0);
 }";
 
     // Entries 0xA5 / 0xA6: three bilinear taps (+0.196, -1.175, +2 texels; 1.24414, 0.295654, 0.0516968),
@@ -107,6 +111,8 @@ void main() {
     vec4 c = texture(s0, uv) * p.b.x + texture(s1, uv) * p.b.y + texture(s2, uv) * p.b.z;
     c = mix(c, texture(s3, uv), p.b.w);
     o = c - 1.0 / 255.0;
+    // The history's own guard (see the extract): never carry a non-finite value into next frame.
+    if (any(isnan(o)) || any(isinf(o))) o = vec4(0.0);
 }";
 
     // Entries 0x7A / 0x7B: the 5-tap Gaussian (0.408925, 0.243839, 0.051699). a.xy = 1 / size, b.xy = axis.

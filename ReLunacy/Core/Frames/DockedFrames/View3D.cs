@@ -39,6 +39,11 @@ public class View3D : DockedFrame
     // and its buffers with it, so tracking the level alone would leave the overlay silently empty.
     private Engine.Loading.Readers.LevelData? navmeshLevel;
     private Engine.Rendering.Vulkan.VulkanRenderer? navmeshRenderer;
+    // Same for the collision overlay, plus the region each uploaded collision came from, in the order
+    // CollisionGeometry.Build numbered them, so the Zones menu's region toggles can be followed.
+    private Engine.Loading.Readers.LevelData? collisionLevel;
+    private Engine.Rendering.Vulkan.VulkanRenderer? collisionRenderer;
+    private string[] collisionRegions = [];
     public bool ReflectionDebugView { get => lighting.ReflectionDebugView; set => lighting.ReflectionDebugView = value; }
     public float ReflectionBase { get => lighting.ReflectionBase; set => lighting.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
@@ -160,13 +165,39 @@ public class View3D : DockedFrame
 
     private bool showClipControls;
 
-    /// <summary>Toolbar over the 3D viewport, same component the asset preview uses. Scoped to
-    /// controls that describe THIS viewport; anything scene-wide belongs in the settings frame.
+    /// <summary>Toolbar over the 3D viewport, same component the asset preview uses. Holds the
+    /// switches flipped often enough that reopening a menu each time gets in the way: clip, the
+    /// shading mode (lit, and the game's RSX shaders on top of it), and the navmesh and collision
+    /// overlays. Their finer options stay in the Render menu.
     /// The viewport opened the overlay when it drew the image, so this only adds to it.</summary>
     private void DrawViewportOverlay()
     {
         var overlay = _viewport.Overlay;
+        var settings = Program.Settings;
+        var em = EntityManager.Singleton;
         overlay.ToggleButton("C", ref showClipControls, LM.Get("GUI_Frame_AssetViewer_ClipControls"));
+
+        // Shading: unlit / lit, and the RSX shaders, which only exist on the lit path - greyed out
+        // while unlit, keeping its own state for when lighting comes back.
+        overlay.Gap();
+        if (overlay.ToggleButton(Icons.Lightbulb, ref settings.EnableLighting,
+                LM.Get(settings.EnableLighting ? "GUI_Viewport_Lit" : "GUI_Viewport_Unlit")))
+            settings.SaveSettingsToFile();
+        if (overlay.ToggleButton(Icons.Microchip, ref settings.GameShaders,
+                LM.Get(settings.EnableLighting ? "GUI_Viewport_RsxShaders" : "GUI_Viewport_RsxShadersNeedLit"),
+                enabled: settings.EnableLighting))
+            settings.SaveSettingsToFile();
+
+        // Inspection overlays. Greyed out when the level has none, rather than toggling nothing.
+        overlay.Gap();
+        bool hasNavmesh = HasNavmesh();
+        if (overlay.ToggleButton(Icons.Route, ref em.renderNavmesh,
+                LM.Get(hasNavmesh ? "GUI_Viewport_Navmesh" : "GUI_Viewport_NoNavmesh"), enabled: hasNavmesh))
+            MenuBar.RenderMenuDraw.PersistRenderSettings();
+        bool hasCollision = em.CollisionSummary != null;
+        if (overlay.ToggleButton(Icons.DrawPolygon, ref em.renderCollision,
+                LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision))
+            MenuBar.RenderMenuDraw.PersistRenderSettings();
 
         if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f)))
         {
@@ -212,6 +243,58 @@ public class View3D : DockedFrame
         if (vertices.Length > 0)
             Console.WriteLine($"[Navmesh] {navmeshes.Count} zone(s), {vertices.Length} vertices, " +
                               $"{indices.Length / 3} triangles, {edges.Length} wireframe edges.");
+    }
+
+    // Whether the loaded level has a navmesh, recomputed when the level changes rather than per frame.
+    private Engine.Loading.Readers.LevelData? navmeshCheckedLevel;
+    private bool levelHasNavmesh;
+
+    private bool HasNavmesh()
+    {
+        var level = Core.LunaWindow.Instance.Level;
+        if (!ReferenceEquals(level, navmeshCheckedLevel))
+        {
+            navmeshCheckedLevel = level;
+            levelHasNavmesh = level?.Zones.Values.Any(z => z.Navmesh != null) == true;
+        }
+        return levelHasNavmesh;
+    }
+
+    /// <summary>Builds and uploads the level's collision overlay, when it is not already there. A level
+    /// with none uploads nothing, which clears what a previous level left behind.</summary>
+    private void UploadCollisionIfStale(Engine.Rendering.Vulkan.VulkanRenderer renderer)
+    {
+        var level = Core.LunaWindow.Instance.Level;
+        if (ReferenceEquals(collisionLevel, level) && ReferenceEquals(collisionRenderer, renderer)) return;
+        collisionLevel = level;
+        collisionRenderer = renderer;
+
+        var byRegion = level?.CollisionByRegion.ToList() ?? [];
+        collisionRegions = [.. byRegion.Select(kv => kv.Key)];
+        var (vertices, instances, batches, summary) = Engine.Rendering.CollisionGeometry.Build([.. byRegion.Select(kv => kv.Value)]);
+        renderer.SetCollision(vertices, instances, batches);
+        EntityManager.Singleton.CollisionSummary = batches.Length > 0 ? summary : null;
+        if (batches.Length > 0)
+            Console.WriteLine($"[Collision] {byRegion.Count} region(s), {summary.Instances} instance(s) " +
+                              $"({summary.DuplicateInstances} repeated between regions), {summary.Shapes} unique shape(s), " +
+                              $"{summary.PlacedTriangles} placed triangle(s), {batches.Length} draw(s).");
+    }
+
+    /// <summary>Bit N set when the Nth uploaded collision's region is shown in the Zones menu. The old
+    /// engine's single collision is keyed by the empty name and follows the level's one region.</summary>
+    private uint CollisionRegionMask()
+    {
+        uint mask = 0;
+        var regions = EntityManager.Singleton.Regions;
+        for (int i = 0; i < collisionRegions.Length; i++)
+        {
+            var region = collisionRegions[i].Length == 0
+                ? regions.FirstOrDefault()
+                : regions.FirstOrDefault(r => r.RegionName == collisionRegions[i]);
+            if (region == null || region.allowRender)
+                mask |= 1u << Math.Min(i, 31);
+        }
+        return mask;
     }
 
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
@@ -338,7 +421,15 @@ public class View3D : DockedFrame
                 SkyRenderOptions.Enabled = Program.Settings.RenderSky;
                 OldEngineRenderOptions.FogEnabled = Program.Settings.OldEngineFog;
                 OldEngineRenderOptions.ReflectionsEnabled = Program.Settings.OldEngineReflections;
-                Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = Program.Settings.GameShaders;
+                // The RSX shaders belong to the lit path (the viewport toolbar greys them out while
+                // unlit). Which ones a draw uses is decided when the scene is built, so a change
+                // rebuilds it, as the switch in the Render menu used to.
+                bool rsx = Program.Settings.EnableLighting && Program.Settings.GameShaders;
+                if (rsx != Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders)
+                {
+                    Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = rsx;
+                    Core.LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+                }
                 // Per-material culling comes from the retail raster state (_matCullBack); this switch
                 // gates it so the editor can still inspect geometry double-sided. Pushed per frame so
                 // the toggle takes effect live, without a scene rebuild.
@@ -352,6 +443,14 @@ public class View3D : DockedFrame
                     ? (chunk.FirstIndex, chunk.IndexCount)
                     : (0, 0);
                 vkStage.NavmeshSelectionColor = Program.Settings.SelectionOutlineColor with { W = 0.8f };
+                // The collision overlay, the same way: live look, geometry uploaded once per level.
+                UploadCollisionIfStale(vkStage);
+                vkStage.CollisionVisible = EntityManager.Singleton.renderCollision;
+                vkStage.CollisionColorMode = Program.Settings.CollisionColorMode;
+                vkStage.CollisionCategories = Program.Settings.CollisionCategories;
+                vkStage.CollisionOpacity = Program.Settings.CollisionOpacity;
+                vkStage.CollisionOutlines = Program.Settings.CollisionOutlines;
+                vkStage.CollisionRegionMask = CollisionRegionMask();
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(

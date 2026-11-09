@@ -914,6 +914,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreatePipelines();
         CreateBloomPipelines();
         CreateNavmeshPipelines();
+        CreateCollisionPipeline();
         BuildRetailShaders(materials, instanceLights);
         long tPipelines = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateTargets(graphicsDevice);
@@ -1794,8 +1795,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         DrawVisible(_pipelineOpaque, _visibleOpaqueLate, _visOpaqueLateCount);
         DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
         DrawVolumes();
-        // After the volumes so the navmesh overlay blends over the finished scene, and in the load
-        // pass so it is not cleared away.
+        // After the volumes so the overlays blend over the finished scene, and in the load pass so they
+        // are not cleared away. Collision first: it writes depth, and the navmesh floats over the floor
+        // collision it was built on, so it stays visible on top.
+        DrawCollision();
         DrawNavmesh();
         _api.vkCmdEndRenderPass(_cmd);
 
@@ -2521,6 +2524,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         DestroyRetailShaders();
         DestroyBloomPipelines();
         DestroyNavmeshPipelines();
+        DestroyCollisionPipeline();
         _api.vkDestroyPipeline(_pipelineOpaque);
         _api.vkDestroyPipeline(_pipelineOpaqueCull);
         _api.vkDestroyPipeline(_pipelineOpaqueCullCw);
