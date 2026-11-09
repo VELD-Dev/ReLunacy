@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IGHW structure map (Ratchet & Clank Future)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E8ECF0; --card:#F7F9FB; --ink:#17212B; --muted:#56636F; --rule:#C2CAD3; --grid:#DCE2E8;
+  --ptr:#2A5FC4; --ref:#A8406A; --ext:#A86E0C; --plain:#6F7E8C; --unk:#B9C1CA;
+  --sel:#17212B;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#11171E; --card:#19212A; --ink:#DCE3EA; --muted:#93A0AC; --rule:#33404D; --grid:#1B232C;
+    --ptr:#7EA6F2; --ref:#E388AC; --ext:#E3AE52; --plain:#8796A4; --unk:#3C4855; --sel:#DCE3EA;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#11171E; --card:#19212A; --ink:#DCE3EA; --muted:#93A0AC; --rule:#33404D; --grid:#1B232C;
+  --ptr:#7EA6F2; --ref:#E388AC; --ext:#E3AE52; --plain:#8796A4; --unk:#3C4855; --sel:#DCE3EA;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; font-size:15px; line-height:1.5;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:24px 24px;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace}
+header{padding:28px 28px 8px;max-width:1100px}
+h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px;line-height:1.15}
+.lede{color:var(--muted);max-width:72ch;margin:0 0 18px}
+.bar{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:center;padding:0 28px 16px}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--card)}
+.seg a{padding:7px 14px;color:var(--muted);text-decoration:none;font-weight:500;font-size:14px}
+.seg a[aria-current="page"]{background:var(--ink);color:var(--card)}
+.seg a:focus-visible{outline:2px solid var(--ptr);outline-offset:-2px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.sw{width:22px;height:0;border-top:2px solid}
+.sw.ptr{border-color:var(--ptr)} .sw.ref{border-color:var(--ref);border-top-style:dashed} .sw.ext{border-color:var(--ext);border-top-style:dotted;border-top-width:3px}
+.sq{width:12px;height:12px;border-radius:2px;display:inline-block}
+.hint{font-size:13px;color:var(--muted);padding:0 28px 10px}
+.scroller{overflow-x:auto;padding:4px 0 40px}
+.canvas{position:relative;display:flex;gap:64px;padding:8px 28px 24px;width:max-content;align-items:flex-start}
+svg.wires{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.col{display:flex;flex-direction:column;gap:22px;width:300px;position:relative;z-index:1}
+.colh{font-size:13px;color:var(--muted);font-weight:500;border-bottom:1px solid var(--rule);padding-bottom:4px;margin-bottom:-6px}
+.node{background:var(--card);border:1px solid var(--rule);border-radius:6px;transition:opacity .15s,border-color .15s}
+.node.blob{border-style:dashed}
+.nh{padding:9px 11px 7px;cursor:pointer;border-bottom:1px solid var(--rule)}
+.nh:focus-visible{outline:2px solid var(--ptr);outline-offset:2px}
+.nt{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.nt b{font-weight:600;font-size:15px}
+.nt .sz{font-size:12px;color:var(--muted)}
+.loc{font-size:12px;color:var(--muted);margin-top:1px}
+.bytes{display:flex;height:8px;margin-top:7px;border-radius:2px;overflow:hidden;gap:1px}
+.bytes i{display:block;height:100%}
+.k-unk{background:repeating-linear-gradient(135deg,var(--unk) 0 2px,transparent 2px 4px)}
+.k-plain{background:var(--plain)} .k-ptr{background:var(--ptr)} .k-ref{background:var(--ref)} .k-ext{background:var(--ext)}
+.rows{padding:3px 0 5px;font-size:12.5px}
+.r{display:grid;grid-template-columns:34px 62px 1fr;gap:6px;padding:1.5px 11px;position:relative;align-items:baseline}
+.r .o{color:var(--muted)}
+.r .t{color:var(--muted)}
+.r .n{overflow-wrap:anywhere}
+.r.unk .n,.r.unk .t{color:var(--muted);opacity:.75}
+.r.link{cursor:default}
+.r.link .n{font-weight:500}
+.r.k-ptr-row .n{color:var(--ptr)} .r.k-ref-row .n{color:var(--ref)} .r.k-ext-row .n{color:var(--ext)}
+.r .note{grid-column:3;color:var(--muted);font-size:11.5px;line-height:1.35}
+.r.hot{background:color-mix(in srgb,var(--ptr) 12%,transparent)}
+.bnote{padding:8px 11px 10px;font-size:12.5px;color:var(--muted)}
+.dim .node{opacity:.28}
+.dim .node.on,.dim .node.tgt{opacity:1}
+.node.on{border-color:var(--sel);box-shadow:0 0 0 1px var(--sel)}
+.node.tgt{border-color:var(--sel)}
+path.w{fill:none;stroke-width:1.4;opacity:.38;transition:opacity .15s,stroke-width .15s}
+path.w.ptr{stroke:var(--ptr)} path.w.ref{stroke:var(--ref);stroke-dasharray:5 4} path.w.ext{stroke:var(--ext);stroke-dasharray:1.5 3.5;stroke-linecap:round;stroke-width:2}
+.dim path.w{opacity:.07}
+.dim path.w.on,path.w.hot{opacity:1;stroke-width:2.2}
+footer{padding:0 28px 40px;color:var(--muted);font-size:13px;max-width:80ch}
+footer p{margin:0 0 8px}
+a{color:var(--ptr)}
+@media (max-width:640px){header,.bar,.hint,footer{padding-left:16px;padding-right:16px}.canvas{padding-left:16px;gap:44px}.col{width:270px}h1{font-size:23px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>IGHW structure map</h1>
+  <p class="lede">Ratchet &amp; Clank Future level files, as read by ReLunacy. Each card is a binary structure (big-endian) with its field offsets; the bar under the title shows byte occupancy. Links start at the referencing field and end at the referenced structure.</p>
+</header>
+<div class="bar">
+  <nav class="seg" aria-label="Engine">
+    <a href="#old" id="tab-old">Old engine · ToD, QfB</a>
+    <a href="#new" id="tab-new">New engine · ACiT, A4O, Nexus</a>
+  </nav>
+  <div class="legend">
+    <span><i class="sw ptr"></i>pointer within the same file</span>
+    <span><i class="sw ref"></i>index or TUID</span>
+    <span><i class="sw ext"></i>offset into a buffer / another file</span>
+    <span><i class="sq k-unk"></i>unidentified bytes</span>
+  </div>
+</div>
+<p class="hint">Click a structure header to isolate its incoming and outgoing links; click again (or press Esc) to reset. Hover a linked field to highlight its link. The map scrolls horizontally.</p>
+<div class="scroller"><div class="canvas" id="canvas"><svg class="wires" id="wires" aria-hidden="true"></svg></div></div>
+<footer>
+  <p>Source: code of <a href="https://github.com/VELD-Dev/ReLunacy">VELD-Dev/ReLunacy</a> (<span class="mono">[FileOffset]</span> attributes and manual reads in the readers). Only fields read by the tool are named; the rest is marked “unk”. Names and roles are the repository’s, not an official Insomniac specification.</p>
+  <p>Structures shared between engines (MobyBangle, MobyMesh, MobySkeleton, MobyBone, TiePrimitiveBounds, vertex formats): same layout, but some fields are interpreted differently (absolute offset vs. section-relative offset, direct index vs. index into a TUID table).</p>
+</footer>
+
+<script>
+/* field: [offset, size, type, name, kind?, targets?, note?]
+   kind: 'ptr' | 'ref' | 'ext' | 'unk' | undefined (plain) */
+const U = (o, s) => [o, s, '', 'unk', 'unk'];
+
+const IGHW = (loc) => ({id:'ighw', name:'IGHW header', size:0x20, sizeLabel:'0x20 (v1.1) / 0x10 (v0.2)', loc,
+  f:[[0x00,4,'u32','magic “IGHW”',null,null,'0x49474857 (BE) ; 0x57484749 → LE'],
+     [0x04,2,'u16','versionMajor'],[0x06,2,'u16','versionMinor'],
+     [0x08,4,'u32','sectionCount'],
+     [0x0C,4,'u32','headerLength',null,null,'v1.1 only'],
+     [0x10,4,'u32','fileLength',null,null,'v1.1 only'],
+     [0x14,4,'u32','unknown',null,null,'v1.1 only'],
+     U(0x18,8),
+     [0x20,0,'[]','SectionHeader[sectionCount]','ptr',['sect'],'table at 0x20 (v1.1) or 0x10 (v0.2)']]});
+const SECT = {id:'sect', name:'SectionHeader', size:0x10, loc:'section table',
+  f:[[0x00,4,'u32','id',null,null,'e.g. 0x3400, 0xD100…'],
+     [0x04,4,'u32','offset',null,null,'start of the section data'],
+     [0x08,4,'u32','count',null,null,'bit 0x10000000 masked off'],
+     [0x0C,4,'u32','length',null,null,'element stride or total size, depending on the section']]};
+
+const TIEPRIM = {id:'tieprim', name:'TiePrimitiveBounds', size:0x20, loc:'pointed to by the tie class',
+  f:[[0x00,12,'vec3','halfExtents'],U(0x0C,4),[0x10,12,'vec3','center'],U(0x1C,4)]};
+const BANGLE = (meshTarget) => ({id:'bangle', name:'MobyBangle', size:0x08, loc:'array pointed to by the moby',
+  f:[[0x00,4,'ptr','meshes','ptr',[meshTarget]],[0x04,4,'u32','meshesCount']]});
+const SKEL = {id:'skel', name:'MobySkeleton', size:0x1C, loc:'pointed to by the moby',
+  f:[[0x00,2,'u16','numBones'],[0x02,2,'u16','rootBone'],
+     [0x04,4,'ptr','bones','ptr',['bone']],
+     [0x08,4,'ptr','tms0Pointer','ptr'],[0x0C,4,'ptr','tms1Pointer','ptr'],
+     [0x10,1,'u8','scaleShift'],[0x11,1,'u8','rotationShift'],[0x12,1,'u8','translationShift'],U(0x13,1),
+     [0x14,4,'ptr','referenceTranslationBuffer','ptr'],U(0x18,4)]};
+const BONE = {id:'bone', name:'MobyBone', size:0x08, loc:'skeleton array',
+  f:[[0x00,2,'u16','flags'],[0x02,2,'s16','parentIndex',null,null,'-1 = root'],[0x04,2,'u16','child'],[0x06,2,'u16','sibling']]};
+const VF0 = {id:'vf0', name:'VertexFormat0', size:0x14, loc:'rigid vertex (tie, moby type 0)',
+  f:[[0x00,6,'s16×3','position',null,null,'quantized, × class scale'],[0x06,2,'s16','boneIndex'],
+     [0x08,4,'half×2','uv'],[0x0C,4,'u32','normal (packed)'],[0x10,4,'u32','tangent (packed)']]};
+const VF1 = {id:'vf1', name:'VertexFormat1', size:0x1C, loc:'skinned vertex (moby type 1)',
+  f:[[0x00,6,'s16×3','position'],U(0x06,2),[0x08,4,'u8×4','bones'],[0x0C,4,'u8×4','weights'],
+     [0x10,4,'half×2','uv'],[0x14,4,'u32','normal (packed)'],[0x18,4,'u32','tangent (packed)']]};
+const UFV = {id:'ufv', name:'UFragVertex', size:0x18, loc:'zone geometry vertex',
+  f:[[0x00,6,'s16×3','position'],U(0x06,2),[0x08,4,'half×2','uv'],[0x0C,4,'half×2','uv2 (lightmap)'],
+     [0x10,4,'u32','normal (packed)'],[0x14,4,'u32','tangent (packed)']]};
+
+const MOBYMESH = (shaderTarget, shaderNote, vbuf, ibuf) => ({id:'mobymesh', name:'MobyMesh', size:0x40, loc:'array pointed to by the bangle',
+  f:[[0x00,4,'u32','indicesOffset','ext',[ibuf]],
+     [0x04,4,'u32','verticesOffset','ext',[vbuf]],
+     [0x08,2,'u16','shaderIndex','ref',[shaderTarget],shaderNote],
+     [0x0A,2,'u16','verticesCount'],
+     [0x0C,1,'u8','boneMapIndicesCount'],
+     [0x0D,1,'u8','verticesType','ref',['vf0','vf1'],'0 → VertexFormat0, 1 → VertexFormat1'],
+     [0x0E,1,'u8','boneMapIndex'],U(0x0F,3),
+     [0x12,2,'u16','indicesCount'],U(0x14,12),
+     [0x20,4,'u32','boneMapOffset'],U(0x24,28)]});
+
+const ENGINES = {
+old: {
+  cols: [
+    {h:'Container', nodes:[
+      IGHW('main.dat, vertices.dat, gameplay.dat, debug.dat'), SECT,
+    ]},
+    {h:'Placement (instances)', nodes:[
+      {id:'mobyinst', name:'MobyInstanceOld', size:0x48, loc:'gameplay.dat · 0x7340',
+       f:[U(0x00,8),[0x08,4,'f32','displayDist'],[0x0C,4,'f32','updateDist'],U(0x10,8),
+          [0x18,12,'vec3','position'],[0x24,12,'vec3','rotation'],[0x30,4,'f32','scale'],U(0x34,8),
+          [0x3C,2,'u16','mobyIndex','ref',['moby'],'index into main.dat 0xD100'],U(0x3E,10)]},
+      {id:'tieinst', name:'TieInstance', size:0x80, loc:'main.dat · 0x9240',
+       f:[[0x00,64,'mat4','transform'],[0x40,16,'vec4','boundingSphere'],
+          [0x50,4,'u32','tieIndex','ptr',['tie'],'offset of the class in main.dat (not a sequential index)'],
+          U(0x54,6),[0x5A,2,'u16','lightmapIndex',null,null,'entry in the main.dat 0x5400/0x5410 pools; 0xFFFF = none'],U(0x5C,36)]},
+      {id:'ufrag', name:'UFragMetadata', size:0x80, loc:'main.dat · 0x6200',
+       f:[U(0x00,48),[0x30,16,'vec4','boundingSphere'],
+          [0x40,4,'u32','indexOffset','ext',['b_ind'],'in u16 units (×2 for bytes)'],
+          [0x44,4,'u32','vertexOffset','ext',['b_vert'],'UFragVertex-format vertices'],
+          [0x48,2,'u16','indexCount'],[0x4A,2,'u16','vertexCount'],U(0x4C,2),
+          [0x4E,2,'u16','lightmapIndex',null,null,'0x5400/0x5410 atlas; 0xFFFF = none'],
+          [0x50,2,'u16','shaderIndex','ref',['shader'],'through the 0x71A0 table'],U(0x52,14),
+          [0x60,12,'vec3','position'],U(0x6C,20)]},
+    ]},
+    {h:'Classes (main.dat)', nodes:[
+      {id:'moby', name:'OldMoby', size:0xC0, loc:'main.dat · 0xD100',
+       f:[[0x00,16,'vec4','boundingSphere'],U(0x10,4),
+          [0x14,2,'u16','bonesCount'],[0x16,2,'u16','animationCount'],[0x18,2,'u16','bangleCount'],[0x1A,2,'u16','mobyId'],U(0x1C,4),
+          [0x20,4,'ptr','skeletonPointer','ptr',['skel']],
+          [0x24,4,'ptr','animationListPointer','ptr',['anim']],
+          [0x28,4,'ptr','mobyBangles','ptr',['bangle'],'bangleCount entries'],U(0x2C,8),
+          [0x34,4,'u32','indicesOffset','ext',['b_ind','b_tex'],'bit 31 = 1 → vertices.dat 0x9100, otherwise textures.dat'],
+          [0x38,4,'u32','verticesOffset','ext',['b_vert','b_tex'],'bit 31 = 1 → vertices.dat 0x9000, otherwise textures.dat'],
+          [0x3C,4,'f32','scale'],
+          [0x40,4,'ptr','runtimeAnimationState','ptr'],U(0x44,4),
+          [0x48,4,'ptr','d900Pointer','ptr'],[0x4C,4,'ptr','da00Pointer','ptr'],U(0x50,40),
+          [0x78,4,'ptr','section10200Pointer','ptr'],U(0x7C,4),
+          [0x80,4,'ptr','animationAuxF400','ptr',null,'section 0xF400'],U(0x84,20),
+          [0x98,4,'ptr','e500Pointer','ptr'],U(0x9C,8),
+          [0xA4,4,'ptr','section10400Pointer','ptr'],[0xA8,4,'ptr','e900Pointer','ptr'],U(0xAC,20)]},
+      {id:'tie', name:'TieMetadataOld', size:0x80, loc:'main.dat · 0x3400',
+       f:[[0x00,4,'ptr','meshes','ptr',['tiemesh']],
+          [0x04,4,'ptr','primitiveBounds','ptr',['tieprim']],U(0x08,4),
+          [0x0C,4,'u32','primitiveCount',null,null,'byte 0x0F is read as meshesCount'],U(0x10,4),
+          [0x14,4,'u32','verticesBufferStart','ext',['b_vert']],[0x18,4,'u32','verticesBufferSize'],U(0x1C,4),
+          [0x20,12,'vec3','scale'],U(0x2C,4),[0x30,16,'vec4','boundingSphere'],
+          [0x40,12,'vec3','boundsHalfExtents'],U(0x4C,4),[0x50,12,'vec3','boundsCenter'],U(0x5C,8),
+          [0x64,4,'ptr','nameOffset','ptr'],U(0x68,24)]},
+    ]},
+    {h:'Sub-structures', nodes:[
+      BANGLE('mobymesh'), SKEL,
+      {id:'anim', name:'AnimationMetadataOld', size:0x40, loc:'main.dat · 0xF000',
+       f:[[0x00,2,'u16','localAnimationIndex'],[0x02,2,'u16','flags',null,null,'bit0 loop, bit1 additive, bit2 packed'],
+          [0x04,2,'u16','numBones'],[0x06,2,'u16','numFrames'],[0x08,4,'ptr','namePtr','ptr'],U(0x0C,8),
+          [0x14,4,'f32','linearSpeed'],[0x18,4,'f32','frameRate'],
+          [0x1C,4,'ptr','rootTransformPtr','ptr'],[0x20,4,'ptr','controlPtr','ptr'],[0x24,4,'ptr','framesPtr','ptr'],U(0x28,8),
+          [0x30,2,'u16','controlByteSize'],[0x32,2,'u16','frameStride'],[0x34,2,'u16','numReferenceValues'],
+          [0x36,2,'u16','num16BitTracks'],[0x38,2,'u16','num8BitTracks'],U(0x3A,6)]},
+      {id:'tiemesh', name:'TieMesh', size:0x40, loc:'array pointed to by the tie class',
+       f:[[0x00,4,'u32','indicesIndex','ext',['b_ind']],
+          [0x04,2,'u16','verticesIndex','ext',['b_vert'],'VertexFormat0-format vertices'],U(0x06,2),
+          [0x08,2,'u16','verticesCount'],U(0x0A,8),[0x12,2,'u16','indicesCount'],U(0x14,20),
+          [0x28,2,'u16','oldShaderIndex','ref',['shader'],'index into main.dat 0x5000'],U(0x2A,2),
+          [0x2C,1,'u8','authoredShaderUseMask'],U(0x2D,3),
+          [0x30,2,'s16','fadeNormalDistance'],[0x32,2,'s16','fadeReflectionDistance'],
+          [0x34,2,'s16','fadeDetailDistance'],[0x36,2,'s16','fadeUnitDistance'],U(0x38,8)]},
+      TIEPRIM,
+    ]},
+    {h:'Geometry', nodes:[
+      MOBYMESH('shader','index into main.dat 0x5000','b_vert','b_ind'), BONE,
+      VF0, VF1, UFV,
+    ]},
+    {h:'Materials and buffers', nodes:[
+      {id:'shader', name:'ShaderMetadataOld', size:0x80, loc:'main.dat · 0x5000',
+       f:[[0x00,4,'u32','albedo','ref',['tex'],'texture reference (offset)'],
+          [0x04,4,'u32','normal','ref',['tex']],[0x08,4,'u32','expensive','ref',['tex']],[0x0C,4,'u32','detailMap','ref',['tex']],
+          [0x10,1,'u8','flags',null,null,'parallax, gloss, reflection, normal, detail'],
+          [0x11,1,'u8','renderingMode'],[0x12,1,'u8','class'],U(0x13,13),
+          [0x20,16,'f32×4','values[0]'],[0x30,8,'f32×2','values[1].xy'],U(0x38,24),
+          [0x50,4,'f32','parallaxScale'],[0x54,4,'f32','parallaxBias'],[0x58,4,'f32','detailTiling'],U(0x5C,36)]},
+      {id:'b_vert', blob:true, name:'vertices.dat · 0x9000', loc:'shared vertex buffer',
+       note:'Ties, mobys (bit 31), UFrags, foliage and sky point into it by offset. The format depends on the caller.'},
+      {id:'b_ind', blob:true, name:'vertices.dat · 0x9100', loc:'shared index buffer (u16)',
+       note:'Triangle indices, addressed by offset or by index ×2.'},
+    ]},
+    {h:'Textures', nodes:[
+      {id:'tex', name:'TextureMetadataOld', size:0x20, loc:'main.dat · 0x5200',
+       f:[[0x00,4,'u32','offset','ext',['b_tex','b_res'],'bits 0–30; memory location comes from formatBitfield'],
+          [0x04,2,'u16','mipmapCount'],
+          [0x06,2,'u16','formatBitfield',null,null,'RSX format, location (MAIN/LOCAL), cubemap, dimension'],
+          [0x08,4,'u32','address',null,null,'NV4097_SET_TEXTURE_ADDRESS : wrap, gamma, remap'],
+          [0x0C,4,'u32','control0',null,null,'LOD min/max, anisotropy, alpha kill'],
+          [0x10,4,'u32','control1',null,null,'channel remap'],
+          [0x14,4,'u32','filter',null,null,'min/mag, convolution'],
+          [0x18,2,'u16','width'],[0x1A,2,'u16','height'],
+          [0x1C,4,'u32','control3',null,null,'pitch']]},
+      {id:'tstream', name:'TexstreamReference', size:0x10, loc:'main.dat · 0x9800',
+       f:[[0x00,4,'u32','offset','ext',['b_tstream']],
+          [0x04,2,'u16','allocationBlocks128',null,null,'size = n × 0x80'],
+          [0x06,2,'u16','index','ref',['tex'],'texture that receives the high-resolution mip'],U(0x08,8)]},
+      {id:'b_tex', blob:true, name:'textures.dat', loc:'raw file, not IGHW',
+       note:'Texels in LOCAL memory (RSX VRAM). Also holds moby buffers when bit 31 of the offset is 0.'},
+      {id:'b_res', blob:true, name:'main.dat · 0x9650', loc:'resident texels',
+       note:'Texels in MAIN memory, read when the descriptor location is MAIN.'},
+      {id:'b_tstream', blob:true, name:'texstream.dat', loc:'raw file, optional',
+       note:'One extra mip level per streamed texture.'},
+    ]},
+  ]
+},
+new: {
+  cols: [
+    {h:'Container and index', nodes:[
+      IGHW('assetlookup.dat, gameplay.dat, region files, and every payload'), SECT,
+      {id:'aptr', name:'AssetPointer', size:0x10, loc:'assetlookup.dat · 0x1D100–0x1DB80',
+       f:[[0x00,8,'u64','TUID'],
+          [0x08,4,'u32','offset','ext',['ighw','b_texd'],'slice of the raw container (mobys.dat, ties.dat, zones.dat…)'],
+          [0x0C,4,'u32','length']]},
+    ]},
+    {h:'Placement (region, zone)', nodes:[
+      {id:'mobyinst', name:'MobyInstanceNew', size:0x50, loc:'<region>/gp_prius.dat · 0x25048',
+       f:[[0x00,2,'u16','mobyIndex','ref',['lut'],'index into region.dat 0x1C600'],[0x02,2,'u16','groupIndex'],
+          [0x04,4,'f32','displayDist'],[0x08,4,'f32','updateDist'],U(0x0C,8),
+          [0x14,12,'vec3','position'],[0x20,12,'vec3','rotation'],[0x2C,4,'f32','scale'],U(0x30,32)]},
+      {id:'imeta', name:'InstanceMetadata', size:0x10, loc:'<region>/gp_prius.dat · 0x2504C',
+       f:[[0x00,8,'u64','TUID',null,null,'index-aligned with 0x25048'],
+          [0x08,4,'ptr','namePointer','ptr'],[0x0C,2,'u16','group'],U(0x0E,2)]},
+      {id:'tieinst', name:'TieInstance', size:0x80, loc:'zones.dat (payload) · 0x7240',
+       f:[[0x00,64,'mat4','transform'],[0x40,16,'vec4','boundingSphere'],
+          [0x50,4,'u32','tieIndex','ref',['zlut'],'index into the zone’s 0x7200 TUID table'],
+          [0x54,4,'u32','mainDataOffset'],U(0x58,2),
+          [0x5A,2,'u16','lightMapId',null,null,'zone’s 0x5400/0x5410 pair; 0xFFFF = none'],
+          [0x5C,1,'u8','mirrored',null,null,'1 when the matrix has a negative determinant'],U(0x5D,35)]},
+      {id:'ufrag', name:'UFragMetadata', size:0x80, loc:'zones.dat (payload) · 0x6200',
+       f:[U(0x00,48),[0x30,16,'vec4','boundingSphere'],
+          [0x40,4,'u32','indexOffset','ext',['b_zind']],[0x44,4,'u32','vertexOffset','ext',['b_zvert']],
+          [0x48,2,'u16','indexCount'],[0x4A,2,'u16','vertexCount'],U(0x4C,2),
+          [0x4E,2,'u16','lightmapIndex',null,null,'zone-local'],
+          [0x50,2,'u16','shaderIndex',null,null,'through the 0x71A0 table'],U(0x52,30),
+          [0x70,12,'vec3','position'],U(0x7C,4)]},
+    ]},
+    {h:'TUID resolution', nodes:[
+      {id:'lut', name:'Moby lookup', size:0x08, loc:'<region>/region.dat · 0x1C600',
+       f:[[0x00,8,'u64','mobyTUID','ref',['aptr'],'looked up in assetlookup 0x1D600']]},
+      {id:'zlut', name:'Tie TUID', size:0x08, loc:'zones.dat (payload) · 0x7200',
+       f:[[0x00,8,'u64','tieTUID','ref',['aptr'],'looked up in assetlookup 0x1D300']]},
+      {id:'stuid', name:'Shader TUID', size:0x08, loc:'moby or tie payload · 0x5600',
+       f:[[0x00,8,'u64','shaderTUID','ref',['aptr'],'looked up in assetlookup 0x1D100 → shaders.dat']]},
+      {id:'texnew', name:'TextureMetadataNew', size:0x04, loc:'assetlookup.dat · 0x1D140',
+       f:[[0x00,1,'u8','format'],[0x01,1,'u8','mipmapCount'],
+          [0x02,1,'u8','widthPow',null,null,'width = 1 << n'],[0x03,1,'u8','heightPow',null,null,'height = 1 << n']]},
+    ]},
+    {h:'Classes (IGHW payloads)', nodes:[
+      {id:'moby', name:'NewMoby', size:0x100, loc:'mobys.dat (payload) · 0xD100',
+       f:[[0x00,16,'vec4','boundingSphere'],U(0x10,8),
+          [0x18,2,'u16','bangleCount1'],[0x1A,2,'u16','bangleCount2'],[0x1C,2,'u16','bonesCount1'],[0x1E,2,'u16','bonesCount2'],U(0x20,4),
+          [0x24,4,'ptr','banglesPointer','ptr',['bangle']],
+          [0x28,4,'ptr','skeletonPointer','ptr',['skel']],
+          [0x2C,4,'ptr','unkPointer1','ptr'],[0x30,4,'ptr','transformPointer','ptr'],U(0x34,28),
+          [0x50,8,'u64','animsetTuid','ref',['aptr'],'assetlookup 0x1D700 → animsets.dat'],U(0x58,16),
+          [0x68,4,'ptr','unkPointer2','ptr'],U(0x6C,4),[0x70,4,'f32','scale'],U(0x74,16),
+          [0x84,4,'ptr','unkPointer3','ptr'],[0x88,4,'ptr','unkPointer4','ptr'],U(0x8C,36),
+          [0xB0,8,'u64','TUID'],[0xB8,4,'ptr','namePointer','ptr',null,'string in section 0xD200'],U(0xBC,68)]},
+      {id:'tie', name:'TieMetadataNew', size:0x80, sizeLabel:'0x80 / 0x90', loc:'ties.dat (payload) · 0x3400',
+       f:[[0x00,4,'ptr','meshes','ptr',['tiemesh']],
+          [0x04,4,'ptr','primitiveBoundsPointer','ptr',['tieprim']],U(0x08,6),
+          [0x0E,1,'u8','primitiveFlags'],[0x0F,1,'u8','meshesCount'],U(0x10,4),
+          [0x14,4,'u32','verticesBufferStart','ext',['b_tvert']],[0x18,4,'u32','verticesBufferSize'],U(0x1C,4),
+          [0x20,12,'vec3','scale'],[0x2C,4,'f32','scaleW'],[0x30,16,'vec4','boundingSphere'],
+          [0x40,12,'vec3','boundsHalfExtents'],U(0x4C,4),[0x50,12,'vec3','boundsCenter'],U(0x5C,8),
+          [0x64,4,'ptr','nameOffset','ptr'],[0x68,8,'u64','TUID'],U(0x70,4),
+          [0x74,4,'ptr','auxiliaryPointer','ptr',null,'0xFFFFFFFF = none; sections 0x3900, 0x5700–0x5900'],U(0x78,8)]},
+      {id:'shader', name:'ShaderMetadataNew', size:0x80, loc:'shaders.dat (payload) · 0x5000',
+       f:[[0x00,4,'s32','albedo',null,null,'texture key, resolved by the loader'],
+          [0x04,4,'s32','normal'],[0x08,4,'s32','expensive'],[0x0C,4,'s32','detailMap'],
+          [0x10,4,'s32','auxiliaryA'],[0x14,4,'s32','auxiliaryB'],U(0x18,8),
+          [0x20,1,'u8','featureFlags'],U(0x21,95)]},
+    ]},
+    {h:'Sub-structures', nodes:[
+      BANGLE('mobymesh'), SKEL,
+      {id:'tiemesh', name:'TieMesh', size:0x40, loc:'array pointed to by the tie class',
+       f:[[0x00,4,'u32','indicesIndex','ext',['b_tind']],
+          [0x04,2,'u16','verticesIndex','ext',['b_tvert']],U(0x06,2),
+          [0x08,2,'u16','verticesCount'],U(0x0A,8),[0x12,2,'u16','indicesCount'],U(0x14,12),
+          [0x20,1,'u8','featureMask'],U(0x21,5),
+          [0x26,1,'u8','shaderIndexA4O',null,null,'slot used by All 4 One'],U(0x27,3),
+          [0x2A,1,'u8','shaderIndex','ref',['stuid'],'index into the payload’s 0x5600'],U(0x2B,5),
+          [0x30,2,'s16','fadeNormalDistance'],[0x32,2,'s16','fadeReflectionDistance'],
+          [0x34,2,'s16','fadeDetailDistance'],[0x36,2,'s16','fadeUnitDistance'],U(0x38,8)]},
+      TIEPRIM,
+    ]},
+    {h:'Geometry', nodes:[
+      MOBYMESH('stuid','index into the payload’s 0x5600','b_mvert','b_mind'), BONE,
+      VF0, VF1, UFV,
+    ]},
+    {h:'Buffers', nodes:[
+      {id:'b_mvert', blob:true, name:'moby payload · 0xE200 / 0xE100', loc:'moby-owned vertices / indices',
+       note:'Section-relative offsets; no shared buffer anymore.'},
+      {id:'b_mind', blob:true, name:'moby payload · 0xE100', loc:'moby index buffer (u16)', note:'Section-relative.'},
+      {id:'b_tvert', blob:true, name:'tie payload · 0x3000', loc:'tie vertex buffer', note:'VertexFormat0 format.'},
+      {id:'b_tind', blob:true, name:'tie payload · 0x3200', loc:'tie index buffer (u16)', note:'Section-relative.'},
+      {id:'b_zvert', blob:true, name:'zone payload · 0x6000', loc:'zone UFrag vertices', note:'UFragVertex format.'},
+      {id:'b_zind', blob:true, name:'zone payload · 0x6100', loc:'zone UFrag indices (u16)', note:'Section-relative.'},
+      {id:'b_texd', blob:true, name:'textures.dat / highmips.dat', loc:'raw files',
+       note:'Low-resolution mips through 0x1D180, high-resolution through 0x1D1C0. Both pointers of a texture share its TUID and its 0x1D140 index.'},
+    ]},
+  ]
+}};
+
+const canvas = document.getElementById('canvas');
+const svg = document.getElementById('wires');
+let current = null, selected = null;
+const hex = n => '0x' + n.toString(16).toUpperCase().padStart(2,'0');
+const kindClass = k => k==='ptr'||k==='ref'||k==='ext' ? k : (k==='unk'?'unk':'plain');
+
+function render(engine){
+  current = engine; selected = null;
+  canvas.classList.remove('dim');
+  [...canvas.querySelectorAll('.col')].forEach(c=>c.remove());
+  ENGINES[engine].cols.forEach((col, ci) => {
+    const c = document.createElement('section'); c.className='col'; c.dataset.ci=ci;
+    c.innerHTML = `<div class="colh">${col.h}</div>`;
+    col.nodes.forEach(n => c.appendChild(buildNode(n)));
+    canvas.appendChild(c);
+  });
+  document.getElementById('tab-old').setAttribute('aria-current', engine==='old'?'page':'false');
+  document.getElementById('tab-new').setAttribute('aria-current', engine==='new'?'page':'false');
+  requestAnimationFrame(drawWires);
+}
+
+function buildNode(n){
+  const el = document.createElement('article');
+  el.className = 'node' + (n.blob?' blob':''); el.id = 'n-'+n.id;
+  const head = document.createElement('div'); head.className='nh'; head.tabIndex=0; head.setAttribute('role','button');
+  head.setAttribute('aria-label', `Isolate links of ${n.name}`);
+  let html = `<div class="nt"><b>${n.name}</b>${n.blob?'':`<span class="sz mono">${n.sizeLabel||hex(n.size)}</span>`}</div><div class="loc mono">${n.loc}</div>`;
+  if(!n.blob){
+    html += '<div class="bytes" aria-hidden="true">';
+    n.f.forEach(f => { if(f[1]>0) html += `<i class="k-${kindClass(f[4])}" style="flex:${f[1]}"></i>`; });
+    html += '</div>';
+  }
+  head.innerHTML = html;
+  head.addEventListener('click', ()=>select(n.id));
+  head.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();select(n.id);} });
+  el.appendChild(head);
+  if(n.blob){
+    const b=document.createElement('div'); b.className='bnote'; b.textContent=n.note; el.appendChild(b);
+  } else {
+    const rows=document.createElement('div'); rows.className='rows mono';
+    n.f.forEach((f,i)=>{
+      const [o,s,t,name,kind,targets,note]=f;
+      const r=document.createElement('div');
+      const k=kindClass(kind);
+      r.className='r'+(k==='unk'?' unk':'')+(targets&&targets.length?` link k-${k}-row`:(k==='ptr'||k==='ref'||k==='ext'?` k-${k}-row`:''));
+      const label = k==='unk' ? `${s} bytes` : name;
+      r.innerHTML=`<span class="o">${hex(o)}</span><span class="t">${k==='unk'?'unk':t}</span><span class="n">${label}</span>${note?`<span class="note">${note}</span>`:''}`;
+      if(targets&&targets.length){
+        r.dataset.from=n.id; r.dataset.row=i;
+        r.addEventListener('mouseenter',()=>hotRow(n.id,i,true));
+        r.addEventListener('mouseleave',()=>hotRow(n.id,i,false));
+      }
+      rows.appendChild(r);
+    });
+    el.appendChild(rows);
+  }
+  return el;
+}
+
+function links(){
+  const out=[];
+  ENGINES[current].cols.forEach(col=>col.nodes.forEach(n=>{
+    if(n.blob) return;
+    n.f.forEach((f,i)=>{ (f[5]||[]).forEach(t=>out.push({from:n.id,row:i,to:t,kind:f[4]})); });
+  }));
+  return out;
+}
+
+function drawWires(){
+  const cr = canvas.getBoundingClientRect();
+  svg.setAttribute('width', canvas.scrollWidth); svg.setAttribute('height', canvas.scrollHeight);
+  svg.innerHTML='';
+  links().forEach(l=>{
+    const src=document.querySelector(`#n-${l.from} .r[data-row="${l.row}"]`);
+    const tgtNode=document.getElementById('n-'+l.to);
+    if(!src||!tgtNode) return;
+    const srcNode=document.getElementById('n-'+l.from);
+    const sr=src.getBoundingClientRect(), sn=srcNode.getBoundingClientRect();
+    const th=tgtNode.querySelector('.nh').getBoundingClientRect(), tn=tgtNode.getBoundingClientRect();
+    const y1=sr.top+sr.height/2-cr.top, y2=th.top+Math.min(th.height/2,16)-cr.top;
+    let d;
+    if(tn.left > sn.right+4){
+      const x1=sn.right-cr.left, x2=tn.left-cr.left, dx=Math.max(28,(x2-x1)*.5);
+      d=`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+    } else if(tn.right < sn.left-4){
+      const x1=sn.left-cr.left, x2=tn.right-cr.left, dx=Math.max(28,(x1-x2)*.5);
+      d=`M${x1},${y1} C${x1-dx},${y1} ${x2+dx},${y2} ${x2},${y2}`;
+    } else {
+      const x1=sn.right-cr.left, x2=tn.right-cr.left, bulge=30+Math.min(26,Math.abs(y2-y1)*.04);
+      d=`M${x1},${y1} C${x1+bulge},${y1} ${x2+bulge},${y2} ${x2},${y2}`;
+    }
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d); p.setAttribute('class',`w ${l.kind}`);
+    p.dataset.from=l.from; p.dataset.to=l.to; p.dataset.row=l.row;
+    svg.appendChild(p);
+  });
+  applySelection();
+}
+
+function select(id){
+  selected = selected===id ? null : id;
+  applySelection();
+}
+function applySelection(){
+  canvas.classList.toggle('dim', !!selected);
+  canvas.querySelectorAll('.node').forEach(n=>n.classList.remove('on','tgt'));
+  svg.querySelectorAll('path.w').forEach(p=>p.classList.remove('on'));
+  if(!selected) return;
+  document.getElementById('n-'+selected)?.classList.add('on');
+  svg.querySelectorAll('path.w').forEach(p=>{
+    if(p.dataset.from===selected||p.dataset.to===selected){
+      p.classList.add('on');
+      document.getElementById('n-'+(p.dataset.from===selected?p.dataset.to:p.dataset.from))?.classList.add('tgt');
+    }
+  });
+}
+function hotRow(id,row,on){
+  document.querySelector(`#n-${id} .r[data-row="${row}"]`)?.classList.toggle('hot',on);
+  svg.querySelectorAll(`path.w[data-from="${id}"][data-row="${row}"]`).forEach(p=>{
+    p.classList.toggle('hot',on);
+    document.getElementById('n-'+p.dataset.to)?.classList.toggle('tgt',on||(!!selected&&(p.dataset.to===selected||p.dataset.from===selected)));
+  });
+}
+
+function route(){
+  const h = location.hash.replace('#','');
+  render(h==='new' ? 'new' : 'old');
+}
+window.addEventListener('hashchange', route);
+window.addEventListener('keydown', e=>{ if(e.key==='Escape' && selected){ selected=null; applySelection(); } });
+let rt; window.addEventListener('resize', ()=>{ clearTimeout(rt); rt=setTimeout(drawWires,80); });
+route();
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(drawWires);
+</script>
+</body>
+</html>

@@ -9,6 +9,10 @@
     <!--<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>-->
     <ApplicationIcon>Assets\logo.ico</ApplicationIcon>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <!-- ProgramInfo.cs applies this attribute itself, from the same const the app and UpdateChecker
+         read, so the version is written once. Without this the SDK emits its own copy from
+         $(Version) into obj/*/ReLunacy.AssemblyInfo.cs and the two collide (CS0579). -->
+    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
   </PropertyGroup>
 
   <ItemGroup>

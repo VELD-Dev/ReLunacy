@@ -158,6 +158,23 @@ Controls:
 - cd into the directory with the `ReLunacy.sln` file
 - Run `dotnet build ReLunacy`
 
+### Building a release
+
+Release builds go through `Release.proj`, which publishes the four platforms ReLunacy ships for
+(`win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`) one after the other. In Rider, pick
+**Publish Release (all platforms)** or **Package Release (archives)** from the run configuration
+dropdown and hit Run; from a terminal the same two steps are:
+
+```sh
+dotnet msbuild Release.proj -t:Publish   # artifacts/publish/<platform>/
+dotnet msbuild Release.proj -t:Package   # the above, plus artifacts/packages/ReLunacy-<version>-<platform>.zip|.tar.gz
+```
+
+The builds are framework-dependent, so they need the .NET runtime from
+[Prerequisites](#prerequisites) like any other build. Add `-p:SelfContained=true` for builds that
+run without it installed, or `-p:ReleaseRuntimes=win-x64` (semicolon-separated) to do fewer
+platforms while testing.
+
 ## Running
 
 - Run `ReLunacy.exe` by double-clicking it, or execute `./ReLunacy.exe <path to level folder or .psarc file>`, it will load that level right on startup.
