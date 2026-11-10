@@ -319,11 +319,12 @@ public class View3D : DockedFrame
         return mask;
     }
 
+    // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
         var em = Engine.Scene.EntityManager.Singleton;
-        if (em.renderVolumes)
+        if (em.renderVolumes && !CollisionEditing)
             foreach (var region in em.Regions)
                 foreach (var e in region.Volumes.Entities)
                     if (e is Engine.Scene.EntityVolume v && v.allowRender)

@@ -158,11 +158,20 @@ public sealed class LightingEnvironmentReader
     /// </summary>
     /// <summary>region.dat 0x34000 +0x80..+0x90: bloom extract scale and exponent, level weight, history
     /// blend, intensity (<see cref="Assets.Lighting.BloomParameters"/>). Null when absent or implausible.</summary>
-    private static Assets.Lighting.BloomParameters? ReadBloom(IGFile region)
+    private static Assets.Lighting.BloomParameters? ReadBloom(IGFile region) => ReadBloomAt(region, 0x34000, 0x94, 0x80);
+
+    /// <summary>A Crack in Time has no 0x34000: its bloom is region.dat 0x8100 (0x100 bytes) +0x70..+0x80,
+    /// same five fields. PROVEN against the RPCS3 cache: the extract FP 5F435585BF3AA772 carries
+    /// (0.54, 2.5) and the combine FDA96D62DA14E0F1 weights (0.4, 1/3, 2/3 - 0.4) with history 0.55 -
+    /// the (0.54, 2.5, 0.4, 0.55, 0.8) of 14 of the 22 levels; the rest differ per level (axiom_city
+    /// 1.12 / 2.33 / 0.21, tombli no history).</summary>
+    private static Assets.Lighting.BloomParameters? ReadCrackInTimeBloom(IGFile region) => ReadBloomAt(region, 0x8100, 0x100, 0x70);
+
+    private static Assets.Lighting.BloomParameters? ReadBloomAt(IGFile region, uint id, uint minLength, uint at)
     {
-        var section = region.QuerySection(0x34000);
-        if (section.id != 0x34000 || section.count == 0 || section.length < 0x94) return null;
-        region.sh.Seek(section.offset + 0x80);
+        var section = region.QuerySection(id);
+        if (section.id != id || section.count == 0 || section.length < minLength) return null;
+        region.sh.Seek(section.offset + at);
         float k = region.sh.ReadSingle(), e = region.sh.ReadSingle(), s = region.sh.ReadSingle();
         float h = region.sh.ReadSingle(), intensity = region.sh.ReadSingle();
         if (!float.IsFinite(k) || !float.IsFinite(e) || !float.IsFinite(s) || !float.IsFinite(h) || !float.IsFinite(intensity))
@@ -270,7 +279,13 @@ public sealed class LightingEnvironmentReader
         {
             Version = 0,
             Ambient = ReadVec3(region, b + 0x40),
-            Bloom = ReadBloom(region),
+            Bloom = ReadBloom(region) ?? ReadCrackInTimeBloom(region),
+            // None of A Crack in Time's 27 reflecting shaders in the RPCS3 cache has QForce's occlusion
+            // group: the reflection is cube * max(cube.a + bias, 0) * tint * spec * fade, never masked by
+            // the lit luminance (lightmapped D8C2C74A439D8FFD, probe-lit 7BDE9F3E80A33081). Floor 1 turns
+            // the borrowed shaders' mask off; without it the (0.01, 0.6) default blacked out the
+            // reflection on every dark lightmapped surface.
+            ReflectionOcclusion = new Vector2(1f, 1f),
         };
         for (int i = 0; i < MaxLights; i++)
         {
