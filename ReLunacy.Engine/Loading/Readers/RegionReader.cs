@@ -6,6 +6,7 @@ using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Objects;
 using ReLunacy.Engine.Loading.Objects.Instances;
 using Volume = ReLunacy.Engine.Assets.LevelElements.Volume;
+using VolumeShape = ReLunacy.Engine.Assets.LevelElements.VolumeShape;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
@@ -297,12 +298,18 @@ public sealed class RegionReader
         for (int i = 0; i < volumeSection.count; i++)
         {
             var transform = ReadMatrix4x4(prius.sh);
+            // The last word is not part of the matrix: its top byte is the shape (0 box, 1 cylinder,
+            // 2 sphere, 3 capsule over every level of the four games), the rest zero. Read as a float it
+            // is a denormal, which is how it hid.
+            var shape = (VolumeShape)(BitConverter.SingleToUInt32Bits(transform.M44) >> 24);
+            if (!Enum.IsDefined(shape)) shape = VolumeShape.Box;
+            transform.M44 = 1f;
             ulong tuid = i < metadatas.Length ? metadatas[i].TUID : (ulong)i;
             ushort group = i < metadatas.Length ? metadatas[i].group : (ushort)0;
             string name = i < metadataNames.Length && metadataNames[i] != null
                 ? metadataNames[i]!
                 : $"Volume_{i}";
-            volumes[i] = new Volume(tuid, transform, name, group);
+            volumes[i] = new Volume(tuid, transform, name, group, shape);
         }
 
         return [.. volumes];

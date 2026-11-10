@@ -13,6 +13,7 @@ Because the European date format is better, please keep date format like this: `
 - The 3D viewport's toolbar now holds the switches that get flipped all the time, so they no longer need a trip through a menu:
   - Lit / unlit (was `Editor Settings > Lighting`), and next to it the game's RSX shaders (was `Render > Game shaders`). The RSX shaders belong to the lit path, so their button is greyed out while unlit; it keeps its state, on by default, for when lighting comes back.
   - Navmesh (was `Render > Navmesh`) and collision on/off. Each is greyed out on a level that has none. The navmesh toggle is now also remembered between sessions.
+- Trigger volumes are drawn in their real shape on the new engine: boxes, cylinders, spheres and capsules, where every volume used to be drawn as a box. The shape was in the volume record all along, in the top byte of the matrix's last word (gp_prius 0x2505C +0x3C: 0 box, 1 cylinder, 2 sphere, 3 capsule), read as a float it is a tiny denormal, which is how it hid. Over the four games: 63172 boxes, 6556 cylinders, 656 spheres and 8 capsules. The Property Inspector shows the shape. Tools of Destruction's volumes have no such field and stay boxes.
 
 ## [v0.06-alpha.1](https://github.com/VELD-Dev/ReLunacy/releases/0.06-alpha.1) - 06-11-2026
 

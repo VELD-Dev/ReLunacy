@@ -168,6 +168,7 @@
         "GUI_Frame_InstanceInspector_ObjectPath": "Object path",
         "GUI_Frame_InstanceInspector_VolumeId": "Volume ID: {0:X}",
         "GUI_Frame_InstanceInspector_VolumeGroup": "Zone group: {0}",
+        "GUI_Frame_InstanceInspector_VolumeShape": "Shape: {0}",
         "GUI_Frame_InstanceInspector_NavmeshZone": "Zone: {0}",
         "GUI_Frame_InstanceInspector_NavmeshChunk": "Chunk index: {0}",
         "GUI_Frame_InstanceInspector_NavmeshCounts": "{0} vertices, {1} triangles, {2} edges",

@@ -204,9 +204,10 @@ public class PropertyInspectorFrame : DockedFrame
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
-            // Volumes carry nothing beyond a transform in the level format itself - this is all there is to show.
+            // A volume is its transform and its shape (the shape only on the new engine; ToD's are all boxes).
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeId", volumeEntity.BaseVolume.Id));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeGroup", volumeEntity.BaseVolume.group));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeShape", volumeEntity.BaseVolume.Shape));
         }
         else if (SelectedEntity is EntityNavmesh navmeshChunk)
         {
