@@ -3,7 +3,19 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
-## [v0.06-alpha.1](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - 06-11-2026
+## [v0.06](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-11-2026
+
+### Highlights
+
+- Added a level collision visualizer (off by default; toggled from the 3D viewport's toolbar, styled from `Render > Collision`), on both engines. Tools of Destruction's parser comes from @sowelilili's ReLunacy-ToD-tools fork, extended here to Quest for Booty (same format) and decoded for QForce, All 4 One, Into the Nexus and A Crack in Time, where each region's `collision.dat` holds it in section 0x2900. See `docs/reverse/collision.md`.
+  - The new engine stores the same header and triangle meshes as ToD, with the instance fields reordered, and adds primitive sets: boxes, spheres, capsules and cylinders, which make up 20-50% of the collision instances on QForce, All 4 One and Into the Nexus. Every mesh vertex lands inside its instance's stored box on all six games, and every primitive set's shapes fit their box.
+  - Drawn like the navmesh, as an overlay over the level, but instanced (one draw per unique shape), since a level places up to 3.7 million collision triangles. Colour by type (world mesh, TIE mesh, box, sphere, capsule, cylinder), by material, by triangle flags or by instance flags, with a legend built from what the level holds. Opacity, triangle outlines, and per-type toggles; it follows the Zones menu's region toggles, and a TIE several regions share is drawn once.
+- The 3D viewport's toolbar now holds the switches that get flipped all the time, so they no longer need a trip through a menu:
+  - Lit / unlit (was `Editor Settings > Lighting`), and next to it the game's RSX shaders (was `Render > Game shaders`). The RSX shaders belong to the lit path, so their button is greyed out while unlit; it keeps its state, on by default, for when lighting comes back.
+  - Navmesh (was `Render > Navmesh`) and collision on/off. Each is greyed out on a level that has none. The navmesh toggle is now also remembered between sessions.
+- Trigger volumes are drawn in their real shape on the new engine: boxes, cylinders, spheres and capsules, where every volume used to be drawn as a box. The shape was in the volume record all along, in the top byte of the matrix's last word (gp_prius 0x2505C +0x3C: 0 box, 1 cylinder, 2 sphere, 3 capsule), read as a float it is a tiny denormal, which is how it hid. Over the four games: 63172 boxes, 6556 cylinders, 656 spheres and 8 capsules. The Property Inspector shows the shape. Tools of Destruction's volumes have no such field and stay boxes.
+
+## [v0.06-alpha.1](https://github.com/VELD-Dev/ReLunacy/releases/0.06-alpha.1) - 06-11-2026
 
 ### Highlights
 

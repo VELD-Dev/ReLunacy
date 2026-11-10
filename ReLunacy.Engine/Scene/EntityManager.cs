@@ -20,6 +20,11 @@ public class EntityManager : IDisposable
     public bool renderVolumes = true;
     /// <summary>Off by default: the navmesh is an inspection overlay, not part of the level.</summary>
     public bool renderNavmesh = false;
+    /// <summary>Off by default, like the navmesh: the level's static collision, drawn as an overlay.</summary>
+    public bool renderCollision = false;
+    /// <summary>What the collision overlay holds, for the Render menu's legend. Set by the View3D when
+    /// it uploads a level's collision; null when the level has none.</summary>
+    public Rendering.CollisionSummary? CollisionSummary;
     /// <summary>Not currently drawn; the raw-Vulkan renderer has no debug-shape pass yet. Kept for when one is added.</summary>
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;

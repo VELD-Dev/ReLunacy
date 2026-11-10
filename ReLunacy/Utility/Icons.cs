@@ -47,10 +47,13 @@ public static class Icons
     public const string Tree = "\uf1bb";  // foliage
     public const string Droplet = "\uf043";
     public const string LayerGroup = "\uf5fd";
+    public const string Route = "\uf4d7";  // navmesh
+    public const string DrawPolygon = "\uf5ee";  // collision
 
     // Lighting
     public const string Lightbulb = "\uf0eb";
     public const string Sun = "\uf185";
+    public const string Microchip = "\uf2db";  // RSX (game) shaders
 
     // Debug / dev
     public const string Bug = "\uf188";

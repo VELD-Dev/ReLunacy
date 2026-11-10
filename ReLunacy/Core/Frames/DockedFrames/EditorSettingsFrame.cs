@@ -68,12 +68,10 @@ internal class EditorSettingsFrame : Frame
                 currentFiltering = (int)Program.Settings.TextureFiltering;
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
                     Program.Settings.TextureFiltering = (ReLunacy.Engine.Rendering.TextureFiltering)currentFiltering;
-                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_EnableLighting"), ref Program.Settings.EnableLighting);
+                // Lit/unlit and the RSX shaders are switched from the 3D viewport's toolbar; light
+                // direction/colour/ambient live in the Level Data frame, which edits the level's own
+                // lighting environment.
                 DrawCodeEditorThemePicker();
-                ImGui.SameLine();
-                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
-                // Light direction/colour/ambient controls live in the Level Data frame instead,
-                // which edits the level's own lighting environment.
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     currLanguage = selectedLanguage;

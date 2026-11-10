@@ -18,8 +18,8 @@ public class EntityVolume : Entity
 
     public override string Name { get; protected set; }
 
-    // A volume has no mesh or material of its own; the renderer draws its 12 wireframe edges
-    // directly from GetWorldEdgeTransforms and VolumeColour.
+    // A volume has no mesh or material of its own; the renderer draws its wireframe edges (12 for a
+    // box, rings and lines for the round shapes) directly from GetWorldEdgeTransforms and VolumeColour.
 
     private Transform[] _edgeTransforms = [];
 
@@ -35,7 +35,7 @@ public class EntityVolume : Entity
         SetScale(initialScale);
     }
 
-    /// <summary>Sets <see cref="scale"/> and recomputes the bounding sphere and the 12 edge transforms
+    /// <summary>Sets <see cref="scale"/> and recomputes the bounding sphere and the edge transforms
     /// together, synchronously.</summary>
     public void SetScale(Vector3 newScale)
     {
@@ -50,7 +50,7 @@ public class EntityVolume : Entity
         IsDirty = false;
     }
 
-    /// <summary>The 12 world matrices of this volume's wireframe edges. Each places and stretches a
+    /// <summary>The world matrices of this volume's wireframe edges. Each places and stretches a
     /// unit-length edge (see RecomputeEdgeTransforms / ComposeEdgeTransform). The renderer draws its own
     /// thin-box edge geometry at these, so the wireframe matches the pick target exactly (and honours
     /// VolumeWireThickness).</summary>
@@ -80,32 +80,103 @@ public class EntityVolume : Entity
     /// <summary>Current wireframe colour (RGBA, 0..1): the selected or unselected volume tint.</summary>
     public Vector4 VolumeColour => selected ? EntityManager.Singleton.VolumeSelectedColor : EntityManager.Singleton.VolumeColor;
 
-    /// <summary>Recomputes the 12 per-edge local Transforms (position/orientation/length) from the
-    /// current <see cref="scale"/>. Each edge is a unit-length segment stretched along its own local X (see
-    /// <see cref="ComposeEdgeTransform"/>) and placed at one of the box's 4 corners parallel to
-    /// that axis, same layout the old single-mesh CreateWireBox used.</summary>
+    /// <summary>Recomputes the per-edge Transforms from the current <see cref="scale"/> and the volume's
+    /// shape: a box's 12 edges, or rings and lines for the round shapes. Each is a unit-length segment
+    /// stretched along its own local X (see <see cref="ComposeEdgeTransform"/>). The shapes are the unit
+    /// shapes the box is, scaled the same way: a sphere's diameter is the box's size along each axis, so a
+    /// non-uniform scale makes an ellipsoid, as the matrix does in game.</summary>
     private void RecomputeEdgeTransforms()
     {
-        var edges = new Transform[12];
-        int i = 0;
-        AddAxisEdges(Vector3.UnitX, scale.X, Vector3.UnitY, scale.Y, Vector3.UnitZ, scale.Z, edges, ref i);
-        AddAxisEdges(Vector3.UnitY, scale.Y, Vector3.UnitX, scale.X, Vector3.UnitZ, scale.Z, edges, ref i);
-        AddAxisEdges(Vector3.UnitZ, scale.Z, Vector3.UnitX, scale.X, Vector3.UnitY, scale.Y, edges, ref i);
-        _edgeTransforms = edges;
+        var edges = new List<Transform>(12);
+        Vector3 h = scale * 0.5f;
+        switch (BaseVolume.Shape)
+        {
+            case VolumeShape.Sphere:
+                AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, 0f, h.Z), 1f);
+                AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, h.Y, 0f), 1f);
+                AddRing(edges, Vector3.Zero, new Vector3(0f, 0f, h.Z), new Vector3(0f, h.Y, 0f), 1f);
+                break;
+            case VolumeShape.Cylinder:
+                AddRoundSides(edges, h, h.Y);
+                break;
+            case VolumeShape.Capsule:
+            {
+                // The caps are hemispheres of the smaller horizontal radius, inside the box like the rest:
+                // the straight part is what the height leaves once both caps are in.
+                float cap = MathF.Min(MathF.Min(h.X, h.Z), h.Y);
+                float side = h.Y - cap;
+                AddRoundSides(edges, h, side);
+                foreach (float sy in Signs)
+                {
+                    var centre = new Vector3(0f, sy * side, 0f);
+                    var up = new Vector3(0f, sy * cap, 0f);
+                    AddRing(edges, centre, new Vector3(h.X, 0f, 0f), up, 0.5f);
+                    AddRing(edges, centre, new Vector3(0f, 0f, h.Z), up, 0.5f);
+                }
+                break;
+            }
+            default:
+                AddAxisEdges(Vector3.UnitX, scale.X, Vector3.UnitY, scale.Y, Vector3.UnitZ, scale.Z, edges);
+                AddAxisEdges(Vector3.UnitY, scale.Y, Vector3.UnitX, scale.X, Vector3.UnitZ, scale.Z, edges);
+                AddAxisEdges(Vector3.UnitZ, scale.Z, Vector3.UnitX, scale.X, Vector3.UnitY, scale.Y, edges);
+                break;
+        }
+        _edgeTransforms = [.. edges];
     }
 
     private static readonly float[] Signs = [-1f, 1f];
 
-    private void AddAxisEdges(Vector3 axisLength, float lengthExtent, Vector3 axisB, float extentB, Vector3 axisC, float extentC, Transform[] edges, ref int i)
+    /// <summary>Segments per full ring: enough to read as round at the sizes volumes come in.</summary>
+    private const int RingSegments = 32;
+
+    private void AddAxisEdges(Vector3 axisLength, float lengthExtent, Vector3 axisB, float extentB, Vector3 axisC, float extentC, List<Transform> edges)
     {
         foreach (float sb in Signs)
         {
             foreach (float sc in Signs)
             {
                 Vector3 localCenter = axisB * (sb * extentB * 0.5f) + axisC * (sc * extentC * 0.5f);
-                edges[i++] = ComposeEdgeTransform(axisLength, MathF.Max(lengthExtent, 0.0001f), localCenter);
+                edges.Add(ComposeEdgeTransform(axisLength, MathF.Max(lengthExtent, 0.0001f), localCenter));
             }
         }
+    }
+
+    /// <summary>A cylinder's sides along local Y: its two end rings at +-<paramref name="halfLength"/> and
+    /// four lines joining them.</summary>
+    private void AddRoundSides(List<Transform> edges, Vector3 h, float halfLength)
+    {
+        var x = new Vector3(h.X, 0f, 0f);
+        var z = new Vector3(0f, 0f, h.Z);
+        foreach (float sy in Signs)
+            AddRing(edges, new Vector3(0f, sy * halfLength, 0f), x, z, 1f);
+        if (halfLength <= 0f)
+            return;
+        foreach (var p in (ReadOnlySpan<Vector3>)[x, -x, z, -z])
+            AddSegment(edges, p - new Vector3(0f, halfLength, 0f), p + new Vector3(0f, halfLength, 0f));
+    }
+
+    /// <summary>The ellipse centre + a cos t + b sin t for t over <paramref name="turns"/> of a full turn
+    /// from 0 (a half turn draws the arc on the +b side).</summary>
+    private void AddRing(List<Transform> edges, Vector3 centre, Vector3 a, Vector3 b, float turns)
+    {
+        int count = Math.Max(1, (int)(RingSegments * turns));
+        Vector3 previous = centre + a;
+        for (int k = 1; k <= count; k++)
+        {
+            float t = MathF.Tau * turns * k / count;
+            Vector3 next = centre + a * MathF.Cos(t) + b * MathF.Sin(t);
+            AddSegment(edges, previous, next);
+            previous = next;
+        }
+    }
+
+    private void AddSegment(List<Transform> edges, Vector3 from, Vector3 to)
+    {
+        Vector3 d = to - from;
+        float length = d.Length();
+        if (length < 1e-6f)
+            return;
+        edges.Add(ComposeEdgeTransform(d / length, length, (from + to) * 0.5f));
     }
 
     /// <summary>Builds one edge's world Transform by composing its volume-local placement with this
@@ -129,14 +200,15 @@ public class EntityVolume : Entity
         return new Transform { Scale = decomposedScale, Rotation = decomposedRotation, Translation = decomposedTranslation };
     }
 
-    /// <summary>Rotation aligning the edge mesh's local +X (its length axis) to <paramref name="axis"/>
-    /// (always UnitX/UnitY/UnitZ). Only the axis line matters, not polarity, since the edge mesh is
+    /// <summary>Rotation aligning the edge mesh's local +X (its length axis) to the unit vector
+    /// <paramref name="axis"/>. Only the axis line matters, not polarity, since the edge mesh is
     /// radially symmetric.</summary>
     private static Quaternion AlignUnitXTo(Vector3 axis)
     {
-        if (axis == Vector3.UnitY) return Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2f);
-        if (axis == Vector3.UnitZ) return Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2f);
-        return Quaternion.Identity;
+        float dot = Vector3.Dot(Vector3.UnitX, axis);
+        if (dot > 0.99999f || dot < -0.99999f) return Quaternion.Identity;
+        Vector3 cross = Vector3.Normalize(Vector3.Cross(Vector3.UnitX, axis));
+        return Quaternion.CreateFromAxisAngle(cross, MathF.Acos(Math.Clamp(dot, -1f, 1f)));
     }
 
     public override void Dispose()

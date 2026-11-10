@@ -1,0 +1,21 @@
+<component name="ProjectRunConfigurationManager">
+  <!-- Shared (checked-in) run configuration: publishes Release.proj's four platforms in one go.
+       Drives `dotnet msbuild` rather than Rider's own build, because a release is four separate
+       per-runtime publishes and no single build configuration can express that. Has no before-launch
+       Build step (the empty <method>) for the same reason: each publish builds what it needs. -->
+  <configuration default="false" name="Publish Release (all platforms)" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="dotnet msbuild Release.proj -t:Publish" />
+    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+    <option name="SCRIPT_PATH" value="" />
+    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+    <option name="INTERPRETER_PATH" value="/bin/bash" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+    <option name="EXECUTE_SCRIPT_FILE" value="false" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

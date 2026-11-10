@@ -11,6 +11,10 @@ recovery
 
 # Locally-built NuGet packages (patched Veldrith 1.2.19)
 LocalPackages/
+local-packages/
+
+# Release.proj output: per-platform publish folders and their archives
+/artifacts/
 
 # Other files
 *.rdc  # RenderDoc captures

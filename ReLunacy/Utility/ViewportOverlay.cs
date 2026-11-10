@@ -11,13 +11,15 @@ public sealed class ViewportOverlay
     private const float Margin = 8f;
     private const float Spacing = 4f;
     private const float ButtonSize = 24f;
+    /// <summary>Extra space <see cref="Gap"/> puts between groups of buttons.</summary>
+    private const float GroupGap = 10f;
 
     private Vector2 _origin;
     private Vector2 _size;
     private Vector2 _cursor;
     private Vector2 _restoreCursor;
     private float _panelTop;
-    private int _panelColumn;
+    private float _panelLeft;
     private bool _active;
 
     /// <summary>True while a viewport is small enough that the toolbar would cover most of it, in
@@ -45,7 +47,7 @@ public sealed class ViewportOverlay
         _size = viewportSize;
         _cursor = viewportPos + new Vector2(Margin, Margin);
         _panelTop = _cursor.Y + ButtonSize + Spacing;
-        _panelColumn = 0;
+        _panelLeft = _cursor.X;
 
         ImGui.PushID(id);
         // Translucent so the viewport stays readable underneath, brighter on hover/press.
@@ -55,7 +57,9 @@ public sealed class ViewportOverlay
     }
 
     /// <summary>A button that latches. Returns true on the frame it was clicked.</summary>
-    public bool ToggleButton(string label, ref bool state, string? tooltip = null)
+    /// <param name="enabled">False greys the button out and ignores clicks; its tooltip still shows,
+    /// so it can say why.</param>
+    public bool ToggleButton(string label, ref bool state, string? tooltip = null, bool enabled = true)
     {
         if (!_active) return false;
 
@@ -63,12 +67,12 @@ public sealed class ViewportOverlay
         if (state)
         {
             ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.20f, 0.45f, 0.75f, 0.90f));
-            clicked = Button(label, tooltip);
+            clicked = Button(label, tooltip, enabled);
             ImGui.PopStyleColor();
         }
         else
         {
-            clicked = Button(label, tooltip);
+            clicked = Button(label, tooltip, enabled);
         }
 
         if (clicked) state = !state;
@@ -76,22 +80,30 @@ public sealed class ViewportOverlay
     }
 
     /// <summary>A momentary button. Returns true on the frame it was clicked.</summary>
-    public bool Button(string label, string? tooltip = null)
+    public bool Button(string label, string? tooltip = null, bool enabled = true)
     {
         if (!_active) return false;
 
         ImGui.SetCursorScreenPos(_cursor);
+        if (!enabled) ImGui.BeginDisabled();
         bool clicked = ImGui.Button(label, new Vector2(ButtonSize, ButtonSize));
-        if (ImGui.IsItemHovered())
+        if (!enabled) ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
         {
             WantsMouse = true;
             if (tooltip != null) ImGui.SetTooltip(tooltip);
         }
 
         // Remember where a panel opened from this button should hang.
-        _panelColumn = (int)((_cursor.X - _origin.X - Margin) / (ButtonSize + Spacing));
+        _panelLeft = _cursor.X;
         _cursor.X += ButtonSize + Spacing;
-        return clicked;
+        return clicked && enabled;
+    }
+
+    /// <summary>Separates the next buttons from the previous ones as a group.</summary>
+    public void Gap()
+    {
+        if (_active) _cursor.X += GroupGap;
     }
 
     /// <summary>Opens a panel under the toolbar, aligned to the button that was added last. Returns
@@ -100,7 +112,7 @@ public sealed class ViewportOverlay
     {
         if (!_active) return false;
 
-        float left = _origin.X + Margin + _panelColumn * (ButtonSize + Spacing);
+        float left = _panelLeft;
         // Keep the panel inside the viewport, sliding it left if it would overhang the right edge.
         float maxWidth = Math.Max(80f, _size.X - Margin * 2f);
         float width = size.X <= 0f ? maxWidth : Math.Min(size.X, maxWidth);
