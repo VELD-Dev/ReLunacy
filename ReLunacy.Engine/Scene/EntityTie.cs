@@ -15,6 +15,11 @@ public class EntityTie : Entity
 
     public RenderModel? Model { get; private set; }
 
+    /// <summary>The placement's matrix as the file stores it, before the decompose into
+    /// <see cref="Entity.Transform"/> (which does not rebuild a mirrored placement exactly). A Tie's
+    /// collision instance carries this same matrix, which is how the two are matched.</summary>
+    public Matrix4x4 PlacementMatrix { get; }
+
     public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager)
     {
         BaseTie = tieInstance.Asset;
@@ -22,7 +27,8 @@ public class EntityTie : Entity
         // Ties are placed via a raw affine matrix; decomposed directly rather than through
         // IPlacedInstance's Euler-angle properties, which are lossy and collapse anisotropic scale
         // into a single averaged float.
-        Matrix4x4.Decompose(tieInstance.GetTransformMatrix(), out var scale, out var rotation, out var translation);
+        PlacementMatrix = tieInstance.GetTransformMatrix();
+        Matrix4x4.Decompose(PlacementMatrix, out var scale, out var rotation, out var translation);
 
         Transform = new Transform
         {

@@ -41,7 +41,7 @@ public sealed class LevelCollision
     private const int HeaderSize = 0x80;
     private const int InstanceStride = 0x80;
 
-    /// <summary>Instance flags-and-id word, bit 29: the instance is a TIE placement's collision (its
+    /// <summary>Instance flags-and-id word, bit 29: the instance is a Tie placement's collision (its
     /// matrix is the placement's). Clear on world chunks, whose matrix is identity.</summary>
     private const uint TieInstanceFlag = 0x20000000;
 
@@ -157,28 +157,30 @@ public sealed class CollisionInstance(Matrix4x4 transform, Vector4 boundingSpher
     bool isTie, uint id, ushort shapeFlags, CollisionShape shape)
 {
     /// <summary>Shape to world, row-vector convention (translation in M41..M43). Identity on world
-    /// chunks, whose shape is already in world space.</summary>
-    public Matrix4x4 Transform { get; } = transform;
+    /// chunks, whose shape is already in world space. On a Tie's collision it equals the Tie
+    /// placement's matrix, which is how the editor moves it with the Tie (with the box and sphere).</summary>
+    public Matrix4x4 Transform { get; set; } = transform;
 
     /// <summary>World-space bounding sphere.</summary>
-    public Vector4 BoundingSphere { get; } = boundingSphere;
+    public Vector4 BoundingSphere { get; set; } = boundingSphere;
 
     /// <summary>World-space box. Tight on every new-engine instance; on ToD about 2% have one side
     /// trimmed short of their transformed mesh.</summary>
-    public Vector3 BoundsMin { get; } = boundsMin;
-    public Vector3 BoundsMax { get; } = boundsMax;
+    public Vector3 BoundsMin { get; set; } = boundsMin;
+    public Vector3 BoundsMax { get; set; } = boundsMax;
 
-    /// <summary>True for a TIE placement's collision, false for world (terrain and shell) chunks.</summary>
+    /// <summary>True for a Tie placement's collision, false for world (terrain and shell) chunks.</summary>
     public bool IsTie { get; } = isTie;
 
-    /// <summary>Low 28 bits of the flags-and-id word. Counts up across the chunks of one TIE class;
+    /// <summary>Low 28 bits of the flags-and-id word. Counts up across the chunks of one Tie class;
     /// meaning not closed.</summary>
     public uint Id { get; } = id;
 
     /// <summary>The 16 flag bits beside the shape's length. 0x400 = primitive set (new engine).
     /// 0x02 and 0x08 are set on every instance of all six games, 0x40 on all but 0.2%; 0x01, 0x04,
-    /// 0x20 and 0x100 vary. Not otherwise closed.</summary>
-    public ushort ShapeFlags { get; } = shapeFlags;
+    /// 0x20 and 0x100 vary. Not otherwise closed. Settable for the collision editor, which keeps 0x400
+    /// as it is, since it says what the shape is.</summary>
+    public ushort ShapeFlags { get; set; } = shapeFlags;
 
     public CollisionShape Shape { get; } = shape;
 }

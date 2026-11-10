@@ -57,9 +57,10 @@ public class EditorSettings
     public bool RenderVolumes;
     public bool RenderNavmesh;
     public bool RenderCollision;
-    // The collision overlay's look (Render > Collision). Read by View3D each frame, like GameShaders.
+    // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.
     public ReLunacy.Engine.Rendering.CollisionColorMode CollisionColorMode;
     public ReLunacy.Engine.Rendering.CollisionCategories CollisionCategories;
+    public ReLunacy.Engine.Rendering.CollisionPrimitiveKinds CollisionPrimitiveKinds;
     public float CollisionOpacity;
     public bool CollisionOutlines;
     public bool RenderBoundingSpheres;
@@ -177,6 +178,7 @@ public class EditorSettings
         RenderCollision = false;
         CollisionColorMode = ReLunacy.Engine.Rendering.CollisionColorMode.Type;
         CollisionCategories = ReLunacy.Engine.Rendering.CollisionCategories.All;
+        CollisionPrimitiveKinds = ReLunacy.Engine.Rendering.CollisionPrimitiveKinds.All;
         CollisionOpacity = 0.85f;
         CollisionOutlines = true;
         RenderBoundingSpheres = false;

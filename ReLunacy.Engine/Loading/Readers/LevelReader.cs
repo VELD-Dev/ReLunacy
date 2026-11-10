@@ -354,7 +354,7 @@ public sealed class LevelData
     public Assets.Lighting.LevelFog? LevelFog { get; }
 
     /// <summary>Static collision, keyed by region name on the new engine (each region has its own
-    /// collision.dat, and a TIE several regions share is in each of them). The old engine has one,
+    /// collision.dat, and a Tie several regions share is in each of them). The old engine has one,
     /// under the empty name. Empty when the level ships none.</summary>
     public IReadOnlyDictionary<string, Assets.Collision.LevelCollision> CollisionByRegion { get; }
 

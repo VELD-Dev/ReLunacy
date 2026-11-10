@@ -21,6 +21,9 @@ public sealed class ViewportOverlay
     private float _panelTop;
     private float _panelLeft;
     private bool _active;
+    // Panels already placed this frame, so a later one hangs below any it would overlap.
+    private readonly List<(float Left, float Right, float Bottom)> _panels = [];
+    private float _openLeft, _openWidth;
 
     /// <summary>True while a viewport is small enough that the toolbar would cover most of it, in
     /// which case everything below is skipped. Callers do not need to check this - the add methods
@@ -48,6 +51,7 @@ public sealed class ViewportOverlay
         _cursor = viewportPos + new Vector2(Margin, Margin);
         _panelTop = _cursor.Y + ButtonSize + Spacing;
         _panelLeft = _cursor.X;
+        _panels.Clear();
 
         ImGui.PushID(id);
         // Translucent so the viewport stays readable underneath, brighter on hover/press.
@@ -100,36 +104,51 @@ public sealed class ViewportOverlay
         return clicked && enabled;
     }
 
+    /// <summary>Left edge of the button added last: pass it to <see cref="BeginPanel"/> to hang a panel
+    /// from that button when other buttons follow it.</summary>
+    public float LastButtonLeft => _panelLeft;
+
     /// <summary>Separates the next buttons from the previous ones as a group.</summary>
     public void Gap()
     {
         if (_active) _cursor.X += GroupGap;
     }
 
-    /// <summary>Opens a panel under the toolbar, aligned to the button that was added last. Returns
-    /// false if there is no room, in which case do NOT call <see cref="EndPanel"/>.</summary>
-    public bool BeginPanel(string id, Vector2 size)
+    /// <summary>Opens a panel under the toolbar, aligned to the button that was added last, or to
+    /// <paramref name="anchorLeft"/> (a <see cref="LastButtonLeft"/> taken earlier). A panel that would
+    /// overlap one already open this frame hangs below it. With no height given it fits its widgets, up
+    /// to the viewport's height, and scrolls past that. Returns false if there is no room, in which case
+    /// do NOT call <see cref="EndPanel"/>.</summary>
+    public bool BeginPanel(string id, Vector2 size, float? anchorLeft = null)
     {
         if (!_active) return false;
 
-        float left = _panelLeft;
+        float left = anchorLeft ?? _panelLeft;
         // Keep the panel inside the viewport, sliding it left if it would overhang the right edge.
         float maxWidth = Math.Max(80f, _size.X - Margin * 2f);
         float width = size.X <= 0f ? maxWidth : Math.Min(size.X, maxWidth);
         left = Math.Min(left, _origin.X + _size.X - Margin - width);
-        float maxHeight = Math.Max(40f, _size.Y - (_panelTop - _origin.Y) - Margin);
+        float top = _panelTop;
+        foreach (var (l, r, bottom) in _panels)
+            if (left < r && left + width > l)
+                top = Math.Max(top, bottom + Spacing);
+        float maxHeight = Math.Max(40f, _origin.Y + _size.Y - top - Margin);
         float height = size.Y <= 0f ? 0f : Math.Min(size.Y, maxHeight);
 
-        ImGui.SetCursorScreenPos(new Vector2(left, _panelTop));
+        ImGui.SetCursorScreenPos(new Vector2(left, top));
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.08f, 0.08f, 0.10f, 0.92f));
         // AutoResizeY when no explicit height was given, so the panel fits its widgets.
         var flags = ImGuiChildFlags.Borders | (height <= 0f ? ImGuiChildFlags.AutoResizeY : ImGuiChildFlags.None);
+        if (height <= 0f)
+            ImGui.SetNextWindowSizeConstraints(new Vector2(width, 0f), new Vector2(width, maxHeight));
         bool open = ImGui.BeginChild(id, new Vector2(width, height), flags);
         if (!open)
         {
             ImGui.EndChild();
             ImGui.PopStyleColor();
         }
+        _openLeft = left;
+        _openWidth = width;
         return open;
     }
 
@@ -137,9 +156,11 @@ public sealed class ViewportOverlay
     {
         if (!_active) return;
         // AllowWhenBlockedByActiveItem keeps a dragged slider counted as ours even off-panel.
-        if (ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem))
+        if (ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem | ImGuiHoveredFlags.ChildWindows))
             WantsMouse = true;
+        float bottom = ImGui.GetWindowPos().Y + ImGui.GetWindowSize().Y;
         ImGui.EndChild();
+        _panels.Add((_openLeft, _openLeft + _openWidth, bottom));
         ImGui.PopStyleColor();
     }
 

@@ -14,7 +14,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 ///
 /// This replaces ZoneMetadata, which could never have worked. It was reading section 0x74C0 of the
 /// zone's own blob as (TUID, name pointer, padding), but in a zone blob:
-///   0x72C0 is the TIE instance name table   (TieInstance.NameTableID - the same record shape)
+///   0x72C0 is the Tie instance name table   (TieInstance.NameTableID - the same record shape)
 ///   0x74C0 is the SHRUB instance name table (ShrubInstance.NameTableID)
 /// Neither is zone metadata, and neither exists on the old engine. So a zone with shrubs was named
 /// after its first shrub placement ("nb_cr_tree_curved_2_5"), and a zone without them fell to

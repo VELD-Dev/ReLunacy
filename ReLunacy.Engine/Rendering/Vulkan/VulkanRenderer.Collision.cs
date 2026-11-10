@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Rendering;
 using Vortice.Vulkan;
 using NeoVeldrid;
 
@@ -18,17 +19,22 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// Faces are flat-shaded from their screen-space derivatives and outlined from their barycentrics
 /// (taken from gl_VertexIndex % 3; the pool is unshared), so no edge geometry is needed: a level's
 /// collision has millions of edges, which the navmesh's instanced thin boxes could not afford.
-/// Hiding a category (world, TIE, primitives) or a region collapses its vertices in the vertex shader
-/// rather than rebuilding the batches.
+/// Hiding a category, a primitive kind, a region, a material or a triangle-flag value collapses the
+/// vertices in the vertex shader rather than rebuilding the batches; so does the editor's per-instance
+/// hidden bit (the instance-flag filter), and its selected bits tint the faces in edit mode.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
-    // uFlags.x: visible categories (CollisionCategories). uFlags.y: colour mode (CollisionColorMode).
-    // uFlags.z: visible regions (bit N = the Nth region given to CollisionGeometry.Build).
-    // uParams.x: opacity, uParams.y: 1 = outlines.
+    // uParams: x opacity, y 1 = outlines, z 1 = edit mode (selection highlighted).
+    // uFlags: x visible categories (CollisionCategories), y colour mode (CollisionColorMode), z visible
+    // regions (bit N = the Nth region given to CollisionGeometry.Build), w visible primitive kinds.
+    // uMat0/uMat1: visible materials, bit m of the 256. uMisc.x: visible triangle-flag values, bit f of 32.
+    private const string CollisionPushGlsl = @"layout(push_constant) uniform PC { vec4 uParams; uvec4 uFlags; uvec4 uMat0; uvec4 uMat1; uvec4 uMisc; vec4 uSelColor; };";
+    private const int CollisionPushSize = 96;
+
     private const string CollisionVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; };
-layout(push_constant) uniform PC { vec4 uParams; uvec4 uFlags; };
+" + CollisionPushGlsl + @"
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in uint inAttr;
 layout(location = 2) in vec4 inRow0;
@@ -40,6 +46,7 @@ layout(location = 7) in uint inRegions;
 layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vBary;
 layout(location = 2) flat out vec3 vColor;
+layout(location = 3) flat out float vSelected;
 
 // Mirror CollisionGeometry.IdColor / FlagColor / the Type colours.
 vec3 idColour(uint id) {
@@ -61,13 +68,28 @@ void main()
     uint kind = (inAttr >> 13) & 7u;
     bool tie = (inInstance & 1u) != 0u;
     uint category = kind != 0u ? 4u : (tie ? 2u : 1u);
-    if ((uFlags.x & category) == 0u || (uFlags.z & inRegions) == 0u) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    // Hidden: by category, region, the instance-flag filter (bit 2, set by the editor), and per face by
+    // material and triangle flags (meshes) or primitive kind. A face's three corners share their
+    // attributes, so collapsing each one collapses the face.
+    bool visible = (uFlags.x & category) != 0u && (uFlags.z & inRegions) != 0u && (inInstance & 4u) == 0u;
+    if (kind == 0u)
+    {
+        uint material = inAttr & 0xFFu;
+        uint word = material < 128u ? uMat0[material >> 5] : uMat1[(material >> 5) - 4u];
+        visible = visible && (word & (1u << (material & 31u))) != 0u && (uMisc.x & (1u << ((inAttr >> 8) & 0x1Fu))) != 0u;
+    }
+    else
+    {
+        visible = visible && (uFlags.w & (1u << (kind - 1u))) != 0u;
+    }
+    if (!visible) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
     mat4 model = mat4(inRow0, inRow1, inRow2, inRow3);
     vec4 world = model * vec4(inPos, 1.0);
     vWorld = world.xyz;
     int corner = gl_VertexIndex % 3;
     vBary = vec3(corner == 0 ? 1.0 : 0.0, corner == 1 ? 1.0 : 0.0, corner == 2 ? 1.0 : 0.0);
+    vSelected = uParams.z > 0.5 && ((inAttr & 0x10000u) != 0u || (inInstance & 2u) != 0u) ? 1.0 : 0.0;
 
     uint mode = uFlags.y;
     if (mode == 1u)      vColor = kind == 0u ? idColour(inAttr & 0xFFu) : vec3(0.5);
@@ -78,10 +100,11 @@ void main()
 }";
 
     private const string CollisionFragmentGlsl = @"#version 450
-layout(push_constant) uniform PC { vec4 uParams; uvec4 uFlags; };
+" + CollisionPushGlsl + @"
 layout(location = 0) in vec3 vWorld;
 layout(location = 1) in vec3 vBary;
 layout(location = 2) flat in vec3 vColor;
+layout(location = 3) flat in float vSelected;
 layout(location = 0) out vec4 o;
 void main()
 {
@@ -101,9 +124,18 @@ void main()
     // and smoothstep with equal edges is undefined, hence the floor.
     vec3 width = max(fwidth(vBary), vec3(1e-6));
     vec3 inside = smoothstep(width * 0.5, width * 1.5, vBary);
-    if (uParams.y > 0.5) rgb *= mix(0.25, 1.0, min(min(inside.x, inside.y), inside.z));
+    float edge = min(min(inside.x, inside.y), inside.z);
+    if (uParams.y > 0.5) rgb *= mix(0.25, 1.0, edge);
     // Premultiplied, with the real alpha in A for the blend (see the navmesh surface's note).
-    o = vec4(rgb * uParams.x, uParams.x);
+    float alpha = uParams.x;
+    // Selected (edit mode): tinted with the selection colour and drawn opaque with a bright rim, so a
+    // selection reads through any opacity setting.
+    if (vSelected > 0.5)
+    {
+        rgb = mix(mix(rgb, uSelColor.rgb, 0.65), uSelColor.rgb, 1.0 - edge);
+        alpha = 1.0;
+    }
+    o = vec4(rgb * alpha, alpha);
 }";
 
     private VkShaderModule _colVs, _colFs;
@@ -112,6 +144,11 @@ void main()
 
     private VkBuffer _colVertexBuffer, _colInstanceBuffer;
     private VkDeviceMemory _colVbMemory, _colInstanceMemory;
+    // Kept mapped (host-coherent) so the collision editor can rewrite a face's or an instance's
+    // attribute word in place. The race with a frame in flight only shows as a one-frame-late highlight.
+    private CollisionVertex* _colVertexMapped;
+    private CollisionInstanceData* _colInstanceMapped;
+    private int _colVertexCount, _colInstanceCount;
     private CollisionBatch[] _colBatches = [];
 
     public bool CollisionVisible { get; set; }
@@ -128,6 +165,19 @@ void main()
     /// <summary>Bit N shows the Nth region's collision (see CollisionGeometry.Build).</summary>
     public uint CollisionRegionMask { get; set; } = uint.MaxValue;
 
+    public CollisionPrimitiveKinds CollisionPrimitiveKinds { get; set; } = CollisionPrimitiveKinds.All;
+
+    /// <summary>Bit m shows material m (mesh faces). Eight words, 256 materials.</summary>
+    public uint[] CollisionMaterialMask { get; } = [.. Enumerable.Repeat(uint.MaxValue, 8)];
+
+    /// <summary>Bit f shows the faces whose five triangle-flag bits equal f.</summary>
+    public uint CollisionTriangleFlagMask { get; set; } = uint.MaxValue;
+
+    /// <summary>Highlights the faces and instances the editor marked selected.</summary>
+    public bool CollisionEditMode { get; set; }
+
+    public Vector4 CollisionSelectionColor { get; set; } = new(1f, 0.85f, 0.2f, 1f);
+
     /// <summary>True once collision has been uploaded, so the UI can grey out its toggle on a level
     /// that has none.</summary>
     public bool HasCollision => _colBatches.Length > 0;
@@ -138,7 +188,7 @@ void main()
         _colFs = Module(CollisionFragmentGlsl, ShaderStages.Fragment);
 
         VkDescriptorSetLayout setLayout = _descLayout;
-        var push = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = 32 };
+        var push = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = CollisionPushSize };
         var layoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 1, pSetLayouts = &setLayout, pushConstantRangeCount = 1, pPushConstantRanges = &push };
         VkPipelineLayout layout;
         Check(_api.vkCreatePipelineLayout(&layoutInfo, &layout), "vkCreatePipelineLayout(collision)");
@@ -230,16 +280,43 @@ void main()
         void* vp;
         Check(_api.vkMapMemory(_colVbMemory, 0, vSize, 0, &vp), "vkMapMemory(collisionVb)");
         vertices.CopyTo(new Span<CollisionVertex>(vp, vertices.Length));
-        _api.vkUnmapMemory(_colVbMemory);
+        _colVertexMapped = (CollisionVertex*)vp;
+        _colVertexCount = vertices.Length;
 
         ulong iSize = (ulong)instances.Length * (ulong)sizeof(CollisionInstanceData);
         (_colInstanceBuffer, _colInstanceMemory) = CreateBuffer(iSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
         void* ip;
         Check(_api.vkMapMemory(_colInstanceMemory, 0, iSize, 0, &ip), "vkMapMemory(collisionInstances)");
         instances.CopyTo(new Span<CollisionInstanceData>(ip, instances.Length));
-        _api.vkUnmapMemory(_colInstanceMemory);
+        _colInstanceMapped = (CollisionInstanceData*)ip;
+        _colInstanceCount = instances.Length;
 
         _colBatches = batches.ToArray();
+    }
+
+    /// <summary>Rewrites the attribute word of pool vertices [first, first + attributes.Length).</summary>
+    public void UpdateCollisionVertexAttributes(uint first, ReadOnlySpan<uint> attributes)
+    {
+        if (_colVertexMapped == null || first + (ulong)attributes.Length > (ulong)_colVertexCount) return;
+        for (int i = 0; i < attributes.Length; i++)
+        {
+            CollisionVertex* v = _colVertexMapped + first + i;
+            *v = new CollisionVertex(v->Position, attributes[i]);
+        }
+    }
+
+    /// <summary>Rewrites one instance's matrix (a Tie that moved carries its collision with it).</summary>
+    public void UpdateCollisionInstanceTransform(int index, Matrix4x4 transform)
+    {
+        if (_colInstanceMapped == null || (uint)index >= (uint)_colInstanceCount) return;
+        _colInstanceMapped[index].Transform = transform;
+    }
+
+    /// <summary>Rewrites one instance's attribute word.</summary>
+    public void UpdateCollisionInstanceAttributes(int index, uint attributes)
+    {
+        if (_colInstanceMapped == null || (uint)index >= (uint)_colInstanceCount) return;
+        _colInstanceMapped[index].Attributes = attributes;
     }
 
     private void DrawCollision()
@@ -247,16 +324,21 @@ void main()
         if (!CollisionVisible || _colBatches.Length == 0 || CollisionCategories == CollisionCategories.None || CollisionRegionMask == 0) return;
 
         VkDescriptorSet s0 = _descSet;
-        byte* pc = stackalloc byte[32];
-        *(Vector4*)pc = new Vector4(Math.Clamp(CollisionOpacity, 0f, 1f), CollisionOutlines ? 1f : 0f, 0f, 0f);
-        ((uint*)(pc + 16))[0] = (uint)CollisionCategories;
-        ((uint*)(pc + 16))[1] = (uint)CollisionColorMode;
-        ((uint*)(pc + 16))[2] = CollisionRegionMask;
-        ((uint*)(pc + 16))[3] = 0;
+        byte* pc = stackalloc byte[CollisionPushSize];
+        *(Vector4*)pc = new Vector4(Math.Clamp(CollisionOpacity, 0f, 1f), CollisionOutlines ? 1f : 0f, CollisionEditMode ? 1f : 0f, 0f);
+        uint* words = (uint*)(pc + 16);
+        words[0] = (uint)CollisionCategories;
+        words[1] = (uint)CollisionColorMode;
+        words[2] = CollisionRegionMask;
+        words[3] = (uint)CollisionPrimitiveKinds;
+        for (int i = 0; i < 8; i++) words[4 + i] = CollisionMaterialMask[i];
+        words[12] = CollisionTriangleFlagMask;
+        words[13] = words[14] = words[15] = 0;
+        *(Vector4*)(pc + 80) = CollisionSelectionColor;
 
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _colPipeline);
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _colLayout, 0, 1, &s0, 0, null);
-        _api.vkCmdPushConstants(_cmd, _colLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 32, pc);
+        _api.vkCmdPushConstants(_cmd, _colLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, CollisionPushSize, pc);
         VkBuffer* buffers = stackalloc VkBuffer[2] { _colVertexBuffer, _colInstanceBuffer };
         ulong* offsets = stackalloc ulong[2] { 0, 0 };
         _api.vkCmdBindVertexBuffers(_cmd, 0, 2, buffers, offsets);
@@ -268,6 +350,9 @@ void main()
 
     private void DestroyCollisionBuffers()
     {
+        if (_colVertexMapped != null) { _api.vkUnmapMemory(_colVbMemory); _colVertexMapped = null; }
+        if (_colInstanceMapped != null) { _api.vkUnmapMemory(_colInstanceMemory); _colInstanceMapped = null; }
+        _colVertexCount = _colInstanceCount = 0;
         if (_colVertexBuffer.Handle != 0) { _api.vkDestroyBuffer(_colVertexBuffer); _colVertexBuffer = default; }
         if (_colVbMemory.Handle != 0) { _api.vkFreeMemory(_colVbMemory); _colVbMemory = default; }
         if (_colInstanceBuffer.Handle != 0) { _api.vkDestroyBuffer(_colInstanceBuffer); _colInstanceBuffer = default; }
