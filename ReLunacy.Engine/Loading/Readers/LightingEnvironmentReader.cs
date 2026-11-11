@@ -167,6 +167,40 @@ public sealed class LightingEnvironmentReader
     /// 1.12 / 2.33 / 0.21, tombli no history).</summary>
     private static Assets.Lighting.BloomParameters? ReadCrackInTimeBloom(IGFile region) => ReadBloomAt(region, 0x8100, 0x100, 0x70);
 
+    /// <summary>
+    /// A Crack in Time's fog: region.dat 0x8100 (0x100 bytes) +0x30 colour, +0x50 near, +0x54 far, +0x58
+    /// amount - Tools of Destruction's main.dat 0x7100 fog (+0x40, +0x4C..+0x54), moved, in the record that
+    /// also carries its bloom at the same +0x70 as ToD's. The colour is PROVEN: ACiT's world shaders in the
+    /// RPCS3 cache end in colour + (C - colour) x saturate(TEX1.w) with C = zolar_forest's +0x30
+    /// (0.08865559, 0.5583405, 0.5332765) to the last digit. The amount comes from the vertex program
+    /// (TEX1.w), which the cache does not translate and whose EBOOT is not decrypted, so the linear ramp
+    /// over view depth, capped at the amount, is ToD's (LevelFog), taken on the record's resemblance:
+    /// near 50 / far 500 / 0.3 on krell_canyon, 90 / 500 / 0.6 zolar_forest, 10 / 624 / 0.8 axiom_city.
+    /// +0x5C (3500, 2500, 1800) is not known. Null when the amount is 0 or the range invalid.
+    /// </summary>
+    private static Assets.Lighting.LevelFog? ReadCrackInTimeFog(IGFile region)
+    {
+        var section = region.QuerySection(0x8100);
+        if (section.id != 0x8100 || section.count == 0 || section.length < 0x100) return null;
+        Vector3 colour = ReadVec3(region, section.offset + 0x30);
+        region.sh.Seek(section.offset + 0x50);
+        float near = region.sh.ReadSingle(), far = region.sh.ReadSingle(), amount = region.sh.ReadSingle();
+        if (!float.IsFinite(colour.X) || !float.IsFinite(colour.Y) || !float.IsFinite(colour.Z) ||
+            !float.IsFinite(near) || !float.IsFinite(far) || !float.IsFinite(amount) || far <= near || amount <= 0f)
+            return null;
+        float scale = amount / (far - near);
+        return new Assets.Lighting.LevelFog
+        {
+            Colour = colour,
+            NearDistance = near,
+            FarDistance = far,
+            Amount = amount,
+            LinearScale = scale,
+            LinearBias = -near * scale,
+            SourceOffset = section.offset,
+        };
+    }
+
     private static Assets.Lighting.BloomParameters? ReadBloomAt(IGFile region, uint id, uint minLength, uint at)
     {
         var section = region.QuerySection(id);
@@ -280,6 +314,7 @@ public sealed class LightingEnvironmentReader
             Version = 0,
             Ambient = ReadVec3(region, b + 0x40),
             Bloom = ReadBloom(region) ?? ReadCrackInTimeBloom(region),
+            LinearFog = ReadCrackInTimeFog(region),
             // None of A Crack in Time's 27 reflecting shaders in the RPCS3 cache has QForce's occlusion
             // group: the reflection is cube * max(cube.a + bias, 0) * tint * spec * fade, never masked by
             // the lit luminance (lightmapped D8C2C74A439D8FFD, probe-lit 7BDE9F3E80A33081). Floor 1 turns

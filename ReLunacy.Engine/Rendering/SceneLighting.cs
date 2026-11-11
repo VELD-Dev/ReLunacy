@@ -56,9 +56,9 @@ public sealed class SceneLighting
         bool old = OldEngineMode;
         bool reflections = !old || OldEngineRenderOptions.ReflectionsEnabled;
 
-        var fog = old ? LevelFog : null;
-        bool fogEnabled = old
-            && OldEngineRenderOptions.FogEnabled
+        // The old engine's fog, or A Crack in Time's, which is the same linear fog (LightingEnvironment.LinearFog).
+        var fog = LevelFog;
+        bool fogEnabled = OldEngineRenderOptions.FogEnabled
             && fog is { HasValidLinearRange: true }
             && fog.Amount > 0f;
 

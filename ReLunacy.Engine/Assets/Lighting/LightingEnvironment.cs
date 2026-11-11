@@ -135,6 +135,10 @@ public sealed class LightingEnvironment
     /// <summary>The level's bloom: new engine region.dat 0x34000 +0x80..+0x90, old engine main.dat 0x7100
     /// +0x70..+0x8C (set by LevelReader from <see cref="LevelFog.Bloom"/>); null when the level has none.</summary>
     public BloomParameters? Bloom { get; set; }
+
+    /// <summary>A Crack in Time's distance fog (region.dat 0x8100, see LightingEnvironmentReader): the old
+    /// engine's linear fog, where the other new-engine games use the 0x34004 table. Null elsewhere.</summary>
+    public LevelFog? LinearFog { get; set; }
 }
 
 /// <summary>

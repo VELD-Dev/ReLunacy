@@ -199,16 +199,24 @@ internal static class RenderMenuDraw
 
     /// <summary>The old engine's own fidelity switches: the level's fog (main.dat 0x7100) and the Tie
     /// cube reflections. On by default; they only hide. The game's RSX shaders are switched from the
-    /// viewport toolbar, beside lit/unlit.</summary>
+    /// viewport toolbar, beside lit/unlit. A Crack in Time has the same linear fog, so it gets the fog
+    /// switch alone.</summary>
     internal static void GameFidelity()
     {
         var settings = LunaWindow.Instance.EditorSettings;
-        if (LunaWindow.Instance.Level?.IsOldEngine != true) return;
+        var level = LunaWindow.Instance.Level;
+        bool old = level?.IsOldEngine == true;
+        if (!old && level?.LightingEnvironment?.LinearFog == null) return;
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineFog"), "", settings.OldEngineFog))
         {
             settings.OldEngineFog = !settings.OldEngineFog;
             OldEngineRenderOptions.FogEnabled = settings.OldEngineFog;
             settings.SaveSettingsToFile();
+        }
+        if (!old)
+        {
+            ImGui.Separator();
+            return;
         }
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineReflections"), "", settings.OldEngineReflections))
         {

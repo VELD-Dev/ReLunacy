@@ -377,7 +377,7 @@ public class View3D : DockedFrame
         var env = level?.EnvironmentAverage;
         lighting.EnvironmentColour = oldEngine ? (env ?? Vector3.One) : Vector3.One;
         lighting.EnvironmentIntensity = !oldEngine && level is { Cubemaps.Count: > 0 } ? ReflectionIntensity : 0f;
-        lighting.LevelFog = oldEngine ? level?.LevelFog : null;
+        lighting.LevelFog = oldEngine ? level?.LevelFog : level?.LightingEnvironment?.LinearFog;
         // The real cubemap the lit shader samples for reflections, in place of the flat average above.
         // AssetManager always provides one (a 1x1 fallback when the level has none), so the lit
         // effect's set 10 is always bound. See AssetManager.BuildEnvironmentCubemap.
