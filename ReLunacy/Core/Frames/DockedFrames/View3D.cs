@@ -190,6 +190,11 @@ public class View3D : DockedFrame
         changed |= overlay.ToggleButton(Icons.Cubes, ref em.renderTies, LM.Get("GUI_Viewport_Ties"));
         changed |= overlay.ToggleButton(Icons.MountainSun, ref em.renderUFrags, LM.Get("GUI_Viewport_UFrags"));
         changed |= overlay.ToggleButton(Icons.VectorSquare, ref em.renderVolumes, LM.Get("GUI_Viewport_Volumes"));
+        overlay.ToggleButton(Icons.Filter, ref _volumePanel.Open, LM.Get("GUI_Viewport_VolumeFilters"));
+        float volumeAnchor = overlay.LastButtonLeft;
+        changed |= overlay.ToggleButton(Icons.Camera, ref em.renderCameras, LM.Get("GUI_Viewport_Cameras"));
+        changed |= overlay.ToggleButton(Icons.BezierCurve, ref em.renderPaths, LM.Get("GUI_Viewport_Paths"));
+        float pathAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
         if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
 
@@ -229,12 +234,18 @@ public class View3D : DockedFrame
             overlay.EndPanel();
         }
 
+        _volumePanel.Draw(overlay, volumeAnchor);
+        if (em.renderPaths && !CollisionEditing) _pathEditor.DrawPanel(overlay, pathAnchor);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
         if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
     }
 
     /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
+    private readonly VolumeFilterPanel _volumePanel = new();
+    private readonly PathOverlay _paths = new();
+    private readonly PathEditor _pathEditor = new();
+
     private bool CollisionEditing => _collisionEditor.EditMode && _collisionEditor.Scene != null && EntityManager.Singleton.renderCollision;
 
     // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
@@ -329,17 +340,40 @@ public class View3D : DockedFrame
     }
 
     // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
+    private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Colour, int Shape)> _vkVolumeFills = new();
+    private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> _vkCameras = new();
+
+    /// <summary>The camera controllers to draw with the camera model; the selected one tinted with the
+    /// selection colour.</summary>
+    private List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> BuildCameraList()
+    {
+        _vkCameras.Clear();
+        var em = EntityManager.Singleton;
+        if (!em.renderCameras || CollisionEditing) return _vkCameras;
+        foreach (var region in em.Regions)
+        {
+            if (!region.allowRender) continue;
+            foreach (var e in region.Cameras.Entities)
+                if (e.allowRender)
+                    _vkCameras.Add((EntityCamera.ModelToController * e.Transform.GetMatrix(), e.selected ? em.VolumeSelectedColor with { W = 0.6f } : default(Vector4), (uint)e.ID));
+        }
+        return _vkCameras;
+    }
+
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
+        _vkVolumeFills.Clear();
         var em = Engine.Scene.EntityManager.Singleton;
         if (em.renderVolumes && !CollisionEditing)
             foreach (var region in em.Regions)
                 foreach (var e in region.Volumes.Entities)
-                    if (e is Engine.Scene.EntityVolume v && v.allowRender)
+                    if (e is Engine.Scene.EntityVolume v && v.allowRender && em.IsVolumeShown(v.BaseVolume))
                     {
                         var color = v.VolumeColour;
                         uint pickId = (uint)v.ID;
+                        if (em.IsVolumeFilled(v.BaseVolume))
+                            _vkVolumeFills.Add((v.FillMatrix, v.KindColour with { W = em.VolumeFillOpacity }, (int)v.BaseVolume.Shape));
                         foreach (var edge in v.GetWorldEdgeTransforms())
                             _vkVolumes.Add((edge, color, pickId));
                     }
@@ -491,14 +525,19 @@ public class View3D : DockedFrame
                 _collisionEditor.Apply(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
+                // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
+                var volumeList = BuildVolumeList();
+                vkStage.VolumeFills = _vkVolumeFills;
+                vkStage.CameraMarkers = BuildCameraList();
+                _paths.Update(vkStage, SelectedEntity, CollisionEditing);
                 vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),
-                    BuildVolumeList(), EntityManager.Singleton.VolumeWireThickness,
+                    volumeList, EntityManager.Singleton.VolumeWireThickness,
                     // Volumes opt out of the outline: EntityVolume already recolours its own wireframe
                     // on selection, and the mask-and-inflate technique expects one closed surface, not
                     // 12 disjoint edge boxes.
-                    SelectedEntity is EntityVolume ? null : SelectedEntity,
+                    SelectedEntity is EntityVolume or EntityCamera or EntityPath or EntityPathPoint ? null : SelectedEntity,
                     Program.Settings.SelectionOutlineColor, 0.006f,
                     // True world-space position, same convention as lighting.BuildLightData(Camera.Position)
                     // just above and as Entity.WorldBoundingSphere (what _instCenter/Visible() compares
@@ -542,9 +581,16 @@ public class View3D : DockedFrame
         if (_viewport.TryConsumeClick())
         {
             if (CollisionEditing) _marqueeStart = _viewport.MousePos;
-            else PickEntityUnderCursor();
+            else
+            {
+                PickEntityUnderCursor();
+                // A press on a key, handle or point of the selected path starts dragging it.
+                if (SelectedEntity is EntityPathPoint part)
+                    _pathEditor.BeginDrag(part, _viewport.MousePos, _viewport.Size, Camera);
+            }
         }
         UpdateCollisionMarquee();
+        _pathEditor.UpdateDrag(_viewport.MousePos, _viewport.Size, Camera);
 
         _viewport.End();
     }
@@ -616,9 +662,20 @@ public class View3D : DockedFrame
                 (int)_viewport.MousePos.X, (int)_viewport.MousePos.Y,
                 _viewport.Size.X, _viewport.Size.Y);
 
-            SelectedEntity = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
+            Entity? hit = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
                 ? EntityManager.Singleton.AllEntities().FirstOrDefault(e => (uint)e.ID == hitId)
                 : null;
+            // Paths are picked on the CPU (PathOverlay.Pick); the nearer of the two wins, the mesh measured
+            // at its bounding sphere's centre.
+            if (!CollisionEditing && _paths.Pick(_viewport.MousePos, Camera.GetView() * Camera.GetProjection(), _viewport.Size,
+                    Camera.Position, SelectedEntity) is { } pathHit)
+            {
+                float meshDistance = hit != null
+                    ? Vector3.Distance(Camera.Position, new Vector3(hit.WorldBoundingSphere.X, hit.WorldBoundingSphere.Y, hit.WorldBoundingSphere.Z))
+                    : float.MaxValue;
+                if (pathHit.Entity is EntityPathPoint || pathHit.Distance <= meshDistance) hit = pathHit.Entity;
+            }
+            SelectedEntity = hit;
         }
         catch (Exception e)
         {
@@ -678,6 +735,7 @@ public class View3D : DockedFrame
 
     public void HandleShortcuts()
     {
+        _pathEditor.HandleShortcuts();
         if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
         if (CollisionEditing) _collisionEditor.ClearSelection();
         else SelectedEntity = null;

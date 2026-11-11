@@ -20,7 +20,10 @@ public record struct VertexFormat1
     public readonly Vector3 Tangent => PackedNormal.Decode(tangent);
 
     // Vertex alpha, same field role as VertexFormat0.boneIndex/UFragVertex.unk (SINT16 right after
-    // position). Range A: 0x0001 -> 0.0, 0x0080 -> 1.0 (ascending).
+    // position). MEASURED on new-engine Mobys: every value is in 0x0001-0x0080 or 0xFF80-0xFFFF, so the
+    // sign is a separate bit and the magnitude (1 -> 0.0, 128 -> 1.0) is the alpha; 0x0080 and 0xFF80
+    // (both 1.0) are 98% of zolar_forest's skinned vertices, 0xFFFF (0.0) 4,024 of them.
+    // Range A: 0x0001 -> 0.0, 0x0080 -> 1.0 (ascending).
     public readonly float VertexAlphaA => Math.Clamp(((ushort)Unk1 - 0x0001) / 127f, 0f, 1f);
 
     // Range B: 0xFF80 -> 1.0, 0xFFFF -> 0.0 (descending).

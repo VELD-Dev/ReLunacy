@@ -55,6 +55,9 @@ public class EditorSettings
     public bool RenderUFrags;
     public bool RenderFoliage;
     public bool RenderVolumes;
+    // Inverted so a settings file from before the cameras existed shows them.
+    public bool HideCameras;
+    public bool HidePaths;
     public bool RenderNavmesh;
     public bool RenderCollision;
     // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.

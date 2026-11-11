@@ -236,6 +236,16 @@ public class LunaWindow : IDisposable
         FullScreenRenderer = new FullscreenBlit(GraphicsDevice);
         var (width, height) = MainWindow.GetSizeInPixels();
         FullScreenTexture = new MainRenderTarget(GraphicsDevice, (uint)width, (uint)height, (TextureSampleCount)EditorSettings.MSAA_Level);
+        // The editor's camera model, drawn at every camera controller (VulkanRenderer.CameraMarkers).
+        try
+        {
+            Engine.Rendering.Vulkan.VulkanRenderer.CameraModel =
+                Engine.Rendering.MarkerModel.LoadObj(Path.Combine(Program.EditorPath, "Assets", "ReLunacyCamera.obj"));
+        }
+        catch (Exception ex)
+        {
+            LunaLog.LogWarn($"The camera model could not be loaded, so cameras are not drawn: {ex.Message}");
+        }
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
         LM.Initialize();
@@ -249,6 +259,8 @@ public class LunaWindow : IDisposable
         em.renderUFrags = EditorSettings.RenderUFrags;
         em.renderFoliage = EditorSettings.RenderFoliage;
         em.renderVolumes = EditorSettings.RenderVolumes;
+        em.renderCameras = !EditorSettings.HideCameras;
+        em.renderPaths = !EditorSettings.HidePaths;
         em.renderNavmesh = EditorSettings.RenderNavmesh;
         // The RSX shaders only apply while lit (see View3D, which keeps this in step afterwards); set
         // before the first scene is built so it is not built once with the wrong set and rebuilt.

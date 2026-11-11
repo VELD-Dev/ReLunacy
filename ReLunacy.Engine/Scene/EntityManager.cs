@@ -18,6 +18,8 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderFoliage = true;
     public bool renderVolumes = true;
+    public bool renderCameras = true;
+    public bool renderPaths = true;
     /// <summary>Off by default: the navmesh is an inspection overlay, not part of the level.</summary>
     public bool renderNavmesh = false;
     /// <summary>Off by default, like the navmesh: the level's static collision, drawn as an overlay.</summary>
@@ -39,6 +41,44 @@ public class EntityManager : IDisposable
     /// <summary>RGBA tint for a Volume's wireframe box, unselected/selected. Synced from
     /// EditorSettings by View3D each frame.</summary>
     public Vector4 VolumeColor = new(1f, 1f, 0f, 1f);
+
+    /// <summary>The kind key of volumes that are no Clue's shape, in <see cref="HiddenVolumeKinds"/>.</summary>
+    public const string PlainVolumeKind = "";
+    /// <summary>Volume kinds not drawn: Clue class names, or <see cref="PlainVolumeKind"/>. Per level, so not saved.</summary>
+    public readonly HashSet<string> HiddenVolumeKinds = [];
+    /// <summary>Editor layers whose volumes are not drawn.</summary>
+    public readonly HashSet<string> HiddenVolumeLayers = [];
+    /// <summary>Only the volumes of this Area or Scent are drawn, when set.</summary>
+    public (bool Scent, string Name)? VolumeGroupFilter;
+    public VolumeColorMode VolumeColorMode = VolumeColorMode.Kind;
+    /// <summary>Which shown volumes also get translucent faces in their colour.</summary>
+    public VolumeFillMode VolumeFillMode = VolumeFillMode.Death;
+    public float VolumeFillOpacity = 0.3f;
+
+    /// <summary>Whether <paramref name="volume"/> is drawn with faces under <see cref="VolumeFillMode"/>.</summary>
+    public bool IsVolumeFilled(Assets.LevelElements.Volume volume)
+    {
+        var hazard = volume.Clue is { } clue ? Assets.LevelElements.ClueClasses.Hazard(clue.ClassName) : Assets.LevelElements.ClueHazard.None;
+        return VolumeFillMode switch
+        {
+            VolumeFillMode.Death => hazard == Assets.LevelElements.ClueHazard.Death,
+            VolumeFillMode.Hazards => hazard != Assets.LevelElements.ClueHazard.None,
+            VolumeFillMode.Clues => volume.Clue != null,
+            VolumeFillMode.All => true,
+            _ => false,
+        };
+    }
+
+    public static string VolumeKind(Assets.LevelElements.Volume volume) => volume.Clue?.ClassName ?? PlainVolumeKind;
+
+    /// <summary>Whether the volume filters let <paramref name="volume"/> be drawn (and picked).</summary>
+    public bool IsVolumeShown(Assets.LevelElements.Volume volume)
+    {
+        if (HiddenVolumeKinds.Contains(VolumeKind(volume))) return false;
+        if (volume.Layer != null && HiddenVolumeLayers.Contains(volume.Layer)) return false;
+        if (VolumeGroupFilter is { } group && !(group.Scent ? volume.Scents : volume.Areas).Contains(group.Name)) return false;
+        return true;
+    }
     /// <summary>Synced in from the app layer's settings, same as VolumeColor.</summary>
     public Vector4 NavmeshColor = new(0.2f, 0.45f, 1f, 0.35f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
@@ -106,6 +146,8 @@ public class EntityManager : IDisposable
         {
             foreach (var e in region.MobyInstances.Entities) yield return e;
             foreach (var e in region.Volumes.Entities) yield return e;
+            foreach (var e in region.Cameras.Entities) yield return e;
+            foreach (var e in region.Paths.Entities) yield return e;
 
             foreach (var zone in region.Zones)
             {
@@ -156,6 +198,8 @@ public class EntityManager : IDisposable
         {
             if (region.MobyInstances.TryGetEntity(id, out entity)) return true;
             if (region.Volumes.TryGetEntity(id, out entity)) return true;
+            if (region.Cameras.TryGetEntity(id, out entity)) return true;
+            if (region.Paths.TryGetEntity(id, out entity)) return true;
 
             foreach (var zone in region.Zones)
             {
@@ -174,4 +218,27 @@ public class EntityManager : IDisposable
         PlayingMobyAnimations.Clear();
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>Which volumes get translucent faces besides their wireframe.</summary>
+public enum VolumeFillMode
+{
+    None,
+    /// <summary>The Clues that kill: Death, FallToDeath, DirectionalFallToDeath, FallFar.</summary>
+    Death,
+    /// <summary>Those, lava and water.</summary>
+    Hazards,
+    Clues,
+    All,
+}
+
+/// <summary>What a volume's wireframe colour says.</summary>
+public enum VolumeColorMode
+{
+    /// <summary>Its Clue class (hazards in fixed colours), plain volumes in the volume colour.</summary>
+    Kind,
+    /// <summary>The editor layer it was placed in.</summary>
+    Layer,
+    /// <summary>Every volume in the volume colour.</summary>
+    Single,
 }

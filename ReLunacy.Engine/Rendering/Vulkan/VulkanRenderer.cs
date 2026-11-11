@@ -1451,6 +1451,11 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         (OutlineFragmentGlsl, ShaderStages.Fragment),
         (VolumeVertexGlsl, ShaderStages.Vertex),
         (VolumeFragmentGlsl, ShaderStages.Fragment),
+        (VolumeFillFragmentGlsl, ShaderStages.Fragment),
+        (CameraMarkerVertexGlsl, ShaderStages.Vertex),
+        (CameraMarkerFragmentGlsl, ShaderStages.Fragment),
+        (PathLineVertexGlsl, ShaderStages.Vertex),
+        (PathLineFragmentGlsl, ShaderStages.Fragment),
     ];
 
     public static void WarmUpShaderCache()
@@ -1600,6 +1605,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &vin, pInputAssemblyState = &ia, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _volumeLayout, renderPass = _rpOpaque, subpass = 0 };
             VkPipeline p; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &info, &p), "vkCreateGraphicsPipelines(volume)"); _volumePipeline = p;
         }
+        CreateVolumeFillPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateCameraMarkerPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreatePathLinePipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
 
         _billboardVs = Module(BillboardVertexGlsl, ShaderStages.Vertex);
         _billboardFs = Module(BillboardFragmentGlsl, ShaderStages.Fragment);
@@ -2045,6 +2053,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     private void DrawVolumes()
     {
+        DrawCameraMarkers();
+        DrawPathLines();
+        // The faces first, so the wireframe draws over them.
+        DrawVolumeFills();
         if (_volumeCount == 0) return;
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _volumePipeline);
         VkDescriptorSet s0 = _descSet;
@@ -2371,6 +2383,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 _api.vkCmdDrawIndexed(_pickCmd, _edgeIndexCount, 1, 0, 0, 0);
             }
         }
+        PickCameraMarkers(pc);
         _api.vkCmdEndRenderPass(_pickCmd);
         var copy = new VkBufferImageCopy { bufferOffset = 0, bufferRowLength = 0, bufferImageHeight = 0, imageSubresource = new VkImageSubresourceLayers { aspectMask = VkImageAspectFlags.Color, mipLevel = 0, baseArrayLayer = 0, layerCount = 1 }, imageOffset = default, imageExtent = new VkExtent3D { width = PickTargetSize, height = PickTargetSize, depth = 1 } };
         _api.vkCmdCopyImageToBuffer(_pickCmd, _pickImage, VkImageLayout.TransferSrcOptimal, _pickReadback, 1, &copy);
@@ -2679,6 +2692,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyShaderModule(_billboardFs);
         _api.vkDestroyShaderModule(_outlineVs);
         _api.vkDestroyShaderModule(_outlineFs);
+        DestroyVolumeFill();
+        DestroyCameraMarkers();
+        DestroyPathLines();
         _api.vkDestroyBuffer(_edgeVertexBuffer); _api.vkFreeMemory(_edgeVbMemory);
         _api.vkDestroyBuffer(_edgeIndexBuffer); _api.vkFreeMemory(_edgeIbMemory);
         _api.vkDestroyRenderPass(_rpOpaque);

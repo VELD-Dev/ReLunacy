@@ -70,6 +70,10 @@ public class EntityVolume : Entity
             yield return e.GetMatrix();
     }
 
+    /// <summary>The world matrix of the volume's unit shape (+-0.5 box, radius-0.5 sphere, cylinder along Y),
+    /// for its translucent faces.</summary>
+    public Matrix4x4 FillMatrix => Matrix4x4.CreateScale(scale) * Transform.GetMatrix();
+
     protected override void EnsureRenderables()
     {
         if (!IsDirty) return;
@@ -77,8 +81,24 @@ public class EntityVolume : Entity
         IsDirty = false;
     }
 
-    /// <summary>Current wireframe colour (RGBA, 0..1): the selected or unselected volume tint.</summary>
-    public Vector4 VolumeColour => selected ? EntityManager.Singleton.VolumeSelectedColor : EntityManager.Singleton.VolumeColor;
+    /// <summary>Current wireframe colour (RGBA, 0..1): the selected tint, else <see cref="KindColour"/>.</summary>
+    public Vector4 VolumeColour => selected ? EntityManager.Singleton.VolumeSelectedColor : KindColour;
+
+    /// <summary>The colour EntityManager.VolumeColorMode gives this volume (kind, layer or the volume colour),
+    /// selected or not: its faces' colour, and the swatch the hierarchy and the volume panel show.</summary>
+    public Vector4 KindColour
+    {
+        get
+        {
+            var em = EntityManager.Singleton;
+            return em.VolumeColorMode switch
+            {
+                VolumeColorMode.Kind when BaseVolume.Clue is { } clue => new Vector4(ClueClasses.Colour(clue.ClassName), 1f),
+                VolumeColorMode.Layer when BaseVolume.Layer is { } layer => new Vector4(ClueClasses.ColourOf(layer), 1f),
+                _ => em.VolumeColor,
+            };
+        }
+    }
 
     /// <summary>Recomputes the per-edge Transforms from the current <see cref="scale"/> and the volume's
     /// shape: a box's 12 edges, or rings and lines for the round shapes. Each is a unit-length segment

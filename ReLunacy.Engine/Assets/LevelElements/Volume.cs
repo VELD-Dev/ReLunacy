@@ -24,6 +24,20 @@ public class Volume : IVolumeData
     public ushort group { get; set; }
     public VolumeShape Shape { get; init; }
 
+    /// <summary>The editor layer the volume was placed in (gp_prius 0x25008, indexed by <see cref="group"/>),
+    /// e.g. "gameplay", "cameras", "audio_reverb". Null on the old engine.</summary>
+    public string? Layer { get; set; }
+
+    /// <summary>The Clue this volume is the shape of, when it is one: a Clue is a volume with a behaviour
+    /// class (fall to death, ledge grab, camera field...). Null for a plain volume.</summary>
+    public VolumeClue? Clue { get; set; }
+
+    /// <summary>The Areas listing this volume (an Area groups paths and volumes).</summary>
+    public List<string> Areas { get; } = [];
+
+    /// <summary>The Scents listing this volume's Clue (a Scent groups Clues).</summary>
+    public List<string> Scents { get; } = [];
+
     public Volume(ulong id, Matrix4x4 transform, string? name = null, ushort group = 0, VolumeShape shape = VolumeShape.Box)
     {
         Shape = shape;
@@ -34,3 +48,20 @@ public class Volume : IVolumeData
         this.group = group;
     }
 }
+
+/// <summary>A Clue: its own instance name and its class (gp_prius 0x25064 +0x0C), with the class's name as
+/// <see cref="ClueClasses"/> gives it, and its settings.</summary>
+public sealed record VolumeClue(uint Class, string Name, string ClassName)
+{
+    /// <summary>The class's struct as the level stores it, big-endian, starting with the class number. Its
+    /// fields are not named yet beyond <see cref="References"/>.</summary>
+    public byte[] Settings { get; init; } = [];
+
+    /// <summary>The fields of <see cref="Settings"/> that name another instance (a rail's path, a camera's
+    /// controller, a respawn's Area).</summary>
+    public IReadOnlyList<ClueReference> References { get; init; } = [];
+}
+
+/// <summary>A field of a Clue's settings, at <paramref name="Offset"/>, naming an instance.</summary>
+/// <param name="Kind">Moby, Path, Volume, Clue, Controller, Scent, Area or Pod.</param>
+public sealed record ClueReference(int Offset, string Kind, string Name);

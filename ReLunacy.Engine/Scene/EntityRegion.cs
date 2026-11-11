@@ -8,6 +8,10 @@ public class EntityRegion : IDisposable
 {
     public readonly EntityCluster MobyInstances;
     public readonly EntityCluster Volumes;
+    /// <summary>The region's camera controllers, drawn with the editor's camera model.</summary>
+    public readonly EntityCluster Cameras;
+    /// <summary>The region's paths (splines), drawn as lines.</summary>
+    public readonly EntityCluster Paths;
     public readonly List<EntityZone> Zones = [];
 
     public int ZonesCount => Zones.Count;
@@ -38,6 +42,16 @@ public class EntityRegion : IDisposable
         foreach (var volume in region.Volumes)
             Volumes.Add(volume, gd);
 
+        Cameras = new EntityCluster([], assetManager);
+        foreach (var controller in region.Controllers)
+            if (controller.IsCamera)
+                Cameras.Add(new EntityCamera(controller));
+
+        Paths = new EntityCluster([], assetManager);
+        foreach (var path in region.Paths)
+            if (path.Points.Count > 0)
+                Paths.Add(new EntityPath(path));
+
         _sourceZones = region.Zones;
         if (!deferZones)
             while (BuildNextZone(gd, assetManager)) { }
@@ -59,6 +73,8 @@ public class EntityRegion : IDisposable
     {
         MobyInstances.Dispose();
         Volumes.Dispose();
+        Cameras.Dispose();
+        Paths.Dispose();
         foreach (var z in Zones) z.Dispose();
         Zones.Clear();
         GC.SuppressFinalize(this);

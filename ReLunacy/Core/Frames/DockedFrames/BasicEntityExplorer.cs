@@ -12,7 +12,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
-    private enum Tabs { Mobys, Ties, UFrags, Navmesh, Volumes }
+    private enum Tabs { Mobys, Ties, UFrags, Navmesh, Volumes, Cameras, Paths }
 
     /// <summary>
     /// One zone's worth of entities under one tab.
@@ -32,9 +32,10 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     }
 
     private Entity[] mobys = [];
-    private Entity[] volumes = [];
     private Entity[] filteredMobys = [];
-    private Entity[] filteredVolumes = [];
+    private ZoneGroup[] volumeGroups = [];
+    private ZoneGroup[] cameraGroups = [];
+    private ZoneGroup[] pathGroups = [];
     private ZoneGroup[] tieGroups = [];
     private ZoneGroup[] ufragGroups = [];
     private ZoneGroup[] navmeshGroups = [];
@@ -87,7 +88,19 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             if (ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_VolumesTab")))
             {
                 currentTab = Tabs.Volumes;
-                ShowFlat(filteredVolumes);
+                ShowGrouped(volumeGroups, "volume");
+                ImGui.EndTabItem();
+            }
+            if (cameraGroups.Length > 0 && ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_CamerasTab")))
+            {
+                currentTab = Tabs.Cameras;
+                ShowGrouped(cameraGroups, "camera");
+                ImGui.EndTabItem();
+            }
+            if (pathGroups.Length > 0 && ImGui.BeginTabItem(LM.Get("GUI_Frame_EntityExplorer_PathsTab")))
+            {
+                currentTab = Tabs.Paths;
+                ShowGrouped(pathGroups, "path");
                 ImGui.EndTabItem();
             }
             ImGui.EndTabBar();
@@ -99,7 +112,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     // appearance cancelled the dockspace preset's placement, which this frame is a target of
     // ("Entity"/"Hierarchy"/"Explorer") and is one of the three frames open by default.
 
-    /// <summary>Mobys and Volumes belong to a region, not a zone, so they stay flat.</summary>
+    /// <summary>Mobys belong to a region, not a zone, so they stay flat.</summary>
     private void ShowFlat(Entity[] entities)
     {
         ImGui.BeginChild("hierarchy_container", ImGui.GetContentRegionAvail());
@@ -132,6 +145,14 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
 
     private static void EntityRow(Entity entity)
     {
+        // A volume shows the colour it is drawn in (its kind's, its layer's, or the volume colour).
+        if (entity is EntityVolume volume)
+        {
+            float size = ImGui.GetTextLineHeight();
+            ImGui.ColorButton($"##swatch_{entity.ID}", volume.KindColour,
+                ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoPicker | ImGuiColorEditFlags.NoDragDrop, new Vector2(size, size));
+            ImGui.SameLine();
+        }
         if (!ImGui.Button($"{entity.Name.Split('/')[^1]}##entity_{entity.ID}")) return;
         SelectionManager.Singleton.Select(entity);
         var v3d = Core.LunaWindow.Instance.GetFirstFrame<View3D>();
@@ -148,7 +169,25 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         bool nameRegions = em.Regions.Count > 1;
 
         mobys = [.. em.Regions.SelectMany(r => r.MobyInstances.Entities)];
-        volumes = [.. em.Regions.SelectMany(r => r.Volumes.Entities)];
+        // Volumes by the editor layer they were placed in ("gameplay", "cameras"...); the old engine has no
+        // layers, so its volumes make one group.
+        volumeGroups = [.. em.Regions
+            .SelectMany(r => r.Volumes.Entities.OfType<EntityVolume>().Select(v => (Region: r.RegionName, Volume: v)))
+            .GroupBy(x => (nameRegions ? x.Region + "/" : "") + (x.Volume.BaseVolume.Layer ?? LM.Get("GUI_Frame_EntityExplorer_NoLayer")))
+            .OrderBy(g => g.Key)
+            .Select(g => new ZoneGroup(g.Key, [.. g.Select(x => (Entity)x.Volume).OrderBy(v => v.Name)]))];
+
+        cameraGroups = [.. em.Regions
+            .SelectMany(r => r.Cameras.Entities.OfType<EntityCamera>().Select(c => (Region: r.RegionName, Camera: c)))
+            .GroupBy(x => (nameRegions ? x.Region + "/" : "") + (x.Camera.Controller.Layer ?? LM.Get("GUI_Frame_EntityExplorer_NoLayer")))
+            .OrderBy(g => g.Key)
+            .Select(g => new ZoneGroup(g.Key, [.. g.Select(x => (Entity)x.Camera).OrderBy(c => c.Name)]))];
+
+        pathGroups = [.. em.Regions
+            .SelectMany(r => r.Paths.Entities.OfType<EntityPath>().Select(p => (Region: r.RegionName, Path: p)))
+            .GroupBy(x => (nameRegions ? x.Region + "/" : "") + (x.Path.Path.Layer ?? LM.Get("GUI_Frame_EntityExplorer_NoLayer")))
+            .OrderBy(g => g.Key)
+            .Select(g => new ZoneGroup(g.Key, [.. g.Select(x => (Entity)x.Path).OrderBy(p => p.Name)]))];
 
         List<ZoneGroup> ties = [], ufrags = [], navmeshes = [];
         foreach (var region in em.Regions)
@@ -173,14 +212,18 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         {
             string pattern = BuildPattern(entityResearch);
             filteredMobys = Match(mobys, pattern);
-            filteredVolumes = Match(volumes, pattern);
+            foreach (var group in volumeGroups) group.Filtered = Match(group.Entities, pattern);
+            foreach (var group in cameraGroups) group.Filtered = Match(group.Entities, pattern);
+            foreach (var group in pathGroups) group.Filtered = Match(group.Entities, pattern);
             foreach (var group in tieGroups) group.Filtered = Match(group.Entities, pattern);
             foreach (var group in ufragGroups) group.Filtered = Match(group.Entities, pattern);
             foreach (var group in navmeshGroups) group.Filtered = Match(group.Entities, pattern);
             return;
         }
         filteredMobys = mobys;
-        filteredVolumes = volumes;
+        foreach (var group in volumeGroups) group.Filtered = group.Entities;
+        foreach (var group in cameraGroups) group.Filtered = group.Entities;
+        foreach (var group in pathGroups) group.Filtered = group.Entities;
         foreach (var group in tieGroups) group.Filtered = group.Entities;
         foreach (var group in ufragGroups) group.Filtered = group.Entities;
         foreach (var group in navmeshGroups) group.Filtered = group.Entities;
@@ -199,9 +242,10 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     public void Wipe()
     {
         mobys = [];
-        volumes = [];
         filteredMobys = [];
-        filteredVolumes = [];
+        volumeGroups = [];
+        cameraGroups = [];
+        pathGroups = [];
         tieGroups = [];
         ufragGroups = [];
         navmeshGroups = [];

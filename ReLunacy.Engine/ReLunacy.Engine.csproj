@@ -51,4 +51,8 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Class number -> name tables recovered from the EBOOTs (see the files' headers). -->
+    <EmbeddedResource Include="Resources\Classes\*.classes" />
+  </ItemGroup>
 </Project>

@@ -208,7 +208,44 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeId", volumeEntity.BaseVolume.Id));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeGroup", volumeEntity.BaseVolume.group));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeShape", volumeEntity.BaseVolume.Shape));
+            var baseVolume = volumeEntity.BaseVolume;
+            if (baseVolume.Layer != null)
+                ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeLayer", baseVolume.Layer));
+            ImGui.Text(baseVolume.Clue is { } clue
+                ? LM.Get("GUI_Frame_InstanceInspector_VolumeClue", clue.ClassName, $"0x{clue.Class:X}", clue.Name)
+                : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
+            if (baseVolume.Clue is { Settings.Length: > 4 } clueSettings)
+                RenderSettings(clueSettings.Settings, clueSettings.References);
+            if (baseVolume.Areas.Count > 0)
+                ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_VolumeAreas", string.Join(", ", baseVolume.Areas)));
+            if (baseVolume.Scents.Count > 0)
+                ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_VolumeScents", string.Join(", ", baseVolume.Scents)));
         }
+        else if (SelectedEntity is EntityCamera camera)
+        {
+            var controller = camera.Controller;
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_CameraClass",
+                controller.ClassName != null ? $"{controller.ClassName} (0x{controller.Class:X})" : $"0x{controller.Class:X}"));
+            if (controller.Layer != null)
+                ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeLayer", controller.Layer));
+            ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CameraNote"));
+            if (controller.Settings.Length > 4)
+                RenderSettings(controller.Settings, controller.References);
+        }
+        else if (SelectedEntity is EntityPath pathEntity)
+        {
+            var path = pathEntity.Path;
+            if (path.Layer != null)
+                ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeLayer", path.Layer));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_PathSummary", pathEntity.PointCount, pathEntity.Length.ToString("0.##"),
+                LM.Get(path.Closed ? "GUI_Frame_InstanceInspector_PathClosed" : "GUI_Frame_InstanceInspector_PathOpen"), path.Kind));
+            ImGui.TextWrapped(pathEntity.IsSpline
+                ? LM.Get("GUI_Frame_InstanceInspector_PathSpline", pathEntity.KeyCount, EntityPath.SamplesPerSpan)
+                : LM.Get("GUI_Frame_InstanceInspector_PathPolyline"));
+            ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_PathHint"));
+        }
+        else if (SelectedEntity is EntityPathPoint pathPoint)
+            RenderPathPart(pathPoint);
         else if (SelectedEntity is EntityNavmesh navmeshChunk)
         {
             // The chunk table's own counts, not recomputed ones, so a disagreement with what is drawn
@@ -383,6 +420,87 @@ public class PropertyInspectorFrame : DockedFrame
         {
             selectedCullDistance = moby.DisplayDistance;
             selectedUpdateDistance = moby.UpdateDistance;
+        }
+    }
+
+    /// <summary>A Clue's or a controller's settings: the fields that name another instance, then every non-zero
+    /// field raw (their meaning is not decoded yet), typed as flags, a float or an integer.</summary>
+    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences)
+    {
+        if (!ImGui.TreeNode(LM.Get("GUI_Frame_InstanceInspector_ClueSettings", settings.Length))) return;
+        foreach (var reference in fieldReferences)
+            ImGui.Text($"+0x{reference.Offset:X2}  {reference.Kind} {reference.Name}");
+        var references = fieldReferences.Select(r => r.Offset).ToHashSet();
+        if (ImGui.BeginTable("##cluesettings", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
+        {
+            for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
+            {
+                uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(offset));
+                if (value == 0 || references.Contains(offset)) continue;
+                float asFloat = BitConverter.UInt32BitsToSingle(value);
+                bool floatLike = float.IsFinite(asFloat) && MathF.Abs(asFloat) is > 1e-6f and < 1e7f;
+                // Four bytes each 0 or 1 are packed booleans (most Clue flags look like 01000000).
+                bool flags = (value & 0xFEFEFEFE) == 0;
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn(); ImGui.TextDisabled($"+0x{offset:X2}");
+                ImGui.TableNextColumn(); ImGui.Text($"{value:X8}");
+                ImGui.TableNextColumn();
+                ImGui.Text(flags ? LM.Get("GUI_Frame_InstanceInspector_ClueFlags", value >> 24, value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF)
+                    : floatLike ? $"{asFloat:G6}" : $"{value}");
+            }
+            ImGui.EndTable();
+        }
+        ImGui.TreePop();
+    }
+
+    /// <summary>A selected key, handle or point of a path: where it is along the path and, for a spline key,
+    /// its handle mode and the key insertion / removal. The selection follows an edit that renumbers the keys.</summary>
+    private void RenderPathPart(EntityPathPoint part)
+    {
+        var path = part.Owner;
+        var distances = path.Distances();
+        if (part.Part == PathPart.Point)
+        {
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_PathPoint", part.Index, path.PointCount, path.Name));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_PathPointDistance", distances[part.Index].ToString("0.##"), distances[^1].ToString("0.##")));
+            return;
+        }
+
+        ImGui.Text(LM.Get(part.Part == PathPart.Key ? "GUI_Frame_InstanceInspector_PathKey" : "GUI_Frame_InstanceInspector_PathHandle",
+            part.Index, path.KeyCount, path.Name));
+        int sample = part.Index * EntityPath.SamplesPerSpan;
+        ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_PathPointDistance", distances[sample].ToString("0.##"), distances[^1].ToString("0.##")));
+
+        string[] modes = [LM.Get("GUI_PathHandle_Smooth"), LM.Get("GUI_PathHandle_Aligned"), LM.Get("GUI_PathHandle_Free")];
+        int mode = (int)path.ModeAt(part.Index);
+        ImGui.SetNextItemWidth(160f);
+        if (ImGui.Combo(LM.Get("GUI_Frame_InstanceInspector_PathHandles"), ref mode, modes, modes.Length))
+        {
+            path.SetMode(part.Index, (PathHandleMode)mode);
+            // Applies the mode at once: the outgoing handle (or the incoming one, on the last key) drives.
+            if (path.OutHandleAt(part.Index) is { } outHandle) path.SetHandle(part.Index, true, outHandle);
+            else if (path.InHandleAt(part.Index) is { } inHandle) path.SetHandle(part.Index, false, inHandle);
+            part.Refresh();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_PathHandlesHint"));
+
+        if (part.Index < path.KeyCount - 1 && ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_PathInsertKey")))
+        {
+            path.InsertKey(part.Index);
+            SelectionManager.Singleton.Select(new EntityPathPoint(path, part.Index + 1, PathPart.Key));
+            return;
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_PathInsertKeyHint"));
+        if (part.Index > 0 && part.Index < path.KeyCount - 1)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_PathRemoveKey")))
+            {
+                path.RemoveKey(part.Index);
+                SelectionManager.Singleton.Select(path);
+                return;
+            }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_PathRemoveKeyHint"));
         }
     }
 }
