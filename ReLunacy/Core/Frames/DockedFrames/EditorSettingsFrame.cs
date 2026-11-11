@@ -120,6 +120,10 @@ internal class EditorSettingsFrame : Frame
                 ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_VolumeWireThickness"), ref Program.Settings.VolumeWireThickness, 0.01f, 5f, "%.2f", ImGuiSliderFlags.AlwaysClamp);
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_VolumeWireThicknessHelp"));
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_CameraModelScale"), ref Program.Settings.CameraModelScale, 0.05f, 4f, "%.2fx", ImGuiSliderFlags.AlwaysClamp | ImGuiSliderFlags.Logarithmic);
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_CameraPovFov"), ref Program.Settings.CameraPovFov, 30f, 120f, "%.1f deg", ImGuiSliderFlags.AlwaysClamp);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_CameraPovFovHelp"));
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeColor"), ref Program.Settings.VolumeColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_NavmeshColor"), ref Program.Settings.NavmeshColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);

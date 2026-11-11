@@ -228,6 +228,18 @@ public class PropertyInspectorFrame : DockedFrame
                 controller.ClassName != null ? $"{controller.ClassName} (0x{controller.Class:X})" : $"0x{controller.Class:X}"));
             if (controller.Layer != null)
                 ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeLayer", controller.Layer));
+            if (v3d != null)
+            {
+                bool looking = ReferenceEquals(v3d.PovCamera, camera);
+                if (ImGui.Button(LM.Get(looking ? "GUI_Frame_InstanceInspector_CameraPovLeave" : "GUI_Frame_InstanceInspector_CameraPov")))
+                {
+                    if (looking) v3d.ExitPov(restore: true);
+                    else v3d.EnterPov(camera);
+                }
+                var (fov, authored) = View3D.PovFieldOfView(camera);
+                ImGui.SameLine();
+                ImGui.TextDisabled(LM.Get(authored ? "GUI_Frame_InstanceInspector_CameraFov" : "GUI_Frame_InstanceInspector_CameraFovDefault", fov.ToString("0.#")));
+            }
             ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CameraNote"));
             if (controller.Settings.Length > 4)
                 RenderSettings(controller.Settings, controller.References);

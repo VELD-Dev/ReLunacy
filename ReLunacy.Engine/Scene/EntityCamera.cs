@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Engine.Rendering;
@@ -20,8 +21,44 @@ public class EntityCamera : Entity
     /// half a turn about Y.</summary>
     public static readonly Matrix4x4 ModelToController = Matrix4x4.CreateRotationY(MathF.PI);
 
-    // The turned model's body lies behind the lens, along -Z.
-    public override Vector4 BoundingSphere { get; set; } = new(0f, 0f, -1.8f, 2.6f);
+    /// <summary>The camera model's size, relative to the OBJ (the editor settings' camera model size).</summary>
+    public static float ModelScale { get; set; } = 0.5f;
+
+    /// <summary>What the renderer draws at <paramref name="world"/>: the model, sized and turned.</summary>
+    public static Matrix4x4 ModelMatrix(Matrix4x4 world) => Matrix4x4.CreateScale(ModelScale) * ModelToController * world;
+
+    // The turned model's body lies behind the lens, along -Z; it follows the model's size.
+    public override Vector4 BoundingSphere
+    {
+        get => new Vector4(0f, 0f, -1.8f, 2.6f) * ModelScale;
+        set { }
+    }
+
+    /// <summary>Where the camera looks: its local +Z, with its local +Y up.</summary>
+    public Vector3 ViewForward => Vector3.Transform(Vector3.UnitZ, Transform.Rotation);
+    public Vector3 ViewUp => Vector3.Transform(Vector3.UnitY, Transform.Rotation);
+
+    /// <summary>
+    /// The field of view the camera's settings give, in degrees, or null when they give none: the class's
+    /// FieldOfView, which replaces the game's lens value at init when above 0 (Fianshoo's FullFrontalAssault.h,
+    /// CamArgFixed init at 0x00017794). Only Full Frontal Assault's layout is known, and every retail camera
+    /// there keeps 0 (the game's default, whose value is not known). That it is the horizontal FOV in degrees
+    /// is inferred.
+    /// </summary>
+    public float? AuthoredFieldOfView(Games.GameId? game)
+    {
+        if (game != Games.GameId.FullFrontalAssault) return null;
+        int offset = Controller.ClassName switch
+        {
+            "CamArgFixed" or "CamArgFixedFollow" => 0x64,
+            "CamArgFollowPath" => 0x94,
+            "CamArgIndexedPath" => 0x74,
+            _ => -1,
+        };
+        if (offset < 0 || Controller.Settings.Length < offset + 4) return null;
+        float value = BinaryPrimitives.ReadSingleBigEndian(Controller.Settings.AsSpan(offset));
+        return float.IsFinite(value) && value > 0f && value < 180f ? value : null;
+    }
     public override string Name { get; protected set; }
 
     public EntityCamera(GameplayController controller)
