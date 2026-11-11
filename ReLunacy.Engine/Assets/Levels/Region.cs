@@ -13,6 +13,13 @@ public sealed class Region : IRegion
     public IReadOnlyList<IZone> Zones { get; set; }
     public IReadOnlyList<IPlacedInstance<IMoby>> MobyInstances { get; init; }
     public IReadOnlyList<Volume> Volumes { get; init; }
+    /// <summary>The region's controllers (camera arguments, emitters, spawners...); empty on the old engine.</summary>
+    public IReadOnlyList<GameplayController> Controllers { get; init; } = [];
+    /// <summary>The region's paths (splines) with their points; empty on the old engine.</summary>
+    public IReadOnlyList<GameplayPath> Paths { get; init; } = [];
+    /// <summary>The region's Pods (groups of Mobys) and Squadrons (groups of Tie placements).</summary>
+    public IReadOnlyList<GameplayGroup> Pods { get; init; } = [];
+    public IReadOnlyList<GameplayGroup> Squadrons { get; init; } = [];
     public bool IsOldEngine { get; init; }
 
     public Region(

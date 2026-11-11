@@ -24,6 +24,8 @@ internal static class RenderMenuDraw
         settings.RenderUFrags = em.renderUFrags;
         settings.RenderFoliage = em.renderFoliage;
         settings.RenderVolumes = em.renderVolumes;
+        settings.HideCameras = !em.renderCameras;
+        settings.HidePaths = !em.renderPaths;
         settings.RenderNavmesh = em.renderNavmesh;
         settings.RenderCollision = em.renderCollision;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;

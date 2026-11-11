@@ -190,6 +190,11 @@ public class View3D : DockedFrame
         changed |= overlay.ToggleButton(Icons.Cubes, ref em.renderTies, LM.Get("GUI_Viewport_Ties"));
         changed |= overlay.ToggleButton(Icons.MountainSun, ref em.renderUFrags, LM.Get("GUI_Viewport_UFrags"));
         changed |= overlay.ToggleButton(Icons.VectorSquare, ref em.renderVolumes, LM.Get("GUI_Viewport_Volumes"));
+        overlay.ToggleButton(Icons.Filter, ref _volumePanel.Open, LM.Get("GUI_Viewport_VolumeFilters"));
+        float volumeAnchor = overlay.LastButtonLeft;
+        changed |= overlay.ToggleButton(Icons.Camera, ref em.renderCameras, LM.Get("GUI_Viewport_Cameras"));
+        changed |= overlay.ToggleButton(Icons.BezierCurve, ref em.renderPaths, LM.Get("GUI_Viewport_Paths"));
+        float pathAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
         if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
 
@@ -229,12 +234,18 @@ public class View3D : DockedFrame
             overlay.EndPanel();
         }
 
+        _volumePanel.Draw(overlay, volumeAnchor);
+        if (em.renderPaths && !CollisionEditing) _pathEditor.DrawPanel(overlay, pathAnchor);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
         if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
     }
 
     /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
+    private readonly VolumeFilterPanel _volumePanel = new();
+    private readonly PathOverlay _paths = new();
+    private readonly PathEditor _pathEditor = new();
+
     private bool CollisionEditing => _collisionEditor.EditMode && _collisionEditor.Scene != null && EntityManager.Singleton.renderCollision;
 
     // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
@@ -329,17 +340,135 @@ public class View3D : DockedFrame
     }
 
     // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
+    private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Colour, int Shape)> _vkVolumeFills = new();
+    private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> _vkCameras = new();
+
+    /// <summary>The camera controller being looked through (the inspector's camera POV), or null.</summary>
+    public EntityCamera? PovCamera { get; private set; }
+    private (Vector3 Position, Vector3 Target, Vector3 Up) _povSaved;
+    private object? _povLevel;
+
+    /// <summary>The game's frame: 16:9.</summary>
+    private const float PovAspect = 16f / 9f;
+
+    /// <summary>Looks through <paramref name="camera"/>: its placement, its FOV, the 16:9 frame it shows.</summary>
+    public void EnterPov(EntityCamera camera)
+    {
+        if (PovCamera == null) _povSaved = (Camera.Position, Camera.Target, Camera.Up);
+        PovCamera = camera;
+        _povLevel = Core.LunaWindow.Instance.Level;
+    }
+
+    /// <summary>Leaves the camera's view: back to the view before (<paramref name="restore"/>), or on from
+    /// the camera's place, level again.</summary>
+    public void ExitPov(bool restore)
+    {
+        if (PovCamera == null) return;
+        PovCamera = null;
+        if (restore)
+        {
+            (Camera.Position, Camera.Target, Camera.Up) = _povSaved;
+            return;
+        }
+        var forward = Camera.GetForward();
+        // The fly camera cannot look straight up or down.
+        if (MathF.Abs(forward.Y) > 0.99f) forward = Vector3.Normalize(forward + Camera.Up * -0.05f);
+        Camera.Up = Vector3.UnitY;
+        Camera.Target = Camera.Position + forward;
+    }
+
+    /// <summary>The camera's FOV: from its settings when they give one, else the editor's default (the
+    /// game's own default is not known). Horizontal, in degrees, over the 16:9 frame.</summary>
+    public static (float Degrees, bool Authored) PovFieldOfView(EntityCamera camera)
+    {
+        var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+        return camera.AuthoredFieldOfView(game) is { } authored ? (authored, true) : (Program.Settings.CameraPovFov, false);
+    }
+
+    /// <summary>The 16:9 frame inside the viewport, in viewport pixels.</summary>
+    private Vector4 PovFrame()
+    {
+        var size = _viewport.Size;
+        float height = MathF.Min(size.Y, size.X / PovAspect), width = height * PovAspect;
+        return new Vector4((size.X - width) * 0.5f, (size.Y - height) * 0.5f, width, height);
+    }
+
+    private void ApplyPov()
+    {
+        var camera = PovCamera;
+        if (camera == null) return;
+        if (!ReferenceEquals(_povLevel, Core.LunaWindow.Instance.Level)) { ExitPov(restore: false); return; }
+        Camera.Position = camera.Transform.Translation;
+        Camera.Target = Camera.Position + camera.ViewForward;
+        Camera.Up = camera.ViewUp;
+        // The horizontal FOV spans the frame's width; the viewport's vertical FOV is widened so that the
+        // frame's height, not the viewport's, takes the camera's vertical FOV.
+        float halfH = float.DegreesToRadians(Math.Clamp(PovFieldOfView(camera).Degrees, 1f, 179f)) * 0.5f;
+        float tanV = MathF.Tan(halfH) / PovAspect;
+        var frame = PovFrame();
+        if (frame.W > 0f) tanV *= _viewport.Size.Y / frame.W;
+        Camera.Fov = float.RadiansToDegrees(2f * MathF.Atan(tanV));
+    }
+
+    /// <summary>Darkens what lies outside the camera's 16:9 frame, and names the camera.</summary>
+    private void DrawPovFrame()
+    {
+        var camera = PovCamera;
+        if (camera == null || !_viewport.HasArea) return;
+        var drawList = ImGui.GetWindowDrawList();
+        var origin = _viewport.ScreenPos;
+        var size = _viewport.Size;
+        var frame = PovFrame();
+        var a = origin + new Vector2(frame.X, frame.Y);
+        var b = a + new Vector2(frame.Z, frame.W);
+        uint bar = ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.85f));
+        drawList.AddRectFilled(origin, new Vector2(origin.X + size.X, a.Y), bar);
+        drawList.AddRectFilled(new Vector2(origin.X, b.Y), origin + size, bar);
+        drawList.AddRectFilled(new Vector2(origin.X, a.Y), new Vector2(a.X, b.Y), bar);
+        drawList.AddRectFilled(new Vector2(b.X, a.Y), new Vector2(origin.X + size.X, b.Y), bar);
+        drawList.AddRect(a, b, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.35f)));
+
+        var (fov, authored) = PovFieldOfView(camera);
+        string label = LM.Get(authored ? "GUI_Viewport_PovLabel" : "GUI_Viewport_PovLabelDefault", camera.Name, fov.ToString("0.#"));
+        var pad = new Vector2(8f, 6f);
+        var textSize = ImGui.CalcTextSize(label);
+        var corner = new Vector2(a.X, b.Y) + new Vector2(pad.X, -pad.Y - textSize.Y);
+        drawList.AddRectFilled(corner - new Vector2(4f, 2f), corner + textSize + new Vector2(4f, 2f), ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.6f)), 3f);
+        drawList.AddText(corner, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.9f)), label);
+    }
+
+    /// <summary>The camera controllers to draw with the camera model; the selected one tinted with the
+    /// selection colour.</summary>
+    private List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> BuildCameraList()
+    {
+        _vkCameras.Clear();
+        var em = EntityManager.Singleton;
+        if (!em.renderCameras || CollisionEditing) return _vkCameras;
+        foreach (var region in em.Regions)
+        {
+            if (!region.allowRender) continue;
+            foreach (var e in region.Cameras.Entities)
+                // Not the one being looked through: the view is inside it.
+                if (e.allowRender && !ReferenceEquals(e, PovCamera))
+                    _vkCameras.Add((EntityCamera.ModelMatrix(e.Transform.GetMatrix()), e.selected ? em.VolumeSelectedColor with { W = 0.6f } : default(Vector4), (uint)e.ID));
+        }
+        return _vkCameras;
+    }
+
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
+        _vkVolumeFills.Clear();
         var em = Engine.Scene.EntityManager.Singleton;
         if (em.renderVolumes && !CollisionEditing)
             foreach (var region in em.Regions)
                 foreach (var e in region.Volumes.Entities)
-                    if (e is Engine.Scene.EntityVolume v && v.allowRender)
+                    if (e is Engine.Scene.EntityVolume v && v.allowRender && em.IsVolumeShown(v.BaseVolume))
                     {
                         var color = v.VolumeColour;
                         uint pickId = (uint)v.ID;
+                        if (em.IsVolumeFilled(v.BaseVolume))
+                            _vkVolumeFills.Add((v.FillMatrix, v.KindColour with { W = em.VolumeFillOpacity }, (int)v.BaseVolume.Shape));
                         foreach (var edge in v.GetWorldEdgeTransforms())
                             _vkVolumes.Add((edge, color, pickId));
                     }
@@ -352,6 +481,7 @@ public class View3D : DockedFrame
         // changes (settings frame, viewport clip slider) reach the camera via Camera.Update.
         Camera.Fov = Program.Settings.CamFOV;
         Camera.FarPlane = Program.Settings.RenderDistance;
+        EntityCamera.ModelScale = Program.Settings.CameraModelScale;
         // EntityManager (ReLunacy.Engine) has no reference to Program.Settings (app-layer) - see
         // EntityManager.VolumeWireThickness's own comment.
         EntityManager.Singleton.VolumeWireThickness = Program.Settings.VolumeWireThickness;
@@ -430,6 +560,7 @@ public class View3D : DockedFrame
         // selection's transforms, and the renderer's own cull + re-record + submit. The renderer's
         // internal "Vk Cull" / "Vk Record" samples are the finer breakdown.
         var record = FrameProfiler.Sample("3D Record");
+        ApplyPov();
         Camera.Update();
 
         // Replay the raw-Vulkan scene AFTER Camera.Update, so the view uses the current frame's
@@ -491,14 +622,19 @@ public class View3D : DockedFrame
                 _collisionEditor.Apply(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
+                // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
+                var volumeList = BuildVolumeList();
+                vkStage.VolumeFills = _vkVolumeFills;
+                vkStage.CameraMarkers = BuildCameraList();
+                _paths.Update(vkStage, SelectedEntity, CollisionEditing);
                 vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),
-                    BuildVolumeList(), EntityManager.Singleton.VolumeWireThickness,
+                    volumeList, EntityManager.Singleton.VolumeWireThickness,
                     // Volumes opt out of the outline: EntityVolume already recolours its own wireframe
                     // on selection, and the mask-and-inflate technique expects one closed surface, not
                     // 12 disjoint edge boxes.
-                    SelectedEntity is EntityVolume ? null : SelectedEntity,
+                    SelectedEntity is EntityVolume or EntityCamera or EntityPath or EntityPathPoint ? null : SelectedEntity,
                     Program.Settings.SelectionOutlineColor, 0.006f,
                     // True world-space position, same convention as lighting.BuildLightData(Camera.Position)
                     // just above and as Entity.WorldBoundingSphere (what _instCenter/Visible() compares
@@ -526,6 +662,7 @@ public class View3D : DockedFrame
             _viewport.DrawImage(Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, vkStage.ColorTexture));
         else
             _viewport.DrawEmpty();
+        DrawPovFrame();
 
         // Overlay, then gizmo, then picking. That is the priority order, and it is the call order:
         // each one gets its chance at the click before the next, and TryConsumeClick below returns
@@ -542,9 +679,16 @@ public class View3D : DockedFrame
         if (_viewport.TryConsumeClick())
         {
             if (CollisionEditing) _marqueeStart = _viewport.MousePos;
-            else PickEntityUnderCursor();
+            else
+            {
+                PickEntityUnderCursor();
+                // A press on a key, handle or point of the selected path starts dragging it.
+                if (SelectedEntity is EntityPathPoint part)
+                    _pathEditor.BeginDrag(part, _viewport.MousePos, _viewport.Size, Camera);
+            }
         }
         UpdateCollisionMarquee();
+        _pathEditor.UpdateDrag(_viewport.MousePos, _viewport.Size, Camera);
 
         _viewport.End();
     }
@@ -616,9 +760,20 @@ public class View3D : DockedFrame
                 (int)_viewport.MousePos.X, (int)_viewport.MousePos.Y,
                 _viewport.Size.X, _viewport.Size.Y);
 
-            SelectedEntity = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
+            Entity? hit = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
                 ? EntityManager.Singleton.AllEntities().FirstOrDefault(e => (uint)e.ID == hitId)
                 : null;
+            // Paths are picked on the CPU (PathOverlay.Pick); the nearer of the two wins, the mesh measured
+            // at its bounding sphere's centre.
+            if (!CollisionEditing && _paths.Pick(_viewport.MousePos, Camera.GetView() * Camera.GetProjection(), _viewport.Size,
+                    Camera.Position, SelectedEntity) is { } pathHit)
+            {
+                float meshDistance = hit != null
+                    ? Vector3.Distance(Camera.Position, new Vector3(hit.WorldBoundingSphere.X, hit.WorldBoundingSphere.Y, hit.WorldBoundingSphere.Z))
+                    : float.MaxValue;
+                if (pathHit.Entity is EntityPathPoint || pathHit.Distance <= meshDistance) hit = pathHit.Entity;
+            }
+            SelectedEntity = hit;
         }
         catch (Exception e)
         {
@@ -678,7 +833,9 @@ public class View3D : DockedFrame
 
     public void HandleShortcuts()
     {
+        _pathEditor.HandleShortcuts();
         if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
+        if (PovCamera != null) { ExitPov(restore: true); return; }
         if (CollisionEditing) _collisionEditor.ClearSelection();
         else SelectedEntity = null;
     }
@@ -701,6 +858,8 @@ public class View3D : DockedFrame
         bool rotating = rmbghandler.TryGrabMouse(allowGrab);
         _viewport.SetMouseCaptured(rotating);
         if (!rotating) return false;
+        // Looking around leaves the camera's view, flying on from where it is.
+        if (PovCamera != null) ExitPov(restore: false);
 
         Vector2 rot = Input.GetMouseDelta();
         rot *= Program.Settings.CamSensivity;

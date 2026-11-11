@@ -34,6 +34,10 @@
   </ItemGroup>
   
   <ItemGroup>
+    <Content Include="Assets\ReLunacyCamera.obj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets\ReLunacyCamera.obj</Link>
+    </Content>
     <Content Include="Assets\Fonts\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Assets\Fonts\%(RecursiveDir)%(Filename)%(Extension)</Link>

@@ -108,10 +108,16 @@ public sealed class RegionReader
         return new Assets.Levels.Region(
             id: id,
             mobyInstances: ReadMobyInstancesNew(prius, region),
-            volumes: ReadVolumesNew(prius),
+            volumes: ReadVolumesNew(prius, Game),
             zones: ReadZoneList(region),
             isOldEngine: false,
-            name: regionName);
+            name: regionName)
+        {
+            Controllers = GameplayGroupReader.ReadControllers(prius, Game),
+            Paths = GameplayGroupReader.ReadPaths(prius),
+            Pods = GameplayGroupReader.ReadPods(prius),
+            Squadrons = GameplayGroupReader.ReadSquadrons(prius),
+        };
     }
 
     /// <summary>
@@ -285,7 +291,10 @@ public sealed class RegionReader
         return [.. volumes];
     }
 
-    private static List<Volume> ReadVolumesNew(IGFile prius)
+    /// <summary>The level's game, for the class tables only that game's EBOOT gives (GameClassNames).</summary>
+    private Games.GameId? Game => Games.GameDefinitions.FromLevelPath(_fileManager.SourcePath)?.Id;
+
+    private static List<Volume> ReadVolumesNew(IGFile prius, Games.GameId? game)
     {
         // Volumes and their names live in gp_prius.dat, not region.dat. Metadata is read first
         // into arrays (Volume.Id is init-only, so it must be known before construction).
@@ -328,6 +337,7 @@ public sealed class RegionReader
             volumes[i] = new Volume(tuid, transform, name, group, shape);
         }
 
+        GameplayGroupReader.Annotate(prius, volumes, [.. volumes.Select(v => v.group)], game);
         return [.. volumes];
     }
 }
