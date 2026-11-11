@@ -5,6 +5,7 @@ using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.Animations;
 using ReLunacy.Engine.Assets.Mobys;
+using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Assets.Ties;
 using ReLunacy.Engine.Export;
 using ReLunacy.Engine.Rendering;
@@ -251,6 +252,11 @@ public class AssetViewer : DockedFrame, ILevelListener
     private HashSet<ulong> usedMobyIds = [];
     private HashSet<ulong> usedTieIds = [];
 
+    // The classes the loaded region does not place, which are not read with it: listed by name (read off
+    // each class's header the first time the list is opened) and read from the level's files when picked.
+    private List<(ulong Id, string Name)>? unreadMobys;
+    private List<(ulong Id, string Name)>? unreadTies;
+
     // Moby materials are grouped per bangle (a material used by several bangles shows up under
     // each) since bangles are independently toggleable - seeing which bangle actually pulls in a
     // material matters. Ties have no bangles, so their materials are just a flat deduped list.
@@ -296,6 +302,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         ufragAssets.Clear();
         usedMobyIds.Clear();
         usedTieIds.Clear();
+        unreadMobys = null;
+        unreadTies = null;
         assetManager = null;
         // Do not dispose the preview synchronously here. OnLevelUnloading can run while ImGui is
         // still building the current frame, after the preview image has already been queued. The
@@ -315,6 +323,8 @@ public class AssetViewer : DockedFrame, ILevelListener
     public void TransmitAssets(AssetManager assetManager, IReadOnlyDictionary<ulong, Moby> mobys, IReadOnlyDictionary<ulong, Tie>? ties = null)
     {
         this.assetManager = assetManager;
+        unreadMobys = null;
+        unreadTies = null;
         mobyAssets.Clear();
         foreach (var (tuid, mobyModel) in assetManager.Mobys)
         {
@@ -516,21 +526,72 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (!asset.HasLightmap) ImGui.PopStyleColor();
     }
 
-    /// <summary>Selects the moby with the given asset id, e.g. when jumping here from the Texture Explorer's "used by" list. Returns false if it isn't in the currently transmitted set.</summary>
+    /// <summary>The unread classes of one family, under a node of their own below the read ones.</summary>
+    private void RenderUnreadClasses<T>(AssetLibrary<T>? library, Func<T, string?> loadedName, ref List<(ulong Id, string Name)>? list,
+        string prefix, Action<ulong> read) where T : class
+    {
+        if (library == null || assetUsageFilter == UsageFilter.Used) return;
+        int unread = library.Count - library.Loaded.Count;
+        if (unread <= 0) return;
+        bool open = ImGui.TreeNode($"{LM.Get("GUI_Frame_AssetViewer_NotInRegion", unread)}###{prefix}_unread");
+        ImGui.SetItemTooltip(LM.Get("GUI_Frame_AssetViewer_NotInRegionTooltip"));
+        if (!open) return;
+
+        list ??= library.Ids.Where(id => !library.Loaded.ContainsKey(id))
+            .Select(id => (id, library.NameOf(id, loadedName) is { Length: > 0 } name ? name : $"{prefix}_{id:X}"))
+            .OrderBy(e => e.Item2, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+        ulong? picked = null;
+        foreach (var (id, name) in list)
+        {
+            if (!string.IsNullOrWhiteSpace(assetSearch) && !TuidLink.Matches(assetSearch, name, id)) continue;
+            if (ImGui.Selectable($"{name}##{prefix}_unread_{id:X}"))
+                picked = id;
+        }
+        ImGui.PopStyleColor();
+        ImGui.TreePop();
+        // After the loop: reading it changes the list being walked.
+        if (picked is { } pick) read(pick);
+    }
+
+    /// <summary>Reads a Moby class the loaded region does not place and builds its models; false when the
+    /// level has no such class.</summary>
+    private bool ReadMobyClass(ulong mobyId)
+    {
+        if (assetManager == null || LunaWindow.Instance.Level?.MobyLibrary.Get(mobyId) is not { } moby) return false;
+        var asset = new MobyAsset(assetManager.GetOrBuildMoby(moby), moby);
+        mobyAssets.Add(asset);
+        unreadMobys = null;
+        SelectedMobyAsset = asset;
+        return true;
+    }
+
+    private bool ReadTieClass(ulong tieId)
+    {
+        if (assetManager == null || LunaWindow.Instance.Level?.TieLibrary.Get(tieId) is not { } tie) return false;
+        var asset = new TieAsset(assetManager.GetOrBuildTie(tie), tie);
+        tieAssets.Add(asset);
+        unreadTies = null;
+        SelectedTieAsset = asset;
+        return true;
+    }
+
+    /// <summary>Selects the moby with the given asset id, e.g. when jumping here from the Texture Explorer's "used by" list. Returns false if the level has no such Moby.</summary>
     public bool SelectMobyById(ulong mobyId)
     {
         var match = mobyAssets.FirstOrDefault(a => a.Moby.Id == mobyId);
-        if (match.Moby == null) return false;
+        if (match.Moby == null) return ReadMobyClass(mobyId);
 
         SelectedMobyAsset = match;
         return true;
     }
 
-    /// <summary>Selects the tie with the given asset id, e.g. when jumping here from the Texture Explorer's "used by" list. Returns false if it isn't in the currently transmitted set.</summary>
+    /// <summary>Selects the tie with the given asset id, e.g. when jumping here from the Texture Explorer's "used by" list. Returns false if the level has no such Tie.</summary>
     public bool SelectTieById(ulong tieId)
     {
         var match = tieAssets.FirstOrDefault(a => a.Tie.Id == tieId);
-        if (match.Tie == null) return false;
+        if (match.Tie == null) return ReadTieClass(tieId);
 
         SelectedTieAsset = match;
         return true;
@@ -699,6 +760,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                                     RenderMobyLeaf(moby);
                             }
                         }
+                        RenderUnreadClasses(LunaWindow.Instance.Level?.MobyLibrary, m => m.Name, ref unreadMobys, "Moby", id => ReadMobyClass(id));
                     }
                     ImGui.EndChild();
 
@@ -722,6 +784,7 @@ public class AssetViewer : DockedFrame, ILevelListener
                                     RenderTieLeaf(tie);
                             }
                         }
+                        RenderUnreadClasses(LunaWindow.Instance.Level?.TieLibrary, t => t.Name, ref unreadTies, "Tie", id => ReadTieClass(id));
                     }
                     ImGui.EndChild();
 

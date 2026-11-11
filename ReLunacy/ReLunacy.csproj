@@ -13,6 +13,12 @@
          read, so the version is written once. Without this the SDK emits its own copy from
          $(Version) into obj/*/ReLunacy.AssemblyInfo.cs and the two collide (CS0579). -->
     <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
+    <!-- A level load decodes thousands of textures on every core at once, each allocating its pixels:
+         the workstation collector serialises those threads, the server one gives each core its own heap
+         (krell_canyon's texture decode 0.9 s -> 0.6 s, a creature_collector region 0.48 -> 0.23 s,
+         dev/tools/decodeprobe). .NET 10 sizes the server heaps to the load (DATAS), so an idle editor
+         does not hold one heap per core. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

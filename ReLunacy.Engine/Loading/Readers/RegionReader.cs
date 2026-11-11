@@ -13,11 +13,13 @@ namespace ReLunacy.Engine.Loading.Readers;
 public sealed class RegionReader
 {
     private readonly FileManager _fileManager;
-    private readonly Dictionary<ulong, Assets.Mobys.Moby> _mobys;
+    private readonly AssetLibrary<Assets.Mobys.Moby> _mobys;
     private readonly Dictionary<ulong, Assets.Levels.Zone> _zones;
     private readonly DebugReader _debugReader;
 
-    public RegionReader(FileManager fileManager, Dictionary<ulong, Assets.Mobys.Moby> mobys, Dictionary<ulong, Assets.Levels.Zone> zones, DebugReader debugReader)
+    /// <param name="mobys">The level's Moby classes; the ones a region places are read from it.</param>
+    /// <param name="zones">The zones read so far; a region keeps those of its own list that are among them.</param>
+    public RegionReader(FileManager fileManager, AssetLibrary<Assets.Mobys.Moby> mobys, Dictionary<ulong, Assets.Levels.Zone> zones, DebugReader debugReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
         _mobys = mobys ?? throw new ArgumentNullException(nameof(mobys));
@@ -90,7 +92,9 @@ public sealed class RegionReader
         return regions;
     }
 
-    private Assets.Levels.Region? ReadOneRegionNew(string regionName, ulong id)
+    /// <summary>One new-engine region: its Moby instances, volumes and the zones of its list that have
+    /// been read. <paramref name="id"/> is its position in gameplay.dat's list, plus one.</summary>
+    public Assets.Levels.Region? ReadOneRegionNew(string regionName, ulong id)
     {
         var prius = _fileManager.GetOrLoadIGFile($"{regionName}/gp_prius.dat");
         var region = _fileManager.GetOrLoadIGFile($"{regionName}/region.dat");
@@ -135,6 +139,19 @@ public sealed class RegionReader
         return names;
     }
 
+    /// <summary>The TUIDs of the zones a new-engine region lists (region.dat 0x1C010), read or not; null
+    /// when its region.dat does not open.</summary>
+    public List<ulong>? ReadZoneTuids(string regionName)
+    {
+        if (_fileManager.GetOrLoadIGFile($"{regionName}/region.dat") is not { } region) return null;
+        var section = region.QuerySection(0x1C010);
+        var tuids = new List<ulong>((int)section.count);
+        region.sh.Seek(section.offset);
+        for (int i = 0; i < section.count; i++)
+            tuids.Add(region.sh.ReadUInt64());
+        return tuids;
+    }
+
     private List<IZone> ReadZoneList(IGFile region)
     {
         var zoneList = new List<IZone>();
@@ -164,7 +181,7 @@ public sealed class RegionReader
         {
             var legacyInstance = MobyInstanceOld.Read(gameplayFile.sh);
 
-            if (_mobys.TryGetValue(legacyInstance.mobyIndex, out var moby))
+            if (_mobys.Get(legacyInstance.mobyIndex) is { } moby)
             {
                 var transform = new Transform3D(legacyInstance.position, legacyInstance.rotation, legacyInstance.scale);
                 // debug.dat instance names (when present) are matched by array position, not by tuid.
@@ -224,8 +241,7 @@ public sealed class RegionReader
             {
                 region.sh.Seek(mobyLookupSection.offset + 0x08 * legacyInstance.mobyIndex);
                 ulong mobyTUID = region.sh.ReadUInt64();
-                _mobys.TryGetValue(mobyTUID, out var resolvedMoby);
-                moby = resolvedMoby;
+                moby = _mobys.Get(mobyTUID);
             }
 
             if (moby != null)

@@ -1,3 +1,4 @@
+using System.Runtime.Intrinsics;
 using System.Runtime.CompilerServices;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering.Resources;
@@ -79,6 +80,38 @@ internal static class TextureUploadPreparer
     }
 
     /// <summary>
+    /// As <see cref="Prepare(ITexture, bool)"/>, with neither side above <paramref name="maxDimension"/>
+    /// (0: no limit). A texture that carries its own mip chain is decoded from the first level that fits,
+    /// so the levels above it are never decoded at all - what makes loading a level at low resolution
+    /// cheap (texture streaming). Byte-identical to decoding everything and dropping the top levels.
+    /// </summary>
+    public static TextureLevels? Prepare(ITexture texture, bool generateMipsWhenUnauthored, uint maxDimension)
+    {
+        if (maxDimension == 0 || Math.Max(texture.Width, texture.Height) <= maxDimension)
+            return Prepare(texture, generateMipsWhenUnauthored);
+
+        int skip = 0;
+        uint w = texture.Width, h = texture.Height;
+        while (Math.Max(w, h) > maxDimension && (w > 1 || h > 1))
+        {
+            w = Math.Max(1u, w / 2);
+            h = Math.Max(1u, h / 2);
+            skip++;
+        }
+        if (texture is not Assets.Textures.Texture { HasAuthoredMipChain: true } || skip >= texture.MipmapCount)
+            return Prepare(texture, generateMipsWhenUnauthored)?.LimitTo(maxDimension);
+
+        var levels = new byte[texture.MipmapCount - skip][];
+        for (int mip = skip; mip < texture.MipmapCount; mip++)
+        {
+            byte[]? decoded = TextureUtils.DecodeMipmapToRgba8888(texture, mip, out _, out _);
+            if (decoded == null) return Prepare(texture, generateMipsWhenUnauthored)?.LimitTo(maxDimension);
+            levels[mip - skip] = decoded;
+        }
+        return TextureLevels.FromAuthored(w, h, levels);
+    }
+
+    /// <summary>
     /// Applies only the proven native CONTROL1 component routing to an already-decoded RGBA level.
     /// If an old texture has been reformatted by Texture Editor, the current proven 0x5200 base
     /// format is used for format-dependent CONTROL1 semantics instead of the original descriptor's
@@ -126,30 +159,59 @@ internal static class TextureUploadPreparer
         if ((rgba.Length & 3) != 0)
             throw new InvalidDataException($"Texture {texture.Id:X}: RGBA8 payload length 0x{rgba.Length:X} is not divisible by 4.");
 
-        static byte Select(RsxTextureRemapSource source, byte r, byte g, byte b, byte a) => source switch
+        // Each destination channel is a source channel or a constant, the same for every pixel: resolved
+        // once into a byte shuffle (out-of-range index = 0) and an OR mask (the channels forced to 255),
+        // and applied 4 pixels at a time. Resolving it per channel per pixel was 3.8 s of krell_canyon's
+        // 4.6 s of texture decoding.
+        Span<byte> shuffle = stackalloc byte[16];
+        Span<byte> ones = stackalloc byte[16];
+        ReadOnlySpan<RsxTextureRemapComponent> components = [remap.Red, remap.Green, remap.Blue, remap.Alpha];
+        for (int c = 0; c < 4; c++)
         {
-            RsxTextureRemapSource.Alpha => a,
-            RsxTextureRemapSource.Red => r,
-            RsxTextureRemapSource.Green => g,
-            RsxTextureRemapSource.Blue => b,
-            _ => 0,
-        };
+            var component = components[c];
+            byte index = 0xFF;
+            byte one = 0;
+            switch (component.Control)
+            {
+                case RsxTextureRemapControl.One:
+                    one = 0xFF;
+                    break;
+                case RsxTextureRemapControl.Remap:
+                    index = component.Source switch
+                    {
+                        RsxTextureRemapSource.Red => 0,
+                        RsxTextureRemapSource.Green => 1,
+                        RsxTextureRemapSource.Blue => 2,
+                        RsxTextureRemapSource.Alpha => 3,
+                        _ => 0xFF,
+                    };
+                    break;
+                case RsxTextureRemapControl.Zero:
+                    break;
+                default:
+                    throw new InvalidOperationException("Reserved CONTROL1 component reached resolved remap path.");
+            }
+            for (int p = 0; p < 4; p++)
+            {
+                shuffle[p * 4 + c] = index == 0xFF ? (byte)0xFF : (byte)(p * 4 + index);
+                ones[p * 4 + c] = one;
+            }
+        }
 
-        static byte Resolve(RsxTextureRemapComponent component, byte r, byte g, byte b, byte a) => component.Control switch
+        var shuffleVector = Vector128.Create((ReadOnlySpan<byte>)shuffle);
+        var onesVector = Vector128.Create((ReadOnlySpan<byte>)ones);
+        int i = 0;
+        for (; i + 16 <= rgba.Length; i += 16)
         {
-            RsxTextureRemapControl.Zero => 0,
-            RsxTextureRemapControl.One => 255,
-            RsxTextureRemapControl.Remap => Select(component.Source, r, g, b, a),
-            _ => throw new InvalidOperationException("Reserved CONTROL1 component reached resolved remap path."),
-        };
-
-        for (int i = 0; i < rgba.Length; i += 4)
+            var pixels = Vector128.Create((ReadOnlySpan<byte>)rgba.AsSpan(i, 16));
+            (Vector128.Shuffle(pixels, shuffleVector) | onesVector).CopyTo(rgba.AsSpan(i, 16));
+        }
+        for (; i < rgba.Length; i += 4)
         {
             byte r = rgba[i + 0], g = rgba[i + 1], b = rgba[i + 2], a = rgba[i + 3];
-            rgba[i + 0] = Resolve(remap.Red, r, g, b, a);
-            rgba[i + 1] = Resolve(remap.Green, r, g, b, a);
-            rgba[i + 2] = Resolve(remap.Blue, r, g, b, a);
-            rgba[i + 3] = Resolve(remap.Alpha, r, g, b, a);
+            ReadOnlySpan<byte> source = [r, g, b, a];
+            for (int c = 0; c < 4; c++)
+                rgba[i + c] = (byte)((shuffle[c] == 0xFF ? 0 : source[shuffle[c]]) | ones[c]);
         }
 
         if (!_loggedControl1)

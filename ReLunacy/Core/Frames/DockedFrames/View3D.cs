@@ -184,6 +184,15 @@ public class View3D : DockedFrame
         overlay.ToggleButton("C", ref showClipControls, LM.Get("GUI_Frame_AssetViewer_ClipControls"));
         float clipAnchor = overlay.LastButtonLeft;
 
+        // What the scene draws, by kind.
+        overlay.Gap();
+        bool changed = overlay.ToggleButton(Icons.Cube, ref em.renderMobys, LM.Get("GUI_Viewport_Mobys"));
+        changed |= overlay.ToggleButton(Icons.Cubes, ref em.renderTies, LM.Get("GUI_Viewport_Ties"));
+        changed |= overlay.ToggleButton(Icons.MountainSun, ref em.renderUFrags, LM.Get("GUI_Viewport_UFrags"));
+        changed |= overlay.ToggleButton(Icons.VectorSquare, ref em.renderVolumes, LM.Get("GUI_Viewport_Volumes"));
+        changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
+        if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
+
         // Shading: unlit / lit, and the RSX shaders, which only exist on the lit path - greyed out
         // while unlit, keeping its own state for when lighting comes back.
         overlay.Gap();

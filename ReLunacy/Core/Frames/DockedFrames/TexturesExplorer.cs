@@ -19,7 +19,6 @@ public record struct TextureObject
     {
         Texture = texture;
         Index = index;
-        TexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
         GpuTexture = tex2d;
     }
 
@@ -32,7 +31,10 @@ public record struct TextureObject
 
     public readonly ITexture Texture;
     public readonly GpuTexture GpuTexture;
-    public readonly ImTextureRef TexturePtr;
+    /// <summary>Looked up on every use: texture streaming replaces the device texture when it changes the
+    /// texture's resolution, and the binding of the old one is freed with it.</summary>
+    public readonly ImTextureRef TexturePtr =>
+        LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, GpuTexture.DeviceTexture);
 }
 
 public class TexturesExplorer : DockedFrame, ILevelListener
@@ -566,6 +568,9 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             if(ImGui.BeginChild("texture_preview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
                 var selection = textureObjects[selectedTexture];
+                // The preview shows the texture at its own resolution, whatever the scene streams it at.
+                LunaWindow.Instance.AssetManager?.RequestFullResolution(selection.GpuTexture);
+                if (channelPreviewTexture == null) selectedTexturePtr = selection.TexturePtr;
 
                 ImGui.Image(selectedTexturePtr, new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX);
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_SelectColorChannel"));

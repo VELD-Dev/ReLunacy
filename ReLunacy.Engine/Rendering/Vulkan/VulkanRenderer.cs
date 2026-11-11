@@ -1206,15 +1206,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         fallback ??= _fallbackTexture;
         if (fallback == null) throw new InvalidOperationException("[VkRenderer] Scene has no material textures.");
 
-        var viewOf = new Dictionary<Texture, VkImageView>(ReferenceEqualityComparer.Instance);
+        var viewOf = _textureViews;
         VkImageView ViewFor(Texture? t)
         {
             t ??= fallback;
             if (viewOf.TryGetValue(t, out var existing)) return existing;
-            VkImage image = _ctx.BackendInfo.GetVkImage(t);
-            uint mips = Math.Max(1u, t.MipLevels);
-            var vi = new VkImageViewCreateInfo { image = image, viewType = VkImageViewType.Image2D, format = ColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = mips, baseArrayLayer = 0, layerCount = 1 } };
-            VkImageView view; Check(_api.vkCreateImageView(&vi, &view), "vkCreateImageView(tex)");
+            VkImageView view = CreateMaterialTextureView(t);
             viewOf[t] = view;
             return view;
         }
@@ -1244,6 +1241,107 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkUpdateDescriptorSets(TexPerMaterial, w, 0, null);
         }
         _texViews = [.. viewOf.Values];
+    }
+
+    private VkImageView CreateMaterialTextureView(Texture t)
+    {
+        VkImage image = _ctx.BackendInfo.GetVkImage(t);
+        uint mips = Math.Max(1u, t.MipLevels);
+        var vi = new VkImageViewCreateInfo { image = image, viewType = VkImageViewType.Image2D, format = ColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = mips, baseArrayLayer = 0, layerCount = 1 } };
+        VkImageView view; Check(_api.vkCreateImageView(&vi, &view), "vkCreateImageView(tex)");
+        return view;
+    }
+
+    /// <summary>The view each material texture is sampled through, by texture.</summary>
+    private readonly Dictionary<Texture, VkImageView> _textureViews = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Points every material that samples one of the old textures at its replacement (texture streaming
+    /// changing a texture's resolution). The material descriptor sets are shared by both frames in
+    /// flight and are not update-after-bind, so this waits for the GPU first; it is meant to run between
+    /// frames, after the scene was submitted, a few times a second at most. Once it returns, nothing in
+    /// this renderer refers to the old textures and they can be freed.
+    /// </summary>
+    public void ReplaceTextures(IReadOnlyList<(Texture Old, Texture New)> swaps)
+    {
+        if (swaps.Count == 0 || _matViews == null) return;
+        int latest = _slot ^ 1;
+        bool latestPending = _pending[latest];
+        WaitForPendingFrames();
+        // The frame just waited for is complete: show it, as the end of Frame would have.
+        if (latestPending)
+        {
+            _displaySlot = latest;
+            _ctx.BackendInfo.OverrideImageLayout(_colorTex[latest], (uint)VkImageLayout.ShaderReadOnlyOptimal);
+        }
+
+        var replaced = new Dictionary<ulong, VkImageView>();
+        var retired = new List<VkImageView>();
+        foreach (var (old, replacement) in swaps)
+        {
+            if (!_textureViews.Remove(old, out VkImageView oldView)) continue;
+            // A texture replaced twice in one batch: the first replacement's view is the one materials hold.
+            VkImageView view = CreateMaterialTextureView(replacement);
+            _textureViews[replacement] = view;
+            foreach (var key in replaced.Where(kv => kv.Value.Handle == oldView.Handle).Select(kv => kv.Key).ToList())
+                replaced[key] = view;
+            replaced[oldView.Handle] = view;
+            retired.Add(oldView);
+        }
+        if (replaced.Count == 0) return;
+
+        var dirty = new HashSet<int>();
+        for (int k = 0; k < _matViews.Length; k++)
+            if (replaced.TryGetValue(_matViews[k].Handle, out VkImageView view))
+            {
+                _matViews[k] = view;
+                dirty.Add(k / TexPerMaterial);
+            }
+
+        VkDescriptorImageInfo* imgs = stackalloc VkDescriptorImageInfo[TexPerMaterial];
+        VkWriteDescriptorSet* w = stackalloc VkWriteDescriptorSet[TexPerMaterial];
+        foreach (int i in dirty)
+        {
+            for (uint bnd = 0; bnd < TexPerMaterial; bnd++)
+            {
+                imgs[bnd] = new VkDescriptorImageInfo { sampler = (bnd == 3 || bnd == 4) ? _samplerBaked : _sampler, imageView = _matViews[i * TexPerMaterial + bnd], imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
+                w[bnd] = new VkWriteDescriptorSet { dstSet = _matSets[i], dstBinding = bnd, descriptorCount = 1, descriptorType = VkDescriptorType.CombinedImageSampler, pImageInfo = &imgs[bnd] };
+            }
+            _api.vkUpdateDescriptorSets(TexPerMaterial, w, 0, null);
+        }
+        foreach (var view in retired) _api.vkDestroyImageView(view);
+        _texViews = [.. _textureViews.Values];
+    }
+
+    private float[] _matScreenRadius = [];
+
+    /// <summary>Per material (in the order the renderer was given them), the largest radius in pixels any
+    /// instance drawing it had on screen in the last frame; 0 when none was drawn. What texture streaming
+    /// decides resolutions from.</summary>
+    public ReadOnlySpan<float> MaterialScreenRadius => _matScreenRadius;
+
+    /// <summary>Fills <see cref="MaterialScreenRadius"/> from this frame's visible lists.</summary>
+    private void MeasureMaterialScreenRadius(float focalPixels)
+    {
+        Array.Clear(_matScreenRadius);
+        void Accumulate(int[] list, int count)
+        {
+            for (int v = 0; v < count; v++)
+            {
+                int i = list[v];
+                float r = _instRadius[i];
+                float d = Vector3.Distance(_instCenter[i], _cameraPosition);
+                float px = r * focalPixels / MathF.Max(d, r);
+                ref float slot = ref _matScreenRadius[_drawMatSlot[i]];
+                if (px > slot) slot = px;
+            }
+        }
+        Accumulate(_visibleOpaque, _visOpaqueCount);
+        Accumulate(_visibleOpaqueLate, _visOpaqueLateCount);
+        Accumulate(_visibleTranslucent, _visTransCount);
+        Accumulate(_visibleAdditive, _visAddCount);
+        Accumulate(_visibleSoftEdge, _visSoftCount);
+        Accumulate(_visibleBillboard, _visBillCount);
     }
 
     private VkRenderPass MakeColorDepthPass(bool depthWrites, VkImageLayout colorFinal, bool load = false)
@@ -2121,6 +2219,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _visSoftCount = CullRange(_softStart, _billStart, _visibleSoftEdge);
             _visBillCount = CullRange(_billStart, _instanceCount, _visibleBillboard);
         }
+        if (_matScreenRadius.Length != _matPC0.Length) _matScreenRadius = new float[_matPC0.Length];
+        MeasureMaterialScreenRadius(projection.M22 * _height * 0.5f);
         using (Diagnostics.FrameProfiler.Sample("Vk Record")) RecordCommands();
         _recorded = true;
         int previous = _slot ^ 1;

@@ -5,7 +5,14 @@ namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>
 /// Main entry point for reading complete levels from Luna Engine formats. Orchestrates every
-/// individual reader to load the entire level hierarchy.
+/// individual reader to load the level hierarchy.
+///
+/// A level is read one region at a time. <see cref="LoadLevel"/> opens it - textures, shaders, the
+/// class tables and the region list, which belong to the whole level - and reads one region;
+/// <see cref="LoadRegion"/> reads another over the same open files. A region is its zones, its Moby
+/// instances and volumes, its environment and collision, and only the classes those place: a
+/// new-engine level ships every class all of its regions use, and an All 4 One region places about
+/// half of them. The old engine has a single region, so it reads everything as it always has.
 /// </summary>
 public sealed class LevelReader
 {
@@ -13,30 +20,29 @@ public sealed class LevelReader
     private readonly TextureShaderLoader _textureShaderLoader;
     private readonly MaterialReader _materialReader;
     private readonly DebugReader _debugReader;
-    private MobyReader _mobyReader = null!;
-    private TieReader _tieReader = null!;
-    private ShrubReader _shrubReader = null!;
     private ZoneReader _zoneReader = null!;
-    private FoliageReader _foliageReader = null!;
-    private AnimationReader _animationReader = null!;
     private RegionReader _regionReader = null!;
 
-    private Dictionary<ulong, Assets.Mobys.Moby>? _mobys;
-    private Dictionary<ulong, Assets.Ties.Tie>? _ties;
-    private Dictionary<ulong, Assets.Shrubs.Shrub>? _shrubs;
-    private Dictionary<ulong, Assets.Levels.Zone>? _zones;
+    // Every class read goes through the level's file streams; the libraries share this lock.
+    private readonly object _fileLock = new();
+    private AssetLibrary<Assets.Mobys.Moby> _mobys = AssetLibrary<Assets.Mobys.Moby>.FromLoaded([]);
+    private AssetLibrary<Assets.Ties.Tie> _ties = AssetLibrary<Assets.Ties.Tie>.FromLoaded([]);
+    private AssetLibrary<Assets.Shrubs.Shrub> _shrubs = AssetLibrary<Assets.Shrubs.Shrub>.FromLoaded([]);
+    private Dictionary<ulong, Assets.Levels.Zone> _zones = [];
     private Assets.Levels.Region? _region;
-    private List<Assets.Levels.Region> _regions = [];
-    private readonly Dictionary<string, IReadOnlyList<Assets.Sky.LevelSky>> _skiesByRegion = [];
+
+    private bool _opened;
+    private List<string> _regionNames = [];
+    // New engine: each region's zone list (region.dat 0x1C010), and the zones no region lists.
+    private readonly Dictionary<string, List<ulong>> _zonesByRegion = [];
+    private List<ulong> _unclaimedZones = [];
+
     private readonly Dictionary<string, IReadOnlyList<Assets.Cubemaps.Cubemap>> _cubemapsByRegion = [];
-    private readonly Dictionary<string, Assets.Lighting.LightingEnvironment> _lightingByRegion = [];
     private IReadOnlyList<Assets.Foliage.Foliage>? _foliages;
     private IReadOnlyList<Assets.Animations.AnimationClip>? _animations;
     private IReadOnlyList<Assets.Cubemaps.Cubemap>? _cubemaps;
-    private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
-    private IReadOnlyList<Assets.Sky.LevelSky>? _skies;
     private Assets.Lighting.LevelFog? _levelFog;
-    private readonly Dictionary<string, Assets.Collision.LevelCollision> _collisionByRegion = [];
+    private bool _levelFogRead;
 
     private readonly Games.GameDefinition? _gameDefinition;
 
@@ -52,185 +58,206 @@ public sealed class LevelReader
         _debugReader = new DebugReader(fileManager);
     }
 
+    /// <summary>The level's regions, in gameplay.dat's order (bit N of the assetlookup region masks is
+    /// region N). Empty on the old engine, whose one region has no name.</summary>
+    public IReadOnlyList<string> RegionNames => _regionNames;
+
+    /// <summary>The region a level opens on: the one called "default" when the level names one - the
+    /// game's own default region, and on a level like lobby (outfitter / static_scene / default) the one
+    /// holding the full zone set - else the first.</summary>
+    public string? DefaultRegion => _regionNames.Contains("default") ? "default" : _regionNames.FirstOrDefault();
+
     /// <param name="progress">The load's phase-weighted bar (see <see cref="LevelLoadProgress"/>).
     /// Each reader below owns one phase of it and counts its own items through it, which is what
     /// makes the bar move continuously instead of stepping between hardcoded fractions.</param>
-    public LevelData LoadLevel(LevelLoadProgress? progress = null, bool loadMobys = true, bool loadTies = true, bool loadZones = true, bool loadRegions = true)
+    /// <param name="regionName">The region to read; <see cref="DefaultRegion"/> when null or unknown.</param>
+    public LevelData LoadLevel(LevelLoadProgress? progress = null, string? regionName = null)
     {
+        Open(progress);
+        return LoadRegion(regionName, progress);
+    }
+
+    /// <summary>What belongs to the whole level, read once: textures and shaders, animations, the class
+    /// tables (the old engine's classes themselves), and the region list.</summary>
+    private void Open(LevelLoadProgress? progress)
+    {
+        if (_opened) return;
+        _opened = true;
+
         _textureShaderLoader.LoadAll(progress);
 
         // Old-engine animation metadata is independent of geometry and must exist before Mobys are
         // converted so each D100 record can resolve its own +0x16/+0x24 clip list. New engine
         // intentionally receives an empty list from AnimationReader.
         progress?.Begin(LoadPhase.Animations);
-        _animationReader = new AnimationReader(_fileManager);
-        _animations = _animationReader.ReadAll();
+        var animationReader = new AnimationReader(_fileManager);
+        _animations = animationReader.ReadAll();
         progress?.CompletePhase();
-
-        _mobyReader = new MobyReader(_fileManager, _materialReader, _debugReader, _animationReader);
-        _tieReader = new TieReader(_fileManager, _materialReader, _debugReader)
-        {
-            CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
-        };
 
         if (_debugReader.IsAvailable)
         {
             Console.WriteLine(_debugReader.GetSummary());
         }
 
-        if (loadMobys)
+        bool crackInTime = _gameDefinition?.Id == Games.GameId.ACrackInTime;
+        // New engine: only the tables - each class is read when a region places it. Old engine: all
+        // of them, the only way its index- and offset-keyed instances can be resolved.
+        progress?.Begin(LoadPhase.Mobys);
+        _mobys = new MobyReader(_fileManager, _materialReader, _debugReader, animationReader).CreateLibrary(_fileLock, progress);
+        progress?.Begin(LoadPhase.Ties);
+        _ties = new TieReader(_fileManager, _materialReader, _debugReader) { CrackInTimeLayout = crackInTime }
+            .CreateLibrary(_fileLock, progress);
+        progress?.Begin(LoadPhase.Shrubs);
+        _shrubs = new ShrubReader(_fileManager, _materialReader).CreateLibrary(_fileLock);
+
+        _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader)
         {
-            progress?.Begin(LoadPhase.Mobys);
-            _mobys = _mobyReader.ReadAllMobys(progress);
+            CrackInTimeLayout = crackInTime,
+            Shrubs = _shrubs,
+            // Names come off the regions, which are read after the zones, so the tables are
+            // read here rather than waiting for RegionReader - a zone is constructed once.
+            ZoneNames = NewEngineZoneNames.Read(_fileManager),
+        };
+        _regionReader = new RegionReader(_fileManager, _mobys, _zones, _debugReader);
+
+        if (_fileManager.isOld || _fileManager.igfiles.GetValueOrDefault("gameplay.dat") is not { } gameplay)
+            return;
+
+        _regionNames = RegionReader.ReadRegionNames(gameplay);
+        foreach (var name in _regionNames)
+            if (_regionReader.ReadZoneTuids(name) is { } tuids)
+                _zonesByRegion[name] = tuids;
+
+        // Any zone no region claims goes with the first region rather than nowhere: the scene only
+        // walks zones through regions, so it would otherwise never be drawn.
+        var claimed = _zonesByRegion.Values.SelectMany(z => z).ToHashSet();
+        _unclaimedZones = NewEngineAssetLookup.ReadPointers(_fileManager, NewEngineAssetLookup.ZonePointers, "zones")
+            .Select(p => p.TUID).Where(t => !claimed.Contains(t)).ToList();
+        if (_unclaimedZones.Count > 0 && _regionNames.Count > 1)
+            Console.WriteLine($"[Regions] {_unclaimedZones.Count} zone(s) claimed by no region; read with '{_regionNames[0]}'.");
+    }
+
+    /// <summary>
+    /// Reads one region over the level <see cref="LoadLevel"/> opened, forgetting the classes the previous
+    /// one read. The returned level holds only this region: its zones, instances, environment and
+    /// collision, and the classes they place (the rest stay readable through
+    /// <see cref="LevelData.MobyLibrary"/> and <see cref="LevelData.TieLibrary"/>).
+    /// </summary>
+    /// <param name="regionName">One of <see cref="RegionNames"/>; <see cref="DefaultRegion"/> when null or
+    /// unknown. Ignored on the old engine.</param>
+    public LevelData LoadRegion(string? regionName, LevelLoadProgress? progress = null)
+    {
+        if (!_opened) throw new InvalidOperationException("LoadLevel opens the level before a region can be read.");
+
+        int index = regionName != null ? _regionNames.IndexOf(regionName) : -1;
+        if (index < 0) index = DefaultRegion is { } fallback ? _regionNames.IndexOf(fallback) : -1;
+        string? name = index >= 0 ? _regionNames[index] : null;
+
+        // The previous region's classes go: whatever this one shares with it is read again.
+        _mobys.Unload();
+        _ties.Unload();
+        _shrubs.Unload();
+
+        // Its own zones only, plus the unclaimed ones with the first region. A level whose one region
+        // lists no zone reads every zone, as it always has.
+        IReadOnlySet<ulong>? only = null;
+        if (name != null && _zonesByRegion.TryGetValue(name, out var listed) && (listed.Count > 0 || _regionNames.Count > 1))
+        {
+            var set = listed.ToHashSet();
+            if (index == 0) set.UnionWith(_unclaimedZones);
+            only = set;
         }
 
-        if (loadTies)
-        {
-            progress?.Begin(LoadPhase.Ties);
-            _ties = _tieReader.ReadAllTies(progress);
+        progress?.Begin(LoadPhase.Zones);
+        _zones.Clear();
+        foreach (var (id, zone) in _zoneReader.ReadAllZones(progress, only))
+            _zones[id] = zone;
 
-            if (loadZones)
-            {
-                // Shrubs before zones: a zone's placements name their class by TUID, so the
-                // classes have to exist before the placements can resolve against them.
-                progress?.Begin(LoadPhase.Shrubs);
-                _shrubReader = new ShrubReader(_fileManager, _materialReader);
-                _shrubs = _shrubReader.ReadAllShrubs(progress);
+        progress?.Begin(LoadPhase.Regions, 1);
+        _region = _fileManager.isOld
+            ? _regionReader.ReadAllRegions()[0]
+            : name != null && _regionReader.ReadOneRegionNew(name, (ulong)index + 1) is { } read
+                ? read
+                : new Assets.Levels.Region(0, [], [], [], false, name);
+        // Each new-engine region names its own zones (region.dat 0x1C010) - kept in that order, then
+        // whatever else was read with it (the unclaimed zones). Old-engine regions carry no zone list
+        // at all and take the level's zones wholesale.
+        List<Assets.Interfaces.IZone> ordered = _fileManager.isOld ? [] : _region.Zones.Where(z => _zones.ContainsKey(z.Id)).ToList();
+        var inList = ordered.Select(z => z.Id).ToHashSet();
+        _region.Zones = [.. ordered, .. _zones.Values.Where(z => !inList.Contains(z.Id))];
+        progress?.Advance();
+        Console.WriteLine($"[Regions] Read '{_region.Name}' of {Math.Max(1, _regionNames.Count)}: {_region.Zones.Count} zone(s), " +
+            $"{_region.MobyInstances.Count} Moby instance(s), {_mobys.Loaded.Count}/{_mobys.Count} Moby, " +
+            $"{_ties.Loaded.Count}/{_ties.Count} Tie and {_shrubs.Loaded.Count}/{_shrubs.Count} Shrub class(es).");
 
-                _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader)
-                {
-                    CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
-                    Shrubs = _shrubs,
-                    // Names come off the regions, which are read after the zones, so the tables are
-                    // read here rather than waiting for RegionReader - a zone is constructed once.
-                    ZoneNames = NewEngineZoneNames.Read(_fileManager),
-                };
-
-                progress?.Begin(LoadPhase.Zones);
-                _zones = _zoneReader.ReadAllZones(progress);
-            }
-        }
-
-        if (loadZones && loadMobys && loadTies)
-        {
-            _regionReader = new RegionReader(_fileManager, _mobys!, _zones!, _debugReader);
-
-            progress?.Begin(LoadPhase.Regions);
-            _regions = _regionReader.ReadAllRegions(progress);
-            _region = _regions[0];
-
-            // Each new-engine region names its own zones (region.dat 0x1C010), and that membership is
-            // the whole point of loading them separately - it used to be overwritten with every zone in
-            // the level, which is why one region appeared to own all of them. Old-engine regions carry
-            // no zone list at all, so they still take the level's zones wholesale.
-            // Any zone no region claims is attached to the first one rather than dropped: it would
-            // otherwise stop being drawn entirely, since the scene only walks zones through regions.
-            var claimed = _regions.SelectMany(r => r.Zones).Select(z => z.Id).ToHashSet();
-            var unclaimed = _zones!.Values.Where(z => !claimed.Contains(z.Id)).ToList();
-            foreach (var region in _regions)
-                if (region.IsOldEngine || region.Zones.Count == 0 && _regions.Count == 1)
-                    region.Zones = [.. _zones!.Values];
-            if (unclaimed.Count > 0 && _regions.Count > 1)
-            {
-                Console.WriteLine($"[Regions] {unclaimed.Count} zone(s) claimed by no region; attached to '{_regions[0].Name}'.");
-                _regions[0].Zones = [.. _regions[0].Zones, .. unclaimed];
-            }
-        }
-
-        // Foliage has its own asset + instance sections, so it loads regardless of the Mobys/Ties/
-        // zones flags. Old engine only - FoliageReader returns empty on new-engine files.
+        // Foliage has its own asset + instance sections. Old engine only - FoliageReader returns
+        // empty on new-engine files. MaterialReader resolves each foliage asset's atlas from
+        // A200+0x08, a direct index into the 0x5200 texture table (see FoliageMetadata.TextureIndex).
         progress?.Begin(LoadPhase.Foliage);
-        // MaterialReader resolves each foliage asset's atlas from A200+0x08, a direct index into
-        // the 0x5200 texture table (see FoliageMetadata.TextureIndex).
-        _foliageReader = new FoliageReader(_fileManager, _materialReader);
-        _foliages = _foliageReader.ReadAll(progress);
+        _foliages ??= new FoliageReader(_fileManager, _materialReader).ReadAll(progress);
 
         // Old engine: main.dat 0x8150/0x8160/0x8170 + vertices.dat 0x9000/0x9100. New engine: one sky
         // per region.dat 0x81B0 record, textures in the region's sky.dat. See SkyReader.
-        // Sky, cubemaps, lighting and fog are all per region, so the phase counts regions.
-        progress?.Begin(LoadPhase.Environment, _regions.Count);
+        progress?.Begin(LoadPhase.Environment, 1);
 
         // The environment belongs to the REGION, not the level: one cubemap set, one lighting setup,
         // one fog setting and one sky each, any of which several regions may share (Fianshoo,
-        // 2026-11-05; Luminopolis has 4 distinct cubemap reference sets across its 8 regions). Every
-        // reader below already keys off a region name - they were simply all handed the first
-        // region's, so a level with several showed one region's environment over all of them.
-        foreach (var region in _regions)
-        {
-            string? name = region.Name;
-            if (name == null) continue;
-            _skiesByRegion[name] = new SkyReader(_fileManager, _materialReader, name).ReadAll();
-            _cubemapsByRegion[name] = new CubemapReader(_fileManager, name).ReadAll();
+        // 2026-11-05; Luminopolis has 4 distinct cubemap reference sets across its 8 regions). The old
+        // engine has one unnamed region, and these readers ignore the name there.
+        var skies = new SkyReader(_fileManager, _materialReader, name).ReadAll();
+        var skiesByRegion = new Dictionary<string, IReadOnlyList<Assets.Sky.LevelSky>>();
+        var lightingByRegion = new Dictionary<string, Assets.Lighting.LightingEnvironment>();
+        if (name != null) skiesByRegion[name] = skies;
 
-            var env = new LightingEnvironmentReader(_fileManager).Read()
-                ?? LightingEnvironmentReader.ReadNewEngineSunPresentation(_fileManager, name);
-            progress?.Advance();
-            if (env is not null)
-            {
-                env.CameraClip = LightingEnvironmentReader.ReadNewEngineCameraClip(_fileManager, name);
-                env.FogTable = LightingEnvironmentReader.ReadNewEngineFogTable(_fileManager, name);
-                env.InscatterTable = LightingEnvironmentReader.ReadNewEngineInscatterTable(_fileManager, name);
-                env.Atmosphere = LightingEnvironmentReader.ReadNewEngineAtmosphere(_fileManager, name);
-                _lightingByRegion[name] = env;
-            }
-        }
-
-        // The old engine has one unnamed region, and these readers ignore the name there, so it falls
-        // through to the same single set the level has always had.
-        string? first = _region?.Name;
-        _skies = first != null && _skiesByRegion.TryGetValue(first, out var s0)
-            ? s0 : new SkyReader(_fileManager, _materialReader, first).ReadAll();
-        // The UNION of every region's cubemaps, not just the first region's. An instance carries the
+        // The UNION of every region's cubemaps, not just this region's. An instance carries the
         // cubemaps.dat RESOURCE tuid it wants (zone cube palette 0x71C0 / 0x72C1 -> PaletteCube), and
         // the renderer resolves that per instance, so the right cube is picked per instance whatever
         // region is being viewed - which is how a zone shared by two regions shows each region's own
         // cubemap. What it cannot do is resolve a resource that was never uploaded: loading only
         // a_start's five left Luminopolis's 43EF7E38E4A80DBE out, and the 2513 instances referencing
         // it silently fell back to resource 0. Regions share most of their set, so the union is small
-        // (six resources here, against five for a_start alone).
-        var unionCubemaps = new List<Assets.Cubemaps.Cubemap>();
-        var seenCubes = new HashSet<ulong>();
-        foreach (var set in _cubemapsByRegion.Values)
-            foreach (var cube in set)
-                if (seenCubes.Add(cube.Id))
-                    unionCubemaps.Add(cube);
-        _cubemaps = unionCubemaps.Count > 0
-            ? unionCubemaps
-            : first != null && _cubemapsByRegion.TryGetValue(first, out var c0)
-                ? c0 : new CubemapReader(_fileManager, first).ReadAll();
-        if (unionCubemaps.Count > 0)
-            Console.WriteLine($"[Environment] {unionCubemaps.Count} cube(s) over " +
-                $"{unionCubemaps.Select(c => c.ResourceTuid).Distinct().Count()} resource(s), union of {_cubemapsByRegion.Count} region(s).");
-        _lightingEnvironment = first != null && _lightingByRegion.TryGetValue(first, out var e0)
-            ? e0
-            : new LightingEnvironmentReader(_fileManager).Read()
-              ?? LightingEnvironmentReader.ReadNewEngineSunPresentation(_fileManager, first);
-        if (_lightingEnvironment is not null && (first == null || !_lightingByRegion.ContainsKey(first)))
+        // (six resources here, against five for a_start alone). Read once for the level.
+        if (_cubemaps == null)
         {
-            _lightingEnvironment.CameraClip = LightingEnvironmentReader.ReadNewEngineCameraClip(_fileManager, first);
-            _lightingEnvironment.FogTable = LightingEnvironmentReader.ReadNewEngineFogTable(_fileManager, first);
-            _lightingEnvironment.InscatterTable = LightingEnvironmentReader.ReadNewEngineInscatterTable(_fileManager, first);
-            _lightingEnvironment.Atmosphere = LightingEnvironmentReader.ReadNewEngineAtmosphere(_fileManager, first);
+            foreach (var region in _regionNames)
+                _cubemapsByRegion[region] = new CubemapReader(_fileManager, region).ReadAll();
+            var unionCubemaps = new List<Assets.Cubemaps.Cubemap>();
+            var seenCubes = new HashSet<ulong>();
+            foreach (var set in _cubemapsByRegion.Values)
+                foreach (var cube in set)
+                    if (seenCubes.Add(cube.Id))
+                        unionCubemaps.Add(cube);
+            _cubemaps = unionCubemaps.Count > 0 ? unionCubemaps : new CubemapReader(_fileManager, name).ReadAll();
+            if (unionCubemaps.Count > 0)
+                Console.WriteLine($"[Environment] {unionCubemaps.Count} cube(s) over " +
+                    $"{unionCubemaps.Select(c => c.ResourceTuid).Distinct().Count()} resource(s), union of {_cubemapsByRegion.Count} region(s).");
         }
+
+        var lighting = new LightingEnvironmentReader(_fileManager).Read()
+            ?? LightingEnvironmentReader.ReadNewEngineSunPresentation(_fileManager, name);
+        if (lighting is not null)
+        {
+            lighting.CameraClip = LightingEnvironmentReader.ReadNewEngineCameraClip(_fileManager, name);
+            lighting.FogTable = LightingEnvironmentReader.ReadNewEngineFogTable(_fileManager, name);
+            lighting.InscatterTable = LightingEnvironmentReader.ReadNewEngineInscatterTable(_fileManager, name);
+            lighting.Atmosphere = LightingEnvironmentReader.ReadNewEngineAtmosphere(_fileManager, name);
+            if (name != null) lightingByRegion[name] = lighting;
+        }
+        progress?.Advance();
 
         // Old engine: main.dat 0x7100, the level's fog and bloom.
-        _levelFog = new LevelFogReader(_fileManager).Read();
-        if (_fileManager.isOld && _lightingEnvironment != null && _levelFog?.Bloom is { } oldBloom)
-            _lightingEnvironment.Bloom = oldBloom;
+        if (!_levelFogRead)
+        {
+            _levelFog = new LevelFogReader(_fileManager).Read();
+            _levelFogRead = true;
+        }
+        if (_fileManager.isOld && lighting != null && _levelFog?.Bloom is { } oldBloom)
+            lighting.Bloom = oldBloom;
 
-        // Static collision: the level's collision.dat on the old engine, each region's on the new.
-        var collisionReader = new CollisionReader(_fileManager);
-        if (_fileManager.isOld)
-        {
-            if (collisionReader.Read(null) is { } oldCollision)
-                _collisionByRegion[""] = oldCollision;
-        }
-        else
-        {
-            foreach (var region in _regions)
-                if (region.Name is { } name && collisionReader.Read(name) is { } regionCollision)
-                    _collisionByRegion[name] = regionCollision;
-        }
+        // Static collision: the level's collision.dat on the old engine, the region's on the new.
+        var collisionByRegion = new Dictionary<string, Assets.Collision.LevelCollision>();
+        if (new CollisionReader(_fileManager).Read(_fileManager.isOld ? null : name) is { } collision)
+            collisionByRegion[_fileManager.isOld ? "" : name ?? ""] = collision;
 
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above - see MaterialReader.GetAllTextures.
@@ -238,71 +265,84 @@ public sealed class LevelReader
         progress?.CompletePhase();
 
         return new LevelData(
-            mobys: _mobys ?? [],
-            ties: _ties ?? [],
-            shrubs: _shrubs ?? [],
-            zones: _zones ?? [],
+            mobys: _mobys,
+            ties: _ties,
+            shrubs: _shrubs,
+            zones: new Dictionary<ulong, Assets.Levels.Zone>(_zones),
             region: _region,
-            regions: _regions,
-            cubemapsByRegion: _cubemapsByRegion,
-            skiesByRegion: _skiesByRegion,
-            lightingByRegion: _lightingByRegion,
+            regions: [_region],
+            cubemapsByRegion: new Dictionary<string, IReadOnlyList<Assets.Cubemaps.Cubemap>>(_cubemapsByRegion),
+            skiesByRegion: skiesByRegion,
+            lightingByRegion: lightingByRegion,
             isOldEngine: _fileManager.isOld,
             debugReader: _debugReader,
             allTextures: allTextures,
             shaders: _textureShaderLoader.Shaders,
-            // Old engine: main.dat 0x5400 / 0x5410. New engine: every zone's pairs, read from
+            // Old engine: main.dat 0x5400 / 0x5410. New engine: the region's zones' pairs, read from
             // lighting.dat by ZoneReader and indexed the way its placements address them.
             zoneLightmaps: _fileManager.isOld
                 ? _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps)
-                : _zoneReader?.NewZoneLightmaps ?? [],
+                : [.. _zoneReader.NewZoneLightmaps],
             zoneDirectionals: _fileManager.isOld
                 ? _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneDirectionals)
-                : _zoneReader?.NewZoneDirectionals ?? [],
+                : [.. _zoneReader.NewZoneDirectionals],
             environmentAverage: _textureShaderLoader.EnvironmentAverage,
             foliages: _foliages,
             cubemaps: _cubemaps,
-            lightingEnvironment: _lightingEnvironment,
-            skies: _skies,
+            lightingEnvironment: lighting,
+            skies: skies,
             gameDefinition: _gameDefinition,
             levelFog: _levelFog,
-            collisionByRegion: _collisionByRegion);
+            collisionByRegion: collisionByRegion,
+            regionNames: _regionNames);
     }
 
-    public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
-    public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties ?? [];
-    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs => _shrubs ?? [];
-    public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones ?? [];
+    public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys.Loaded;
+    public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties.Loaded;
+    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs => _shrubs.Loaded;
+    public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones => _zones;
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages => _foliages ?? [];
     public IReadOnlyList<Assets.Animations.AnimationClip> Animations => _animations ?? [];
     public IReadOnlyList<Assets.Cubemaps.Cubemap> Cubemaps => _cubemaps ?? [];
-    public Assets.Lighting.LightingEnvironment? LightingEnvironment => _lightingEnvironment;
-    public IReadOnlyList<Assets.Sky.LevelSky> Skies => _skies ?? [];
     public Assets.Levels.Region? Region => _region;
-    public IReadOnlyList<Assets.Levels.Region> Regions => _regions;
 }
 
 /// <summary>Container for a fully loaded level.</summary>
 public sealed class LevelData
 {
-    public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys { get; }
-    public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties { get; }
+    /// <summary>The Moby classes read for this level - on the new engine, the ones its region places,
+    /// plus any read since through <see cref="MobyLibrary"/>.</summary>
+    public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => MobyLibrary.Loaded;
+
+    /// <summary>The Tie classes read, as <see cref="Mobys"/>.</summary>
+    public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => TieLibrary.Loaded;
+
+    /// <summary>Every Moby class of the level, read or not: the others are read on demand.</summary>
+    public AssetLibrary<Assets.Mobys.Moby> MobyLibrary { get; }
+    public AssetLibrary<Assets.Ties.Tie> TieLibrary { get; }
+
+    /// <summary>Every region of the level in gameplay.dat's order, loaded or not. Empty on the old
+    /// engine. <see cref="Regions"/> holds the one loaded.</summary>
+    public IReadOnlyList<string> RegionNames { get; }
 
     /// <summary>Shrub classes (shrubs.dat): the small scattered models - grass, ferns,
     /// groundcover. Empty on the old engine, which has no shrub family. Their placements live on
     /// each <see cref="Assets.Levels.Zone"/>.</summary>
-    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; }
+    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs => _shrubs.Loaded;
+    private readonly AssetLibrary<Assets.Shrubs.Shrub> _shrubs;
+
+    /// <summary>The loaded region's zones.</summary>
     public IReadOnlyDictionary<ulong, Assets.Levels.Zone> Zones { get; }
     public Assets.Levels.Region? Region { get; }
 
-    /// <summary>Every region of the level. <see cref="Region"/> is the first of these, kept for callers
-    /// that only ever wanted one.</summary>
+    /// <summary>The loaded region, alone: a level is read one region at a time (LevelReader.LoadRegion).
+    /// <see cref="Region"/> is the same one.</summary>
     public IReadOnlyList<Assets.Levels.Region> Regions { get; }
 
     /// <summary>The environment each region owns, keyed by region name: on NewEngine+ a region has its
-    /// own cubemap set, lighting and sky, and several regions may share any of them. <see cref="Cubemaps"/>,
-    /// <see cref="Skies"/> and <see cref="LightingEnvironment"/> are the first region's, for the paths
-    /// that still assume one per level.</summary>
+    /// own cubemap set, lighting and sky, and several regions may share any of them. Cubemaps are every
+    /// region's (see <see cref="Cubemaps"/>); skies and lighting the loaded region's, which
+    /// <see cref="Skies"/> and <see cref="LightingEnvironment"/> also are.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<Assets.Cubemaps.Cubemap>> CubemapsByRegion { get; }
 
     public IReadOnlyDictionary<string, IReadOnlyList<Assets.Sky.LevelSky>> SkiesByRegion { get; }
@@ -366,10 +406,10 @@ public sealed class LevelData
     public Assets.Sky.SkyData Sky => Skies.Count != 0 ? Skies[0].Data : Assets.Sky.SkyData.Empty;
 
     public LevelData(
-        Dictionary<ulong, Assets.Mobys.Moby> mobys,
-        Dictionary<ulong, Assets.Ties.Tie> ties,
+        AssetLibrary<Assets.Mobys.Moby> mobys,
+        AssetLibrary<Assets.Ties.Tie> ties,
         Dictionary<ulong, Assets.Levels.Zone> zones,
-        Dictionary<ulong, Assets.Shrubs.Shrub> shrubs,
+        AssetLibrary<Assets.Shrubs.Shrub> shrubs,
         Assets.Levels.Region? region,
         IReadOnlyList<Assets.Levels.Region>? regions,
         IReadOnlyDictionary<string, IReadOnlyList<Assets.Cubemaps.Cubemap>>? cubemapsByRegion,
@@ -388,11 +428,13 @@ public sealed class LevelData
         IReadOnlyList<Assets.Sky.LevelSky>? skies = null,
         Games.GameDefinition? gameDefinition = null,
         Assets.Lighting.LevelFog? levelFog = null,
-        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisionByRegion = null)
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisionByRegion = null,
+        IReadOnlyList<string>? regionNames = null)
     {
-        Mobys = mobys;
-        Ties = ties;
-        Shrubs = shrubs;
+        MobyLibrary = mobys;
+        TieLibrary = ties;
+        _shrubs = shrubs;
+        RegionNames = regionNames ?? [];
         Zones = zones;
         Region = region;
         Regions = regions ?? (region != null ? [region] : []);

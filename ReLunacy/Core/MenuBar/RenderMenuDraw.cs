@@ -31,27 +31,6 @@ internal static class RenderMenuDraw
         settings.SaveSettingsToFile();
     }
 
-    internal static void ShowMobys()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderMobys"), "", EntityManager.Singleton.renderMobys)) return;
-        EntityManager.Singleton.renderMobys = !EntityManager.Singleton.renderMobys;
-        PersistRenderSettings();
-    }
-
-    internal static void ShowTies()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderTies"), "", EntityManager.Singleton.renderTies)) return;
-        EntityManager.Singleton.renderTies = !EntityManager.Singleton.renderTies;
-        PersistRenderSettings();
-    }
-
-    internal static void ShowUFrags()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderUFrags"), "", EntityManager.Singleton.renderUFrags)) return;
-        EntityManager.Singleton.renderUFrags = !EntityManager.Singleton.renderUFrags;
-        PersistRenderSettings();
-    }
-
     internal static void ShowFoliage()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderFoliage"), "", EntityManager.Singleton.renderFoliage)) return;
@@ -59,18 +38,27 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
-    internal static void ShowVolumes()
+    /// <summary>Which of the level's regions is loaded. A new-engine level is read one region at a time
+    /// (All 4 One's are progression segments of one map that overlap in space and were never shown
+    /// together), so picking another frees this one and reads that one from the level's files. Hidden
+    /// for a level with a single region - every old-engine level, and A Crack in Time's.</summary>
+    internal static void RegionSelection()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes)) return;
-        EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
-        PersistRenderSettings();
-    }
+        var window = LunaWindow.Instance;
+        if (window.Level is not { RegionNames.Count: > 1 } level) return;
+        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderRegion"))) return;
 
-    internal static void ShowBoundingSpheres()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres)) return;
-        EntityManager.Singleton.renderBoundingSpheres = !EntityManager.Singleton.renderBoundingSpheres;
-        PersistRenderSettings();
+        bool loading = window.IsLoadingLevel;
+        if (loading) ImGui.BeginDisabled();
+        for (int r = 0; r < level.RegionNames.Count; r++)
+        {
+            string name = level.RegionNames[r];
+            if (ImGui.MenuItem($"{name}###region_pick_{r}", "", level.Region?.Name == name))
+                window.SwitchRegion(name);
+        }
+        if (loading) ImGui.EndDisabled();
+
+        ImGui.EndMenu();
     }
 
     /// <summary>Per-zone render toggles - zones are the level's own streaming/culling unit (mostly
