@@ -41,7 +41,7 @@ public record struct UFragVertex
     public readonly float VertexAlphaNewEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)unk) / 127f, 0f, 1f);
     // D (0x9980 -> 0.0, ascending) and E (0x8C00 -> 0.0, descending) as VertexFormat0 lists them.
-    // Both were measured on TIE vertices, not UFrag ones; they are carried here because the two
+    // Both were measured on Tie vertices, not UFrag ones; they are carried here because the two
     // share the encoding and because omitting a band fails silently - the value misses every range,
     // the fallback returns 1.0, and the surface renders opaque with no sign anything was dropped.
     public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)unk - 0x9980) / 127f, 0f, 1f);

@@ -83,6 +83,43 @@ public sealed class TieReader
         return ties;
     }
 
+    /// <summary>The level's Ties, each read on first use (see <see cref="AssetLibrary{T}"/>). The old
+    /// engine's are all read here, keyed by file offset as its instances name them.</summary>
+    /// <param name="progress">Old engine: the Tie phase, which reads them all.</param>
+    public AssetLibrary<Assets.Ties.Tie> CreateLibrary(object fileLock, LevelLoadProgress? progress = null)
+    {
+        if (_fileManager.isOld)
+            return AssetLibrary<Assets.Ties.Tie>.FromLoaded(ReadTiesOld(progress));
+
+        AssetPointer[] tiePtrs = NewEngineAssetLookup.ReadPointers(
+            _fileManager, NewEngineAssetLookup.TiePointers, "Ties");
+        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "ties.dat", "Ties", out Stream? tieStream) ||
+            tieStream is null)
+            return AssetLibrary<Assets.Ties.Tie>.FromLoaded([]);
+
+        return new AssetLibrary<Assets.Ties.Tie>(tiePtrs, pointer =>
+        {
+            byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, pointer, "Tie");
+            using MemoryStream tiems = new(tiedat);
+            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
+                                            crackInTime: CrackInTimeLayout);
+            // Keyed by the assetlookup pointer-table TUID, as ReadTiesNew does.
+            return ConvertTie(legacyTie, pointer.TUID);
+        }, pointer => ReadNewTieName(tieStream, pointer), fileLock);
+    }
+
+    /// <summary>A new-engine Tie's name (its metadata's +0x64 string) without parsing the rest of it.</summary>
+    private static string? ReadNewTieName(Stream tieStream, AssetPointer pointer)
+    {
+        byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, pointer, "Tie");
+        using MemoryStream tiems = new(tiedat);
+        var igFile = new IGFile(tiems);
+        var section = igFile.QuerySection(TieMetadataOld.ID);
+        if (section.id != TieMetadataOld.ID) return null;
+        uint nameOffset = igFile.sh.ReadUInt32(section.offset + 0x64);
+        return nameOffset != 0 ? igFile.sh.ReadString(nameOffset) : null;
+    }
+
     private Assets.Ties.Tie ConvertTie(Objects.Tie legacyTie, ulong id)
     {
         ReadTieMeshes(legacyTie);
@@ -319,7 +356,10 @@ public sealed class TieReader
                         legacyMesh.fadeNormalDistance,
                         legacyMesh.fadeReflectionDistance,
                         legacyMesh.fadeDetailDistance),
-                    legacyMesh.newEngineFeatureMask),
+                    // A Crack in Time's primitive has no mask: +0x20 is 0 on all 1,317 krell_canyon
+                    // primitives and nothing in +0x20..+0x2F holds mask-like values (A4O: 0x1D/0x19/0x14 at
+                    // +0x20). Reading it stripped specular, normal map, detail and parallax from every Tie.
+                    CrackInTimeLayout ? (byte)0x1F : legacyMesh.newEngineFeatureMask),
         };
     }
 

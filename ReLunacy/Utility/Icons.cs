@@ -45,6 +45,7 @@ public static class Icons
     public const string Map = "\uf279";  // level
     public const string MountainSun = "\ue52f";  // UFrags
     public const string Tree = "\uf1bb";  // foliage
+    public const string CircleDot = "\uf192";  // bounding spheres
     public const string Droplet = "\uf043";
     public const string LayerGroup = "\uf5fd";
     public const string Route = "\uf4d7";  // navmesh

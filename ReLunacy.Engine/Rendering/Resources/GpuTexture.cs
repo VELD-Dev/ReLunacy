@@ -58,6 +58,34 @@ public sealed class TextureLevels
         return new TextureLevels(width, height, levels);
     }
 
+    /// <summary>This texture with neither side above <paramref name="maxDimension"/>: the top levels of the
+    /// chain dropped, or for a single level (the unmipped atlases) the level box-filtered down. Itself when
+    /// it already fits.</summary>
+    public TextureLevels LimitTo(uint maxDimension)
+    {
+        uint w = Width, h = Height;
+        int skip = 0;
+        while (Math.Max(w, h) > maxDimension && (w > 1 || h > 1))
+        {
+            w = Math.Max(1u, w / 2);
+            h = Math.Max(1u, h / 2);
+            skip++;
+        }
+        if (skip == 0) return this;
+        if (skip < Levels.Length)
+            return new TextureLevels(w, h, Levels[skip..]);
+
+        // Fewer levels than steps: rebuild the last level down to size, keeping the chain's length at 1.
+        byte[] level = Levels[^1];
+        uint lw = Math.Max(1u, Width >> (Levels.Length - 1)), lh = Math.Max(1u, Height >> (Levels.Length - 1));
+        while (lw > w || lh > h)
+            level = Downsample(level, lw, lh, out lw, out lh);
+        return new TextureLevels(lw, lh, [level]);
+    }
+
+    /// <summary>Bytes the chain uploads (RGBA8).</summary>
+    public ulong ByteSize => (ulong)Levels.Sum(l => (long)l.Length);
+
     private static uint CountMipLevels(uint width, uint height)
     {
         uint levels = 1;
@@ -124,7 +152,7 @@ public sealed class GpuTexture : IDisposable
         DeviceTexture = CreateDeviceTexture(graphicsDevice, Width, Height, MipLevels);
     }
 
-    private static Texture CreateDeviceTexture(GraphicsDevice graphicsDevice, uint width, uint height, uint mipLevels) =>
+    internal static Texture CreateDeviceTexture(GraphicsDevice graphicsDevice, uint width, uint height, uint mipLevels) =>
         graphicsDevice.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
             width, height, mipLevels, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
 
@@ -166,6 +194,70 @@ public sealed class GpuTexture : IDisposable
         Height = prepared.Height;
         MipLevels = (uint)prepared.Levels.Length;
         _retiredDeviceTextures.Add(oldDevice);
+    }
+
+    /// <summary>
+    /// Records the upload of every level into <paramref name="commands"/> instead of submitting it: the
+    /// levels are written into a staging texture of the same shape, copied with one CopyTexture. The
+    /// returned staging texture must outlive the submission of <paramref name="commands"/>; the caller
+    /// disposes it once that has completed. <see cref="UploadAll"/> goes through
+    /// GraphicsDevice.UpdateTexture, which submits once per level - a thousand times slower per small
+    /// texture (dev/tools/uploadprobe: 4,000 128 px textures in 4.6 s that way, 0.3 s batched).
+    /// </summary>
+    public Texture RecordUpload(GraphicsDevice graphicsDevice, CommandList commands, TextureLevels prepared)
+    {
+        if (prepared.Width != Width || prepared.Height != Height || prepared.Levels.Length != MipLevels)
+            throw new ArgumentException("Prepared texture dimensions/mip count do not match this GPU texture.", nameof(prepared));
+        return RecordUpload(graphicsDevice, commands, prepared, DeviceTexture);
+    }
+
+    /// <summary>As above, into <paramref name="target"/>: a device texture of the levels' own shape, made
+    /// with <see cref="CreateDeviceTexture"/> to replace this one's (see <see cref="SwapDeviceTexture"/>).</summary>
+    public static unsafe Texture RecordUpload(GraphicsDevice graphicsDevice, CommandList commands, TextureLevels prepared, Texture target)
+    {
+        uint mipLevels = (uint)prepared.Levels.Length;
+        Texture staging = graphicsDevice.ResourceFactory.CreateTexture(TextureDescription.Texture2D(
+            prepared.Width, prepared.Height, mipLevels, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Staging));
+        try
+        {
+            uint w = prepared.Width, h = prepared.Height;
+            for (uint mip = 0; mip < mipLevels; mip++)
+            {
+                MappedResource map = graphicsDevice.Map(staging, MapMode.Write, mip);
+                uint row = w * 4;
+                fixed (byte* src = prepared.Levels[(int)mip])
+                {
+                    if (map.RowPitch == row)
+                        Buffer.MemoryCopy(src, (void*)map.Data, (long)row * h, (long)row * h);
+                    else
+                        for (uint y = 0; y < h; y++)
+                            Buffer.MemoryCopy(src + y * row, (byte*)map.Data + y * map.RowPitch, row, row);
+                }
+                graphicsDevice.Unmap(staging, mip);
+                w = Math.Max(1u, w / 2);
+                h = Math.Max(1u, h / 2);
+            }
+            commands.CopyTexture(staging, target);
+        }
+        catch
+        {
+            staging.Dispose();
+            throw;
+        }
+        return staging;
+    }
+
+    /// <summary>Makes <paramref name="replacement"/> (already uploaded) this texture's device texture and
+    /// returns the one it replaces, which the caller frees once nothing samples it any more. Texture
+    /// streaming's resolution change: the GpuTexture every material holds stays the same object.</summary>
+    public Texture SwapDeviceTexture(Texture replacement)
+    {
+        Texture old = DeviceTexture;
+        DeviceTexture = replacement;
+        Width = replacement.Width;
+        Height = replacement.Height;
+        MipLevels = replacement.MipLevels;
+        return old;
     }
 
     public void UploadMip(GraphicsDevice graphicsDevice, uint mip, byte[] data, uint mipWidth, uint mipHeight) =>

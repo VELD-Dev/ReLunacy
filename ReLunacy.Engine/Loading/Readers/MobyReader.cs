@@ -67,6 +67,37 @@ public sealed class MobyReader
         return mobys;
     }
 
+    /// <summary>The level's Mobys, each read on first use (see <see cref="AssetLibrary{T}"/>). The old
+    /// engine's are all read here, keyed by index as its instances name them.</summary>
+    /// <param name="progress">Old engine: the Moby phase, which reads them all.</param>
+    public AssetLibrary<Assets.Mobys.Moby> CreateLibrary(object fileLock, LevelLoadProgress? progress = null)
+    {
+        if (_fileManager.isOld)
+            return AssetLibrary<Assets.Mobys.Moby>.FromLoaded(ReadMobysOld(progress));
+
+        AssetPointer[] pointers = NewEngineAssetLookup.ReadPointers(_fileManager, NewEngineAssetLookup.MobyPointers, "Mobys");
+        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "mobys.dat", "Mobys", out Stream? stream) || stream is null)
+            return AssetLibrary<Assets.Mobys.Moby>.FromLoaded([]);
+
+        return new AssetLibrary<Assets.Mobys.Moby>(pointers, pointer =>
+        {
+            byte[] mobydat = ReadRawAsset(stream, pointer.offset, pointer.length);
+            using var mobyms = new MemoryStream(mobydat, writable: false);
+            using var streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);
+            return ConvertMoby(new Objects.Moby(streamHelper, _fileManager), pointer.TUID);
+        }, pointer => _debugReader.GetMobyPrototypeName(pointer.TUID) ?? ReadNewMobyName(stream, pointer), fileLock);
+    }
+
+    /// <summary>A new-engine Moby's name (its 0xD200 section) without parsing the rest of it.</summary>
+    private static string? ReadNewMobyName(Stream stream, AssetPointer pointer)
+    {
+        byte[] mobydat = ReadRawAsset(stream, pointer.offset, pointer.length);
+        using var mobyms = new MemoryStream(mobydat, writable: false);
+        var igFile = new IGFile(mobyms);
+        var nameSection = igFile.QuerySection(0xD200);
+        return nameSection.id == 0xD200 ? igFile.sh.ReadString(nameSection.offset) : null;
+    }
+
     private Assets.Mobys.Moby ConvertMoby(Objects.Moby legacyMoby, ulong tuid)
     {
         ReadMobyBanglesMeshes(legacyMoby);

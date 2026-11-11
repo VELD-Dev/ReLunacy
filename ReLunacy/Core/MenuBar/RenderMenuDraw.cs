@@ -31,27 +31,6 @@ internal static class RenderMenuDraw
         settings.SaveSettingsToFile();
     }
 
-    internal static void ShowMobys()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderMobys"), "", EntityManager.Singleton.renderMobys)) return;
-        EntityManager.Singleton.renderMobys = !EntityManager.Singleton.renderMobys;
-        PersistRenderSettings();
-    }
-
-    internal static void ShowTies()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderTies"), "", EntityManager.Singleton.renderTies)) return;
-        EntityManager.Singleton.renderTies = !EntityManager.Singleton.renderTies;
-        PersistRenderSettings();
-    }
-
-    internal static void ShowUFrags()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderUFrags"), "", EntityManager.Singleton.renderUFrags)) return;
-        EntityManager.Singleton.renderUFrags = !EntityManager.Singleton.renderUFrags;
-        PersistRenderSettings();
-    }
-
     internal static void ShowFoliage()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderFoliage"), "", EntityManager.Singleton.renderFoliage)) return;
@@ -59,134 +38,27 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
-    internal static void ShowVolumes()
+    /// <summary>Which of the level's regions is loaded. A new-engine level is read one region at a time
+    /// (All 4 One's are progression segments of one map that overlap in space and were never shown
+    /// together), so picking another frees this one and reads that one from the level's files. Hidden
+    /// for a level with a single region - every old-engine level, and A Crack in Time's.</summary>
+    internal static void RegionSelection()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes)) return;
-        EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
-        PersistRenderSettings();
-    }
+        var window = LunaWindow.Instance;
+        if (window.Level is not { RegionNames.Count: > 1 } level) return;
+        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderRegion"))) return;
 
-    /// <summary>
-    /// How the static collision overlay looks: which kinds to show, what the colour means, and a legend
-    /// built from what the level actually holds. Turning it on and off is the viewport toolbar's.
-    /// Checkboxes rather than menu items so several can be changed without the menu closing after each.
-    /// Greyed out when the level has no collision.
-    /// </summary>
-    internal static void ShowCollision()
-    {
-        var em = EntityManager.Singleton;
-        var summary = em.CollisionSummary;
-        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderCollision"), summary != null)) return;
-        var settings = LunaWindow.Instance.EditorSettings;
-
-        ImGui.TextDisabled(LM.Get("GUI_Label_CollisionSummary", summary!.Instances, summary.Shapes, summary.PlacedTriangles));
-        ImGui.Separator();
-
-        // The kinds, each in its Type colour so this doubles as that mode's legend.
-        void Category(CollisionCategories category, string label, Vector3 colour, int count)
+        bool loading = window.IsLoadingLevel;
+        if (loading) ImGui.BeginDisabled();
+        for (int r = 0; r < level.RegionNames.Count; r++)
         {
-            bool on = settings.CollisionCategories.HasFlag(category);
-            Swatch(colour, label);
-            ImGui.SameLine();
-            if (ImGui.Checkbox($"{LM.Get(label)} ({count})###{label}", ref on))
-            {
-                settings.CollisionCategories = on ? settings.CollisionCategories | category : settings.CollisionCategories & ~category;
-                settings.SaveSettingsToFile();
-            }
+            string name = level.RegionNames[r];
+            if (ImGui.MenuItem($"{name}###region_pick_{r}", "", level.Region?.Name == name))
+                window.SwitchRegion(name);
         }
-        Category(CollisionCategories.WorldMesh, "GUI_Label_CollisionWorldMesh", CollisionGeometry.WorldMeshColor,
-            summary.InstancesByCategory.GetValueOrDefault(CollisionCategories.WorldMesh));
-        Category(CollisionCategories.TieMesh, "GUI_Label_CollisionTieMesh", CollisionGeometry.TieMeshColor,
-            summary.InstancesByCategory.GetValueOrDefault(CollisionCategories.TieMesh));
-        if (summary.InstancesByCategory.ContainsKey(CollisionCategories.Primitives))
-        {
-            Category(CollisionCategories.Primitives, "GUI_Label_CollisionPrimitives", CollisionGeometry.PrimitiveColor(CollisionPrimitiveKind.Box),
-                summary.InstancesByCategory[CollisionCategories.Primitives]);
-            ImGui.Indent();
-            foreach (var (kind, count) in summary.PrimitivesByKind.OrderBy(kv => kv.Key))
-            {
-                Swatch(CollisionGeometry.PrimitiveColor(kind), $"kind{kind}");
-                ImGui.SameLine();
-                ImGui.TextUnformatted(LM.Get("GUI_Label_CollisionPrimitive_" + kind, count));
-            }
-            ImGui.Unindent();
-        }
-        ImGui.Separator();
+        if (loading) ImGui.EndDisabled();
 
-        ImGui.TextUnformatted(LM.Get("GUI_Label_CollisionColorBy"));
-        foreach (CollisionColorMode mode in Enum.GetValues<CollisionColorMode>())
-        {
-            if (ImGui.RadioButton(LM.Get("GUI_MenuItem_CollisionColor_" + mode), settings.CollisionColorMode == mode))
-            {
-                settings.CollisionColorMode = mode;
-                settings.SaveSettingsToFile();
-            }
-        }
-        ImGui.SetNextItemWidth(160f);
-        if (ImGui.SliderFloat(LM.Get("GUI_MenuItem_CollisionOpacity"), ref settings.CollisionOpacity, 0.05f, 1f, "%.2f"))
-            settings.SaveSettingsToFile();
-        if (ImGui.Checkbox(LM.Get("GUI_MenuItem_CollisionOutlines"), ref settings.CollisionOutlines))
-            settings.SaveSettingsToFile();
-
-        if (settings.CollisionColorMode != CollisionColorMode.Type)
-        {
-            ImGui.Separator();
-            CollisionLegend(settings.CollisionColorMode, summary);
-        }
         ImGui.EndMenu();
-    }
-
-    /// <summary>One swatch per value the level holds in the colour mode, with how much carries it.
-    /// The colours come from CollisionGeometry, which the shader mirrors.</summary>
-    private static void CollisionLegend(CollisionColorMode mode, CollisionSummary summary)
-    {
-        IEnumerable<(Vector3 Colour, string Label)> rows = mode switch
-        {
-            CollisionColorMode.Material => summary.Materials.OrderBy(kv => kv.Key)
-                .Select(kv => (CollisionGeometry.IdColor(kv.Key), LM.Get("GUI_Label_CollisionMaterial", kv.Key, kv.Value))),
-            CollisionColorMode.TriangleFlags => summary.TriangleFlags.OrderBy(kv => kv.Key)
-                .Select(kv => (CollisionGeometry.FlagColor(kv.Key), LM.Get("GUI_Label_CollisionTriangleFlags", kv.Key, FlagBits(kv.Key), kv.Value))),
-            _ => summary.InstanceFlags.OrderBy(kv => kv.Key)
-                .Select(kv => (CollisionGeometry.IdColor(kv.Key), LM.Get("GUI_Label_CollisionInstanceFlags", kv.Key, kv.Value))),
-        };
-        var list = rows.ToList();
-        if (mode != CollisionColorMode.InstanceFlags && summary.InstancesByCategory.ContainsKey(CollisionCategories.Primitives))
-            list.Add((CollisionGeometry.NoValueColor, LM.Get("GUI_Label_CollisionNoValue")));
-
-        // A level can hold a few dozen materials; past a screenful, scroll instead of growing the menu.
-        float rowHeight = ImGui.GetFrameHeightWithSpacing();
-        bool scroll = list.Count > 16;
-        if (scroll) ImGui.BeginChild("##collisionLegend", new Vector2(320f, rowHeight * 16), ImGuiChildFlags.None);
-        for (int i = 0; i < list.Count; i++)
-        {
-            Swatch(list[i].Colour, $"legend{i}");
-            ImGui.SameLine();
-            ImGui.TextUnformatted(list[i].Label);
-        }
-        if (scroll) ImGui.EndChild();
-        ImGui.TextDisabled(LM.Get(mode switch
-        {
-            CollisionColorMode.Material => "GUI_Label_CollisionMaterialNote",
-            CollisionColorMode.TriangleFlags => "GUI_Label_CollisionTriangleFlagsNote",
-            _ => "GUI_Label_CollisionInstanceFlagsNote",
-        }));
-    }
-
-    private static string FlagBits(int flags) =>
-        flags == 0 ? "-" : string.Join(",", Enumerable.Range(0, 5).Where(b => (flags & (1 << b)) != 0));
-
-    private static void Swatch(Vector3 colour, string id)
-    {
-        float size = ImGui.GetTextLineHeight();
-        ImGui.ColorButton($"##swatch_{id}", new Vector4(colour, 1f),
-            ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoPicker | ImGuiColorEditFlags.NoDragDrop, new Vector2(size, size));
-    }
-
-    internal static void ShowBoundingSpheres()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres)) return;
-        EntityManager.Singleton.renderBoundingSpheres = !EntityManager.Singleton.renderBoundingSpheres;
-        PersistRenderSettings();
     }
 
     /// <summary>Per-zone render toggles - zones are the level's own streaming/culling unit (mostly
@@ -327,16 +199,24 @@ internal static class RenderMenuDraw
 
     /// <summary>The old engine's own fidelity switches: the level's fog (main.dat 0x7100) and the Tie
     /// cube reflections. On by default; they only hide. The game's RSX shaders are switched from the
-    /// viewport toolbar, beside lit/unlit.</summary>
+    /// viewport toolbar, beside lit/unlit. A Crack in Time has the same linear fog, so it gets the fog
+    /// switch alone.</summary>
     internal static void GameFidelity()
     {
         var settings = LunaWindow.Instance.EditorSettings;
-        if (LunaWindow.Instance.Level?.IsOldEngine != true) return;
+        var level = LunaWindow.Instance.Level;
+        bool old = level?.IsOldEngine == true;
+        if (!old && level?.LightingEnvironment?.LinearFog == null) return;
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineFog"), "", settings.OldEngineFog))
         {
             settings.OldEngineFog = !settings.OldEngineFog;
             OldEngineRenderOptions.FogEnabled = settings.OldEngineFog;
             settings.SaveSettingsToFile();
+        }
+        if (!old)
+        {
+            ImGui.Separator();
+            return;
         }
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineReflections"), "", settings.OldEngineReflections))
         {

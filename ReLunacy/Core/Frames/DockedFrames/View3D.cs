@@ -44,6 +44,12 @@ public class View3D : DockedFrame
     private Engine.Loading.Readers.LevelData? collisionLevel;
     private Engine.Rendering.Vulkan.VulkanRenderer? collisionRenderer;
     private string[] collisionRegions = [];
+
+    // The toolbar's collision panel and edit mode (filters, selection, edits).
+    private readonly Core.Collision.CollisionEditor _collisionEditor = new();
+    // A left press in collision edit mode, held until release: a click, or a marquee once dragged.
+    private Vector2? _marqueeStart;
+    private const float MarqueeThreshold = 4f;
     public bool ReflectionDebugView { get => lighting.ReflectionDebugView; set => lighting.ReflectionDebugView = value; }
     public float ReflectionBase { get => lighting.ReflectionBase; set => lighting.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
@@ -176,6 +182,16 @@ public class View3D : DockedFrame
         var settings = Program.Settings;
         var em = EntityManager.Singleton;
         overlay.ToggleButton("C", ref showClipControls, LM.Get("GUI_Frame_AssetViewer_ClipControls"));
+        float clipAnchor = overlay.LastButtonLeft;
+
+        // What the scene draws, by kind.
+        overlay.Gap();
+        bool changed = overlay.ToggleButton(Icons.Cube, ref em.renderMobys, LM.Get("GUI_Viewport_Mobys"));
+        changed |= overlay.ToggleButton(Icons.Cubes, ref em.renderTies, LM.Get("GUI_Viewport_Ties"));
+        changed |= overlay.ToggleButton(Icons.MountainSun, ref em.renderUFrags, LM.Get("GUI_Viewport_UFrags"));
+        changed |= overlay.ToggleButton(Icons.VectorSquare, ref em.renderVolumes, LM.Get("GUI_Viewport_Volumes"));
+        changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
+        if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
 
         // Shading: unlit / lit, and the RSX shaders, which only exist on the lit path - greyed out
         // while unlit, keeping its own state for when lighting comes back.
@@ -194,12 +210,17 @@ public class View3D : DockedFrame
         if (overlay.ToggleButton(Icons.Route, ref em.renderNavmesh,
                 LM.Get(hasNavmesh ? "GUI_Viewport_Navmesh" : "GUI_Viewport_NoNavmesh"), enabled: hasNavmesh))
             MenuBar.RenderMenuDraw.PersistRenderSettings();
+        // The collision button opens its panel (visibility, filters, edit mode) rather than toggling the
+        // overlay itself; the panel stays until the button is pressed again.
         bool hasCollision = em.CollisionSummary != null;
-        if (overlay.ToggleButton(Icons.DrawPolygon, ref em.renderCollision,
-                LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision))
-            MenuBar.RenderMenuDraw.PersistRenderSettings();
+        if (!hasCollision) _collisionEditor.PanelOpen = false;
+        overlay.ToggleButton(Icons.DrawPolygon, ref _collisionEditor.PanelOpen,
+            LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision);
+        // Edit mode takes the left button over; it does not outlive the panel that shows it is on.
+        if (!_collisionEditor.PanelOpen) _collisionEditor.EditMode = false;
+        float collisionAnchor = overlay.LastButtonLeft;
 
-        if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f)))
+        if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f), clipAnchor))
         {
             float farPlane = Program.Settings.RenderDistance;
             ImGui.SetNextItemWidth(-1f);
@@ -207,7 +228,14 @@ public class View3D : DockedFrame
                 Program.Settings.RenderDistance = farPlane;
             overlay.EndPanel();
         }
+
+        var selected = SelectedEntity;
+        _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
+        if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
     }
+
+    /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
+    private bool CollisionEditing => _collisionEditor.EditMode && _collisionEditor.Scene != null && EntityManager.Singleton.renderCollision;
 
     // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
     // per volume), handed to the VK renderer to draw as depth-tested thin-box edges. Rebuilt every
@@ -271,13 +299,16 @@ public class View3D : DockedFrame
 
         var byRegion = level?.CollisionByRegion.ToList() ?? [];
         collisionRegions = [.. byRegion.Select(kv => kv.Key)];
-        var (vertices, instances, batches, summary) = Engine.Rendering.CollisionGeometry.Build([.. byRegion.Select(kv => kv.Value)]);
-        renderer.SetCollision(vertices, instances, batches);
-        EntityManager.Singleton.CollisionSummary = batches.Length > 0 ? summary : null;
-        if (batches.Length > 0)
+        var scene = Engine.Rendering.CollisionGeometry.Build([.. byRegion.Select(kv => kv.Value)]);
+        renderer.SetCollision(scene.Vertices, scene.Instances, scene.Batches);
+        _collisionEditor.Attach(scene, renderer, level);
+        _marqueeStart = null;
+        var summary = scene.Summary;
+        EntityManager.Singleton.CollisionSummary = scene.IsEmpty ? null : summary;
+        if (!scene.IsEmpty)
             Console.WriteLine($"[Collision] {byRegion.Count} region(s), {summary.Instances} instance(s) " +
                               $"({summary.DuplicateInstances} repeated between regions), {summary.Shapes} unique shape(s), " +
-                              $"{summary.PlacedTriangles} placed triangle(s), {batches.Length} draw(s).");
+                              $"{summary.PlacedTriangles} placed triangle(s), {scene.Batches.Length} draw(s).");
     }
 
     /// <summary>Bit N set when the Nth uploaded collision's region is shown in the Zones menu. The old
@@ -297,11 +328,12 @@ public class View3D : DockedFrame
         return mask;
     }
 
+    // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
         var em = Engine.Scene.EntityManager.Singleton;
-        if (em.renderVolumes)
+        if (em.renderVolumes && !CollisionEditing)
             foreach (var region in em.Regions)
                 foreach (var e in region.Volumes.Entities)
                     if (e is Engine.Scene.EntityVolume v && v.allowRender)
@@ -345,7 +377,7 @@ public class View3D : DockedFrame
         var env = level?.EnvironmentAverage;
         lighting.EnvironmentColour = oldEngine ? (env ?? Vector3.One) : Vector3.One;
         lighting.EnvironmentIntensity = !oldEngine && level is { Cubemaps.Count: > 0 } ? ReflectionIntensity : 0f;
-        lighting.LevelFog = oldEngine ? level?.LevelFog : null;
+        lighting.LevelFog = oldEngine ? level?.LevelFog : level?.LightingEnvironment?.LinearFog;
         // The real cubemap the lit shader samples for reflections, in place of the flat average above.
         // AssetManager always provides one (a 1x1 fallback when the level has none), so the lit
         // effect's set 10 is always bound. See AssetManager.BuildEnvironmentCubemap.
@@ -445,12 +477,18 @@ public class View3D : DockedFrame
                 vkStage.NavmeshSelectionColor = Program.Settings.SelectionOutlineColor with { W = 0.8f };
                 // The collision overlay, the same way: live look, geometry uploaded once per level.
                 UploadCollisionIfStale(vkStage);
+                // A Tie carries its collision with it (the matrices are the same in the files). After the
+                // upload, so it never links against the previous level's collision.
+                if (SelectedEntity is { } movedTie)
+                    _collisionEditor.FollowEntity(movedTie);
                 vkStage.CollisionVisible = EntityManager.Singleton.renderCollision;
                 vkStage.CollisionColorMode = Program.Settings.CollisionColorMode;
                 vkStage.CollisionCategories = Program.Settings.CollisionCategories;
                 vkStage.CollisionOpacity = Program.Settings.CollisionOpacity;
                 vkStage.CollisionOutlines = Program.Settings.CollisionOutlines;
                 vkStage.CollisionRegionMask = CollisionRegionMask();
+                _collisionEditor.RegionMask = vkStage.CollisionRegionMask;
+                _collisionEditor.Apply(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(
@@ -494,14 +532,19 @@ public class View3D : DockedFrame
         // true only for a click none of them wanted.
         DrawViewportOverlay();
 
-        _viewport.Gizmo(GizmoController, Camera, SelectedEntity);
+        // No gizmo while editing collision: the selection is collision, not an entity.
+        _viewport.Gizmo(GizmoController, Camera, CollisionEditing ? null : SelectedEntity);
 
         var viewportSize = _viewport.Size;
         if (viewportSize.X >= 120f && viewportSize.Y >= 120f)
             AxisGizmoRenderer.Draw(Camera, _viewport.ScreenPos + new Vector2(viewportSize.X - 55f, 55f), 28f);
 
         if (_viewport.TryConsumeClick())
-            PickEntityUnderCursor();
+        {
+            if (CollisionEditing) _marqueeStart = _viewport.MousePos;
+            else PickEntityUnderCursor();
+        }
+        UpdateCollisionMarquee();
 
         _viewport.End();
     }
@@ -583,6 +626,46 @@ public class View3D : DockedFrame
         }
     }
 
+    /// <summary>Follows a left press in collision edit mode to its release: under the drag threshold it
+    /// is a click, past it a marquee, drawn while held. Shift adds to the selection, Ctrl removes.</summary>
+    private void UpdateCollisionMarquee()
+    {
+        if (_marqueeStart is not { } start) return;
+        if (!CollisionEditing) { _marqueeStart = null; return; }
+
+        var end = Vector2.Clamp(_viewport.MousePos, Vector2.Zero, _viewport.Size);
+        bool dragged = Vector2.Distance(start, end) >= MarqueeThreshold;
+        if (Input.IsMouseButtonDown(ReLunacy.Utility.MouseButton.Left))
+        {
+            if (dragged)
+            {
+                var drawList = ImGui.GetWindowDrawList();
+                var a = _viewport.ScreenPos + Vector2.Min(start, end);
+                var b = _viewport.ScreenPos + Vector2.Max(start, end);
+                var colour = Program.Settings.SelectionOutlineColor;
+                drawList.AddRectFilled(a, b, ImGui.ColorConvertFloat4ToU32(colour with { W = 0.15f }));
+                drawList.AddRect(a, b, ImGui.ColorConvertFloat4ToU32(colour with { W = 0.9f }));
+            }
+            return;
+        }
+
+        _marqueeStart = null;
+        bool add = Input.IsKeyDown(KeyboardKey.ShiftLeft) || Input.IsKeyDown(KeyboardKey.ShiftRight);
+        bool remove = Input.IsKeyDown(KeyboardKey.ControlLeft) || Input.IsKeyDown(KeyboardKey.ControlRight);
+        var viewProjection = Camera.GetView() * Camera.GetProjection();
+        try
+        {
+            if (dragged)
+                _collisionEditor.Marquee(start, end, viewProjection, _viewport.Size, add, remove, Program.Settings);
+            else
+                _collisionEditor.Click(start, viewProjection, _viewport.Size, add, remove, Program.Settings);
+        }
+        catch (Exception e)
+        {
+            LunaLog.LogError($"Collision selection failed: {e}");
+        }
+    }
+
     protected void OnResize()
     {
         viewWidth = (uint)_viewport.PixelWidth;
@@ -595,7 +678,9 @@ public class View3D : DockedFrame
 
     public void HandleShortcuts()
     {
-        if (Input.IsKeyPressed(KeyboardKey.Escape)) SelectedEntity = null;
+        if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
+        if (CollisionEditing) _collisionEditor.ClearSelection();
+        else SelectedEntity = null;
     }
 
     /// <summary>Gizmo tool shortcuts - only when NOT in camera movement mode, to avoid clashing with WASD.</summary>

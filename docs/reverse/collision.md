@@ -4,7 +4,7 @@ Static level collision for Tools of Destruction (NPUA80965), Quest for Booty (NP
 (NPEA00378), All 4 One (NPUA80695), Into the Nexus (NPUA80908) and A Crack in Time (NPUA80966).
 
 Parser: `ReLunacy.Engine/Assets/Collision/LevelCollision.cs`, read by `Loading/Readers/CollisionReader.cs`.
-Drawn by `Render > Collision` (`Rendering/CollisionGeometry.cs`, `Rendering/Vulkan/VulkanRenderer.Collision.cs`).
+Drawn and edited from the 3D viewport toolbar's collision panel (`Rendering/CollisionGeometry.cs`, `Rendering/Vulkan/VulkanRenderer.Collision.cs`, `ReLunacy/Core/Collision/CollisionEditor.cs`).
 
 The ToD layout was first decoded by @sowelilili in
 [ReLunacy-ToD-tools](https://github.com/sowelilili/ReLunacy-ToD-tools) (`docs/reverse/tod_collision.md`
@@ -25,7 +25,7 @@ The new-engine file also holds `0x8200` and `0x8300` on 126 of 152 regions (see 
 lobby regions (QForce `lobby/outfitter`, A4O `lobby/default` and `lobby/static_scene`, ITN
 `lobby/default`) ship a 512-byte file whose `0x2900` has zero instances.
 
-A TIE that several regions list is in each of those regions' files, with the same matrix and box.
+A Tie that several regions list is in each of those regions' files, with the same matrix and box.
 On A4O's rootworm the nine regions hold 6.9M placed triangles between them, 3.7M once repeats are
 removed. The overlay keeps each instance once, remembering every region it came from.
 
@@ -55,15 +55,19 @@ The same fields in both engines, in a different order:
 | World bounding sphere | `+0x40` | `+0x70` |
 | World box min | `+0x50` | `+0x00` |
 | World box max | `+0x60` | `+0x10` |
-| Flags and id (bit 29 = TIE; low 28 bits = id) | `+0x70` | `+0x28` |
+| Flags and id (bit 29 = Tie; low 28 bits = id) | `+0x70` | `+0x28` |
 | Shape offset in the blob | `+0x74` | `+0x20` |
 | Shape length (u16) | `+0x78` low half | `+0x24` high half |
 | Shape flags (u16) | `+0x78` high half | `+0x24` low half |
 
-- **TIE vs world.** Bit 29 set: the matrix is a TIE placement's (fork: exact on 3852 of 3858 TIEs on
+- **Tie vs world.** Bit 29 set: the matrix is a Tie placement's (fork: exact on 3852 of 3858 Ties on
   cobalia). Clear: a world chunk (terrain, shells), identity matrix, shape already in world space.
-  Over ToD+QfB: 123929 TIE instances with a non-identity matrix, 739 with identity, 9114 world, all
+  Over ToD+QfB: 123929 Tie instances with a non-identity matrix, 739 with identity, 9114 world, all
   identity.
+- **Tie link.** A Tie instance's matrix is its Tie placement's, bit for bit: matched on the file matrices,
+  3852 of 3858 cobalia Ties and 7974 of 9312 krell_canyon Ties find collision, and every Tie collision
+  instance of both levels (5073, 11502) finds a Tie. The unmatched Ties have no collision nearby
+  (decoration). The editor uses this to move collision with its Tie.
 - **Shape flags.** `0x400` = the shape is a primitive set (new engine only); it matches the shape's own
   header on every instance of all four games (e.g. 20488 of 20488 on QForce). `0x02` and `0x08` are set
   on every instance of all six games, `0x40` on all but 0.2%. `0x01`, `0x04`, `0x20` vary; the new
@@ -160,7 +164,7 @@ Checked over every primitive set of all four games:
 - Triangle flag bits 1-4, the material ids, the shape-flag bits other than `0x400`, and the primitive
   descriptor's `+0x01`, `+0x03`, `+0x0A`, `+0x0C`.
 - The instance id (low 28 bits of the flags-and-id word). On ToD it counts up across the chunks of one
-  TIE class.
+  Tie class.
 - The spatial grid at header `+0x30`. ToD's starts with an origin and the inverse cell size (cobalia:
   `(-440, -40, -410)`, 0.1), and the fork notes cell words of the form `count << 20 | first`. The new
   engine's has a different header (agorian_arena: `0x1280, 0x80, 0...`). Only needed for queries.

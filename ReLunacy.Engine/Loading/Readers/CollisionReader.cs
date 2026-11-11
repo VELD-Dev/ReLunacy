@@ -35,7 +35,7 @@ public sealed class CollisionReader(FileManager fileManager)
                 int tie = collision.Instances.Count(i => i.IsTie);
                 int primitiveSets = collision.Shapes.Count(s => s is CollisionPrimitiveSet);
                 Console.WriteLine(
-                    $"Collision ({label}): {collision.Instances.Count} instance(s) ({tie} TIE, {collision.Instances.Count - tie} world), " +
+                    $"Collision ({label}): {collision.Instances.Count} instance(s) ({tie} Tie, {collision.Instances.Count - tie} world), " +
                     $"{collision.Shapes.Count} shape(s) of which {primitiveSets} primitive set(s), " +
                     $"{collision.Shapes.OfType<CollisionMesh>().Sum(m => m.TriangleCount)} mesh triangle(s).");
             }

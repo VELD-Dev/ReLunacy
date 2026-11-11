@@ -20,45 +20,61 @@ public sealed class ShrubReader(FileManager fileManager, MaterialReader material
     public Dictionary<ulong, Assets.Shrubs.Shrub> ReadAllShrubs(LevelLoadProgress? progress = null)
     {
         var shrubs = new Dictionary<ulong, Assets.Shrubs.Shrub>();
-        if (_fileManager.isOld) return shrubs;
-
-        AssetPointer[] pointers = NewEngineAssetLookup.ReadPointers(
-            _fileManager, NewEngineAssetLookup.ShrubPointers, "Shrubs");
-        if (pointers.Length == 0) return shrubs;
-
-        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "shrubs.dat", "Shrubs", out Stream? stream) ||
-            stream is null)
-            return shrubs;
+        if (!TryOpen(out AssetPointer[] pointers, out Stream? stream)) return shrubs;
 
         progress?.SetTotal(pointers.Length);
         foreach (AssetPointer pointer in pointers)
         {
             progress?.Advance();
-            byte[] slice = NewEngineAssetLookup.ReadPayload(stream, pointer, "Shrub");
-            var parsed = ShrubClass.Read(slice);
-            if (parsed.VertexCount == 0 || parsed.Indices.Length == 0) continue;
-
-            // The shader TUID is carried, NOT resolved. GetMaterialByTuid mints a runtime texture
-            // id per (texture, binding descriptor) pair into the shared registry the renderer packs
-            // its atlas from, so resolving materials for geometry nothing draws shifted every other
-            // material's atlas coordinates and the whole level sampled the wrong textures - green
-            // surfaces and moire, measured as 3,388 registry entries on zolar_forest against 3,386.
-            // Whoever draws shrubs resolves IShrub.MaterialTUID at that point, when the cost is
-            // paid for geometry that is actually on screen.
-            IMaterial placeholder = _materialReader.GetDefaultMaterial();
-
-            // Keyed by the pointer table's TUID, as Ties are, because that is what a zone's class
-            // table names - not the TUID the class also stores in its own header (they agree on
-            // all 49 measured, but the table is the thing doing the addressing).
-            var geometry = new GeometryData(
-                pointer.TUID, parsed.Positions, parsed.UVs, parsed.Indices);
-
-            var mesh = new Mesh(geometry, placeholder, parsed.SourcePath);
-            shrubs[pointer.TUID] = new Assets.Shrubs.Shrub(
-                pointer.TUID, [mesh], parsed.SourcePath, parsed.DrawDistances, parsed.BoundingSphere,
-                materialTuid: parsed.MaterialTUID);
+            if (Read(stream!, pointer) is { } shrub)
+                shrubs[pointer.TUID] = shrub;
         }
 
         return shrubs;
+    }
+
+    /// <summary>The level's Shrubs, each read on first use (see <see cref="AssetLibrary{T}"/>). Empty on
+    /// the old engine.</summary>
+    public AssetLibrary<Assets.Shrubs.Shrub> CreateLibrary(object fileLock) =>
+        TryOpen(out AssetPointer[] pointers, out Stream? stream)
+            ? new AssetLibrary<Assets.Shrubs.Shrub>(pointers, pointer => Read(stream!, pointer), null, fileLock)
+            : AssetLibrary<Assets.Shrubs.Shrub>.FromLoaded([]);
+
+    private bool TryOpen(out AssetPointer[] pointers, out Stream? stream)
+    {
+        pointers = [];
+        stream = null;
+        if (_fileManager.isOld) return false;
+
+        pointers = NewEngineAssetLookup.ReadPointers(_fileManager, NewEngineAssetLookup.ShrubPointers, "Shrubs");
+        return pointers.Length != 0 &&
+               NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "shrubs.dat", "Shrubs", out stream) && stream is not null;
+    }
+
+    private Assets.Shrubs.Shrub? Read(Stream stream, AssetPointer pointer)
+    {
+        byte[] slice = NewEngineAssetLookup.ReadPayload(stream, pointer, "Shrub");
+        var parsed = ShrubClass.Read(slice);
+        if (parsed.VertexCount == 0 || parsed.Indices.Length == 0) return null;
+
+        // The shader TUID is carried, NOT resolved. GetMaterialByTuid mints a runtime texture
+        // id per (texture, binding descriptor) pair into the shared registry the renderer packs
+        // its atlas from, so resolving materials for geometry nothing draws shifted every other
+        // material's atlas coordinates and the whole level sampled the wrong textures - green
+        // surfaces and moire, measured as 3,388 registry entries on zolar_forest against 3,386.
+        // Whoever draws shrubs resolves IShrub.MaterialTUID at that point, when the cost is
+        // paid for geometry that is actually on screen.
+        IMaterial placeholder = _materialReader.GetDefaultMaterial();
+
+        // Keyed by the pointer table's TUID, as Ties are, because that is what a zone's class
+        // table names - not the TUID the class also stores in its own header (they agree on
+        // all 49 measured, but the table is the thing doing the addressing).
+        var geometry = new GeometryData(
+            pointer.TUID, parsed.Positions, parsed.UVs, parsed.Indices);
+
+        var mesh = new Mesh(geometry, placeholder, parsed.SourcePath);
+        return new Assets.Shrubs.Shrub(
+            pointer.TUID, [mesh], parsed.SourcePath, parsed.DrawDistances, parsed.BoundingSphere,
+            materialTuid: parsed.MaterialTUID);
     }
 }
