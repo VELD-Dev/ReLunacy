@@ -22,6 +22,11 @@ public sealed class GameplayPath
     public float Length { get; init; }
     public bool Closed { get; init; }
     public byte Kind { get; init; }
+    /// <summary>What the path is for (see <see cref="PathRoles"/>): the class of the Clue or controller that uses
+    /// it, else what its name says, else <see cref="PathRoles.Unassigned"/>.</summary>
+    public string Role { get; set; } = PathRoles.Unassigned;
+    /// <summary>What gave the role: the instance that references the path, or null when it came from the name.</summary>
+    public string? RoleSource { get; set; }
     public IReadOnlyList<GameplayPathPoint> Points { get; init; } = [];
 }
 

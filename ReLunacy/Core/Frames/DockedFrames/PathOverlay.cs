@@ -12,15 +12,14 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// </summary>
 internal sealed class PathOverlay
 {
-    private static readonly Vector4 PathColour = new(0.15f, 0.85f, 1f, 0.9f);
     private static readonly Vector4 PointColour = new(1f, 1f, 1f, 1f);
     private const float PickPixels = 6f;
 
     private float[] _vertices = [];
-    private (VulkanRenderer? Renderer, bool Shown, long Versions, int Selected, int Point, Vector4 Highlight) _built;
+    private (VulkanRenderer? Renderer, bool Shown, long Versions, int Selected, int Point, Vector4 Highlight, int Selection, int Visibility) _built;
 
     private static IEnumerable<EntityPath> Paths(EntityManager em) =>
-        em.Regions.Where(r => r.allowRender).SelectMany(r => r.Paths.Entities).OfType<EntityPath>().Where(p => p.allowRender);
+        em.Regions.Where(r => r.allowRender).SelectMany(r => r.Paths.Entities).OfType<EntityPath>().Where(p => p.allowRender && em.IsPathShown(p.Path));
 
     private static readonly Vector4 HandleColour = new(1f, 0.8f, 0.2f, 1f);
 
@@ -43,7 +42,8 @@ internal sealed class PathOverlay
         bool shown = em.renderPaths && !hidden;
         var selectedPart = selected as EntityPathPoint;
         EntityPath? active = selected as EntityPath ?? selectedPart?.Owner;
-        var key = (renderer, shown, versions, active?.ID ?? -1, selectedPart is { } sp ? sp.Index * 4 + (int)sp.Part : -1, em.VolumeSelectedColor);
+        var key = (renderer, shown, versions, active?.ID ?? -1, selectedPart is { } sp ? sp.Index * 4 + (int)sp.Part : -1, em.VolumeSelectedColor,
+            Core.Selection.SelectionManager.Singleton.Version, em.VisibilityVersion);
         if (key == _built) return;
         _built = key;
 
@@ -58,7 +58,8 @@ internal sealed class PathOverlay
         foreach (var path in Paths(em))
         {
             var points = path.WorldPoints().ToArray();
-            var colour = ReferenceEquals(path, active) ? highlight : PathColour;
+            // Every selected path is highlighted; only the active one shows its keys.
+            var colour = ReferenceEquals(path, active) || path.selected ? highlight : path.Colour;
             for (int i = 1; i < points.Length; i++) Segment(vertices, points[i - 1], points[i], colour);
             if (path.Closed && points.Length > 2) Segment(vertices, points[^1], points[0], colour);
         }

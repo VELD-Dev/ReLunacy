@@ -113,13 +113,15 @@ internal sealed class VolumeFilterPanel
         overlay.EndPanel();
     }
 
-    /// <summary>A checkbox per value with its colour, plus All / None; <paramref name="hidden"/> holds the unticked.</summary>
-    private static void List(string id, IEnumerable<string> values, HashSet<string> hidden, Func<string, (string Label, Vector3 Colour, string? Tooltip)> describe)
+    /// <summary>A checkbox per value with its colour, plus All / None; <paramref name="hidden"/> holds the unticked.
+    /// Returns whether anything was ticked or unticked.</summary>
+    internal static bool List(string id, IEnumerable<string> values, HashSet<string> hidden, Func<string, (string Label, Vector3 Colour, string? Tooltip)> describe)
     {
         var list = values.ToList();
-        if (ImGui.SmallButton($"{LM.Get("GUI_Collision_All")}##{id}")) hidden.Clear();
+        bool changed = false;
+        if (ImGui.SmallButton($"{LM.Get("GUI_Collision_All")}##{id}")) { hidden.Clear(); changed = true; }
         ImGui.SameLine();
-        if (ImGui.SmallButton($"{LM.Get("GUI_Collision_None")}##{id}")) hidden.UnionWith(list);
+        if (ImGui.SmallButton($"{LM.Get("GUI_Collision_None")}##{id}")) { hidden.UnionWith(list); changed = true; }
         float rowHeight = ImGui.GetFrameHeightWithSpacing();
         bool scroll = list.Count > 12;
         if (scroll) ImGui.BeginChild($"##{id}list", new Vector2(0f, rowHeight * 12), ImGuiChildFlags.None);
@@ -135,9 +137,11 @@ internal sealed class VolumeFilterPanel
             {
                 if (on) hidden.Remove(value);
                 else hidden.Add(value);
+                changed = true;
             }
             if (tooltip != null && ImGui.IsItemHovered()) ImGui.SetTooltip(tooltip);
         }
         if (scroll) ImGui.EndChild();
+        return changed;
     }
 }

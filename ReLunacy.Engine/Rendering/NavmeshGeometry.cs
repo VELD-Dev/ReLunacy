@@ -18,7 +18,8 @@ public static class NavmeshGeometry
     /// selected chunk can be re-drawn on its own without a second upload. Keyed by chunk identity,
     /// not position, because the same chunk can be reached through several regions.</param>
     public static (Vector3[] Vertices, uint[] Indices, Matrix4x4[] Edges) Build(
-        IEnumerable<Navmesh> navmeshes, Dictionary<NavmeshChunk, (int First, int Count)>? ranges = null)
+        IEnumerable<Navmesh> navmeshes, Dictionary<NavmeshChunk, (int First, int Count)>? ranges = null,
+        Func<NavmeshChunk, bool>? include = null)
     {
         var vertices = new List<Vector3>();
         var indices = new List<uint>();
@@ -28,6 +29,7 @@ public static class NavmeshGeometry
         {
             foreach (NavmeshChunk chunk in navmesh.Chunks)
             {
+                if (include != null && !include(chunk)) continue;
                 int baseIndex = vertices.Count;
                 int firstIndex = indices.Count;
                 vertices.AddRange(chunk.Vertices);

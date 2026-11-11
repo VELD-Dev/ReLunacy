@@ -31,6 +31,9 @@ public class EntityMoby : Entity
     /// for the Property Inspector.</summary>
     public float UpdateDistance { get; set; }
 
+    /// <summary>The editor layer the instance was placed in, an index into <see cref="EntityRegion.Layers"/> (0 on the old engine).</summary>
+    public readonly ushort Group;
+
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
         BaseMoby = mobyInstance.Asset;
@@ -51,6 +54,7 @@ public class EntityMoby : Entity
         BoundingSphere = new Vector4(center, radius);
 
         DisplayDistance = mobyInstance.DisplayDistance;
+        Group = mobyInstance.Group;
         UpdateDistance = mobyInstance.UpdateDistance;
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";

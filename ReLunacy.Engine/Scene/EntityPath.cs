@@ -38,6 +38,14 @@ public class EntityPath : Entity
     private const float SplineTolerance = 1e-4f;
 
     public readonly GameplayPath Path;
+
+    /// <summary>The colour EntityManager.PathColorMode gives it: its role's, its layer's, or the single path colour.</summary>
+    public Vector4 Colour => EntityManager.Singleton.PathColorMode switch
+    {
+        PathColorMode.Role => new Vector4(PathRoles.Colour(Path.Role), 0.9f),
+        PathColorMode.Layer when Path.Layer is { } layer => new Vector4(ClueClasses.ColourOf(layer), 0.9f),
+        _ => new Vector4(PathRoles.Colour(PathRoles.Unassigned), 0.9f),
+    };
     private readonly List<Vector3> _local;
     // Spline mode: keys, and per key its incoming (P2 of the span before) and outgoing (P1 of the span after) handle.
     private readonly List<Vector3> _keys = [], _in = [], _out = [];

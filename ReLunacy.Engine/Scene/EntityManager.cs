@@ -20,6 +20,17 @@ public class EntityManager : IDisposable
     public bool renderVolumes = true;
     public bool renderCameras = true;
     public bool renderPaths = true;
+
+    /// <summary>Bumped whenever an entity's own visibility (<see cref="Entity.allowRender"/>) is changed, for the
+    /// overlays built from the visible ones (paths, navmesh). Meshes and volumes read the flag every frame.</summary>
+    public int VisibilityVersion;
+
+    /// <summary>How paths are coloured, and the roles hidden (<see cref="Assets.LevelElements.PathRoles"/>). Bump
+    /// <see cref="VisibilityVersion"/> after changing either: the path lines are rebuilt on it.</summary>
+    public PathColorMode PathColorMode = PathColorMode.Role;
+    public readonly HashSet<string> HiddenPathRoles = [];
+
+    public bool IsPathShown(Assets.LevelElements.GameplayPath path) => !HiddenPathRoles.Contains(path.Role);
     /// <summary>Off by default: the navmesh is an inspection overlay, not part of the level.</summary>
     public bool renderNavmesh = false;
     /// <summary>Off by default, like the navmesh: the level's static collision, drawn as an overlay.</summary>
@@ -233,6 +244,16 @@ public enum VolumeFillMode
 }
 
 /// <summary>What a volume's wireframe colour says.</summary>
+public enum PathColorMode
+{
+    /// <summary>What uses it (see PathRoles).</summary>
+    Role,
+    /// <summary>The editor layer it was placed in.</summary>
+    Layer,
+    /// <summary>Every path in one colour.</summary>
+    Single,
+}
+
 public enum VolumeColorMode
 {
     /// <summary>Its Clue class (hazards in fixed colours), plain volumes in the volume colour.</summary>

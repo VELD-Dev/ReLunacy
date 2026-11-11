@@ -2021,9 +2021,17 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkCmdDraw(_cmd, (uint)_depthDebugVertexCount, 1, 0, 0);
     }
 
+    /// <summary>The rest of a multiple selection, outlined with the selected entity passed to <see cref="Frame"/>.</summary>
+    public IReadOnlyList<object> AlsoSelected { get; set; } = [];
+    private readonly List<int[]> _outlined = [];
+
     private void DrawSelectionOutline()
     {
-        if (_selected is null || !_ownerInstances.TryGetValue(_selected, out var owned) || owned.Length == 0) return;
+        _outlined.Clear();
+        if (_selected != null && _ownerInstances.TryGetValue(_selected, out var first) && first.Length > 0) _outlined.Add(first);
+        foreach (var other in AlsoSelected)
+            if (_ownerInstances.TryGetValue(other, out var instances) && instances.Length > 0) _outlined.Add(instances);
+        if (_outlined.Count == 0) return;
         VkDescriptorSet s0 = _descSet;
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _outlineLayout, 0, 1, &s0, 0, null);
         VkBuffer vb = _vertexBuffer; ulong offset = 0;
@@ -2036,9 +2044,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, pass == 0 ? _pipelineOutlineMask : _pipelineOutlineRim);
             pc[1] = new Vector4(pass == 0 ? 0f : _outlineThickness, 0f, 0f, 0f);
             _api.vkCmdPushConstants(_cmd, _outlineLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 32, pc);
-            foreach (int i in owned)
-                if (IsOwnerVisible(i))
-                    _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
+            foreach (var owned in _outlined)
+                foreach (int i in owned)
+                    if (IsOwnerVisible(i))
+                        _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
         }
     }
 

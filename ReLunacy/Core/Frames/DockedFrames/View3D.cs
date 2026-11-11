@@ -131,17 +131,22 @@ public class View3D : DockedFrame
     /// <summary>Pushes (or clears) the Render menu's bounding-sphere wireframes. Draws the same spheres
     /// the renderer culls against, so it doubles as a way to SEE the culling: anything whose sphere does
     /// not contain it will pop at the screen edge.</summary>
+    private int _appliedSphereVisibility;
+
     private void UpdateBoundingSphereOverlay()
     {
         bool wanted = EntityManager.Singleton.renderBoundingSpheres;
-        if (wanted == _appliedBoundingSpheres) return;
+        int visibility = EntityManager.Singleton.VisibilityVersion;
+        if (wanted == _appliedBoundingSpheres && (!wanted || visibility == _appliedSphereVisibility)) return;
         _appliedBoundingSpheres = wanted;
+        _appliedSphereVisibility = visibility;
 
         _sphereLines.Clear();
         if (wanted)
         {
             foreach (var entity in EntityManager.Singleton.AllEntities())
             {
+                if (!entity.allowRender) continue;
                 var sphere = entity.WorldBoundingSphere;
                 if (sphere.W <= 0f) continue;
                 var centre = new Vector3(sphere.X, sphere.Y, sphere.Z);
@@ -195,6 +200,8 @@ public class View3D : DockedFrame
         changed |= overlay.ToggleButton(Icons.Camera, ref em.renderCameras, LM.Get("GUI_Viewport_Cameras"));
         changed |= overlay.ToggleButton(Icons.BezierCurve, ref em.renderPaths, LM.Get("GUI_Viewport_Paths"));
         float pathAnchor = overlay.LastButtonLeft;
+        overlay.ToggleButton(Icons.Palette, ref _pathPanel.Open, LM.Get("GUI_Viewport_PathFilters"));
+        float pathFilterAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
         if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
 
@@ -235,6 +242,7 @@ public class View3D : DockedFrame
         }
 
         _volumePanel.Draw(overlay, volumeAnchor);
+        _pathPanel.Draw(overlay, pathFilterAnchor);
         if (em.renderPaths && !CollisionEditing) _pathEditor.DrawPanel(overlay, pathAnchor);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
@@ -243,6 +251,7 @@ public class View3D : DockedFrame
 
     /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
     private readonly VolumeFilterPanel _volumePanel = new();
+    private readonly PathFilterPanel _pathPanel = new();
     private readonly PathOverlay _paths = new();
     private readonly PathEditor _pathEditor = new();
 
@@ -255,12 +264,19 @@ public class View3D : DockedFrame
     /// <summary>Flattens the level's zone navmeshes into the renderer's buffers, when they are not
     /// already there. A level with no navmesh uploads nothing, which clears what a previous level
     /// left behind.</summary>
+    private int navmeshVisibility;
+
     private void UploadNavmeshIfStale(Engine.Rendering.Vulkan.VulkanRenderer renderer)
     {
         var level = Core.LunaWindow.Instance.Level;
-        if (ReferenceEquals(navmeshLevel, level) && ReferenceEquals(navmeshRenderer, renderer)) return;
+        int visibility = EntityManager.Singleton.VisibilityVersion;
+        if (ReferenceEquals(navmeshLevel, level) && ReferenceEquals(navmeshRenderer, renderer) && navmeshVisibility == visibility) return;
         navmeshLevel = level;
         navmeshRenderer = renderer;
+        navmeshVisibility = visibility;
+        // Chunks hidden in the hierarchy are left out of the buffer.
+        var hidden = EntityManager.Singleton.Regions.SelectMany(r => r.Zones).SelectMany(z => z.Navmeshes)
+            .Where(n => !n.allowRender).Select(n => n.Chunk).ToHashSet();
 
         var navmeshes = level?.Zones?.Values
             .Select(z => (z as Engine.Assets.Levels.Zone)?.Navmesh)
@@ -268,7 +284,7 @@ public class View3D : DockedFrame
             .Select(n => n!)
             .ToList() ?? [];
         var ranges = new Dictionary<Engine.Assets.Navigation.NavmeshChunk, (int First, int Count)>();
-        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes, ranges);
+        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes, ranges, hidden.Count > 0 ? c => !hidden.Contains(c) : null);
         renderer.SetNavmesh(vertices, indices, edges);
 
         // Hand every chunk entity its slice of the buffer that was just uploaded. Matched by chunk
@@ -277,8 +293,7 @@ public class View3D : DockedFrame
         foreach (var region in EntityManager.Singleton.Regions)
             foreach (var zone in region.Zones)
                 foreach (var chunkEntity in zone.Navmeshes)
-                    if (ranges.TryGetValue(chunkEntity.Chunk, out var range))
-                        (chunkEntity.FirstIndex, chunkEntity.IndexCount) = range;
+                    (chunkEntity.FirstIndex, chunkEntity.IndexCount) = ranges.TryGetValue(chunkEntity.Chunk, out var range) ? range : (-1, 0);
         if (vertices.Length > 0)
             Console.WriteLine($"[Navmesh] {navmeshes.Count} zone(s), {vertices.Length} vertices, " +
                               $"{indices.Length / 3} triangles, {edges.Length} wireframe edges.");
@@ -342,6 +357,25 @@ public class View3D : DockedFrame
     // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
     private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Colour, int Shape)> _vkVolumeFills = new();
     private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> _vkCameras = new();
+
+    /// <summary>The gizmo moved the selection this frame: the rest of it is pushed to the renderer next frame.</summary>
+    private bool _selectionMoved;
+
+    /// <summary>Whether an entity gets the selection outline. Volumes, cameras and paths opt out: they recolour
+    /// themselves on selection, and the mask-and-inflate technique expects one closed surface, not 12 disjoint
+    /// edge boxes.</summary>
+    private static bool IsOutlined(Entity? entity) =>
+        entity is not (null or EntityVolume or EntityCamera or EntityPath or EntityPathPoint);
+
+    private readonly List<object> _outlinedOthers = [];
+
+    private List<object> OutlinedOthers()
+    {
+        _outlinedOthers.Clear();
+        foreach (var e in SelectionManager.Singleton.Selection)
+            if (!ReferenceEquals(e, SelectedEntity) && IsOutlined(e)) _outlinedOthers.Add(e);
+        return _outlinedOthers;
+    }
 
     /// <summary>The camera controller being looked through (the inspector's camera POV), or null.</summary>
     public EntityCamera? PovCamera { get; private set; }
@@ -575,6 +609,11 @@ public class View3D : DockedFrame
                 // move in the editor, and it is a handful of matrices.
                 if (SelectedEntity is { } moved)
                     Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(moved);
+                // The rest of a multiple selection only moves with the gizmo, so only then.
+                if (_selectionMoved)
+                    foreach (var other in SelectionManager.Singleton.Selection)
+                        if (!ReferenceEquals(other, SelectedEntity))
+                            Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(other);
 
                 UpdateAnimatedMobys(deltaTime, vkStage);
                 UpdateBoundingSphereOverlay();
@@ -612,6 +651,11 @@ public class View3D : DockedFrame
                 // upload, so it never links against the previous level's collision.
                 if (SelectedEntity is { } movedTie)
                     _collisionEditor.FollowEntity(movedTie);
+                if (_selectionMoved)
+                    foreach (var other in SelectionManager.Singleton.Selection)
+                        if (other is EntityTie && !ReferenceEquals(other, SelectedEntity))
+                            _collisionEditor.FollowEntity(other);
+                _selectionMoved = false;
                 vkStage.CollisionVisible = EntityManager.Singleton.renderCollision;
                 vkStage.CollisionColorMode = Program.Settings.CollisionColorMode;
                 vkStage.CollisionCategories = Program.Settings.CollisionCategories;
@@ -627,6 +671,7 @@ public class View3D : DockedFrame
                 vkStage.VolumeFills = _vkVolumeFills;
                 vkStage.CameraMarkers = BuildCameraList();
                 _paths.Update(vkStage, SelectedEntity, CollisionEditing);
+                vkStage.AlsoSelected = OutlinedOthers();
                 vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),
@@ -634,7 +679,7 @@ public class View3D : DockedFrame
                     // Volumes opt out of the outline: EntityVolume already recolours its own wireframe
                     // on selection, and the mask-and-inflate technique expects one closed surface, not
                     // 12 disjoint edge boxes.
-                    SelectedEntity is EntityVolume or EntityCamera or EntityPath or EntityPathPoint ? null : SelectedEntity,
+                    IsOutlined(SelectedEntity) ? SelectedEntity : null,
                     Program.Settings.SelectionOutlineColor, 0.006f,
                     // True world-space position, same convention as lighting.BuildLightData(Camera.Position)
                     // just above and as Entity.WorldBoundingSphere (what _instCenter/Visible() compares
@@ -670,7 +715,8 @@ public class View3D : DockedFrame
         DrawViewportOverlay();
 
         // No gizmo while editing collision: the selection is collision, not an entity.
-        _viewport.Gizmo(GizmoController, Camera, CollisionEditing ? null : SelectedEntity);
+        if (_viewport.Gizmo(GizmoController, Camera, CollisionEditing ? null : SelectedEntity, SelectionManager.Singleton.Selection))
+            _selectionMoved = true;
 
         var viewportSize = _viewport.Size;
         if (viewportSize.X >= 120f && viewportSize.Y >= 120f)
@@ -773,7 +819,17 @@ public class View3D : DockedFrame
                     : float.MaxValue;
                 if (pathHit.Entity is EntityPathPoint || pathHit.Distance <= meshDistance) hit = pathHit.Entity;
             }
-            SelectedEntity = hit;
+            // Shift adds to the selection, Ctrl adds or removes; a click on nothing with either keeps it.
+            var selection = SelectionManager.Singleton;
+            if (Input.IsKeyDown(KeyboardKey.ControlLeft) || Input.IsKeyDown(KeyboardKey.ControlRight))
+            {
+                if (hit != null) selection.Toggle(hit);
+            }
+            else if (Input.IsKeyDown(KeyboardKey.ShiftLeft) || Input.IsKeyDown(KeyboardKey.ShiftRight))
+            {
+                if (hit != null) selection.Add(hit);
+            }
+            else SelectedEntity = hit;
         }
         catch (Exception e)
         {

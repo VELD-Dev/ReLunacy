@@ -1,3 +1,4 @@
+using ReLunacy.Engine.Assets.LevelElements;
 using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering.Resources;
@@ -111,6 +112,8 @@ public class PropertyInspectorFrame : DockedFrame
 
         var v3d = Core.LunaWindow.Instance.GetFirstFrame<View3D>();
 
+        RenderMultipleSelection();
+
         ImGui.BeginGroup();
 
         ImGui.BeginGroup();
@@ -215,7 +218,8 @@ public class PropertyInspectorFrame : DockedFrame
                 ? LM.Get("GUI_Frame_InstanceInspector_VolumeClue", clue.ClassName, $"0x{clue.Class:X}", clue.Name)
                 : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
             if (baseVolume.Clue is { Settings.Length: > 4 } clueSettings)
-                RenderSettings(clueSettings.Settings, clueSettings.References);
+                RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class);
+            RenderUsedBy(volumeEntity);
             if (baseVolume.Areas.Count > 0)
                 ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_VolumeAreas", string.Join(", ", baseVolume.Areas)));
             if (baseVolume.Scents.Count > 0)
@@ -242,13 +246,22 @@ public class PropertyInspectorFrame : DockedFrame
             }
             ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CameraNote"));
             if (controller.Settings.Length > 4)
-                RenderSettings(controller.Settings, controller.References);
+                RenderSettings(controller.Settings, controller.References, controller.Class);
         }
         else if (SelectedEntity is EntityPath pathEntity)
         {
             var path = pathEntity.Path;
             if (path.Layer != null)
                 ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeLayer", path.Layer));
+            ImGui.ColorButton("##pathrole", new Vector4(PathRoles.Colour(path.Role), 1f),
+                ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoPicker | ImGuiColorEditFlags.NoDragDrop,
+                new Vector2(ImGui.GetTextLineHeight()));
+            ImGui.SameLine();
+            ImGui.TextWrapped(path.RoleSource != null
+                ? LM.Get("GUI_Frame_InstanceInspector_PathRoleLinked", path.Role, path.RoleSource)
+                : path.Role == PathRoles.Unassigned
+                    ? LM.Get("GUI_Frame_InstanceInspector_PathRoleNone")
+                    : LM.Get("GUI_Frame_InstanceInspector_PathRoleNamed", path.Role));
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_PathSummary", pathEntity.PointCount, pathEntity.Length.ToString("0.##"),
                 LM.Get(path.Closed ? "GUI_Frame_InstanceInspector_PathClosed" : "GUI_Frame_InstanceInspector_PathOpen"), path.Kind));
             ImGui.TextWrapped(pathEntity.IsSpline
@@ -288,6 +301,24 @@ public class PropertyInspectorFrame : DockedFrame
         }
 
         ImGui.EndGroup();
+    }
+
+    /// <summary>With several entities selected: how many of what, and that what follows is the active one's,
+    /// which the gizmo moves the others with.</summary>
+    private static void RenderMultipleSelection()
+    {
+        var selection = SelectionManager.Singleton;
+        if (selection.Count < 2) return;
+        string kinds = string.Join(", ", selection.Selection
+            .GroupBy(e => e.GetType().Name.StartsWith("Entity") ? e.GetType().Name[6..] : e.GetType().Name)
+            .OrderByDescending(g => g.Count())
+            .Select(g => $"{g.Count()} {g.Key}"));
+        ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_MultipleSelection", selection.Count));
+        ImGui.TextWrapped(kinds);
+        ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_MultipleSelectionHint"));
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_KeepOnlyActive")))
+            selection.Select(selection.SelectedEntity);
+        ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_ActiveEntity"));
     }
 
     // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowPos on first appearance
@@ -437,11 +468,19 @@ public class PropertyInspectorFrame : DockedFrame
 
     /// <summary>A Clue's or a controller's settings: the fields that name another instance, then every non-zero
     /// field raw (their meaning is not decoded yet), typed as flags, a float or an integer.</summary>
-    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences)
+    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls)
     {
-        if (!ImGui.TreeNode(LM.Get("GUI_Frame_InstanceInspector_ClueSettings", settings.Length))) return;
+        var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+        // References first, named where the field is known, each a link to what it names.
         foreach (var reference in fieldReferences)
-            ImGui.Text($"+0x{reference.Offset:X2}  {reference.Kind} {reference.Name}");
+        {
+            string? field = ClueClasses.FieldName(game, cls, reference.Offset);
+            ImGui.TextDisabled($"+0x{reference.Offset:X2}");
+            ImGui.SameLine();
+            if (field != null) { ImGui.TextUnformatted(field + ":"); ImGui.SameLine(); }
+            ReferenceLink(reference.Kind, reference.Name);
+        }
+        if (!ImGui.TreeNode(LM.Get("GUI_Frame_InstanceInspector_ClueSettings", settings.Length))) return;
         var references = fieldReferences.Select(r => r.Offset).ToHashSet();
         if (ImGui.BeginTable("##cluesettings", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
         {
@@ -454,7 +493,7 @@ public class PropertyInspectorFrame : DockedFrame
                 // Four bytes each 0 or 1 are packed booleans (most Clue flags look like 01000000).
                 bool flags = (value & 0xFEFEFEFE) == 0;
                 ImGui.TableNextRow();
-                ImGui.TableNextColumn(); ImGui.TextDisabled($"+0x{offset:X2}");
+                ImGui.TableNextColumn(); ImGui.TextDisabled(ClueClasses.FieldName(game, cls, offset) is { } name ? $"+0x{offset:X2} {name}" : $"+0x{offset:X2}");
                 ImGui.TableNextColumn(); ImGui.Text($"{value:X8}");
                 ImGui.TableNextColumn();
                 ImGui.Text(flags ? LM.Get("GUI_Frame_InstanceInspector_ClueFlags", value >> 24, value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF)
@@ -463,6 +502,77 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.EndTable();
         }
         ImGui.TreePop();
+    }
+
+    /// <summary>A reference shown as a link: a click selects the instance it names (its volume, for a Clue), and
+    /// the 3D view's selection follows. Names are matched as written; several instances can share one.</summary>
+    private static void ReferenceLink(string kind, string name)
+    {
+        var target = FindInstance(kind, name);
+        string label = $"{kind} {name}";
+        if (target == null) { ImGui.TextUnformatted(label); return; }
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.45f, 0.75f, 1f, 1f));
+        bool clicked = ImGui.Selectable($"{label}##ref_{kind}_{name}", false, ImGuiSelectableFlags.None, ImGui.CalcTextSize(label));
+        ImGui.PopStyleColor();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceSelect"));
+        if (clicked) SelectionManager.Singleton.Select(target);
+    }
+
+    private static Entity? FindInstance(string kind, string name)
+    {
+        foreach (var region in EntityManager.Singleton.Regions)
+        {
+            IEnumerable<Entity> candidates = kind switch
+            {
+                "Volume" => region.Volumes.Entities.Where(e => e is EntityVolume v && v.BaseVolume.Name == name),
+                "Clue" => region.Volumes.Entities.Where(e => e is EntityVolume v && v.BaseVolume.Clue?.Name == name),
+                "Path" => region.Paths.Entities.Where(e => e is EntityPath p && p.Path.Name == name),
+                "Controller" => region.Cameras.Entities.Where(e => e is EntityCamera c && c.Controller.Name == name),
+                "Moby" => region.MobyInstances.Entities.Where(e => e.Name == name),
+                _ => [],
+            };
+            if (candidates.FirstOrDefault() is { } found) return found;
+        }
+        return null;
+    }
+
+    private EntityVolume? _usedByVolume;
+    private List<(string Kind, string User, string Field)> _usedBy = [];
+
+    /// <summary>What names this volume in its settings (a moon's gravity volume, a camera's look-at volume...),
+    /// each a link to it.</summary>
+    private void RenderUsedBy(EntityVolume volume)
+    {
+        var name = volume.BaseVolume.Name;
+        if (name == null) return;
+        if (!ReferenceEquals(volume, _usedByVolume))
+        {
+            _usedByVolume = volume;
+            var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+            _usedBy = [];
+            foreach (var region in EntityManager.Singleton.Regions)
+            {
+                foreach (var other in region.Volumes.Entities.OfType<EntityVolume>())
+                    if (other.BaseVolume.Clue is { } clue)
+                        foreach (var reference in clue.References)
+                            if (reference.Kind == "Volume" && reference.Name == name)
+                                _usedBy.Add(("Clue", clue.Name, $"{clue.ClassName} +0x{reference.Offset:X}" +
+                                    (ClueClasses.FieldName(game, clue.Class, reference.Offset) is { } field ? $" {field}" : "")));
+                foreach (var camera in region.Cameras.Entities.OfType<EntityCamera>())
+                    foreach (var reference in camera.Controller.References)
+                        if (reference.Kind == "Volume" && reference.Name == name)
+                            _usedBy.Add(("Controller", camera.Controller.Name, $"{camera.Controller.ClassName ?? $"0x{camera.Controller.Class:X}"} +0x{reference.Offset:X}"));
+            }
+        }
+        if (_usedBy.Count == 0) return;
+        ImGui.TextUnformatted(LM.Get("GUI_Frame_InstanceInspector_UsedBy"));
+        foreach (var (kind, user, field) in _usedBy)
+        {
+            ImGui.Bullet();
+            ReferenceLink(kind, user);
+            ImGui.SameLine();
+            ImGui.TextDisabled(field);
+        }
     }
 
     /// <summary>A selected key, handle or point of a path: where it is along the path and, for a spline key,

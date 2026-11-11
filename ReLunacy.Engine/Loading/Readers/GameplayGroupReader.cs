@@ -450,7 +450,9 @@ public static class GameplayGroupReader
         return 0;
     }
 
-    private static List<string> ReadLayers(IGFile prius)
+    /// <summary>The level editor's layer names (0x25008), which the instances' metadata index; a zone is the layer
+    /// of the same name (its art).</summary>
+    public static List<string> ReadLayers(IGFile prius)
     {
         var section = prius.QuerySection(LayerSection);
         var layers = new List<string>();

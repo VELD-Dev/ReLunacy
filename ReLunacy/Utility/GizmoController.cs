@@ -31,13 +31,16 @@ public class GizmoController
         ImGuizmo.SetOrthographic(false);
     }
 
-    public void Render(Engine.Rendering.EditorCamera camera, Entity? entity, Vector2 viewportPos, Vector2 viewportSize)
+    /// <summary>Draws the gizmo on <paramref name="entity"/> (the active one) and applies a drag to it and,
+    /// relative to it, to <paramref name="others"/>, as one rigid group about the active entity's pivot.
+    /// Returns whether anything moved.</summary>
+    public bool Render(Engine.Rendering.EditorCamera camera, Entity? entity, IReadOnlyList<Entity> others, Vector2 viewportPos, Vector2 viewportSize)
     {
         EnsureInitialized();
         ImGuizmo.BeginFrame();
 
         _manipulatedThisFrame = entity != null;
-        if (entity == null) return;
+        if (entity == null) return false;
 
         ImGuizmo.SetDrawlist();
         ImGuizmo.SetRect(viewportPos.X, viewportPos.Y, viewportSize.X, viewportSize.Y);
@@ -53,6 +56,8 @@ public class GizmoController
                    * Matrix4x4.CreateFromQuaternion(transform.Rotation)
                    * Matrix4x4.CreateTranslation(transform.Translation);
 
+        // The same composition the drag ends in, so the delta below holds only the drag.
+        var before = matrix;
         var settings = Program.Settings;
         if (settings.GizmoSnapEnabled)
         {
@@ -70,9 +75,20 @@ public class GizmoController
             ImGuizmo.Manipulate(ref view, ref projection, CurrentOperation, CurrentMode, ref matrix);
         }
 
-        if (ImGuizmo.IsUsingAny() && Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
+        if (!ImGuizmo.IsUsingAny() || !Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
+            return false;
+        entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
+        if (others.Count == 0 || !Matrix4x4.Invert(before, out var inverse)) return true;
+
+        // What the drag did to the active entity, applied to the rest: world' = world * before^-1 * after.
+        var delta = inverse * matrix;
+        if (delta.IsIdentity) return true;
+        foreach (var other in others)
         {
-            entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
+            if (ReferenceEquals(other, entity)) continue;
+            if (Matrix4x4.Decompose(other.Transform.GetMatrix() * delta, out var s, out var r, out var t))
+                other.Transform = new Transform { Translation = t, Rotation = r, Scale = s };
         }
+        return true;
     }
 }

@@ -42,10 +42,32 @@ public static class ClueClasses
         [0xC52] = "ChunkPlatformAttach", [0xC5B] = "JetpackTunnel", [0xC5D] = "PlantSounds",
     };
 
+    /// <summary>Classes whose number means something else in the other games, named for A Crack in Time only.</summary>
+    private static readonly Dictionary<uint, string> KnownCrackInTime = new()
+    {
+        // A space sector's moon (and the junk trader's station): its landing pad and the sphere its gravity holds
+        // the hero in. Found by the user, 2026-11-12.
+        [0x4BC] = "SpaceMoon",
+    };
+
+    /// <summary>Settings fields with a known meaning, by game, class and offset in the class's struct.</summary>
+    private static readonly Dictionary<(Games.GameId Game, uint Class, int Offset), string> KnownFields = new()
+    {
+        // The landing pad's beam Moby (moon1a_landing_pad_beam, space_junktrader_landingpad).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xC0)] = "Landing pad beam",
+        // A volume (moon1a_vol...): out of it, the hero stops falling toward the moon and falls into the void (Y-).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xD0)] = "Gravity volume",
+    };
+
+    /// <summary>The name of the settings field at <paramref name="offset"/> of a Clue (or controller) class, when known.</summary>
+    public static string? FieldName(Games.GameId? game, uint cls, int offset) =>
+        game is { } g && KnownFields.TryGetValue((g, cls, offset), out var name) ? name : null;
+
     /// <summary>The class's name: the known one, else the one most of <paramref name="instanceNames"/> share,
     /// else its number.</summary>
     public static string Name(uint cls, IEnumerable<string> instanceNames, Games.GameId? game = null)
     {
+        if (game == Games.GameId.ACrackInTime && KnownCrackInTime.TryGetValue(cls, out var crackInTime)) return crackInTime;
         // The game's own class table first, when it has one (All 4 One, QForce), without the "Clue" prefix.
         if (GameClassNames.Name(game, cls) is { } official)
             return official.StartsWith("Clue", StringComparison.Ordinal) && official.Length > 4 ? official[4..] : official;

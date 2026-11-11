@@ -7,6 +7,7 @@ using ReLunacy.Engine.Loading.Objects;
 using ReLunacy.Engine.Loading.Objects.Instances;
 using Volume = ReLunacy.Engine.Assets.LevelElements.Volume;
 using VolumeShape = ReLunacy.Engine.Assets.LevelElements.VolumeShape;
+using PathRoles = ReLunacy.Engine.Assets.LevelElements.PathRoles;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
@@ -105,7 +106,7 @@ public sealed class RegionReader
             return null;
         }
 
-        return new Assets.Levels.Region(
+        var newRegion = new Assets.Levels.Region(
             id: id,
             mobyInstances: ReadMobyInstancesNew(prius, region),
             volumes: ReadVolumesNew(prius, Game),
@@ -117,7 +118,10 @@ public sealed class RegionReader
             Paths = GameplayGroupReader.ReadPaths(prius),
             Pods = GameplayGroupReader.ReadPods(prius),
             Squadrons = GameplayGroupReader.ReadSquadrons(prius),
+            Layers = GameplayGroupReader.ReadLayers(prius),
         };
+        PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers);
+        return newRegion;
     }
 
     /// <summary>
