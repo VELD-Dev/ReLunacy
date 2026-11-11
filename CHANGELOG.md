@@ -4,7 +4,7 @@ This file lists all the changes of every version. This file is edited constantly
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
 ## [v0.06](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-11-2026
-I
+
 ### Highlights
 
 - Added a level collision visualizer and editor (off by default; everything is in the panel the 3D viewport toolbar's collision button opens), on both engines. Tools of Destruction's parser comes from @sowelilili's ReLunacy-ToD-tools fork, extended here to Quest for Booty (same format) and decoded for QForce, All 4 One, Into the Nexus and A Crack in Time, where each region's `collision.dat` holds it in section 0x2900. See `docs/reverse/collision.md`.
