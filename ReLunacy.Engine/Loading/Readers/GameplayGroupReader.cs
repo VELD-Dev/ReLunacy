@@ -112,6 +112,7 @@ public static class GameplayGroupReader
                 if (clueVolumes[i] is { } volume)
                     volume.Clue = new VolumeClue(clueClasses[i], clueMeta[i].Name, classNames[clueClasses[i]])
                     {
+                        Tuid = clueMeta[i].Tuid,
                         Settings = clueSettings[i].Struct ?? [],
                         References = clueSettings[i].References ?? [],
                     };
@@ -177,6 +178,24 @@ public static class GameplayGroupReader
 
     /// <summary>A Clue's settings: the class struct (unwrapped from its own IGHW where it has one), and the
     /// fields of it that reference other instances.</summary>
+    /// <summary>Where the class struct of a settings block starts in the file (what <see cref="VolumeClue.Settings"/>
+    /// and <see cref="GameplayController.Settings"/> hold): the block itself on A Crack in Time, the 0x2501C section
+    /// of the block's own IGHW on All 4 One and Into the Nexus. -1 when the block holds none.</summary>
+    public static long SettingsStructOffset(ReadOnlySpan<byte> file, uint offset, uint size)
+    {
+        if (offset == 0 || size < 4 || offset + (long)size > file.Length) return -1;
+        var span = file.Slice((int)offset, (int)size);
+        if (span.Length < 0x10 || BinaryPrimitives.ReadUInt32BigEndian(span) != 0x49474857) return offset;
+        uint sections = BinaryPrimitives.ReadUInt32BigEndian(span[0x08..]);
+        for (uint s = 0; s < sections && 0x20 + s * 0x10 <= span.Length; s++)
+        {
+            var header = span[(int)(0x10 + s * 0x10)..];
+            if (BinaryPrimitives.ReadUInt32BigEndian(header) == InnerStructSection)
+                return offset + BinaryPrimitives.ReadUInt32BigEndian(header[4..]);
+        }
+        return -1;
+    }
+
     private static (byte[] Struct, List<ClueReference> References) ReadSettings(IGFile prius, Index index, uint offset, uint size)
     {
         var references = new List<ClueReference>();

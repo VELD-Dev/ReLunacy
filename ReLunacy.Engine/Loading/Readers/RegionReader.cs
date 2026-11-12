@@ -121,6 +121,7 @@ public sealed class RegionReader
             Layers = GameplayGroupReader.ReadLayers(prius),
         };
         PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers);
+        Assets.LevelElements.ClueClasses.AssignVolumeRoles(newRegion.Volumes, Game);
         return newRegion;
     }
 

@@ -70,6 +70,9 @@ public class EntityManager : IDisposable
     public bool IsVolumeFilled(Assets.LevelElements.Volume volume)
     {
         var hazard = volume.Clue is { } clue ? Assets.LevelElements.ClueClasses.Hazard(clue.ClassName) : Assets.LevelElements.ClueHazard.None;
+        // A volume with a known role (a moon's gravity sphere) is filled whenever faces are on: its role is the
+        // reason it is worth seeing.
+        if (volume.Role != null && VolumeFillMode != VolumeFillMode.None) return true;
         return VolumeFillMode switch
         {
             VolumeFillMode.Death => hazard == Assets.LevelElements.ClueHazard.Death,
@@ -80,7 +83,7 @@ public class EntityManager : IDisposable
         };
     }
 
-    public static string VolumeKind(Assets.LevelElements.Volume volume) => volume.Clue?.ClassName ?? PlainVolumeKind;
+    public static string VolumeKind(Assets.LevelElements.Volume volume) => volume.Clue?.ClassName ?? volume.Role ?? PlainVolumeKind;
 
     /// <summary>Whether the volume filters let <paramref name="volume"/> be drawn (and picked).</summary>
     public bool IsVolumeShown(Assets.LevelElements.Volume volume)

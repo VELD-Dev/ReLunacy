@@ -890,12 +890,14 @@ public class LunaWindow : IDisposable
 
     private void RenderMenuBar()
     {
+        FileMenuDraw.SaveLevelShortcut();
         if (!ImGui.BeginMainMenuBar()) return;
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
         {
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.OpenGameBrowserMenuItem();
+            FileMenuDraw.SaveLevelMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();

@@ -34,6 +34,9 @@ public class EntityMoby : Entity
     /// <summary>The editor layer the instance was placed in, an index into <see cref="EntityRegion.Layers"/> (0 on the old engine).</summary>
     public readonly ushort Group;
 
+    /// <summary>The instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
+    public readonly ulong Tuid;
+
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
         BaseMoby = mobyInstance.Asset;
@@ -55,6 +58,7 @@ public class EntityMoby : Entity
 
         DisplayDistance = mobyInstance.DisplayDistance;
         Group = mobyInstance.Group;
+        Tuid = mobyInstance.ID;
         UpdateDistance = mobyInstance.UpdateDistance;
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";

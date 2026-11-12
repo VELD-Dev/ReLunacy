@@ -68,7 +68,8 @@ internal sealed class VolumeFilterPanel
                 .OrderByDescending(g => g.Key == EntityManager.PlainVolumeKind)
                 .ThenBy(g => ClueClasses.Hazard(g.Key) == ClueHazard.None)
                 .ThenByDescending(g => g.Count())
-                .Select(g => (g.Key, Count: g.Count(), Classes: g.Select(v => v.Clue?.Class).Distinct().OfType<uint>().ToList()))
+                .Select(g => (g.Key, Count: g.Count(), Classes: g.Select(v => v.Clue?.Class).Distinct().OfType<uint>().ToList(),
+                    Role: g.Any(v => v.Clue == null && v.Role == g.Key)))
                 .ToList();
             List("kind", kinds.Select(k => k.Key), em.HiddenVolumeKinds, k =>
             {
@@ -76,6 +77,8 @@ internal sealed class VolumeFilterPanel
                 return k == EntityManager.PlainVolumeKind
                     ? (LM.Get("GUI_Volumes_Plain", entry.Count), new Vector3(em.VolumeColor.X, em.VolumeColor.Y, em.VolumeColor.Z),
                         LM.Get("GUI_Volumes_PlainHint"))
+                    : entry.Role
+                    ? ($"{k} ({entry.Count})", ClueClasses.RoleColour(k), LM.Get("GUI_Volumes_RoleHint"))
                     : ($"{k} ({entry.Count})", ClueClasses.Colour(k),
                         LM.Get("GUI_Volumes_ClueHint", string.Join(", ", entry.Classes.Select(c => $"0x{c:X}"))));
             });

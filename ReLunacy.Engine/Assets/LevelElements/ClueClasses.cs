@@ -59,6 +59,31 @@ public static class ClueClasses
         [(Games.GameId.ACrackInTime, 0x4BC, 0xD0)] = "Gravity volume",
     };
 
+    /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
+    /// gravity volume. Only links that resolve count; nothing is guessed from names.</summary>
+    public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game)
+    {
+        var byName = volumes.Where(v => v.Name != null).ToLookup(v => v.Name!);
+        foreach (var volume in volumes)
+            if (volume.Clue is { } clue)
+                foreach (var reference in clue.References)
+                {
+                    if (reference.Kind != "Volume" || FieldName(game, clue.Class, reference.Offset) is not { } field) continue;
+                    foreach (var target in byName[reference.Name])
+                    {
+                        target.Role = field;
+                        target.RoleSource = $"{clue.Name} ({clue.ClassName} +0x{reference.Offset:X})";
+                    }
+                }
+    }
+
+    /// <summary>A volume role's colour (see <see cref="Volume.Role"/>).</summary>
+    public static System.Numerics.Vector3 RoleColour(string role) => role switch
+    {
+        "Gravity volume" => new(0.62f, 0.4f, 1f),
+        _ => ColourOf(role),
+    };
+
     /// <summary>The name of the settings field at <paramref name="offset"/> of a Clue (or controller) class, when known.</summary>
     public static string? FieldName(Games.GameId? game, uint cls, int offset) =>
         game is { } g && KnownFields.TryGetValue((g, cls, offset), out var name) ? name : null;

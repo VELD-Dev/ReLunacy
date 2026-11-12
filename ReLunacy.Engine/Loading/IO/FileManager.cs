@@ -11,6 +11,9 @@ public class FileManager : IDisposable
     // A level's data can be split across sibling archives, so a single archive reference
     // isn't enough to resolve every file.
     private readonly List<PSARC> _archives = [];
+    // Where each of _archives was opened from (empty for one handed over already open), so a save can
+    // find the file to rewrite and the archives can be released and reopened around it.
+    private readonly List<string> _archivePaths = [];
 
     public Dictionary<string, IGFile?> igfiles = [];
     public Dictionary<string, Stream?> rawfiles = [];
@@ -33,7 +36,9 @@ public class FileManager : IDisposable
     public void LoadFromPsarc(PSARC archive)
     {
         _archives.Clear();
+        _archivePaths.Clear();
         _archives.Add(archive);
+        _archivePaths.Add(string.Empty);
         isOld = ArchiveContains(archive, "main.dat");
         LoadFixedFileSet();
     }
@@ -45,7 +50,9 @@ public class FileManager : IDisposable
         SourcePath = path;
         var primary = new PSARC(File.OpenRead(path));
         _archives.Clear();
+        _archivePaths.Clear();
         _archives.Add(primary);
+        _archivePaths.Add(Path.GetFullPath(path));
         isOld = ArchiveContains(primary, "main.dat");
 
         string? dir = Path.GetDirectoryName(path);
@@ -57,6 +64,7 @@ public class FileManager : IDisposable
                 if (string.Equals(Path.GetFullPath(siblingPath), fullPrimaryPath, StringComparison.OrdinalIgnoreCase))
                     continue;
                 _archives.Add(new PSARC(File.OpenRead(siblingPath)));
+                _archivePaths.Add(Path.GetFullPath(siblingPath));
             }
         }
 
@@ -137,6 +145,42 @@ public class FileManager : IDisposable
         return true;
     }
 
+    /// <summary>Which archive file holds <paramref name="name"/> and its path inside it; null when the level was
+    /// opened from a folder, or the archive was handed over without a path.</summary>
+    public (string ArchivePath, string EntryPath)? Locate(string name)
+    {
+        for (int i = 0; i < _archives.Count; i++)
+            if (ResolveArchivePath(_archives[i], name) is { } entry && _archivePaths[i].Length > 0)
+                return (_archivePaths[i], entry);
+        return null;
+    }
+
+    /// <summary>The bytes of <paramref name="name"/> as the level's files hold them now (not as the editor
+    /// changed them): read fresh from the archive, or the folder.</summary>
+    public byte[]? ReadOriginal(string name)
+    {
+        using var stream = _archives.Count > 0 ? OpenFromArchives(name) : OpenFromFolder(name);
+        if (stream == null) return null;
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        return copy.ToArray();
+    }
+
+    /// <summary>Closes the archive files, so a save can replace them (Windows will not replace an open file).
+    /// Nothing may be read from them until <see cref="ReopenArchives"/>.</summary>
+    public void ReleaseArchives()
+    {
+        foreach (var archive in _archives) archive.Dispose();
+    }
+
+    /// <summary>Opens the archives again after <see cref="ReleaseArchives"/>, at the same paths.</summary>
+    public void ReopenArchives()
+    {
+        for (int i = 0; i < _archives.Count; i++)
+            if (_archivePaths[i].Length > 0)
+                _archives[i] = new PSARC(File.OpenRead(_archivePaths[i]));
+    }
+
     private Stream? OpenFromFolder(string name)
     {
         string path = Path.Combine(folderPath, name);
@@ -186,6 +230,7 @@ public class FileManager : IDisposable
         foreach (var archive in _archives)
             archive.Dispose();
         _archives.Clear();
+        _archivePaths.Clear();
 
         GC.SuppressFinalize(this);
     }

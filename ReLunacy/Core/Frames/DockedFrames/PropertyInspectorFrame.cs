@@ -142,7 +142,19 @@ public class PropertyInspectorFrame : DockedFrame
             t.Rotation = (selectedAngle * (MathF.PI / 180f)).QuaternionFromEuler();
             SelectedEntity.Transform = t;
         }
-        if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
+        // A Moby's scale is one number in the file (MobyInstanceNew +0x2C): one field, applied to the three axes.
+        if (SelectedEntity is EntityMoby)
+        {
+            float uniform = selectedScale.X;
+            if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref uniform, 0f, 0f, "%.3f"))
+            {
+                selectedScale = new Vector3(uniform);
+                var t = SelectedEntity.Transform;
+                t.Scale = selectedScale;
+                SelectedEntity.Transform = t;
+            }
+        }
+        else if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
         {
             // EntityVolume keeps its real box size in its own `scale` field, not Transform.Scale.
             if (SelectedEntity is EntityVolume volume)
@@ -216,9 +228,19 @@ public class PropertyInspectorFrame : DockedFrame
                 ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_VolumeLayer", baseVolume.Layer));
             ImGui.Text(baseVolume.Clue is { } clue
                 ? LM.Get("GUI_Frame_InstanceInspector_VolumeClue", clue.ClassName, $"0x{clue.Class:X}", clue.Name)
-                : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
+                : baseVolume.Role != null
+                    ? LM.Get("GUI_Frame_InstanceInspector_VolumeRole", baseVolume.Role)
+                    : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
             if (baseVolume.Clue is { Settings.Length: > 4 } clueSettings)
+            {
+                // The Clue with what it names (a moon: its gravity volume and its landing pad beam), so the gizmo
+                // moves them as one.
+                var linked = clueSettings.References.Select(r => FindInstance(r.Kind, r.Name)).OfType<Entity>().Distinct().ToList();
+                if (linked.Count > 0 && ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferences", linked.Count)))
+                    SelectionManager.Singleton.Set([.. linked, volumeEntity], volumeEntity);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferencesHint"));
                 RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class);
+            }
             RenderUsedBy(volumeEntity);
             if (baseVolume.Areas.Count > 0)
                 ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_VolumeAreas", string.Join(", ", baseVolume.Areas)));
@@ -482,26 +504,121 @@ public class PropertyInspectorFrame : DockedFrame
         }
         if (!ImGui.TreeNode(LM.Get("GUI_Frame_InstanceInspector_ClueSettings", settings.Length))) return;
         var references = fieldReferences.Select(r => r.Offset).ToHashSet();
+        // What the settings held when first shown, so an edit stands out and can be undone.
+        if (!LoadedSettings.TryGetValue(settings, out var loaded))
+            LoadedSettings.Add(settings, loaded = (byte[])settings.Clone());
+        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowZero"), ref _showZeroWords);
+        ImGui.SameLine();
+        ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsHint"));
         if (ImGui.BeginTable("##cluesettings", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
         {
+            ImGui.TableSetupColumn("offset");
+            ImGui.TableSetupColumn("type");
+            ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch);
             for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
             {
-                uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(offset));
-                if (value == 0 || references.Contains(offset)) continue;
-                float asFloat = BitConverter.UInt32BitsToSingle(value);
-                bool floatLike = float.IsFinite(asFloat) && MathF.Abs(asFloat) is > 1e-6f and < 1e7f;
-                // Four bytes each 0 or 1 are packed booleans (most Clue flags look like 01000000).
-                bool flags = (value & 0xFEFEFEFE) == 0;
+                var word = settings.AsSpan(offset, 4);
+                uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(word);
+                bool edited = !word.SequenceEqual(loaded.AsSpan(offset, 4));
+                if (references.Contains(offset) || (value == 0 && !edited && !_showZeroWords)) continue;
+                ImGui.PushID(offset);
                 ImGui.TableNextRow();
-                ImGui.TableNextColumn(); ImGui.TextDisabled(ClueClasses.FieldName(game, cls, offset) is { } name ? $"+0x{offset:X2} {name}" : $"+0x{offset:X2}");
-                ImGui.TableNextColumn(); ImGui.Text($"{value:X8}");
+
                 ImGui.TableNextColumn();
-                ImGui.Text(flags ? LM.Get("GUI_Frame_InstanceInspector_ClueFlags", value >> 24, value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF)
-                    : floatLike ? $"{asFloat:G6}" : $"{value}");
+                string label = ClueClasses.FieldName(game, cls, offset) is { } name ? $"+0x{offset:X2} {name}" : $"+0x{offset:X2}";
+                if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), label);
+                else ImGui.TextDisabled(label);
+                if (ImGui.BeginPopupContextItem("word_menu"))
+                {
+                    if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
+                        foreach (var other in SettingsOfClass(cls))
+                            if (other.Length >= offset + 4) word.CopyTo(other.AsSpan(offset));
+                    if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
+                        loaded.AsSpan(offset, 4).CopyTo(word);
+                    ImGui.EndPopup();
+                }
+
+                // How the word is read: guessed from its value, or as last chosen for this class and offset.
+                ImGui.TableNextColumn();
+                var type = SettingTypes.TryGetValue((cls, offset), out var chosen) ? chosen : GuessType(value);
+                ImGui.SetNextItemWidth(70f);
+                if (ImGui.BeginCombo("##type", type.ToString()))
+                {
+                    foreach (var option in Enum.GetValues<SettingType>())
+                        if (ImGui.Selectable(option.ToString(), option == type)) SettingTypes[(cls, offset)] = type = option;
+                    ImGui.EndCombo();
+                }
+
+                ImGui.TableNextColumn();
+                ImGui.SetNextItemWidth(-1f);
+                switch (type)
+                {
+                    case SettingType.Float:
+                    {
+                        float f = BitConverter.UInt32BitsToSingle(value);
+                        if (ImGui.DragFloat("##v", ref f, MathF.Max(0.01f, MathF.Abs(f) * 0.01f), 0f, 0f, "%.6g"))
+                            System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(word, f);
+                        break;
+                    }
+                    case SettingType.Int:
+                    {
+                        int n = (int)value;
+                        if (ImGui.InputInt("##v", ref n)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(word, n);
+                        break;
+                    }
+                    case SettingType.Hex:
+                    {
+                        string hex = value.ToString("X8");
+                        if (ImGui.InputText("##v", ref hex, 8, ImGuiInputTextFlags.CharsHexadecimal | ImGuiInputTextFlags.EnterReturnsTrue)
+                            && uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out uint parsed))
+                            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(word, parsed);
+                        break;
+                    }
+                    default:
+                    {
+                        // Four bytes, each its own field: most Clue flags are bytes of 0 or 1 (01 00 00 00).
+                        for (int b = 0; b < 4; b++)
+                        {
+                            if (b > 0) ImGui.SameLine();
+                            int v = word[b];
+                            ImGui.SetNextItemWidth(42f);
+                            if (ImGui.DragInt($"##b{b}", ref v, 0.1f, 0, 255)) word[b] = (byte)v;
+                        }
+                        break;
+                    }
+                }
+                ImGui.PopID();
             }
             ImGui.EndTable();
         }
         ImGui.TreePop();
+    }
+
+    private enum SettingType { Bytes, Float, Int, Hex }
+
+    private static SettingType GuessType(uint value)
+    {
+        float f = BitConverter.UInt32BitsToSingle(value);
+        if (value == 0 || (value & 0xFEFEFEFE) == 0) return SettingType.Bytes;
+        if (float.IsFinite(f) && MathF.Abs(f) is > 1e-6f and < 1e7f) return SettingType.Float;
+        return value < 0x10000 ? SettingType.Int : SettingType.Hex;
+    }
+
+    /// <summary>How each settings word is shown, as last chosen, by class and offset.</summary>
+    private static readonly Dictionary<(uint Class, int Offset), SettingType> SettingTypes = [];
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> LoadedSettings = new();
+    private static bool _showZeroWords = true;
+
+    /// <summary>The settings of every Clue and camera of a class in the level.</summary>
+    private static IEnumerable<byte[]> SettingsOfClass(uint cls)
+    {
+        foreach (var region in EntityManager.Singleton.Regions)
+        {
+            foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
+                if (volume.BaseVolume.Clue is { } clue && clue.Class == cls) yield return clue.Settings;
+            foreach (var camera in region.Cameras.Entities.OfType<EntityCamera>())
+                if (camera.Controller.Class == cls) yield return camera.Controller.Settings;
+        }
     }
 
     /// <summary>A reference shown as a link: a click selects the instance it names (its volume, for a Clue), and

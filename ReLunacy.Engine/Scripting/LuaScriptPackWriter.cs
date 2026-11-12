@@ -21,9 +21,9 @@ public sealed record LuaScriptSaveResult(
 /// Three things make this safe enough to point at a real game file. Nothing is written unless the
 /// source compiles, so a syntax error cannot leave a half-updated archive. The rebuilt archive is
 /// verified in full before it replaces anything - every entry read back and compared, which takes
-/// seconds even for a 222MB archive, so there is no reason to check less. And the original is
-/// copied aside the first time, once, so the backup is always the pristine file rather than the
-/// previous edit.
+/// seconds even for a 222MB archive, so there is no reason to check less. And the archive is
+/// copied aside before every save under the date and time (<see cref="Backups"/>), so no save
+/// overwrites an earlier backup and the shipped file is always among them.
 ///
 /// The writing itself goes through <see cref="PsarcPatcher"/> rather than LibreFios's builder, so
 /// that every file this edit does not touch keeps the exact bytes it shipped with. LibreFios stays
@@ -39,7 +39,7 @@ public sealed record LuaScriptSaveResult(
 /// The stages of writing a script back into an archive, in the order they run.
 ///
 /// Worth reporting because every one of them is slow on a real game archive: the whole thing is
-/// read into memory, rebuilt, read back and compared entry by entry, and copied aside once. On a
+/// read into memory, rebuilt, read back and compared entry by entry, and copied aside. On a
 /// 222MB archive that is seconds per stage, and the editor used to do all of it on the UI thread
 /// with nothing on screen to say so.
 /// </summary>
@@ -168,18 +168,15 @@ public static class LuaScriptPackWriter
                     "the rebuilt archive did not verify, so the original was left alone", problems);
             }
 
-            // 4. Keep the pristine original aside, once. A later save must not overwrite the backup
-            //    with an already-edited archive.
-            string backupPath = archivePath + ".bak";
-            bool madeBackup = !File.Exists(backupPath);
+            // 4. Keep the archive as it was aside, every time, under its own date and time (Backups).
             onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.BackingUp, 0f));
-            if (madeBackup) File.Copy(archivePath, backupPath);
+            string backupPath = Backups.Create(archivePath);
 
             onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Finishing, 0f));
             File.Move(temporaryPath, archivePath, overwrite: true);
 
             var result = new LuaScriptSaveResult(
-                true, summary + RefreshArchiveSizes(archivePath), madeBackup ? backupPath : null, []);
+                true, summary + RefreshArchiveSizes(archivePath), backupPath, []);
             onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Finishing, 1f));
             return result;
         }
