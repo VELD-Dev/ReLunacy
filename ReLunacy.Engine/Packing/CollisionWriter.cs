@@ -14,9 +14,9 @@ namespace ReLunacy.Engine.Packing;
 ///     0x400 (primitive set) kept as the file has it, since it says what the shape is.
 /// A shape is stored once and placed by every instance using it, so a face edited once is written once.
 ///
-/// Not written: an instance moved with its Tie (matrix, box, sphere). The Tie itself is not saved yet
-/// (zones.dat), and the spatial grid the game finds collision through (header +0x30) is not decoded, so a
-/// moved instance could fall out of the cells it is listed in. Those are reported instead.
+///   - an instance moved with its Tie (CollisionEditor.FollowEntity): its matrix, box and sphere. The spatial grid
+///     the game finds collision through (header +0x30) is not decoded and not rewritten, so a Tie moved far could
+///     fall out of the cells its collision is listed in: that is reported with the save.
 ///
 /// The data is the old engine's whole collision.dat, or the new engine's section 0x2900 of a region's.
 /// </summary>
@@ -78,19 +78,36 @@ public static class CollisionWriter
             ushort value = (ushort)((instance.ShapeFlags & ~PrimitiveSetFlag) | (held & PrimitiveSetFlag));
             if (value != held) { BinaryPrimitives.WriteUInt16BigEndian(file.AsSpan(at), value); flagged++; }
 
-            int matrix = record + (collision.IsNewEngine ? 0x30 : 0x00);
-            float heldX = BinaryPrimitives.ReadSingleBigEndian(file.AsSpan(matrix + 0x30));
-            float heldY = BinaryPrimitives.ReadSingleBigEndian(file.AsSpan(matrix + 0x34));
-            float heldZ = BinaryPrimitives.ReadSingleBigEndian(file.AsSpan(matrix + 0x38));
-            var t = instance.Transform.Translation;
-            if (MathF.Abs(t.X - heldX) > 1e-3f || MathF.Abs(t.Y - heldY) > 1e-3f || MathF.Abs(t.Z - heldZ) > 1e-3f) moved++;
+            // Moved with its Tie: matrix, box and sphere, all as the editor carried them (CollisionScene.MovePlacement).
+            var (matrixAt, sphereAt, minAt, maxAt) = collision.IsNewEngine ? (0x30, 0x70, 0x00, 0x10) : (0x00, 0x40, 0x50, 0x60);
+            var m = instance.Transform;
+            bool moves = false;
+            for (int r = 0; r < 4 && !moves; r++)
+                for (int c = 0; c < 4 && !moves; c++)
+                    moves = MathF.Abs(m[r, c] - F(file, record + matrixAt + (r * 4 + c) * 4)) > 1e-4f * MathF.Max(1f, MathF.Abs(m[r, c]));
+            if (!moves) continue;
+            for (int r = 0; r < 4; r++)
+                for (int c = 0; c < 4; c++)
+                    Put(file, record + matrixAt + (r * 4 + c) * 4, m[r, c]);
+            Put3(file, record + minAt, instance.BoundsMin);
+            Put3(file, record + maxAt, instance.BoundsMax);
+            Put3(file, record + sphereAt, new System.Numerics.Vector3(instance.BoundingSphere.X, instance.BoundingSphere.Y, instance.BoundingSphere.Z));
+            Put(file, record + sphereAt + 12, instance.BoundingSphere.W);
+            moved++;
         }
         if (flagged > 0) changes.Add($"{flagged} collision instance(s): flags");
         if (moved > 0)
-            problems.Add($"{moved} collision instance(s) moved with their Tie, not written: Ties are not saved yet, and the collision grid is not decoded");
+        {
+            changes.Add($"{moved} collision instance(s): moved with their Tie");
+            problems.Add($"{moved} collision instance(s) moved: the game finds collision through a spatial grid (header +0x30) that is not decoded nor rewritten, so a Tie moved far from where it was may lose its collision there");
+        }
 
         return (file, changes, problems);
     }
+
+    private static float F(byte[] file, int at) => BinaryPrimitives.ReadSingleBigEndian(file.AsSpan(at));
+    private static void Put(byte[] file, int at, float value) => BinaryPrimitives.WriteSingleBigEndian(file.AsSpan(at), value);
+    private static void Put3(byte[] file, int at, System.Numerics.Vector3 v) { Put(file, at, v.X); Put(file, at + 4, v.Y); Put(file, at + 8, v.Z); }
 
     /// <summary>The file a level's (old engine) or a region's (new engine) collision is read from.</summary>
     public static string FileName(FileManager files, string region) =>

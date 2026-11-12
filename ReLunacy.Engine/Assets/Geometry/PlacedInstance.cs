@@ -28,6 +28,15 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
 
     private readonly Matrix4x4? _rawMatrix;
 
+    /// <summary>Where a Tie placement's 0x80-byte record starts in the file it was read from (zones.dat on the new
+    /// engine, main.dat on the old), for a save to write it back; -1 when unknown.</summary>
+    public long SourceOffset { get; init; } = -1;
+
+    /// <summary>New engine, a Moby's instance settings: its class struct (starting with the class number), edited
+    /// in place by the inspector and written back by a save, and the fields that name another instance.</summary>
+    public byte[] Settings { get; init; } = [];
+    public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; init; } = [];
+
     public PlacedInstance(TAsset asset, Transform3D transform, ulong tuid, ushort group = 0, string name = "", float displayDistance = -1f, float updateDistance = -1f)
     {
         Asset = asset ?? throw new ArgumentNullException(nameof(asset));

@@ -18,6 +18,12 @@ public class EntityUFrag : Entity
 
     public RenderMesh UFragMesh { get; protected set; }
 
+    /// <summary>The anchor as the file last held it (as loaded, then as last saved). A UFrag's record holds a
+    /// position and a bounding sphere, no rotation or scale: a save moves both by how far the anchor moved since.</summary>
+    public Vector3 SavedTranslation { get; private set; }
+
+    public void MarkSaved() => SavedTranslation = Transform.Translation;
+
     public EntityUFrag(IUFrag ufrag, AssetManager assetManager)
     {
         UFrag = ufrag;
@@ -59,6 +65,7 @@ public class EntityUFrag : Entity
         // are brought back to world scale by the reciprocal quantisation here.
         var anchor = ufrag.GetAnchor();
         Transform = new Transform { Translation = anchor, Rotation = Quaternion.Identity, Scale = Vector3.One / UFragQuantisation };
+        SavedTranslation = anchor;
 
         // BoundingSphere is LOCAL space per Entity's convention. The file gives centre/radius in
         // world units, so convert them back into the x256 mesh space and let WorldBoundingSphere's

@@ -100,6 +100,23 @@ public static class ClueClasses
     public static IReadOnlyList<(int Offset, System.Numerics.Vector3 Colour)> RadiiOf(Games.GameId? game, uint cls) =>
         game is { } g && RadiusFields.TryGetValue((g, cls), out var fields) ? fields : [];
 
+    /// <summary>
+    /// Instances known to break the game when edited, by game and name: the editor warns on them and a save lists
+    /// them. Each one is a finding, with what it did.
+    /// </summary>
+    private static readonly (Games.GameId Game, string Name, string Effect)[] KnownBreaking =
+    [
+        // A space sector moon's ap volumes (22 per moon, moon_ap00_vol..moon_ap21_vol, plus moon_ap00_vol1 and three
+        // _homevol): no Clue, controller, Area, Scent or script refers to them - they are not in the trimmed handle
+        // list the scripts use - so the engine finds them itself. Moving moon_ap00_vol1 by 4.5 units left
+        // space_sector_1 loading for ever (user test, 2026-11-12).
+        (Games.GameId.ACrackInTime, "moon_ap00_vol1", "Moving it left space_sector_1 loading for ever (the engine uses the moon_ap volumes itself)."),
+    ];
+
+    /// <summary>What editing this instance is known to do to the game, or null.</summary>
+    public static string? KnownBreakingEffect(Games.GameId? game, string? name) =>
+        game is { } g && name != null && Array.Find(KnownBreaking, k => k.Game == g && k.Name == name) is { Effect: { } effect } ? effect : null;
+
     /// <summary>The name of the settings field at <paramref name="offset"/> of a Clue (or controller) class, when known.</summary>
     public static string? FieldName(Games.GameId? game, uint cls, int offset) =>
         game is { } g && KnownFields.TryGetValue((g, cls, offset), out var name) ? name : null;

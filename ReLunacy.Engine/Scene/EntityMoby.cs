@@ -37,6 +37,11 @@ public class EntityMoby : Entity
     /// <summary>The instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
     public readonly ulong Tuid;
 
+    /// <summary>The instance's settings (new engine) and the fields of them that name another instance; see
+    /// PlacedInstance.Settings. Empty when it has none.</summary>
+    public byte[] Settings { get; } = [];
+    public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; } = [];
+
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
         BaseMoby = mobyInstance.Asset;
@@ -59,6 +64,11 @@ public class EntityMoby : Entity
         DisplayDistance = mobyInstance.DisplayDistance;
         Group = mobyInstance.Group;
         Tuid = mobyInstance.ID;
+        if (mobyInstance is Assets.Geometry.PlacedInstance<IMoby> placed)
+        {
+            Settings = placed.Settings;
+            References = placed.References;
+        }
         UpdateDistance = mobyInstance.UpdateDistance;
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";

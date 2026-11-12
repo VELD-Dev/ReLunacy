@@ -18,7 +18,8 @@ public static class PathRoles
     public const string Unassigned = "Unassigned";
 
     /// <summary>Gives every path its role. Clues come first, then cameras, then other controllers, then the name.</summary>
-    public static void Assign(IReadOnlyList<GameplayPath> paths, IReadOnlyList<Volume> volumes, IReadOnlyList<GameplayController> controllers)
+    public static void Assign(IReadOnlyList<GameplayPath> paths, IReadOnlyList<Volume> volumes, IReadOnlyList<GameplayController> controllers,
+        IEnumerable<(string Name, string Asset, IReadOnlyList<ClueReference> References)>? mobys = null)
     {
         // References name their target; several paths can share a name, and all of them get the role.
         var found = new Dictionary<string, (int Rank, string Role, string Source)>();
@@ -39,8 +40,12 @@ public static class PathRoles
                     // CamArgFollowPath: +0x64 the camera path, +0x68 the look-at path (Fianshoo's NEW_ENGINE_CAMERAS).
                     Note(reference.Name, 1, reference.Offset == 0x68 ? CameraLookAt : Camera, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
                 else
-                    Note(reference.Name, 2, cls, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
+                    Note(reference.Name, 3, cls, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
             }
+        // A Moby's settings naming a path: an enemy's patrol (dust_creeper +0x808), its role the Moby's asset.
+        foreach (var (name, asset, references) in mobys ?? [])
+            foreach (var reference in references)
+                if (reference.Kind == "Path") Note(reference.Name, 2, asset, $"{name} ({asset} +0x{reference.Offset:X})");
 
         foreach (var path in paths)
         {

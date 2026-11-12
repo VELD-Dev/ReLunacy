@@ -130,6 +130,8 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.Text(SelectedEntity.GetType().Name);
         ImGui.EndGroup();
 
+        if (ClueClasses.KnownBreakingEffect(Core.LunaWindow.Instance.Level?.GameDefinition?.Id, SelectedEntity.Name) is { } breaking)
+            ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), LM.Get("GUI_Frame_InstanceInspector_KnownBreaking", breaking));
         ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_TransformCategory"));
         // Undo: the entity as it was at the start of this frame, taken as the step's "before" when a field is
         // clicked into (a drag can change the value on that same frame).
@@ -212,6 +214,15 @@ public class PropertyInspectorFrame : DockedFrame
 
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenMobyInAssetViewer(moby.BaseMoby.Id);
+
+            // The instance's class data (new engine): the class struct, its references, editable like a Clue's.
+            if (moby.Settings.Length >= 4)
+            {
+                uint mobyClass = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(moby.Settings);
+                ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_MobySettings"));
+                ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_MobyClass", $"0x{mobyClass:X}", moby.BaseMoby.Name?.Split('/')[^1] ?? "?"));
+                RenderSettings(moby.Settings, moby.References, mobyClass, moby: true);
+            }
 
             ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_AnimationCategory"));
             RenderAnimationSection(moby);
@@ -501,7 +512,7 @@ public class PropertyInspectorFrame : DockedFrame
 
     /// <summary>A Clue's or a controller's settings: the fields that name another instance, then every non-zero
     /// field raw (their meaning is not decoded yet), typed as flags, a float or an integer.</summary>
-    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls)
+    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls, bool moby = false)
     {
         var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
         // References first, named where the field is known, each a link to what it names.
@@ -513,6 +524,17 @@ public class PropertyInspectorFrame : DockedFrame
             if (field != null) { ImGui.TextUnformatted(field + ":"); ImGui.SameLine(); }
             ReferenceLink(reference.Kind, reference.Name);
         }
+        // The class tree, from the game's own EBOOT when it is decrypted (ClassRegistry): each class with its struct
+        // size, so a field's owner can be told.
+        var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
+        if (registry != null)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ClassChain",
+                string.Join("  >  ", registry.Chain(cls).Select(c => ClassLabel(registry, c)))));
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ClassChainHint", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(registry.SourcePath))) ?? ""));
+            if (registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
+                ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_ClassSizeMismatch", settings.Length, classSize));
+        }
         if (!ImGui.TreeNode(LM.Get("GUI_Frame_InstanceInspector_ClueSettings", settings.Length))) return;
         var references = fieldReferences.Select(r => r.Offset).ToHashSet();
         // What the settings held when first shown, so an edit stands out and can be undone.
@@ -523,11 +545,13 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowZero"), ref _showZeroWords);
         ImGui.SameLine();
         ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsHint"));
-        if (ImGui.BeginTable("##cluesettings", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
+        var survey = Survey(cls, moby);
+        if (ImGui.BeginTable("##cluesettings", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
         {
             ImGui.TableSetupColumn("offset");
             ImGui.TableSetupColumn("type");
             ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("class");
             for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
             {
                 var word = settings.AsSpan(offset, 4);
@@ -539,6 +563,8 @@ public class PropertyInspectorFrame : DockedFrame
 
                 ImGui.TableNextColumn();
                 string label = ClueClasses.FieldName(game, cls, offset) is { } name ? $"+0x{offset:X2} {name}" : $"+0x{offset:X2}";
+                // The class that declares the field, when it is not the instance's own.
+                if (registry?.Owner(cls, offset) is { } owner && owner != cls) label += $"  [{ClassLabel(registry, owner)}]";
                 if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), label);
                 else ImGui.TextDisabled(label);
                 if (ImGui.BeginPopupContextItem("word_menu"))
@@ -547,7 +573,7 @@ public class PropertyInspectorFrame : DockedFrame
                     {
                         var source = word.ToArray();
                         int at = offset;
-                        var targets = SettingsOfClass(cls).ToList();
+                        var targets = SettingsOfClass(cls, moby).ToList();
                         Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_CopySetting"), targets, () =>
                         {
                             foreach (var other in targets)
@@ -620,6 +646,14 @@ public class PropertyInspectorFrame : DockedFrame
                         break;
                     }
                 }
+                // Across the class: what every instance of it in the level holds here.
+                ImGui.TableNextColumn();
+                if (survey.Count > 1 && survey.Words.TryGetValue(offset, out var across))
+                {
+                    if (across.Distinct == 1) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsSameOnAll", survey.Count));
+                    else ImGui.TextColored(new Vector4(0.6f, 0.85f, 1f, 1f), LM.Get("GUI_Frame_InstanceInspector_SettingsValues", across.Distinct, survey.Count));
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(across.Sample);
+                }
                 ImGui.PopID();
             }
             ImGui.EndTable();
@@ -641,6 +675,17 @@ public class PropertyInspectorFrame : DockedFrame
         }
     }
 
+    /// <summary>A class as the inspector names it: its number, and a name when one is known - the game's own class
+    /// table, else All 4 One's for the same number (marked: numbers mostly, not always, mean the same class).</summary>
+    private static string ClassLabel(Engine.Loading.Readers.ClassRegistry registry, uint cls)
+    {
+        var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+        string? name = GameClassNames.Name(game, cls);
+        if (name == null && GameClassNames.Name(Engine.Games.GameId.All4One, cls) is { } borrowed) name = borrowed + "?";
+        string size = registry.Sizes.TryGetValue(cls, out int bytes) ? $" {bytes}B" : "";
+        return name != null ? $"0x{cls:X} {name}{size}" : $"0x{cls:X}{size}";
+    }
+
     private enum SettingType { Bytes, Float, Int, Hex }
 
     private static SettingType GuessType(uint value)
@@ -658,14 +703,58 @@ public class PropertyInspectorFrame : DockedFrame
 
     /// <summary>The settings of every Clue and camera of a class in the level.</summary>
     private static IEnumerable<byte[]> SettingsOfClass(uint cls)
+        => SettingsOfClass(cls, moby: false);
+
+    /// <summary>The settings of every instance of a class in the level: Mobys, or Clues and cameras (whose class
+    /// numbers are another family).</summary>
+    private static IEnumerable<byte[]> SettingsOfClass(uint cls, bool moby)
     {
         foreach (var region in EntityManager.Singleton.Regions)
         {
+            if (moby)
+            {
+                foreach (var m in region.MobyInstances.Entities.OfType<EntityMoby>())
+                    if (m.Settings.Length >= 4 && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m.Settings) == cls)
+                        yield return m.Settings;
+                continue;
+            }
             foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
                 if (volume.BaseVolume.Clue is { } clue && clue.Class == cls) yield return clue.Settings;
             foreach (var camera in region.Cameras.Entities.OfType<EntityCamera>())
                 if (camera.Controller.Class == cls) yield return camera.Controller.Settings;
         }
+    }
+
+    private sealed record ClassSurvey(int Count, Dictionary<int, (int Distinct, string Sample)> Words);
+    private static readonly Dictionary<(uint, bool), ClassSurvey> Surveys = [];
+    private static int _surveyFrame = -1;
+
+    /// <summary>
+    /// What every instance of a class in the level holds at each word of its settings: how many distinct values,
+    /// and the commonest. A word the same on all of them is a class default; one that varies is where instances
+    /// differ - the fields worth trying first. Recomputed each second, so edits show.
+    /// </summary>
+    private static ClassSurvey Survey(uint cls, bool moby)
+    {
+        int frame = (int)(ImGui.GetTime());
+        if (frame != _surveyFrame) { Surveys.Clear(); _surveyFrame = frame; }
+        if (Surveys.TryGetValue((cls, moby), out var cached)) return cached;
+        var all = SettingsOfClass(cls, moby).ToList();
+        var words = new Dictionary<int, (int, string)>();
+        int length = all.Count > 0 ? all.Min(a => a.Length) : 0;
+        for (int o = 4; o + 4 <= length; o += 4)
+        {
+            var values = all.GroupBy(a => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(a.AsSpan(o)))
+                .OrderByDescending(g => g.Count()).ToList();
+            string sample = string.Join("\n", values.Take(6).Select(g =>
+            {
+                float f = BitConverter.UInt32BitsToSingle(g.Key);
+                string asFloat = float.IsFinite(f) && MathF.Abs(f) is > 1e-4f and < 1e7f ? $"  ({f:G5})" : "";
+                return $"{g.Key:X8}{asFloat}  x{g.Count()}";
+            })) + (values.Count > 6 ? $"\n... {values.Count - 6} more" : "");
+            words[o] = (values.Count, sample);
+        }
+        return Surveys[(cls, moby)] = new ClassSurvey(all.Count, words);
     }
 
     /// <summary>A reference shown as a link: a click selects the instance it names (its volume, for a Clue), and
@@ -726,6 +815,10 @@ public class PropertyInspectorFrame : DockedFrame
                     foreach (var reference in camera.Controller.References)
                         if (reference.Kind == "Volume" && reference.Name == name)
                             _usedBy.Add(("Controller", camera.Controller.Name, $"{camera.Controller.ClassName ?? $"0x{camera.Controller.Class:X}"} +0x{reference.Offset:X}"));
+                foreach (var moby in region.MobyInstances.Entities.OfType<EntityMoby>())
+                    foreach (var reference in moby.References)
+                        if (reference.Kind == "Volume" && reference.Name == name)
+                            _usedBy.Add(("Moby", moby.Name, $"{moby.BaseMoby.Name?.Split('/')[^1]} +0x{reference.Offset:X}"));
             }
         }
         if (_usedBy.Count == 0) return;

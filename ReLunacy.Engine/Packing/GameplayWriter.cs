@@ -60,7 +60,9 @@ public static class GameplayWriter
         var byFolderFile = new Dictionary<string, byte[]>(StringComparer.Ordinal);
 
         // What to write: each region's gameplay (new engine only so far), then the collision (both engines).
-        foreach (var (name, label, patch) in Files(files, regions, collisions))
+        // What to do once the files are replaced (shared settings blocks brought in step in memory).
+        var afterSave = new List<Action>();
+        foreach (var (name, label, patch) in Files(files, regions, collisions, afterSave))
         {
             byte[]? original = files.ReadOriginal(name);
             if (original == null) { problems.Add($"{name}: not found"); continue; }
@@ -126,20 +128,50 @@ public static class GameplayWriter
         // The files hold the volumes as they are now: the next save measures their edits from here, not from the
         // load (EntityVolume.LoadedMatrix), or it would apply this save's edits a second time.
         if (outputPath == null)
+            foreach (var action in afterSave) action();
+        if (outputPath == null)
             foreach (var region in regions)
-                foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
-                    volume.MarkSaved();
+            {
+                foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>()) volume.MarkSaved();
+                foreach (var zone in region.Zones)
+                {
+                    foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>()) tie.MarkSaved();
+                    foreach (var ufrag in zone.UFrags.Entities.OfType<EntityUFrag>()) ufrag.MarkSaved();
+                }
+            }
 
         string where = outputPath ?? string.Join(", ", byArchive.Keys.Concat(byFolderFile.Keys).Select(Path.GetFileName));
         return new LevelSaveResult(true, $"{changes.Count} change(s) written to {where}", backup, changes, problems);
     }
 
+    /// <summary>What a save would write, without writing: every file's changes and problems (the Save dialog's list).</summary>
+    public static (List<string> Changes, List<string> Problems) Preview(FileManager files, IReadOnlyList<EntityRegion> regions,
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null)
+    {
+        var changes = new List<string>();
+        var problems = new List<string>();
+        foreach (var (name, label, patch) in Files(files, regions, collisions))
+        {
+            if (files.ReadOriginal(name) is not { } original) continue;
+            var (_, fileChanges, fileProblems) = patch(original);
+            changes.AddRange(fileChanges.Select(c => $"{label}: {c}"));
+            problems.AddRange(fileProblems.Select(p => $"{label}: {p}"));
+        }
+        return (changes, problems);
+    }
+
     private static IEnumerable<(string Name, string Label, Func<byte[], (byte[], List<string>, List<string>)> Patch)> Files(
-        FileManager files, IReadOnlyList<EntityRegion> regions, IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions)
+        FileManager files, IReadOnlyList<EntityRegion> regions, IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions,
+        List<Action>? afterSave = null)
     {
         if (!files.isOld)
             foreach (var region in regions)
-                yield return ($"{region.RegionName}/gp_prius.dat", region.RegionName, original => Patch(original, region));
+                yield return ($"{region.RegionName}/gp_prius.dat", region.RegionName, original => Patch(original, region, afterSave));
+        // Ties and UFrags: every region's zones are in one file (zones.dat, or the old engine's main.dat).
+        var ties = regions.SelectMany(r => r.Zones).SelectMany(z => z.TieInstances.Entities).OfType<EntityTie>().ToList();
+        var ufrags = regions.SelectMany(r => r.Zones).SelectMany(z => z.UFrags.Entities).OfType<EntityUFrag>().ToList();
+        if (ties.Count + ufrags.Count > 0)
+            yield return (ZoneWriter.FileName(files.isOld), "zones", original => ZoneWriter.Patch(original, ties, ufrags, files.isOld));
         if (collisions == null) yield break;
         foreach (var (region, collision) in collisions)
         {
@@ -185,14 +217,20 @@ public static class GameplayWriter
     }
 
     /// <summary>One region's gp_prius with the region's changes written over a copy of <paramref name="original"/>.</summary>
-    public static (byte[] Bytes, List<string> Changes, List<string> Problems) Patch(byte[] original, EntityRegion region)
+    /// <summary>The game the level being saved is from (for the known-breaking instances); set by the caller.</summary>
+    public static Games.GameId? Game { get; set; }
+
+    public static (byte[] Bytes, List<string> Changes, List<string> Problems) Patch(byte[] original, EntityRegion region,
+        List<Action>? afterSave = null)
     {
         byte[] file = (byte[])original.Clone();
         var changes = new List<string>();
         var problems = new List<string>();
         var prius = new IGFile(new MemoryStream(original, writable: false));
 
-        // Mobys.
+        // Mobys: placement; their settings (record +0x0C offset, +0x10 size, like a Clue's) are written with the
+        // others below.
+        var settingsUsers = new List<(string Label, uint Offset, uint Size, byte[] Settings)>();
         if (Records(prius, MobyRecords, MobyMeta) is { } mobys)
             foreach (var moby in region.MobyInstances.Entities.OfType<EntityMoby>())
             {
@@ -203,6 +241,8 @@ public static class GameplayWriter
                 if (Rotation(file, record + 0x20, t.Rotation)) what.Add("rotation");
                 if (Scalar(file, record + 0x2C, t.Scale.X)) what.Add("scale");
                 if (what.Count > 0) changes.Add($"Moby {moby.Name}: {string.Join(", ", what)}");
+                if (moby.Settings.Length > 0)
+                    settingsUsers.Add(($"Moby {moby.Name}", Word(original, record + 0x0C), Word(original, record + 0x10), moby.Settings));
             }
 
         // Volumes and their Clues' settings.
@@ -211,12 +251,14 @@ public static class GameplayWriter
         foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
         {
             if (volumes != null && volumes.TryTake(volume.BaseVolume.Id, out long record) && VolumeMatrix(file, record, volume))
+            {
                 changes.Add($"volume {volume.Name}: placement");
+                if (Assets.LevelElements.ClueClasses.KnownBreakingEffect(Game, volume.BaseVolume.Name) is { } effect)
+                    problems.Add($"volume {volume.Name} is known to break the game when edited: {effect}");
+            }
             if (volume.BaseVolume.Clue is { } clue && clues != null && clues.TryTake(clue.Tuid, out long clueRecord))
             {
-                uint offset = Word(original, clueRecord + 0x04), size = Word(original, clueRecord + 0x08);
-                if (Settings(file, original, offset, size, clue.Settings, out string? problem)) changes.Add($"Clue {clue.Name}: settings");
-                if (problem != null) problems.Add($"Clue {clue.Name}: {problem}");
+                settingsUsers.Add(($"Clue {clue.Name}", Word(original, clueRecord + 0x04), Word(original, clueRecord + 0x08), clue.Settings));
             }
         }
 
@@ -228,11 +270,11 @@ public static class GameplayWriter
                 var what = new List<string>();
                 if (Position(file, record + 0x08, camera.Transform.Translation)) what.Add("position");
                 if (Rotation(file, record + 0x14, camera.Transform.Rotation)) what.Add("rotation");
-                uint offset = Word(original, record), size = Word(original, record + 0x04);
-                if (Settings(file, original, offset, size, camera.Controller.Settings, out string? problem)) what.Add("settings");
-                if (problem != null) problems.Add($"camera {camera.Name}: {problem}");
                 if (what.Count > 0) changes.Add($"camera {camera.Name}: {string.Join(", ", what)}");
+                settingsUsers.Add(($"camera {camera.Name}", Word(original, record), Word(original, record + 0x04), camera.Controller.Settings));
             }
+
+        WriteSettings(file, original, settingsUsers, changes, problems, afterSave);
 
         // Paths: their points, where the count is the file's.
         if (Records(prius, PathRecords, PathMeta) is { } paths)
@@ -377,6 +419,49 @@ public static class GameplayWriter
         foreach (var (row, column) in MatrixCells)
             Put(file, at + (row * 4 + column) * 4, value[row, column]);
         return true;
+    }
+
+    /// <summary>
+    /// The settings of every Moby, Clue and camera, by the block they point at. Identical blocks are stored once and
+    /// shared (moon1a's and moon1c's landing pad beams; Clues too), so the block is written from the instance whose
+    /// bytes differ from the file, and two instances of one block edited differently are reported. Once the save has
+    /// replaced the file (<paramref name="afterSave"/>), every instance of a written block is given the written
+    /// bytes: an untouched sibling still holding the old ones would otherwise write them back on the next save.
+    /// </summary>
+    private static void WriteSettings(byte[] file, byte[] original, List<(string Label, uint Offset, uint Size, byte[] Settings)> users,
+        List<string> changes, List<string> problems, List<Action>? afterSave)
+    {
+        foreach (var block in users.Where(u => u.Offset != 0).GroupBy(u => u.Offset))
+        {
+            var members = block.ToList();
+            var edited = members.Where(u => !SameAsFile(original, u.Offset, u.Size, u.Settings)).ToList();
+            if (edited.Count == 0) continue;
+            var chosen = edited[0];
+            foreach (var other in edited.Skip(1))
+                if (!other.Settings.AsSpan().SequenceEqual(chosen.Settings))
+                    problems.Add($"{other.Label}: its settings are shared with {chosen.Label}, edited differently; {chosen.Label}'s were written");
+            if (!Settings(file, original, chosen.Offset, chosen.Size, chosen.Settings, out string? problem))
+            {
+                if (problem != null) problems.Add($"{chosen.Label}: {problem}");
+                continue;
+            }
+            changes.Add(members.Count > 1
+                ? $"{chosen.Label}: settings (shared with {members.Count - 1} other instance(s), which change too)"
+                : $"{chosen.Label}: settings");
+            var written = (byte[])chosen.Settings.Clone();
+            afterSave?.Add(() =>
+            {
+                foreach (var member in members)
+                    if (member.Settings.Length == written.Length) written.CopyTo(member.Settings, 0);
+            });
+        }
+    }
+
+    /// <summary>Whether a settings struct is what the file holds (unedited).</summary>
+    private static bool SameAsFile(byte[] original, uint offset, uint size, byte[] settings)
+    {
+        long at = GameplayGroupReader.SettingsStructOffset(original, offset, size);
+        return at >= 0 && at + settings.Length <= original.Length && original.AsSpan((int)at, settings.Length).SequenceEqual(settings);
     }
 
     /// <summary>A settings struct written over its bytes where they differ; refused when it is not the size the

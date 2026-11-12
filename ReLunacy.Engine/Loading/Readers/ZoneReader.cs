@@ -178,7 +178,7 @@ public sealed class ZoneReader
     {
         var ufragShaderTuids = ReadUFragShaderTuids(legacyZone);
         ITexture?[] blendMasks = lightingReader?.ReadZoneBlendMasks(legacyZone.zoneIGFile, tuid) ?? [];
-        var ufrags = ReadUFrags(legacyZone, ufragShaderTuids, newEngineLightmapRemap, blendMasks);
+        var ufrags = ReadUFrags(legacyZone, ufragShaderTuids, newEngineLightmapRemap, blendMasks, sourceFileBaseOffset);
         var tieInstances = ReadTieInstances(legacyZone, sourceFileBaseOffset, newEngineLightmapRemap, lightingReader, tuid);
 
         return new Assets.Levels.Zone(
@@ -364,7 +364,8 @@ public sealed class ZoneReader
         Objects.Zone legacyZone,
         ulong[]? shaderTuids,
         IReadOnlyDictionary<ushort, ushort>? newEngineLightmapRemap = null,
-        ITexture?[]? blendMasks = null)
+        ITexture?[]? blendMasks = null,
+        uint sourceFileBaseOffset = 0)
     {
         var ufrags = new List<IUFrag>();
         IGFile.SectionHeader ufragSection = legacyZone.ufragSection;
@@ -437,6 +438,9 @@ public sealed class ZoneReader
                     }
                 }
             }
+            long record = sourceFileBaseOffset + ufragSection.offset + (long)i * UFragMetadata.Size;
+            if (ufrag is Assets.UFrags.NewUFrag newRecord) newRecord.SourceOffset = record;
+            else if (ufrag is Assets.UFrags.OldUFrag oldRecord) oldRecord.SourceOffset = record;
             ufrags.Add(ufrag);
         }
 
@@ -646,6 +650,7 @@ public sealed class ZoneReader
 
                 var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name)
                 {
+                    SourceOffset = sourceFileBaseOffset + tieInstanceSection.offset + (long)i * TieInstance.Size,
                     NewEnginePrelight = prelight,
                     OldEnginePrelight = oldPrelight,
                     NewEnginePrelightOffset = prelight != null ? legacyInstance.NewEnginePrelightOffset : 0xFFFFFFFF,
