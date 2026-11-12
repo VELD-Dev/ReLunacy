@@ -28,6 +28,12 @@ public class Volume : IVolumeData
     /// e.g. "gameplay", "cameras", "audio_reverb". Null on the old engine.</summary>
     public string? Layer { get; set; }
 
+    /// <summary>What a plain volume is for, when a Clue names it in a settings field whose meaning is known
+    /// (<see cref="ClueClasses.FieldName"/>): "Gravity volume" for a moon's. Null when nothing known names it.</summary>
+    public string? Role { get; set; }
+    /// <summary>The Clue that gave <see cref="Role"/>, e.g. "moon1a_moonclue (SpaceMoon +0xD0)".</summary>
+    public string? RoleSource { get; set; }
+
     /// <summary>The Clue this volume is the shape of, when it is one: a Clue is a volume with a behaviour
     /// class (fall to death, ledge grab, camera field...). Null for a plain volume.</summary>
     public VolumeClue? Clue { get; set; }
@@ -53,6 +59,9 @@ public class Volume : IVolumeData
 /// <see cref="ClueClasses"/> gives it, and its settings.</summary>
 public sealed record VolumeClue(uint Class, string Name, string ClassName)
 {
+    /// <summary>The Clue instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
+    public ulong Tuid { get; init; }
+
     /// <summary>The class's struct as the level stores it, big-endian, starting with the class number. Its
     /// fields are not named yet beyond <see cref="References"/>.</summary>
     public byte[] Settings { get; init; } = [];

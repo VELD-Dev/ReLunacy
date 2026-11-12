@@ -16,6 +16,27 @@ internal static class FileMenuDraw
         LunaWindow.Instance.AddFrame(new FileSelectionDialog());
     }
 
+    internal static void SaveLevelMenuItem()
+    {
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_SaveLevel"), "CTRL+S", false, Program.ProvidedPath != string.Empty))
+            return;
+        OpenSaveLevel();
+    }
+
+    /// <summary>Ctrl+S, wherever the focus is, but not while text is being typed.</summary>
+    internal static void SaveLevelShortcut()
+    {
+        var io = ImGui.GetIO();
+        if (io.KeyCtrl && !io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.S, false) && Program.ProvidedPath != string.Empty)
+            OpenSaveLevel();
+    }
+
+    private static void OpenSaveLevel()
+    {
+        if (!LunaWindow.Instance.IsAnyFrameOpened<SaveLevelModal>())
+            LunaWindow.Instance.AddFrame(new SaveLevelModal());
+    }
+
     internal static void ExportLevelMenuItem()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_ExportLevel"), "", false, Program.ProvidedPath != string.Empty))

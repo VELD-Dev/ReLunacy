@@ -121,14 +121,14 @@ public sealed class Viewport3D
 
     /// <summary>Runs the transform gizmo over this viewport. Only after this has run does the gizmo know
     /// whether it was hit, which is why <see cref="TryConsumeClick"/> must come after it.</summary>
-    public void Gizmo(GizmoController gizmo, EditorCamera camera, Entity? entity)
+    public bool Gizmo(GizmoController gizmo, EditorCamera camera, Entity? entity, IReadOnlyList<Entity> others)
     {
-        if (!HasArea) return;
+        if (!HasArea) return false;
         // Close the overlay first: it holds pushed style colours and an id scope, and the gizmo is not
         // part of it.
         Overlay.End();
         _gizmo = gizmo;
-        gizmo.Render(camera, entity, ScreenPos, Size);
+        return gizmo.Render(camera, entity, others, ScreenPos, Size);
     }
 
     /// <summary>True on the frame a left click landed on the image and nothing above picking wanted it.

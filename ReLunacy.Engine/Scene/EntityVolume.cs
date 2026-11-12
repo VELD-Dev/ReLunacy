@@ -33,7 +33,13 @@ public class EntityVolume : Entity
         Transform = new Transform { Translation = position, Rotation = rotation, Scale = Vector3.One };
 
         SetScale(initialScale);
+        LoadedMatrix = FillMatrix;
     }
+
+    /// <summary><see cref="FillMatrix"/> as loaded. A file matrix with shear (12 Clue volumes of Into the Nexus
+    /// battle_arena) is not exactly what scale, rotation and translation rebuild, so a save compares with this to
+    /// know whether the volume was edited, and moves the file's own matrix by the edit.</summary>
+    public Matrix4x4 LoadedMatrix { get; }
 
     /// <summary>Sets <see cref="scale"/> and recomputes the bounding sphere and the edge transforms
     /// together, synchronously.</summary>
@@ -94,6 +100,7 @@ public class EntityVolume : Entity
             return em.VolumeColorMode switch
             {
                 VolumeColorMode.Kind when BaseVolume.Clue is { } clue => new Vector4(ClueClasses.Colour(clue.ClassName), 1f),
+                VolumeColorMode.Kind when BaseVolume.Role is { } role => new Vector4(ClueClasses.RoleColour(role), 1f),
                 VolumeColorMode.Layer when BaseVolume.Layer is { } layer => new Vector4(ClueClasses.ColourOf(layer), 1f),
                 _ => em.VolumeColor,
             };
@@ -115,6 +122,21 @@ public class EntityVolume : Entity
                 AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, 0f, h.Z), 1f);
                 AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, h.Y, 0f), 1f);
                 AddRing(edges, Vector3.Zero, new Vector3(0f, 0f, h.Z), new Vector3(0f, h.Y, 0f), 1f);
+                // A sphere with a role (a moon's gravity) is drawn as a globe, so it reads as one from any side:
+                // meridians every 30 degrees and parallels at 30 and 60 degrees.
+                if (BaseVolume.Role != null)
+                {
+                    foreach (float degrees in new[] { 30f, 60f, 120f, 150f })
+                    {
+                        float a = float.DegreesToRadians(degrees);
+                        AddRing(edges, Vector3.Zero, new Vector3(h.X * MathF.Cos(a), 0f, h.Z * MathF.Sin(a)), new Vector3(0f, h.Y, 0f), 1f);
+                    }
+                    foreach (float degrees in new[] { -60f, -30f, 30f, 60f })
+                    {
+                        float a = float.DegreesToRadians(degrees);
+                        AddRing(edges, new Vector3(0f, h.Y * MathF.Sin(a), 0f), new Vector3(h.X * MathF.Cos(a), 0f, 0f), new Vector3(0f, 0f, h.Z * MathF.Cos(a)), 1f);
+                    }
+                }
                 break;
             case VolumeShape.Cylinder:
                 AddRoundSides(edges, h, h.Y);

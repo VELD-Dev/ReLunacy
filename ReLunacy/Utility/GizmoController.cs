@@ -31,13 +31,26 @@ public class GizmoController
         ImGuizmo.SetOrthographic(false);
     }
 
-    public void Render(Engine.Rendering.EditorCamera camera, Entity? entity, Vector2 viewportPos, Vector2 viewportSize)
+    /// <summary>Draws the gizmo on <paramref name="entity"/> (the active one) and applies a drag to it and,
+    /// relative to it, to <paramref name="others"/>, as one rigid group about the active entity's pivot.
+    /// Returns whether anything moved.</summary>
+    /// <summary>A Moby's scale is one number in its file (MobyInstanceNew +0x2C), so a scale drag on one axis scales
+    /// all three: the axis that moved furthest from <paramref name="before"/> gives the value.</summary>
+    private static Vector3 Uniform(Entity entity, Vector3 scale, Vector3 before)
+    {
+        if (entity is not EntityMoby) return scale;
+        var change = Vector3.Abs(scale - before);
+        float value = change.X >= change.Y && change.X >= change.Z ? scale.X : change.Y >= change.Z ? scale.Y : scale.Z;
+        return new Vector3(value);
+    }
+
+    public bool Render(Engine.Rendering.EditorCamera camera, Entity? entity, IReadOnlyList<Entity> others, Vector2 viewportPos, Vector2 viewportSize)
     {
         EnsureInitialized();
         ImGuizmo.BeginFrame();
 
         _manipulatedThisFrame = entity != null;
-        if (entity == null) return;
+        if (entity == null) return false;
 
         ImGuizmo.SetDrawlist();
         ImGuizmo.SetRect(viewportPos.X, viewportPos.Y, viewportSize.X, viewportSize.Y);
@@ -53,6 +66,8 @@ public class GizmoController
                    * Matrix4x4.CreateFromQuaternion(transform.Rotation)
                    * Matrix4x4.CreateTranslation(transform.Translation);
 
+        // The same composition the drag ends in, so the delta below holds only the drag.
+        var before = matrix;
         var settings = Program.Settings;
         if (settings.GizmoSnapEnabled)
         {
@@ -70,9 +85,20 @@ public class GizmoController
             ImGuizmo.Manipulate(ref view, ref projection, CurrentOperation, CurrentMode, ref matrix);
         }
 
-        if (ImGuizmo.IsUsingAny() && Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
+        if (!ImGuizmo.IsUsingAny() || !Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
+            return false;
+        entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = Uniform(entity, scale, transform.Scale) };
+        if (others.Count == 0 || !Matrix4x4.Invert(before, out var inverse)) return true;
+
+        // What the drag did to the active entity, applied to the rest: world' = world * before^-1 * after.
+        var delta = inverse * matrix;
+        if (delta.IsIdentity) return true;
+        foreach (var other in others)
         {
-            entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
+            if (ReferenceEquals(other, entity)) continue;
+            if (Matrix4x4.Decompose(other.Transform.GetMatrix() * delta, out var s, out var r, out var t))
+                other.Transform = new Transform { Translation = t, Rotation = r, Scale = Uniform(other, s, other.Transform.Scale) };
         }
+        return true;
     }
 }

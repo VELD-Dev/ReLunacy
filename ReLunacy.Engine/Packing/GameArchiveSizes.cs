@@ -89,8 +89,7 @@ public static class GameArchiveSizes
                 }
             }
 
-            string backupPath = gameArchivePath + ".bak";
-            if (!File.Exists(backupPath)) File.Copy(gameArchivePath, backupPath);
+            Backups.Create(gameArchivePath);
             File.Move(temporaryPath, gameArchivePath, overwrite: true);
         }
         catch

@@ -22,6 +22,9 @@ public class EntityRegion : IDisposable
 
     public string RegionName;
 
+    /// <summary>The level editor's layers (see <see cref="Region.Layers"/>).</summary>
+    public readonly IReadOnlyList<string> Layers;
+
     /// <summary>The region's own zones, in the order it lists them. Kept so they can be built one at
     /// a time afterwards (see <paramref name="deferZones"/>).</summary>
     private readonly IReadOnlyList<Assets.Interfaces.IZone> _sourceZones;
@@ -33,6 +36,7 @@ public class EntityRegion : IDisposable
     public EntityRegion(Region region, AssetManager assetManager, GraphicsDevice gd, bool deferZones = false)
     {
         RegionName = region.Name ?? "UnnamedRegion";
+        Layers = region.Layers;
 
         MobyInstances = new EntityCluster([], assetManager);
         foreach (var minst in region.MobyInstances)
