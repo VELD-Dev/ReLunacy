@@ -17,6 +17,7 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 internal sealed class PathEditor
 {
     private EntityPathPoint? _dragging;
+    private Core.Undo.UndoManager.Session? _dragEdit;
     private bool _vertical;
     private Vector3 _grabOffset;
 
@@ -26,6 +27,7 @@ internal sealed class PathEditor
     public void BeginDrag(EntityPathPoint part, Vector2 mouse, Vector2 viewport, EditorCamera camera)
     {
         _dragging = part;
+        _dragEdit = Core.Undo.UndoManager.Singleton.Begin([part.Owner]);
         _vertical = Input.IsKeyDown(KeyboardKey.ShiftLeft) || Input.IsKeyDown(KeyboardKey.ShiftRight);
         Vector3 position = part.Transform.Translation;
         _grabOffset = PlaneHit(mouse, viewport, camera, position) is { } hit ? position - hit : Vector3.Zero;
@@ -37,6 +39,10 @@ internal sealed class PathEditor
         if (_dragging is not { } part) return;
         if (!Input.IsMouseButtonDown(MouseButton.Left) || !ReferenceEquals(SelectionManager.Singleton.SelectedEntity, part))
         {
+            // The part's last move reaches the path with its Sync; then the drag is one step.
+            part.Sync();
+            _dragEdit?.Commit(LM.Get("GUI_Undo_Move"));
+            _dragEdit = null;
             _dragging = null;
             return;
         }
@@ -102,9 +108,9 @@ internal sealed class PathEditor
                 bool corner = path.IsCorner(key);
                 ImGui.TextUnformatted(LM.Get("GUI_PathPanel_Curvature"));
                 ImGui.SameLine();
-                if (Choice(LM.Get("GUI_PathPanel_Bezier"), !corner)) { path.SetCurvature(key, bezier: true); part!.Refresh(); }
+                if (Choice(LM.Get("GUI_PathPanel_Bezier"), !corner)) { Edit(path, "GUI_Undo_PathEdit", () => path.SetCurvature(key, bezier: true)); part!.Refresh(); }
                 ImGui.SameLine();
-                if (Choice(LM.Get("GUI_PathPanel_None"), corner)) { path.SetCurvature(key, bezier: false); part!.Refresh(); }
+                if (Choice(LM.Get("GUI_PathPanel_None"), corner)) { Edit(path, "GUI_Undo_PathEdit", () => path.SetCurvature(key, bezier: false)); part!.Refresh(); }
 
                 ImGui.TextUnformatted(LM.Get("GUI_Frame_InstanceInspector_PathHandles"));
                 var current = path.ModeAt(key);
@@ -113,19 +119,22 @@ internal sealed class PathEditor
                     ImGui.SameLine();
                     if (Choice(LM.Get("GUI_PathHandle_" + mode), current == mode) && mode != current)
                     {
-                        path.SetMode(key, mode);
-                        if (path.OutHandleAt(key) is { } outHandle) path.SetHandle(key, true, outHandle);
-                        else if (path.InHandleAt(key) is { } inHandle) path.SetHandle(key, false, inHandle);
+                        Edit(path, "GUI_Undo_PathEdit", () =>
+                        {
+                            path.SetMode(key, mode);
+                            if (path.OutHandleAt(key) is { } outHandle) path.SetHandle(key, true, outHandle);
+                            else if (path.InHandleAt(key) is { } inHandle) path.SetHandle(key, false, inHandle);
+                        });
                         part!.Refresh();
                     }
                 }
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_PathHandlesHint"));
             }
 
-            if (ImGui.Button(LM.Get("GUI_PathPanel_AddBefore"))) Select(path, path.InsertBefore(key));
+            if (ImGui.Button(LM.Get("GUI_PathPanel_AddBefore"))) { int added = -1; Edit(path, "GUI_Undo_PathAdd", () => added = path.InsertBefore(key)); Select(path, added); }
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_PathPanel_AddHint"));
             ImGui.SameLine();
-            if (ImGui.Button(LM.Get("GUI_PathPanel_AddAfter"))) Select(path, path.InsertAfter(key));
+            if (ImGui.Button(LM.Get("GUI_PathPanel_AddAfter"))) { int added = -1; Edit(path, "GUI_Undo_PathAdd", () => added = path.InsertAfter(key)); Select(path, added); }
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_PathPanel_AddHint"));
             ImGui.SameLine();
             ImGui.BeginDisabled(path.KeyCount <= 2);
@@ -137,7 +146,7 @@ internal sealed class PathEditor
         {
             if (ImGui.Button(LM.Get("GUI_PathPanel_ConvertToSpline")))
             {
-                path.ConvertToSpline();
+                Edit(path, "GUI_Undo_PathEdit", path.ConvertToSpline);
                 if (key >= 0) Select(path, key);
             }
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_PathPanel_ConvertToSplineHint"));
@@ -163,9 +172,15 @@ internal sealed class PathEditor
         SelectionManager.Singleton.Select(new EntityPathPoint(path, key, path.IsSpline ? PathPart.Key : PathPart.Point));
     }
 
+    /// <summary>Runs an edit of <paramref name="path"/> as one undo step.</summary>
+    private static void Edit(EntityPath path, string label, Action edit) =>
+        Core.Undo.UndoManager.Singleton.Record(LM.Get(label), [path], edit);
+
     private static void Remove(EntityPath path, int key)
     {
-        if (!path.Remove(key)) return;
+        bool removed = false;
+        Edit(path, "GUI_Undo_PathRemove", () => removed = path.Remove(key));
+        if (!removed) return;
         if (path.KeyCount > 0) Select(path, Math.Min(key, path.KeyCount - 1));
         else SelectionManager.Singleton.Select(path);
     }

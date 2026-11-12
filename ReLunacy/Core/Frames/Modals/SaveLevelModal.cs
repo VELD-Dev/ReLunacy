@@ -32,17 +32,26 @@ public sealed class SaveLevelModal : Modal
     {
         var files = LunaWindow.Instance.fileManager;
         if (files == null) { _error = LM.Get("GUI_SaveLevel_NoLevel"); return; }
-        if (files.isOld) { _error = LM.Get("GUI_SaveLevel_OldEngine"); return; }
         try
         {
             _preview = [];
             _previewProblems = [];
-            foreach (var region in EntityManager.Singleton.Regions)
+            if (!files.isOld)
+                foreach (var region in EntityManager.Singleton.Regions)
+                {
+                    if (files.ReadOriginal($"{region.RegionName}/gp_prius.dat") is not { } original) continue;
+                    var (_, changes, problems) = GameplayWriter.Patch(original, region);
+                    _preview.AddRange(changes.Select(c => $"{region.RegionName}: {c}"));
+                    _previewProblems.AddRange(problems.Select(p => $"{region.RegionName}: {p}"));
+                }
+            // The collision of every loaded region (the level's, on the old engine): what the collision editor changed.
+            foreach (var (region, collision) in Collisions())
             {
-                if (files.ReadOriginal($"{region.RegionName}/gp_prius.dat") is not { } original) continue;
-                var (_, changes, problems) = GameplayWriter.Patch(original, region);
-                _preview.AddRange(changes.Select(c => $"{region.RegionName}: {c}"));
-                _previewProblems.AddRange(problems.Select(p => $"{region.RegionName}: {p}"));
+                if (files.ReadOriginal(CollisionWriter.FileName(files, region)) is not { } original) continue;
+                var (_, changes, problems) = CollisionWriter.Patch(original, collision);
+                string label = files.isOld ? "collision" : $"{region} collision";
+                _preview.AddRange(changes.Select(c => $"{label}: {c}"));
+                _previewProblems.AddRange(problems.Select(p => $"{label}: {p}"));
             }
         }
         catch (Exception e) { _error = e.Message; }
@@ -78,7 +87,8 @@ public sealed class SaveLevelModal : Modal
         {
             var files = LunaWindow.Instance.fileManager!;
             var regions = EntityManager.Singleton.Regions.ToList();
-            _saving = Task.Run(() => GameplayWriter.Save(files, regions));
+            var collisions = Collisions();
+            _saving = Task.Run(() => GameplayWriter.Save(files, regions, collisions: collisions));
         }
         ImGui.EndDisabled();
         ImGui.SameLine();
@@ -86,6 +96,9 @@ public sealed class SaveLevelModal : Modal
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Common_CloseWord"))) isOpen = false;
     }
+
+    private static IReadOnlyDictionary<string, Engine.Assets.Collision.LevelCollision> Collisions() =>
+        LunaWindow.Instance.Level?.CollisionByRegion ?? new Dictionary<string, Engine.Assets.Collision.LevelCollision>();
 
     private void RenderResult(LevelSaveResult result)
     {

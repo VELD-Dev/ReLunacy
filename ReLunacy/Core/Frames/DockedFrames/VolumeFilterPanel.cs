@@ -60,6 +60,8 @@ internal sealed class VolumeFilterPanel
             ImGui.SetNextItemWidth(160f);
             ImGui.SliderFloat(LM.Get("GUI_Volumes_FillOpacity"), ref em.VolumeFillOpacity, 0.05f, 0.9f, "%.2f");
         }
+        ImGui.Checkbox(LM.Get("GUI_Volumes_RadiusPreviews"), ref em.ShowRadiusPreviews);
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Volumes_RadiusPreviewsHint"));
 
         // Kinds: plain volumes first, then the Clue classes, what kills first, then by count.
         if (ImGui.CollapsingHeader(LM.Get("GUI_Volumes_Kinds"), ImGuiTreeNodeFlags.DefaultOpen))

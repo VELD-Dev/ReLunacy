@@ -50,25 +50,24 @@ public static class GameplayWriter
     /// the patched archive is written there instead and the level's own files are left alone (for checking a
     /// save before trusting it).
     /// </summary>
-    public static LevelSaveResult Save(FileManager files, IReadOnlyList<EntityRegion> regions, string? outputPath = null)
+    public static LevelSaveResult Save(FileManager files, IReadOnlyList<EntityRegion> regions, string? outputPath = null,
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null)
     {
-        if (files.isOld) return LevelSaveResult.Refused("saving is only written for the new engine so far");
-
         var changes = new List<string>();
         var problems = new List<string>();
         // Archive path -> its entries to replace.
         var byArchive = new Dictionary<string, Dictionary<string, byte[]>>(StringComparer.Ordinal);
         var byFolderFile = new Dictionary<string, byte[]>(StringComparer.Ordinal);
 
-        foreach (var region in regions)
+        // What to write: each region's gameplay (new engine only so far), then the collision (both engines).
+        foreach (var (name, label, patch) in Files(files, regions, collisions))
         {
-            string name = $"{region.RegionName}/gp_prius.dat";
             byte[]? original = files.ReadOriginal(name);
             if (original == null) { problems.Add($"{name}: not found"); continue; }
-            var (patched, regionChanges, regionProblems) = Patch(original, region);
-            changes.AddRange(regionChanges.Select(c => $"{region.RegionName}: {c}"));
-            problems.AddRange(regionProblems.Select(p => $"{region.RegionName}: {p}"));
-            if (regionChanges.Count == 0) continue;
+            var (patched, fileChanges, fileProblems) = patch(original);
+            changes.AddRange(fileChanges.Select(c => $"{label}: {c}"));
+            problems.AddRange(fileProblems.Select(p => $"{label}: {p}"));
+            if (fileChanges.Count == 0) continue;
 
             if (files.Locate(name) is { } location)
             {
@@ -124,8 +123,29 @@ public static class GameplayWriter
             return LevelSaveResult.Refused($"the save failed: {e.Message}", problems);
         }
 
+        // The files hold the volumes as they are now: the next save measures their edits from here, not from the
+        // load (EntityVolume.LoadedMatrix), or it would apply this save's edits a second time.
+        if (outputPath == null)
+            foreach (var region in regions)
+                foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
+                    volume.MarkSaved();
+
         string where = outputPath ?? string.Join(", ", byArchive.Keys.Concat(byFolderFile.Keys).Select(Path.GetFileName));
         return new LevelSaveResult(true, $"{changes.Count} change(s) written to {where}", backup, changes, problems);
+    }
+
+    private static IEnumerable<(string Name, string Label, Func<byte[], (byte[], List<string>, List<string>)> Patch)> Files(
+        FileManager files, IReadOnlyList<EntityRegion> regions, IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions)
+    {
+        if (!files.isOld)
+            foreach (var region in regions)
+                yield return ($"{region.RegionName}/gp_prius.dat", region.RegionName, original => Patch(original, region));
+        if (collisions == null) yield break;
+        foreach (var (region, collision) in collisions)
+        {
+            string name = CollisionWriter.FileName(files, region);
+            yield return (name, files.isOld ? "collision" : $"{region} collision", original => CollisionWriter.Patch(original, collision));
+        }
     }
 
     /// <summary>The rebuilt archive, entry by entry: the replaced ones hold the new bytes, every other one the old.</summary>

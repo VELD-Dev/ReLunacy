@@ -109,6 +109,8 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_WaitingForSelection"));
             return;
         }
+        // The fields follow the entity as the gizmo moves, rotates or sizes it, except while one is being typed in.
+        if (!ImGui.IsAnyItemActive()) UpdateEntity(null, SelectedEntity);
 
         var v3d = Core.LunaWindow.Instance.GetFirstFrame<View3D>();
 
@@ -129,6 +131,11 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.EndGroup();
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_TransformCategory"));
+        // Undo: the entity as it was at the start of this frame, taken as the step's "before" when a field is
+        // clicked into (a drag can change the value on that same frame).
+        var entity = SelectedEntity;
+        var entityBefore = new Lazy<Core.Undo.UndoManager.Session>(() => Core.Undo.UndoManager.Singleton.Begin([entity]));
+        if (!ImGui.IsAnyItemActive()) _ = entityBefore.Value;
 
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Position"), ref selectedPosition, "%.3fm"))
         {
@@ -136,12 +143,14 @@ public class PropertyInspectorFrame : DockedFrame
             t.Translation = selectedPosition;
             SelectedEntity.Transform = t;
         }
+        TrackField(entityBefore, "GUI_Undo_Move");
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Rotation"), ref selectedAngle, "%.1f deg"))
         {
             var t = SelectedEntity.Transform;
             t.Rotation = (selectedAngle * (MathF.PI / 180f)).QuaternionFromEuler();
             SelectedEntity.Transform = t;
         }
+        TrackField(entityBefore, "GUI_Undo_Rotate");
         // A Moby's scale is one number in the file (MobyInstanceNew +0x2C): one field, applied to the three axes.
         if (SelectedEntity is EntityMoby)
         {
@@ -153,6 +162,7 @@ public class PropertyInspectorFrame : DockedFrame
                 t.Scale = selectedScale;
                 SelectedEntity.Transform = t;
             }
+            TrackField(entityBefore, "GUI_Undo_Scale");
         }
         else if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Scale"), ref selectedScale, "%.3f"))
         {
@@ -168,6 +178,7 @@ public class PropertyInspectorFrame : DockedFrame
                 SelectedEntity.Transform = t;
             }
         }
+        if (SelectedEntity is not EntityMoby) TrackField(entityBefore, "GUI_Undo_Scale");
 
         if (v3d != null)
         {
@@ -233,7 +244,7 @@ public class PropertyInspectorFrame : DockedFrame
                     : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
             if (baseVolume.Clue is { Settings.Length: > 4 } clueSettings)
             {
-                // The Clue with what it names (a moon: its gravity volume and its landing pad beam), so the gizmo
+                // The Clue with what it names (a moon: its area and its landing pad beam), so the gizmo
                 // moves them as one.
                 var linked = clueSettings.References.Select(r => FindInstance(r.Kind, r.Name)).OfType<Entity>().Distinct().ToList();
                 if (linked.Count > 0 && ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferences", linked.Count)))
@@ -507,6 +518,8 @@ public class PropertyInspectorFrame : DockedFrame
         // What the settings held when first shown, so an edit stands out and can be undone.
         if (!LoadedSettings.TryGetValue(settings, out var loaded))
             LoadedSettings.Add(settings, loaded = (byte[])settings.Clone());
+        var settingsBefore = new Lazy<Core.Undo.UndoManager.Session>(() => Core.Undo.UndoManager.Singleton.Begin([settings]));
+        if (!ImGui.IsAnyItemActive()) _ = settingsBefore.Value;
         ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowZero"), ref _showZeroWords);
         ImGui.SameLine();
         ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsHint"));
@@ -531,16 +544,31 @@ public class PropertyInspectorFrame : DockedFrame
                 if (ImGui.BeginPopupContextItem("word_menu"))
                 {
                     if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
-                        foreach (var other in SettingsOfClass(cls))
-                            if (other.Length >= offset + 4) word.CopyTo(other.AsSpan(offset));
+                    {
+                        var source = word.ToArray();
+                        int at = offset;
+                        var targets = SettingsOfClass(cls).ToList();
+                        Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_CopySetting"), targets, () =>
+                        {
+                            foreach (var other in targets)
+                                if (other.Length >= at + 4) source.CopyTo(other.AsSpan(at));
+                        });
+                    }
                     if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
-                        loaded.AsSpan(offset, 4).CopyTo(word);
+                    {
+                        int at = offset;
+                        Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
+                            () => loaded.AsSpan(at, 4).CopyTo(settings.AsSpan(at, 4)));
+                    }
                     ImGui.EndPopup();
                 }
 
-                // How the word is read: guessed from its value, or as last chosen for this class and offset.
+                // How the word is read: as last chosen for this class and offset, else guessed once from the value it
+                // was loaded with and then kept. Guessing from the current value made an edit change the editor under
+                // the cursor (a flag byte set to 2 is no longer 0-or-1 bytes, and the row turned hex).
                 ImGui.TableNextColumn();
-                var type = SettingTypes.TryGetValue((cls, offset), out var chosen) ? chosen : GuessType(value);
+                if (!SettingTypes.TryGetValue((cls, offset), out var type))
+                    SettingTypes[(cls, offset)] = type = GuessType(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(loaded.AsSpan(offset)));
                 ImGui.SetNextItemWidth(70f);
                 if (ImGui.BeginCombo("##type", type.ToString()))
                 {
@@ -558,20 +586,24 @@ public class PropertyInspectorFrame : DockedFrame
                         float f = BitConverter.UInt32BitsToSingle(value);
                         if (ImGui.DragFloat("##v", ref f, MathF.Max(0.01f, MathF.Abs(f) * 0.01f), 0f, 0f, "%.6g"))
                             System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(word, f);
+                        TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         break;
                     }
                     case SettingType.Int:
                     {
                         int n = (int)value;
                         if (ImGui.InputInt("##v", ref n)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(word, n);
+                        TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         break;
                     }
                     case SettingType.Hex:
                     {
                         string hex = value.ToString("X8");
-                        if (ImGui.InputText("##v", ref hex, 8, ImGuiInputTextFlags.CharsHexadecimal | ImGuiInputTextFlags.EnterReturnsTrue)
+                        // The size counts the terminating zero: 8 digits need 9 (8 made ImGui assert on a full buffer).
+                        if (ImGui.InputText("##v", ref hex, 9, ImGuiInputTextFlags.CharsHexadecimal | ImGuiInputTextFlags.EnterReturnsTrue)
                             && uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out uint parsed))
                             System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(word, parsed);
+                        TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         break;
                     }
                     default:
@@ -583,6 +615,7 @@ public class PropertyInspectorFrame : DockedFrame
                             int v = word[b];
                             ImGui.SetNextItemWidth(42f);
                             if (ImGui.DragInt($"##b{b}", ref v, 0.1f, 0, 255)) word[b] = (byte)v;
+                            TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         }
                         break;
                     }
@@ -592,6 +625,20 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.EndTable();
         }
         ImGui.TreePop();
+    }
+
+    /// <summary>The undo step a field being edited is building: opened when the field is clicked into, from the
+    /// state at the start of that frame, committed when it is left.</summary>
+    private static Core.Undo.UndoManager.Session? _fieldEdit;
+
+    private static void TrackField(Lazy<Core.Undo.UndoManager.Session> beforeThisFrame, string label)
+    {
+        if (ImGui.IsItemActivated()) _fieldEdit = beforeThisFrame.Value;
+        if (ImGui.IsItemDeactivated() && _fieldEdit != null)
+        {
+            _fieldEdit.Commit(LM.Get(label));
+            _fieldEdit = null;
+        }
     }
 
     private enum SettingType { Bytes, Float, Int, Hex }
@@ -656,7 +703,7 @@ public class PropertyInspectorFrame : DockedFrame
     private EntityVolume? _usedByVolume;
     private List<(string Kind, string User, string Field)> _usedBy = [];
 
-    /// <summary>What names this volume in its settings (a moon's gravity volume, a camera's look-at volume...),
+    /// <summary>What names this volume in its settings (a moon's area, a camera's look-at volume...),
     /// each a link to it.</summary>
     private void RenderUsedBy(EntityVolume volume)
     {
@@ -715,17 +762,20 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.SetNextItemWidth(160f);
         if (ImGui.Combo(LM.Get("GUI_Frame_InstanceInspector_PathHandles"), ref mode, modes, modes.Length))
         {
-            path.SetMode(part.Index, (PathHandleMode)mode);
-            // Applies the mode at once: the outgoing handle (or the incoming one, on the last key) drives.
-            if (path.OutHandleAt(part.Index) is { } outHandle) path.SetHandle(part.Index, true, outHandle);
-            else if (path.InHandleAt(part.Index) is { } inHandle) path.SetHandle(part.Index, false, inHandle);
+            Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_PathEdit"), [path], () =>
+            {
+                path.SetMode(part.Index, (PathHandleMode)mode);
+                // Applies the mode at once: the outgoing handle (or the incoming one, on the last key) drives.
+                if (path.OutHandleAt(part.Index) is { } outHandle) path.SetHandle(part.Index, true, outHandle);
+                else if (path.InHandleAt(part.Index) is { } inHandle) path.SetHandle(part.Index, false, inHandle);
+            });
             part.Refresh();
         }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_PathHandlesHint"));
 
         if (part.Index < path.KeyCount - 1 && ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_PathInsertKey")))
         {
-            path.InsertKey(part.Index);
+            Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_PathAdd"), [path], () => path.InsertKey(part.Index));
             SelectionManager.Singleton.Select(new EntityPathPoint(path, part.Index + 1, PathPart.Key));
             return;
         }
@@ -735,7 +785,7 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.SameLine();
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_PathRemoveKey")))
             {
-                path.RemoveKey(part.Index);
+                Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_PathRemove"), [path], () => path.RemoveKey(part.Index));
                 SelectionManager.Singleton.Select(path);
                 return;
             }

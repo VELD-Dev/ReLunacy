@@ -36,10 +36,28 @@ public class EntityVolume : Entity
         LoadedMatrix = FillMatrix;
     }
 
-    /// <summary><see cref="FillMatrix"/> as loaded. A file matrix with shear (12 Clue volumes of Into the Nexus
-    /// battle_arena) is not exactly what scale, rotation and translation rebuild, so a save compares with this to
-    /// know whether the volume was edited, and moves the file's own matrix by the edit.</summary>
-    public Matrix4x4 LoadedMatrix { get; }
+    /// <summary><see cref="FillMatrix"/> as the file last held it: as loaded, then as last saved. A file matrix with
+    /// shear (12 Clue volumes of Into the Nexus battle_arena) is not exactly what scale, rotation and translation
+    /// rebuild, so a save compares with this to know whether the volume was edited, and moves the file's own matrix
+    /// by the edit. It MUST follow every save (<see cref="MarkSaved"/>): the file then holds the edit, and moving
+    /// it again from the load-time matrix applied the edit twice.</summary>
+    public Matrix4x4 LoadedMatrix { get; private set; }
+
+    /// <summary>The file now holds this volume as it is: later edits are measured from here.</summary>
+    public void MarkSaved() => LoadedMatrix = FillMatrix;
+
+    /// <summary>
+    /// Places the volume from a whole matrix (a gizmo drag): its size goes to <see cref="scale"/>, its rotation and
+    /// position to <see cref="Entity.Transform"/>, whose scale stays one. The wireframe's edges are built from the
+    /// size in the volume's own frame, so they keep their thickness however the volume is sized; a scale left in
+    /// the Transform would scale the edges' thickness with it.
+    /// </summary>
+    public void SetMatrix(Matrix4x4 matrix)
+    {
+        if (!Matrix4x4.Decompose(matrix, out var newScale, out var rotation, out var translation)) return;
+        Transform = new Transform { Translation = translation, Rotation = rotation, Scale = Vector3.One };
+        SetScale(newScale);
+    }
 
     /// <summary>Sets <see cref="scale"/> and recomputes the bounding sphere and the edge transforms
     /// together, synchronously.</summary>
@@ -240,6 +258,44 @@ public class EntityVolume : Entity
             return new Transform { Translation = Transform.Translation, Rotation = Transform.Rotation };
 
         return new Transform { Scale = decomposedScale, Rotation = decomposedRotation, Translation = decomposedTranslation };
+    }
+
+    /// <summary>
+    /// The edges of a globe of <paramref name="radius"/> at <paramref name="centre"/> (equator, meridians every 30
+    /// degrees, parallels at 30 and 60), as world matrices of the unit edge mesh, the way a volume's own edges are
+    /// placed: a preview sphere drawn with the volumes' wireframe (a moon's radius, ClueClasses.RadiiOf).
+    /// </summary>
+    public static IEnumerable<Matrix4x4> GlobeEdges(Vector3 centre, float radius)
+    {
+        const int segments = 32;
+        var rings = new List<(Vector3 Centre, Vector3 A, Vector3 B)> { (Vector3.Zero, new(radius, 0, 0), new(0, 0, radius)) };
+        for (int degrees = 0; degrees < 180; degrees += 30)
+        {
+            float a = float.DegreesToRadians(degrees);
+            rings.Add((Vector3.Zero, new(radius * MathF.Cos(a), 0, radius * MathF.Sin(a)), new(0, radius, 0)));
+        }
+        foreach (float degrees in new[] { -60f, -30f, 30f, 60f })
+        {
+            float a = float.DegreesToRadians(degrees);
+            float r = radius * MathF.Cos(a);
+            rings.Add((new(0, radius * MathF.Sin(a), 0), new(r, 0, 0), new(0, 0, r)));
+        }
+        foreach (var (c, a, b) in rings)
+        {
+            Vector3 previous = c + a;
+            for (int k = 1; k <= segments; k++)
+            {
+                float t = MathF.Tau * k / segments;
+                Vector3 next = c + a * MathF.Cos(t) + b * MathF.Sin(t);
+                Vector3 d = next - previous;
+                float length = d.Length();
+                if (length > 1e-6f)
+                    yield return Matrix4x4.CreateScale(length, 1f, 1f)
+                               * Matrix4x4.CreateFromQuaternion(AlignUnitXTo(d / length))
+                               * Matrix4x4.CreateTranslation(centre + (previous + next) * 0.5f);
+                previous = next;
+            }
+        }
     }
 
     /// <summary>Rotation aligning the edge mesh's local +X (its length axis) to the unit vector

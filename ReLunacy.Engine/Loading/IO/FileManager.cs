@@ -145,6 +145,9 @@ public class FileManager : IDisposable
         return true;
     }
 
+    /// <summary>The archive files the level was opened from (its own and its level_*.psarc siblings).</summary>
+    public IReadOnlyList<string> ArchivePaths => [.. _archivePaths.Where(p => p.Length > 0)];
+
     /// <summary>Which archive file holds <paramref name="name"/> and its path inside it; null when the level was
     /// opened from a folder, or the archive was handed over without a path.</summary>
     public (string ArchivePath, string EntryPath)? Locate(string name)

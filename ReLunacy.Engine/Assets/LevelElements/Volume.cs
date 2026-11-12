@@ -29,7 +29,7 @@ public class Volume : IVolumeData
     public string? Layer { get; set; }
 
     /// <summary>What a plain volume is for, when a Clue names it in a settings field whose meaning is known
-    /// (<see cref="ClueClasses.FieldName"/>): "Gravity volume" for a moon's. Null when nothing known names it.</summary>
+    /// (<see cref="ClueClasses.FieldName"/>): "Moon area" for a moon's. Null when nothing known names it.</summary>
     public string? Role { get; set; }
     /// <summary>The Clue that gave <see cref="Role"/>, e.g. "moon1a_moonclue (SpaceMoon +0xD0)".</summary>
     public string? RoleSource { get; set; }

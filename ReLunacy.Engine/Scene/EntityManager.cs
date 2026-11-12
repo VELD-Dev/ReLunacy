@@ -65,6 +65,8 @@ public class EntityManager : IDisposable
     /// <summary>Which shown volumes also get translucent faces in their colour.</summary>
     public VolumeFillMode VolumeFillMode = VolumeFillMode.Death;
     public float VolumeFillOpacity = 0.3f;
+    /// <summary>Draw the radius settings of the shown Clues as spheres (a moon's radius; ClueClasses.RadiiOf).</summary>
+    public bool ShowRadiusPreviews = true;
 
     /// <summary>Whether <paramref name="volume"/> is drawn with faces under <see cref="VolumeFillMode"/>.</summary>
     public bool IsVolumeFilled(Assets.LevelElements.Volume volume)
