@@ -120,7 +120,9 @@ public sealed class RegionReader
             Squadrons = GameplayGroupReader.ReadSquadrons(prius),
             Layers = GameplayGroupReader.ReadLayers(prius),
         };
-        PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers);
+        PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers,
+            newRegion.MobyInstances.OfType<PlacedInstance<IMoby>>().Where(m => m.References.Count > 0)
+                .Select(m => (m.Name, m.Asset.Name?.Split('/')[^1].Split('.')[0] ?? "Moby", m.References)));
         Assets.LevelElements.ClueClasses.AssignVolumeRoles(newRegion.Volumes, Game);
         return newRegion;
     }
@@ -242,9 +244,13 @@ public sealed class RegionReader
             }
         }
 
+        // Read before the records: it seeks around the file.
+        var settings = GameplayGroupReader.ReadMobySettings(prius);
+
         prius.sh.Seek(mobyInstanceSection.offset);
         for (int i = 0; i < mobyInstanceSection.count; i++)
         {
+            prius.sh.Seek(mobyInstanceSection.offset + (long)i * MobyInstanceNew.Size);
             var legacyInstance = MobyInstanceNew.Read(prius.sh);
 
             IMoby? moby = null;
@@ -267,7 +273,11 @@ public sealed class RegionReader
 
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
                 float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance, updateDistance));
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance, updateDistance)
+                {
+                    Settings = i < settings.Count ? settings[i].Struct : [],
+                    References = i < settings.Count ? settings[i].References : [],
+                });
             }
         }
 

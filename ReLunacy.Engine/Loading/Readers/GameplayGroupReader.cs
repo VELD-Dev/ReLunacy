@@ -217,7 +217,15 @@ public static class GameplayGroupReader
             }
             if (structSection.Length == 0 || structSection.Offset + structSection.Length > block.Length) return ([], references);
             byte[] body = span.Slice((int)structSection.Offset, (int)structSection.Length).ToArray();
-            for (int w = 4; w + 4 <= body.Length; w += 4)
+            // No pool: references are inline, as in a flat block. A Crack in Time wraps Moby settings this way
+            // (a beam's +0x80, a landing pad's +0x84: the volume the ship lands in).
+            if (pool.Length == 0)
+                for (int w = 4; w + 4 <= body.Length; w += 4)
+                {
+                    var target = index.Inline(BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(w)), BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(w + 2)));
+                    if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+                }
+            else for (int w = 4; w + 4 <= body.Length; w += 4)
             {
                 uint value = BinaryPrimitives.ReadUInt32BigEndian(body.AsSpan(w));
                 if (pool.Length == 0 || value < pool.Offset || value >= pool.Offset + pool.Length
@@ -448,6 +456,32 @@ public static class GameplayGroupReader
         uint entry = prius.sh.ReadUInt32();
         if (entry + 0x0CL > prius.sh.BaseStream.Length) return (-1, -1);
         return index.Pooled16(prius.sh.ReadFromOffset(0x0C, entry));
+    }
+
+    /// <summary>
+    /// Each Moby instance's settings (the record's +0x0C offset and +0x10 size, as a Clue's): the class struct and the
+    /// fields that name another instance, in record order. Identical blocks are stored once and shared (moon1a's and
+    /// moon1c's landing pad beams). Empty for an instance without one.
+    /// </summary>
+    public static List<(byte[] Struct, List<ClueReference> References)> ReadMobySettings(IGFile prius)
+    {
+        var list = new List<(byte[], List<ClueReference>)>();
+        try
+        {
+            var index = BuildIndex(prius);
+            var section = prius.QuerySection(0x25048);
+            for (uint i = 0; i < section.count; i++)
+            {
+                prius.sh.Seek(section.offset + i * section.length + 0x0C);
+                uint offset = prius.sh.ReadUInt32(), size = prius.sh.ReadUInt32();
+                list.Add(ReadSettings(prius, index, offset, size));
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Moby settings: could not be read: {ex.Message}");
+        }
+        return list;
     }
 
     /// <summary>The class number a settings block starts with (inside its own IGHW's 0x2501C where it has one).</summary>

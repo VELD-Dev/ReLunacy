@@ -45,8 +45,8 @@ public static class ClueClasses
     /// <summary>Classes whose number means something else in the other games, named for A Crack in Time only.</summary>
     private static readonly Dictionary<uint, string> KnownCrackInTime = new()
     {
-        // A space sector's moon (and the junk trader's station): its landing pad and the sphere its gravity holds
-        // the hero in. Found by the user, 2026-11-12.
+        // A space sector's moon (and the junk trader's station): where the ship lands (the scripts' space_land_ship
+        // target), its landing pad beam, its area and its radius. Found by the user, 2026-11-12.
         [0x4BC] = "SpaceMoon",
     };
 
@@ -55,12 +55,17 @@ public static class ClueClasses
     {
         // The landing pad's beam Moby (moon1a_landing_pad_beam, space_junktrader_landingpad).
         [(Games.GameId.ACrackInTime, 0x4BC, 0xC0)] = "Landing pad beam",
-        // A volume (moon1a_vol...): out of it, the hero stops falling toward the moon and falls into the void (Y-).
-        [(Games.GameId.ACrackInTime, 0x4BC, 0xD0)] = "Gravity volume",
+        // The moon's area (moon1a_vol...), a sphere 400 across: the level script (space_sector_1 main.lua) runs a
+        // moon's script while Ratchet is inside its table_moons[i].vol. Not the gravity range (the user's test,
+        // 2026-11-12). The Clue itself is the ship's landing target: moons_init.lua space_land_ship(aphelion, clue).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xD0)] = "Moon area",
+        // The moon's surface radius: 50 on the large moons, 25 on the small ones; every Tie and volume placed on
+        // moon1a (bunker, landing pad, spires, the 22 moon_ap*_vol) stands 50 from its centre, its volcanic_moon Tie.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xE0)] = "Moon radius",
     };
 
     /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
-    /// gravity volume. Only links that resolve count; nothing is guessed from names.</summary>
+    /// area. Only links that resolve count; nothing is guessed from names.</summary>
     public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game)
     {
         var byName = volumes.Where(v => v.Name != null).ToLookup(v => v.Name!);
@@ -80,9 +85,37 @@ public static class ClueClasses
     /// <summary>A volume role's colour (see <see cref="Volume.Role"/>).</summary>
     public static System.Numerics.Vector3 RoleColour(string role) => role switch
     {
-        "Gravity volume" => new(0.62f, 0.4f, 1f),
+        "Moon area" => new(0.62f, 0.4f, 1f),
         _ => ColourOf(role),
     };
+
+    /// <summary>Settings fields that are a radius around the Clue's volume (a float), with the colour their preview
+    /// sphere is drawn in: the editor shows them live, so editing one shows its effect at once.</summary>
+    private static readonly Dictionary<(Games.GameId Game, uint Class), (int Offset, System.Numerics.Vector3 Colour)[]> RadiusFields = new()
+    {
+        [(Games.GameId.ACrackInTime, 0x4BC)] = [(0xE0, new(1f, 0.6f, 0.15f))], // SpaceMoon: the moon's radius
+    };
+
+    /// <summary>The radius fields of a class (see <see cref="RadiusFields"/>); empty for most.</summary>
+    public static IReadOnlyList<(int Offset, System.Numerics.Vector3 Colour)> RadiiOf(Games.GameId? game, uint cls) =>
+        game is { } g && RadiusFields.TryGetValue((g, cls), out var fields) ? fields : [];
+
+    /// <summary>
+    /// Instances known to break the game when edited, by game and name: the editor warns on them and a save lists
+    /// them. Each one is a finding, with what it did.
+    /// </summary>
+    private static readonly (Games.GameId Game, string Name, string Effect)[] KnownBreaking =
+    [
+        // A space sector moon's ap volumes (22 per moon, moon_ap00_vol..moon_ap21_vol, plus moon_ap00_vol1 and three
+        // _homevol): no Clue, controller, Area, Scent or script refers to them - they are not in the trimmed handle
+        // list the scripts use - so the engine finds them itself. Moving moon_ap00_vol1 by 4.5 units left
+        // space_sector_1 loading for ever (user test, 2026-11-12).
+        (Games.GameId.ACrackInTime, "moon_ap00_vol1", "Moving it left space_sector_1 loading for ever (the engine uses the moon_ap volumes itself)."),
+    ];
+
+    /// <summary>What editing this instance is known to do to the game, or null.</summary>
+    public static string? KnownBreakingEffect(Games.GameId? game, string? name) =>
+        game is { } g && name != null && Array.Find(KnownBreaking, k => k.Game == g && k.Name == name) is { Effect: { } effect } ? effect : null;
 
     /// <summary>The name of the settings field at <paramref name="offset"/> of a Clue (or controller) class, when known.</summary>
     public static string? FieldName(Games.GameId? game, uint cls, int offset) =>

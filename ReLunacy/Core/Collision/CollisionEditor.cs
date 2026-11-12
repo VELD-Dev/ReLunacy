@@ -557,6 +557,55 @@ public sealed class CollisionEditor
         AfterEdit();
     }
 
+    /// <summary>
+    /// Runs a collision edit as one undo step: the materials and triangle flags of every mesh and the flags of
+    /// every instance are taken before and after (tens of kilobytes on a large level), and the step keeps only
+    /// what changed. Undoing writes the values back and redraws the faces and instances they belong to, in
+    /// whatever scene is uploaded then (the meshes and instances are the level's, they outlive a rebuild).
+    /// </summary>
+    private void Recorded(string label, Action edit)
+    {
+        if (Scene == null) { edit(); return; }
+        var meshes = Scene.Shapes.SelectMany(s => s.Copies).OfType<CollisionMesh>().Distinct().ToList();
+        var instances = Scene.Placements.SelectMany(p => p.Sources).Distinct().ToList();
+        var before = meshes.Select(m => ((byte[])m.Materials.Clone(), (byte[])m.TriangleFlags.Clone())).ToList();
+        var beforeFlags = instances.Select(i => i.ShapeFlags).ToList();
+        edit();
+
+        var changedMeshes = new List<(CollisionMesh Mesh, byte[] M0, byte[] F0, byte[] M1, byte[] F1)>();
+        for (int k = 0; k < meshes.Count; k++)
+        {
+            var m = meshes[k];
+            if (!m.Materials.AsSpan().SequenceEqual(before[k].Item1) || !m.TriangleFlags.AsSpan().SequenceEqual(before[k].Item2))
+                changedMeshes.Add((m, before[k].Item1, before[k].Item2, (byte[])m.Materials.Clone(), (byte[])m.TriangleFlags.Clone()));
+        }
+        var changedInstances = new List<(CollisionInstance Instance, ushort Before, ushort After)>();
+        for (int k = 0; k < instances.Count; k++)
+            if (instances[k].ShapeFlags != beforeFlags[k])
+                changedInstances.Add((instances[k], beforeFlags[k], instances[k].ShapeFlags));
+        if (changedMeshes.Count == 0 && changedInstances.Count == 0) return;
+
+        void Apply(bool after)
+        {
+            foreach (var (mesh, m0, f0, m1, f1) in changedMeshes)
+            {
+                (after ? m1 : m0).CopyTo(mesh.Materials, 0);
+                (after ? f1 : f0).CopyTo(mesh.TriangleFlags, 0);
+            }
+            foreach (var (instance, b, a) in changedInstances) instance.ShapeFlags = after ? a : b;
+            if (Scene == null) return;
+            var touched = changedMeshes.Select(c => c.Mesh).ToHashSet();
+            foreach (var shape in Scene.Shapes)
+                if (shape.Copies.Any(c => c is CollisionMesh m && touched.Contains(m)))
+                    for (int t = 0; t < shape.TriangleCount; t++) WriteFace(shape, t);
+            var flagged = changedInstances.Select(c => c.Instance).ToHashSet();
+            foreach (var p in Scene.Placements)
+                if (p.Sources.Any(flagged.Contains)) WriteInstance(p);
+            AfterEdit();
+        }
+        Undo.UndoManager.Singleton.Push(LM.Get(label), () => Apply(false), () => Apply(true));
+    }
+
     private void AfterEdit()
     {
         _modifiedFaces = 0;
@@ -723,7 +772,7 @@ public sealed class CollisionEditor
             if (ImGui.Button(LM.Get("GUI_Collision_SetMaterial")))
             {
                 byte m = _materialInput;
-                EditFaces(_ => m, f => f);
+                Recorded("GUI_Undo_CollisionMaterial", () => EditFaces(_ => m, f => f));
             }
 
             // One checkbox per flag bit: ticked when every target face has it, tinted when only some do
@@ -741,7 +790,7 @@ public sealed class CollisionEditor
                 {
                     byte mask = (byte)(1 << bit);
                     bool on = mixed || value;
-                    EditFaces(m => m, f => on ? (byte)(f | mask) : (byte)(f & ~mask));
+                    Recorded("GUI_Undo_CollisionFlags", () => EditFaces(m => m, f => on ? (byte)(f | mask) : (byte)(f & ~mask)));
                 }
                 if (mixed) ImGui.PopStyleColor();
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(bit == 0 ? "GUI_Collision_FlagBit0" : "GUI_Collision_FlagBitUnknown", with, meshes.Count));
@@ -765,7 +814,7 @@ public sealed class CollisionEditor
                 if (readOnly) ImGui.BeginDisabled();
                 if (mixed) ImGui.PushStyleColor(ImGuiCol.FrameBg, MixedColour);
                 if (ImGui.Checkbox($"{mask:X}##instflag", ref value))
-                    EditInstanceFlags(mask, mixed || value);
+                    Recorded("GUI_Undo_CollisionFlags", () => EditInstanceFlags(mask, mixed || value));
                 if (mixed) ImGui.PopStyleColor();
                 if (readOnly) ImGui.EndDisabled();
                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
@@ -777,7 +826,7 @@ public sealed class CollisionEditor
         {
             ImGui.TextColored(new Vector4(1f, 0.75f, 0.3f, 1f), LM.Get("GUI_Collision_Modified", _modifiedFaces, _modifiedInstances));
             ImGui.SameLine();
-            if (ImGui.SmallButton(LM.Get("GUI_Collision_Revert"))) Revert();
+            if (ImGui.SmallButton(LM.Get("GUI_Collision_Revert"))) Recorded("GUI_Undo_CollisionRevert", Revert);
         }
         ImGui.Unindent();
         ImGui.Separator();

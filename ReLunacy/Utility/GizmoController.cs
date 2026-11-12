@@ -22,6 +22,12 @@ public class GizmoController
     private bool _initialized;
     private bool _manipulatedThisFrame;
 
+    // Undo: the selection's state taken while the cursor is over a handle (so it is the state before the drag's
+    // first frame moves it), opened as a step when a drag starts and committed when it ends.
+    private bool _wasUsing;
+    private Core.Undo.UndoManager.Session? _hovered;
+    private Core.Undo.UndoManager.Session? _drag;
+
     private void EnsureInitialized()
     {
         if (_initialized) return;
@@ -44,13 +50,36 @@ public class GizmoController
         return new Vector3(value);
     }
 
+    private void EndDrag()
+    {
+        _wasUsing = false;
+        if (_drag == null) return;
+        _hovered = null;
+        _drag.Commit(Utility.Localization.LM.Get(CurrentOperation switch
+        {
+            ImGuizmoOperation.Rotate => "GUI_Undo_Rotate",
+            ImGuizmoOperation.Scale => "GUI_Undo_Scale",
+            _ => "GUI_Undo_Move",
+        }));
+        _drag = null;
+    }
+
     public bool Render(Engine.Rendering.EditorCamera camera, Entity? entity, IReadOnlyList<Entity> others, Vector2 viewportPos, Vector2 viewportSize)
     {
         EnsureInitialized();
         ImGuizmo.BeginFrame();
 
         _manipulatedThisFrame = entity != null;
-        if (entity == null) return false;
+        if (entity == null)
+        {
+            EndDrag();
+            _hovered = null;
+            return false;
+        }
+        if (!_wasUsing && ImGuizmo.IsOver())
+            _hovered ??= Core.Undo.UndoManager.Singleton.Begin([entity, .. others]);
+        else if (!_wasUsing)
+            _hovered = null;
 
         ImGuizmo.SetDrawlist();
         ImGuizmo.SetRect(viewportPos.X, viewportPos.Y, viewportSize.X, viewportSize.Y);
@@ -62,9 +91,13 @@ public class GizmoController
         var projection = camera.GetProjection();
 
         var transform = entity.Transform;
-        var matrix = Matrix4x4.CreateScale(transform.Scale)
-                   * Matrix4x4.CreateFromQuaternion(transform.Rotation)
-                   * Matrix4x4.CreateTranslation(transform.Translation);
+        // A volume is handled through its whole matrix, size included (EntityVolume.SetMatrix), so a scale drag
+        // changes its size and never its Transform's scale, which would thicken its wireframe.
+        var matrix = entity is EntityVolume volume
+            ? volume.FillMatrix
+            : Matrix4x4.CreateScale(transform.Scale)
+              * Matrix4x4.CreateFromQuaternion(transform.Rotation)
+              * Matrix4x4.CreateTranslation(transform.Translation);
 
         // The same composition the drag ends in, so the delta below holds only the drag.
         var before = matrix;
@@ -85,9 +118,14 @@ public class GizmoController
             ImGuizmo.Manipulate(ref view, ref projection, CurrentOperation, CurrentMode, ref matrix);
         }
 
-        if (!ImGuizmo.IsUsingAny() || !Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
+        bool using_ = ImGuizmo.IsUsingAny();
+        if (using_ && !_wasUsing) _drag = _hovered ?? Core.Undo.UndoManager.Singleton.Begin([entity, .. others]);
+        _wasUsing = using_;
+        if (!using_) EndDrag();
+        if (!using_ || !Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
             return false;
-        entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = Uniform(entity, scale, transform.Scale) };
+        if (entity is EntityVolume active) active.SetMatrix(matrix);
+        else entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = Uniform(entity, scale, transform.Scale) };
         if (others.Count == 0 || !Matrix4x4.Invert(before, out var inverse)) return true;
 
         // What the drag did to the active entity, applied to the rest: world' = world * before^-1 * after.
@@ -96,6 +134,7 @@ public class GizmoController
         foreach (var other in others)
         {
             if (ReferenceEquals(other, entity)) continue;
+            if (other is EntityVolume otherVolume) { otherVolume.SetMatrix(otherVolume.FillMatrix * delta); continue; }
             if (Matrix4x4.Decompose(other.Transform.GetMatrix() * delta, out var s, out var r, out var t))
                 other.Transform = new Transform { Translation = t, Rotation = r, Scale = Uniform(other, s, other.Transform.Scale) };
         }

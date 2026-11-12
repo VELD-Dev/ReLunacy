@@ -29,6 +29,9 @@ public sealed class OldUFrag : IUFrag
     private readonly float[]? _vertexAlpha;
     private readonly uint[] _indices;
     private readonly Vector3 _anchor;
+
+    /// <summary>See <see cref="IUFrag.SourceOffset"/>.</summary>
+    public long SourceOffset { get; set; } = -1;
     private readonly Vector3 _boundingCenter;
     private readonly float _boundingRadius;
     private readonly UFragVertex[] _rawVertices;

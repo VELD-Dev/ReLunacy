@@ -489,6 +489,8 @@ public class LunaWindow : IDisposable
         // a job still stepping over a level that is being thrown away. Dropped first, before
         // anything else, and whatever the rest of this method decides to do.
         AbandonLevelFinalization();
+        // The history is the scene's: its steps hold the entities being thrown away (a region switch too).
+        Core.Undo.UndoManager.Singleton.Clear();
         // Anything the loading task finished but that was never picked up belongs to the level being
         // wiped, not to the one about to load - and a task still running is now a stale generation,
         // so whatever it enqueues later is dropped rather than built over the next level.
@@ -891,6 +893,7 @@ public class LunaWindow : IDisposable
     private void RenderMenuBar()
     {
         FileMenuDraw.SaveLevelShortcut();
+        EditMenuDraw.UndoRedoShortcuts();
         if (!ImGui.BeginMainMenuBar()) return;
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
@@ -898,6 +901,7 @@ public class LunaWindow : IDisposable
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.OpenGameBrowserMenuItem();
             FileMenuDraw.SaveLevelMenuItem();
+            FileMenuDraw.BackupsMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
@@ -905,6 +909,7 @@ public class LunaWindow : IDisposable
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_Edit")))
         {
+            EditMenuDraw.UndoRedoMenuItems();
             EditMenuDraw.EditorSettingsMenuItem();
             ImGui.EndMenu();
         }

@@ -15,10 +15,11 @@ namespace ReLunacy.Engine.Packing;
 /// by construction instead of by inspection - no decompression, no recompression, and nothing for
 /// the console's decoder to accept that it did not already accept when the game shipped.
 ///
-/// The two files that DO change are written as stored blocks. The format says a block-size entry of
-/// zero means a full uncompressed block, and the shipped archive uses that 1117 times out of 6462,
-/// so it is a path the engine demonstrably takes. That removes the only remaining question - whether
-/// the console accepts deflate streams we produced - at a cost of a few kilobytes in a 222MB file.
+/// The files that DO change are written the way the archive stored them: a file whose blocks were compressed
+/// gets zlib blocks (78 DA, as shipped; a block that would not shrink is stored, as the format allows), a file
+/// stored whole stays stored. They were all written stored at first, which Tools of Destruction's scripts took,
+/// but A Crack in Time decides per file - region.dat and sky.dat stored, everything else compressed - and a
+/// zones.dat written stored left a level loading for ever.
 ///
 /// Layout, all big-endian, as confirmed against six archives from two games:
 ///   0x00  magic 'PSAR', version, 4-byte compression tag
@@ -58,7 +59,7 @@ public static class PsarcPatcher
     ///
     /// An addition appends its path to the manifest and its entry to the FAT, so every existing
     /// entry keeps its index and the engine's file-by-position addressing is undisturbed. The
-    /// manifest itself is an entry, so adding rewrites entry 0 as stored blocks.
+    /// manifest itself is an entry, so adding rewrites entry 0 (compressed or stored, as it was).
     /// </summary>
     public static PsarcPatchResult Patch(string archivePath, string outputPath,
                                          IReadOnlyDictionary<string, byte[]> replacements,
@@ -120,6 +121,8 @@ public static class PsarcPatcher
         // begins - is known before anything is written.
         var newEntries = new List<Entry>(newCount);
         var newBlocks = new List<int>(blocks.Length);
+        // The new contents, already cut into the blocks written in pass two.
+        var encoded = new Dictionary<int, List<byte[]>>();
         foreach (var (entry, index) in entries.Select((e, i) => (e, i)))
         {
             int firstBlock = newBlocks.Count;
@@ -127,7 +130,7 @@ public static class PsarcPatcher
             if (wanted.TryGetValue(index, out byte[]? contents))
             {
                 size = contents.Length;
-                AppendStoredBlockSizes(newBlocks, contents.Length, blockSize);
+                encoded[index] = Encode(contents, blockSize, Compressed(entry, blocks, blockSize, source), newBlocks);
             }
             else
             {
@@ -136,10 +139,10 @@ public static class PsarcPatcher
             }
             newEntries.Add(new Entry(entry.Hash, firstBlock, size, 0));
         }
-        foreach (var (hash, contents) in appended)
+        foreach (var ((hash, contents), k) in appended.Select((a, k) => (a, k)))
         {
             newEntries.Add(new Entry(hash, newBlocks.Count, contents.Length, 0));
-            AppendStoredBlockSizes(newBlocks, contents.Length, blockSize);
+            encoded[count + k] = Encode(contents, blockSize, compress: true, newBlocks);
         }
 
         int blockWidth = BlockWidth(blockSize);
@@ -151,8 +154,8 @@ public static class PsarcPatcher
         for (int i = 0; i < newEntries.Count; i++)
         {
             long offset = output.Position;
-            if (i >= count) output.Write(appended[i - count].Contents);
-            else if (wanted.TryGetValue(i, out byte[]? contents)) output.Write(contents);
+            if (encoded.TryGetValue(i, out var written))
+                foreach (var block in written) output.Write(block);
             else CopyBlocks(source, output, entries[i], blocks, blockSize);
             newEntries[i] = newEntries[i] with { Offset = offset };
         }
@@ -295,15 +298,68 @@ public static class PsarcPatcher
     /// remainder's real length for a short final one - which a reader recognises as stored because
     /// it equals the bytes still owed.
     /// </summary>
-    private static void AppendStoredBlockSizes(List<int> blocks, int length, int blockSize)
+    /// <summary>
+    /// Whether an entry is stored compressed in the original: any of its blocks is. The packer decides per file -
+    /// A Crack in Time ships region.dat and sky.dat wholly stored and every other file wholly compressed, textures
+    /// included - and a file the game always got compressed may be read by a loader that only inflates: zones.dat
+    /// written stored left space_sector_1 loading for ever (2026-11-12). So a replaced file keeps its file's way.
+    /// </summary>
+    private static bool Compressed(Entry entry, int[] blocks, int blockSize, Stream source)
     {
-        int remaining = length;
-        while (remaining >= blockSize)
+        long position = source.Position;
+        try
         {
-            blocks.Add(0);
-            remaining -= blockSize;
+            source.Position = entry.Offset;
+            var header = new byte[2];
+            foreach (int length in BlockLengths(entry, blocks, blockSize))
+            {
+                int onDisk = length == 0 ? blockSize : length;
+                if (length != 0)
+                {
+                    source.ReadExactly(header);
+                    if (header[0] == 0x78) return true;
+                    source.Position += onDisk - 2;
+                }
+                else source.Position += onDisk;
+            }
+            return false;
         }
-        if (remaining > 0 || length == 0) blocks.Add(remaining);
+        finally { source.Position = position; }
+    }
+
+    /// <summary>
+    /// Cuts <paramref name="contents"/> into blocks and records their lengths. Compressed: each block deflated with a
+    /// zlib header at the best level (78 DA, as the shipped blocks are), and stored instead where that does not make
+    /// it smaller, which the format allows (a length of 0 is a whole stored block; a last block the length of its
+    /// own data is stored). Otherwise every block stored.
+    /// </summary>
+    private static List<byte[]> Encode(byte[] contents, int blockSize, bool compress, List<int> lengths)
+    {
+        var written = new List<byte[]>();
+        if (contents.Length == 0) { lengths.Add(0); return written; }
+        for (int at = 0; at < contents.Length; at += blockSize)
+        {
+            int size = Math.Min(blockSize, contents.Length - at);
+            var raw = contents.AsSpan(at, size);
+            byte[]? deflated = null;
+            if (compress)
+            {
+                using var buffer = new MemoryStream();
+                using (var zlib = new ZLibStream(buffer, CompressionLevel.SmallestSize, leaveOpen: true)) zlib.Write(raw);
+                if (buffer.Length < size) deflated = buffer.ToArray();
+            }
+            if (deflated != null)
+            {
+                written.Add(deflated);
+                lengths.Add(deflated.Length);
+            }
+            else
+            {
+                written.Add(raw.ToArray());
+                lengths.Add(size == blockSize ? 0 : size);
+            }
+        }
+        return written;
     }
 
     private static void CopyBlocks(Stream source, Stream output, Entry entry, int[] blocks, int blockSize)

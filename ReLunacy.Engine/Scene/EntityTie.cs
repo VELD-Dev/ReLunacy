@@ -20,6 +20,17 @@ public class EntityTie : Entity
     /// collision instance carries this same matrix, which is how the two are matched.</summary>
     public Matrix4x4 PlacementMatrix { get; }
 
+    /// <summary>Where the placement's record is in its file (see PlacedInstance.SourceOffset); -1 when unknown.</summary>
+    public long SourceOffset { get; }
+
+    /// <summary>The editor's matrix (<see cref="Entity.Transform"/>) as the file last held it: as loaded, then as last
+    /// saved. A save writes the file's own matrix moved by the edit since (file x saved^-1 x now), which keeps a
+    /// mirrored or sheared placement exactly; <see cref="MarkSaved"/> must follow every save, or the next one would
+    /// apply the edit twice.</summary>
+    public Matrix4x4 SavedMatrix { get; private set; }
+
+    public void MarkSaved() => SavedMatrix = Transform.GetMatrix();
+
     public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager)
     {
         BaseTie = tieInstance.Asset;
@@ -36,6 +47,9 @@ public class EntityTie : Entity
             Rotation = rotation,
             Scale = scale
         };
+
+        SourceOffset = (tieInstance as Assets.Geometry.PlacedInstance<ITie>)?.SourceOffset ?? -1;
+        SavedMatrix = Transform.GetMatrix();
 
         var (center, radius) = BaseTie.GetBoundingSphere();
         BoundingSphere = new Vector4(center, radius);

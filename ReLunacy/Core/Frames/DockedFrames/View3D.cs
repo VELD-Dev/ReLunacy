@@ -81,6 +81,7 @@ public class View3D : DockedFrame
     public View3D(GraphicsDevice gd)
     {
         FrameName = LM.Get("GUI_Frame_View3D");
+        Core.Undo.UndoManager.Singleton.EntityRestored += e => _restored.Add(e);
         Camera = new EditorCamera(
             Vector3.Zero,
             Vector3.UnitZ,
@@ -358,6 +359,8 @@ public class View3D : DockedFrame
     private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Colour, int Shape)> _vkVolumeFills = new();
     private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> _vkCameras = new();
 
+    private readonly HashSet<Entity> _restored = new(ReferenceEqualityComparer.Instance);
+
     /// <summary>The gizmo moved the selection this frame: the rest of it is pushed to the renderer next frame.</summary>
     private bool _selectionMoved;
 
@@ -505,8 +508,30 @@ public class View3D : DockedFrame
                             _vkVolumeFills.Add((v.FillMatrix, v.KindColour with { W = em.VolumeFillOpacity }, (int)v.BaseVolume.Shape));
                         foreach (var edge in v.GetWorldEdgeTransforms())
                             _vkVolumes.Add((edge, color, pickId));
+                        if (em.ShowRadiusPreviews) AddRadiusPreviews(v, em);
                     }
         return _vkVolumes;
+    }
+
+    /// <summary>A Clue's radius settings (a moon's radius) as spheres at its volume, read from the settings every
+    /// frame so an edit in the inspector shows at once. Clicking one selects the Clue.</summary>
+    private void AddRadiusPreviews(Engine.Scene.EntityVolume volume, EntityManager em)
+    {
+        if (volume.BaseVolume.Clue is not { } clue) return;
+        var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+        foreach (var (offset, colour) in Engine.Assets.LevelElements.ClueClasses.RadiiOf(game, clue.Class))
+        {
+            if (clue.Settings.Length < offset + 4) continue;
+            float radius = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(clue.Settings.AsSpan(offset));
+            if (!float.IsFinite(radius) || radius <= 0f || radius > 1e5f) continue;
+            var centre = volume.Transform.Translation;
+            var tint = volume.selected ? em.VolumeSelectedColor : new Vector4(colour, 1f);
+            foreach (var edge in Engine.Scene.EntityVolume.GlobeEdges(centre, radius))
+                _vkVolumes.Add((edge, tint, (uint)volume.ID));
+            if (em.VolumeFillMode != Engine.Scene.VolumeFillMode.None)
+                _vkVolumeFills.Add((Matrix4x4.CreateScale(radius * 2f) * Matrix4x4.CreateTranslation(centre),
+                    new Vector4(colour, em.VolumeFillOpacity * 0.6f), (int)Engine.Assets.LevelElements.VolumeShape.Sphere));
+        }
     }
 
     protected override void Render(double deltaTime)
@@ -656,6 +681,24 @@ public class View3D : DockedFrame
                         if (other is EntityTie && !ReferenceEquals(other, SelectedEntity))
                             _collisionEditor.FollowEntity(other);
                 _selectionMoved = false;
+                // What an undo or a redo put back: its matrices to the renderer, a Tie's collision with it, and the
+                // gizmo back onto a selected path part whose path changed.
+                if (_restored.Count > 0)
+                {
+                    foreach (var entity in _restored)
+                    {
+                        Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(entity);
+                        if (entity is EntityTie) _collisionEditor.FollowEntity(entity);
+                    }
+                    // A path part whose key an undo took away (an insertion undone) gives way to its path.
+                    if (SelectedEntity is EntityPathPoint restoredPart)
+                    {
+                        int count = restoredPart.Part == PathPart.Point ? restoredPart.Owner.PointCount : restoredPart.Owner.KeyCount;
+                        if (restoredPart.Index < count) restoredPart.Refresh();
+                        else SelectedEntity = restoredPart.Owner;
+                    }
+                    _restored.Clear();
+                }
                 vkStage.CollisionVisible = EntityManager.Singleton.renderCollision;
                 vkStage.CollisionColorMode = Program.Settings.CollisionColorMode;
                 vkStage.CollisionCategories = Program.Settings.CollisionCategories;

@@ -28,6 +28,9 @@ public sealed class LevelCollision
     /// 12 on the new engine). +0x24 is its reciprocal.</summary>
     public float GridCellSize { get; }
 
+    /// <summary>The new engine's instance layout (see <see cref="Read"/>), which a save writes back in.</summary>
+    public bool IsNewEngine { get; private init; }
+
     private LevelCollision(IReadOnlyList<CollisionInstance> instances, IReadOnlyList<CollisionShape> shapes,
         Vector3 boundsMin, Vector3 boundsMax, float gridCellSize)
     {
@@ -109,6 +112,7 @@ public sealed class LevelCollision
                     : (shapeFlags & PrimitiveSetFlag) != 0
                         ? CollisionPrimitiveSet.Read(d, at, shapeLength)
                         : CollisionMesh.Read(d, at, shapeLength);
+                if (shape != null) shape.Offset = at;
                 if (shape == null)
                 {
                     skipped++;
@@ -127,13 +131,13 @@ public sealed class LevelCollision
                 (idWord & TieInstanceFlag) != 0,
                 idWord & 0x0FFFFFFF,
                 shapeFlags,
-                shape));
+                shape) { RecordOffset = o });
         }
 
         if (skipped != 0)
             Console.WriteLine($"Collision: {skipped} instance(s) point at a shape that does not parse; skipped.");
 
-        return new LevelCollision(instances, shapes, Vec3(d, 0x40), Vec3(d, 0x50), F32(d, 0x20));
+        return new LevelCollision(instances, shapes, Vec3(d, 0x40), Vec3(d, 0x50), F32(d, 0x20)) { IsNewEngine = newEngine };
     }
 
     internal static uint U32(ReadOnlySpan<byte> d, int o) => BinaryPrimitives.ReadUInt32BigEndian(d[o..]);
@@ -183,10 +187,18 @@ public sealed class CollisionInstance(Matrix4x4 transform, Vector4 boundingSpher
     public ushort ShapeFlags { get; set; } = shapeFlags;
 
     public CollisionShape Shape { get; } = shape;
+
+    /// <summary>Where the instance's record starts in the collision data it was read from (the old engine's whole
+    /// file, the new engine's section 0x2900), for a save to write it back.</summary>
+    public int RecordOffset { get; init; } = -1;
 }
 
 /// <summary>What a <see cref="CollisionInstance"/> places: a triangle mesh or a set of primitives.</summary>
-public abstract class CollisionShape;
+public abstract class CollisionShape
+{
+    /// <summary>Where the shape starts in the collision data it was read from (see <see cref="CollisionInstance.RecordOffset"/>).</summary>
+    public int Offset { get; internal set; } = -1;
+}
 
 /// <summary>
 /// A collision triangle mesh. Header (big-endian u16): +0x00 vertex count, +0x02 vertex block offset,
@@ -216,6 +228,10 @@ public sealed class CollisionMesh : CollisionShape
     public byte[] TriangleFlags { get; }
 
     public int TriangleCount => Materials.Length;
+
+    /// <summary>Where the triangle words and the material bytes start, from the shape's own start.</summary>
+    public int TriangleOffset { get; private init; }
+    public int MaterialOffset { get; private init; }
 
     private CollisionMesh(Vector3[] positions, int[] indices, byte[] materials, byte[] triangleFlags)
     {
@@ -273,7 +289,7 @@ public sealed class CollisionMesh : CollisionShape
         }
 
         byte[] materials = d.Slice(o + materialOffset, triangleCount).ToArray();
-        return new CollisionMesh(positions, indices, materials, flags);
+        return new CollisionMesh(positions, indices, materials, flags) { TriangleOffset = triangleOffset, MaterialOffset = materialOffset };
     }
 }
 

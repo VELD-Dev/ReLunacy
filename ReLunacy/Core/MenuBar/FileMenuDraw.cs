@@ -37,6 +37,15 @@ internal static class FileMenuDraw
             LunaWindow.Instance.AddFrame(new SaveLevelModal());
     }
 
+    internal static void BackupsMenuItem()
+    {
+        bool open = LunaWindow.Instance.IsAnyFrameOpened<BackupsFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_Backups"), "", open, Program.ProvidedPath != string.Empty))
+            return;
+        if (open) LunaWindow.Instance.TryCloseFirstFrame<BackupsFrame>();
+        else LunaWindow.Instance.AddFrame(new BackupsFrame());
+    }
+
     internal static void ExportLevelMenuItem()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_ExportLevel"), "", false, Program.ProvidedPath != string.Empty))

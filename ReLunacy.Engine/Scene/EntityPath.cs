@@ -306,6 +306,30 @@ public class EntityPath : Entity
         return 0;
     }
 
+    /// <summary>Everything an edit can change about the path's shape, for undo: its points, its keys, handles and
+    /// their modes, whether it is a spline. Its placement is its <see cref="Entity.Transform"/>, kept apart.</summary>
+    public sealed record ShapeState(Vector3[] Local, Vector3[] Keys, Vector3[] In, Vector3[] Out, PathHandleMode[] Modes, bool IsSpline)
+    {
+        public bool SameAs(ShapeState other) => IsSpline == other.IsSpline
+            && Local.AsSpan().SequenceEqual(other.Local) && Keys.AsSpan().SequenceEqual(other.Keys)
+            && In.AsSpan().SequenceEqual(other.In) && Out.AsSpan().SequenceEqual(other.Out)
+            && Modes.AsSpan().SequenceEqual(other.Modes);
+    }
+
+    public ShapeState CaptureShape() => new([.. _local], [.. _keys], [.. _in], [.. _out], [.. _modes], IsSpline);
+
+    /// <summary>Puts the path's shape back as captured (undo, redo).</summary>
+    public void RestoreShape(ShapeState state)
+    {
+        _local.Clear(); _local.AddRange(state.Local);
+        _keys.Clear(); _keys.AddRange(state.Keys);
+        _in.Clear(); _in.AddRange(state.In);
+        _out.Clear(); _out.AddRange(state.Out);
+        _modes.Clear(); _modes.AddRange(state.Modes);
+        IsSpline = state.IsSpline;
+        Version++;
+    }
+
     /// <summary>Notices a gizmo edit of the whole path; true when the points moved since the last call.</summary>
     public bool Sync()
     {
