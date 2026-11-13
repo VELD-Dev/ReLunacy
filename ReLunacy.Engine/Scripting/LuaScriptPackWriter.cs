@@ -101,14 +101,13 @@ public static class LuaScriptPackWriter
     {
         // 1. Compile first. A chunk that does not exist cannot be written, and a source whose
         //    chunk failed to build must not be written either.
+        //    (For a Lua 5.1 archive the 5.0 chunk is not what gets written - see below - and a script
+        //    using 5.1's operators is checked by the parser alone.)
         onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Compiling, 0f));
         var chunk = LuaCompiler.Compile(source, out var errors);
-        if (chunk is null)
-            return LuaScriptSaveResult.Refused(
-                "the script did not compile, so nothing was written",
-                [.. errors.Select(e => $"{e.Span.Start}: {e.Message}")]);
+        LuaParser.Parse(source, out var syntax);
 
-        byte[] compiledBytes = LuaChunkWriter.Write(chunk);
+        byte[] compiledBytes = chunk is null ? [] : LuaChunkWriter.Write(chunk);
         byte[] sourceBytes = LuaText.ToBytes(source);
         string compiledPath = CompiledPathFor(scriptPath);
         string temporaryPath = archivePath + ".new";
@@ -142,6 +141,36 @@ public static class LuaScriptPackWriter
                 expected = ReadEverything(archive, onProgress);
             }
 
+            // The compiler writes Lua 5.0 chunks, the format of Tools of Destruction. A Crack in Time
+            // on ship Lua 5.1 chunks ("\x1BLuaQ"), which the game would refuse. Its Lua keeps the 5.1
+            // parser (its error strings are in the EBOOT), and a 5.1 load reads text or bytecode alike,
+            // telling them apart by the first byte - so the chunk entry gets the source itself, which
+            // has just compiled. A precompiled 5.1 chunk would need a 5.1 code generator.
+            bool sourceAsChunk = ShipsLua51(expected);
+            if (sourceAsChunk ? syntax.Count > 0 : chunk is null)
+                return LuaScriptSaveResult.Refused(
+                    "the script did not compile, so nothing was written",
+                    sourceAsChunk
+                        ? [.. syntax.Select(d => $"{d.Span.Start}: {d.Message}")]
+                        : [.. errors.Select(e => $"{e.Span.Start}: {e.Message}")]);
+            if (sourceAsChunk) halves[compiledPath] = sourceBytes;
+
+            // Earlier versions wrote 5.0 chunks into these archives, which the game can not load (the
+            // script silently never runs). Each one is repaired in the same write, from its source -
+            // when this write replaces entries; an add (below) only appends.
+            var repaired = new List<string>();
+            if (sourceAsChunk && hasSource)
+                foreach (var (path, contents) in expected)
+                {
+                    if (!path.EndsWith(".lc", StringComparison.OrdinalIgnoreCase) || halves.ContainsKey(path) || !IsLua50(contents)) continue;
+                    string? sourceOf = SourcePathFor(path, expected);
+                    if (sourceOf is null || halves.ContainsKey(sourceOf)) continue;
+                    LuaParser.Parse(LuaText.FromBytes(expected[sourceOf]), out var sourceProblems);
+                    if (sourceProblems.Count > 0) continue;
+                    halves[path] = expected[sourceOf];
+                    repaired.Add(path);
+                }
+
             string summary;
 
             onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Writing, 0f));
@@ -150,7 +179,9 @@ public static class LuaScriptPackWriter
                 PsarcPatcher.Patch(archivePath, temporaryPath, halves);
                 foreach (var (path, contents) in halves) expected[path] = contents;
                 summary = $"wrote {scriptPath} ({sourceBytes.Length} bytes) and {compiledPath} "
-                        + $"({compiledBytes.Length} bytes) into {Path.GetFileName(archivePath)}";
+                        + $"({halves[compiledPath].Length} bytes{(sourceAsChunk ? ", the source as text: the game's Lua 5.1 compiles it on load" : "")}) "
+                        + $"into {Path.GetFileName(archivePath)}"
+                        + (repaired.Count > 0 ? $"; repaired {repaired.Count} Lua 5.0 chunk(s) an earlier version had written, which the game could not load ({string.Join(", ", repaired.Select(Path.GetFileName))})" : "");
             }
             else
             {
@@ -185,6 +216,31 @@ public static class LuaScriptPackWriter
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
             return LuaScriptSaveResult.Refused($"{Path.GetFileName(archivePath)}: {e.Message}");
         }
+    }
+
+    private static bool IsLua50(byte[] b) => b.Length > 4 && b[0] == 0x1B && b[1] == (byte)'L' && b[2] == (byte)'u' && b[3] == (byte)'a' && b[4] == 0x50;
+    private static bool IsLua51(byte[] b) => b.Length > 4 && b[0] == 0x1B && b[1] == (byte)'L' && b[2] == (byte)'u' && b[3] == (byte)'a' && b[4] == 0x51;
+
+    /// <summary>
+    /// Whether the archive belongs to a Lua 5.1 game: any 5.1 chunk in it says so. Deciding from
+    /// the chunk being replaced was wrong - an earlier version had already put a 5.0 chunk there,
+    /// and every later install kept writing 5.0 (space_sector_1's debug.lc and space.lc).
+    /// </summary>
+    private static bool ShipsLua51(Dictionary<string, byte[]> entries) =>
+        entries.Any(e => e.Key.EndsWith(".lc", StringComparison.OrdinalIgnoreCase) && IsLua51(e.Value));
+
+    /// <summary>The source a chunk was built from (the inverse of <see cref="CompiledPathFor"/>), if the archive has it.</summary>
+    private static string? SourcePathFor(string chunkPath, Dictionary<string, byte[]> entries)
+    {
+        string source = Path.ChangeExtension(chunkPath, ".lua");
+        foreach (string candidate in new[]
+        {
+            source.StartsWith("/built/game/", StringComparison.OrdinalIgnoreCase) ? source["/built/game".Length..] : source,
+            source.StartsWith("/built/", StringComparison.OrdinalIgnoreCase) ? source["/built".Length..] : source,
+            source,
+        })
+            if (entries.ContainsKey(candidate)) return candidate;
+        return null;
     }
 
     /// <summary>

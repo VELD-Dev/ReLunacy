@@ -42,14 +42,14 @@ public class LuaEnvironmentFrame : DockedFrame
         // read beside it. The .lc is found by the path mapping verified across all 524 chunks.
         _scripts.ScriptSelected = (path, source, compiled) =>
         {
-            _editor.Load(source, path);
+            _editor.Load(source, path, fromArchive: true);
             if (compiled is not null) _disassembly.Load(compiled, LuaScriptBrowser.CompiledPathFor(path));
         };
         // The level's other scripts share one global table at runtime, so a function declared in
         // any of them is callable from the file being edited. The browser already has the archive
         // open, so it is what indexes them.
         _editor.SharedScripts = _scripts.SharedScripts;
-        _editor.ArchivePath = _scripts.ArchivePath;
+        _editor.ArchivePath = _scripts.ArchivePathFor;
         // Searching for references reads the siblings' text, and jumping to a declaration in one
         // of them means opening it - both of which the browser is already holding the archive for.
         _editor.SiblingSources = _scripts.SharedSources;

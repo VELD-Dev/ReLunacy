@@ -201,6 +201,7 @@ public class PropertyInspectorFrame : DockedFrame
 
         if (SelectedEntity is EntityMoby moby)
         {
+            RenderPodMembership(moby);
             if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_CullDistance"), ref selectedCullDistance, 0, 0,
                     "%.3f", ImGuiInputTextFlags.ReadOnly))
             {
@@ -253,6 +254,8 @@ public class PropertyInspectorFrame : DockedFrame
                 : baseVolume.Role != null
                     ? LM.Get("GUI_Frame_InstanceInspector_VolumeRole", baseVolume.Role)
                     : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
+            if (baseVolume.GravityRegion)
+                ImGui.TextColored(new Vector4(0.4f, 0.85f, 1f, 1f), LM.Get("GUI_Frame_InstanceInspector_GravityRegion"));
             if (baseVolume.Clue is { Settings.Length: > 4 } clueSettings)
             {
                 // The Clue with what it names (a moon: its area and its landing pad beam), so the gizmo
@@ -510,6 +513,26 @@ public class PropertyInspectorFrame : DockedFrame
         }
     }
 
+    /// <summary>The Pods a Moby belongs to (A Crack in Time's level segments among them), each opening the Pods window.</summary>
+    private static void RenderPodMembership(EntityMoby moby)
+    {
+        var pods = EntityManager.Singleton.Regions.SelectMany(r => r.Pods).Where(p => p.Contains(moby)).ToList();
+        ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_Pods"));
+        ImGui.SameLine();
+        if (pods.Count == 0) { ImGui.TextDisabled("-"); return; }
+        foreach (var pod in pods)
+        {
+            if (ImGui.SmallButton($"{pod.Name}##pod{pod.Tuid}"))
+            {
+                var frame = LunaWindow.Instance.IsAnyFrameOpened<PodsFrame>() ? LunaWindow.Instance.GetFirstFrame<PodsFrame>() : null;
+                if (frame == null) { frame = new PodsFrame(); LunaWindow.Instance.AddFrame(frame); }
+                frame.Show(pod);
+            }
+            ImGui.SameLine();
+        }
+        ImGui.NewLine();
+    }
+
     /// <summary>A Clue's or a controller's settings: the fields that name another instance, then every non-zero
     /// field raw (their meaning is not decoded yet), typed as flags, a float or an integer.</summary>
     private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls, bool moby = false)
@@ -552,11 +575,158 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.TableSetupColumn("type");
             ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("class");
+            // What is known of the class's fields (ClassFields): each gets a row of its own, typed and named, and a
+            // field the game overwrites at start-up is shown read-only. Words nothing names keep the raw row.
+            var schema = Engine.Assets.LevelElements.ClassFields.Of(game, cls);
+            var fieldsByWord = schema.Where(f => f.Kind is not (Engine.Assets.LevelElements.ClassFieldKind.Component or Engine.Assets.LevelElements.ClassFieldKind.Reference))
+                .ToLookup(f => f.Offset & ~3);
+            var componentsByWord = schema.Where(f => f.Kind == Engine.Assets.LevelElements.ClassFieldKind.Component).ToLookup(f => f.Offset & ~3);
+
+            void RowMenu(int at, int length, bool edited)
+            {
+                if (!ImGui.BeginPopupContextItem("word_menu")) return;
+                if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
+                {
+                    var source = settings.AsSpan(at, length).ToArray();
+                    var targets = SettingsOfClass(cls, moby).ToList();
+                    Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_CopySetting"), targets, () =>
+                    {
+                        foreach (var other in targets)
+                            if (other.Length >= at + length) source.CopyTo(other.AsSpan(at));
+                    });
+                }
+                if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
+                    Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
+                        () => loaded.AsSpan(at, length).CopyTo(settings.AsSpan(at, length)));
+                ImGui.EndPopup();
+            }
+
+            void SurveyCell(int wordOffset)
+            {
+                ImGui.TableNextColumn();
+                if (survey.Count > 1 && survey.Words.TryGetValue(wordOffset, out var across))
+                {
+                    if (across.Distinct == 1) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsSameOnAll", survey.Count));
+                    else ImGui.TextColored(new Vector4(0.6f, 0.85f, 1f, 1f), LM.Get("GUI_Frame_InstanceInspector_SettingsValues", across.Distinct, survey.Count));
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(across.Sample);
+                }
+            }
+
+            // One known field: its name, its type, an editor of that type (locked when the game overwrites it).
+            void FieldRow(Engine.Assets.LevelElements.ClassField field, int size)
+            {
+                var bytes = settings.AsSpan(field.Offset, size);
+                bool edited = !bytes.SequenceEqual(loaded.AsSpan(field.Offset, size));
+                ImGui.PushID(0x10000 + field.Offset);
+                ImGui.TableNextRow();
+
+                ImGui.TableNextColumn();
+                string name = ClueClasses.FieldName(game, cls, field.Offset) ?? (field.CodeOnly ? LM.Get("GUI_Frame_InstanceInspector_FieldCodeOnly") : "");
+                string label = name.Length > 0 ? $"+0x{field.Offset:X2} {name}" : $"+0x{field.Offset:X2}";
+                if (registry?.Owner(cls, field.Offset) is { } owner && owner != cls) label += $"  [{ClassLabel(registry, owner)}]";
+                if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), label);
+                else if (field.RunTime || field.CodeOnly) ImGui.TextDisabled(label);
+                else ImGui.TextUnformatted(label);
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.PushTextWrapPos(ImGui.GetFontSize() * 32f);
+                    ImGui.TextUnformatted(field.Description);
+                    if (field.RunTime) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"));
+                    ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldEvidence", field.Evidence));
+                    ImGui.PopTextWrapPos();
+                    ImGui.EndTooltip();
+                }
+                if (!field.RunTime) RowMenu(field.Offset, size, edited);
+
+                ImGui.TableNextColumn();
+                string kind = field.Kind switch
+                {
+                    Engine.Assets.LevelElements.ClassFieldKind.U8 => "u8",
+                    Engine.Assets.LevelElements.ClassFieldKind.U16 => "u16",
+                    Engine.Assets.LevelElements.ClassFieldKind.S32 => "s32",
+                    Engine.Assets.LevelElements.ClassFieldKind.F32 => "float",
+                    Engine.Assets.LevelElements.ClassFieldKind.TextId => "text id",
+                    _ => "u32",
+                };
+                ImGui.TextDisabled(field.RunTime ? LM.Get("GUI_Frame_InstanceInspector_FieldRunTime", kind) : kind);
+
+                ImGui.TableNextColumn();
+                ImGui.SetNextItemWidth(-1f);
+                ImGui.BeginDisabled(field.RunTime);
+                switch (field.Kind)
+                {
+                    case Engine.Assets.LevelElements.ClassFieldKind.F32:
+                    {
+                        float f = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(bytes);
+                        if (ImGui.DragFloat("##v", ref f, MathF.Max(0.01f, MathF.Abs(f) * 0.01f), 0f, 0f, "%.6g"))
+                            System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(bytes, f);
+                        break;
+                    }
+                    case Engine.Assets.LevelElements.ClassFieldKind.U8:
+                    {
+                        int v = bytes[0];
+                        if (ImGui.DragInt("##v", ref v, 0.1f, 0, 255)) bytes[0] = (byte)Math.Clamp(v, 0, 255);
+                        break;
+                    }
+                    case Engine.Assets.LevelElements.ClassFieldKind.U16:
+                    {
+                        int v = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes);
+                        if (ImGui.InputInt("##v", ref v))
+                            System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(bytes, (ushort)Math.Clamp(v, 0, 0xFFFF));
+                        break;
+                    }
+                    default:
+                    {
+                        int v = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes);
+                        if (ImGui.InputInt("##v", ref v)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, v);
+                        break;
+                    }
+                }
+                if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
+                ImGui.EndDisabled();
+                SurveyCell(field.Offset & ~3);
+                ImGui.PopID();
+            }
+
             for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
             {
                 var word = settings.AsSpan(offset, 4);
                 uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(word);
                 bool edited = !word.SequenceEqual(loaded.AsSpan(offset, 4));
+
+                // An embedded object starts here: a heading, its fields follow as rows of their own.
+                foreach (var component in componentsByWord[offset])
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn();
+                    ImGui.TextColored(new Vector4(0.75f, 0.75f, 1f, 1f), $"+0x{component.Offset:X2} {component.Name}");
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(component.Description);
+                    ImGui.TableNextColumn();
+                    ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldComponent", $"0x{component.Length:X}"));
+                }
+
+                // The word's known fields. A field only the code is known to touch stays hidden while it is zero,
+                // like an unknown word; a named one always shows, set or not.
+                var covered = 0;
+                foreach (var field in fieldsByWord[offset])
+                {
+                    int size = field.Kind switch { Engine.Assets.LevelElements.ClassFieldKind.U8 => 1, Engine.Assets.LevelElements.ClassFieldKind.U16 => 2, _ => 4 };
+                    if (field.Offset + size > settings.Length) continue;
+                    for (int b = 0; b < size; b++) covered |= 1 << (field.Offset - offset + b);
+                    bool fieldEdited = !settings.AsSpan(field.Offset, size).SequenceEqual(loaded.AsSpan(field.Offset, size));
+                    bool zero = settings.AsSpan(field.Offset, size).IndexOfAnyExcept((byte)0) < 0;
+                    if (field.CodeOnly && zero && !fieldEdited && !_showZeroWords) continue;
+                    FieldRow(field, size);
+                }
+                if (covered != 0)
+                {
+                    // Bytes of the word no field covers get the raw row only when they hold something.
+                    bool rest = false;
+                    for (int b = 0; b < 4; b++)
+                        if ((covered & (1 << b)) == 0 && (word[b] != 0 || word[b] != loaded[offset + b])) rest = true;
+                    if (!rest) continue;
+                }
                 if (references.Contains(offset) || (value == 0 && !edited && !_showZeroWords)) continue;
                 ImGui.PushID(offset);
                 ImGui.TableNextRow();
@@ -567,27 +737,8 @@ public class PropertyInspectorFrame : DockedFrame
                 if (registry?.Owner(cls, offset) is { } owner && owner != cls) label += $"  [{ClassLabel(registry, owner)}]";
                 if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), label);
                 else ImGui.TextDisabled(label);
-                if (ImGui.BeginPopupContextItem("word_menu"))
-                {
-                    if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
-                    {
-                        var source = word.ToArray();
-                        int at = offset;
-                        var targets = SettingsOfClass(cls, moby).ToList();
-                        Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_CopySetting"), targets, () =>
-                        {
-                            foreach (var other in targets)
-                                if (other.Length >= at + 4) source.CopyTo(other.AsSpan(at));
-                        });
-                    }
-                    if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
-                    {
-                        int at = offset;
-                        Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
-                            () => loaded.AsSpan(at, 4).CopyTo(settings.AsSpan(at, 4)));
-                    }
-                    ImGui.EndPopup();
-                }
+                if (Engine.Assets.LevelElements.ClassFields.At(game, cls, offset) is { } known && ImGui.IsItemHovered()) ImGui.SetTooltip(known.Description);
+                RowMenu(offset, 4, edited);
 
                 // How the word is read: as last chosen for this class and offset, else guessed once from the value it
                 // was loaded with and then kept. Guessing from the current value made an edit change the editor under
@@ -647,13 +798,7 @@ public class PropertyInspectorFrame : DockedFrame
                     }
                 }
                 // Across the class: what every instance of it in the level holds here.
-                ImGui.TableNextColumn();
-                if (survey.Count > 1 && survey.Words.TryGetValue(offset, out var across))
-                {
-                    if (across.Distinct == 1) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsSameOnAll", survey.Count));
-                    else ImGui.TextColored(new Vector4(0.6f, 0.85f, 1f, 1f), LM.Get("GUI_Frame_InstanceInspector_SettingsValues", across.Distinct, survey.Count));
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(across.Sample);
-                }
+                SurveyCell(offset);
                 ImGui.PopID();
             }
             ImGui.EndTable();

@@ -53,39 +53,113 @@ public static class ClueClasses
     /// <summary>Settings fields with a known meaning, by game, class and offset in the class's struct.</summary>
     private static readonly Dictionary<(Games.GameId Game, uint Class, int Offset), string> KnownFields = new()
     {
-        // The landing pad's beam Moby (moon1a_landing_pad_beam, space_junktrader_landingpad).
-        [(Games.GameId.ACrackInTime, 0x4BC, 0xC0)] = "Landing pad beam",
-        // The moon's area (moon1a_vol...), a sphere 400 across: the level script (space_sector_1 main.lua) runs a
+        // Read from the decrypted EBOOT (2026-11-12): space_land_ship -> 0x0022BD84 -> 0x00304704(ship, Clue).
+        // The ship is put at the beam Moby's position and orientation: it lands exactly on the beam (the user's
+        // observation). The beam itself is placed by the level, not by the Clue.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xC0)] = "Landing pad beam (the ship lands on it)",
+        // Init (0x002F4BAC) fills these three itself, whatever the file holds: it copies the Mobys of the Clue's own
+        // editor layer (gameplay_moon1a...) into a new run-time Pod, leaving out the beam (class 0x72C), and keeps the
+        // Zoni (0x5D3) and the gold bolt (0x210) it meets on the way. See docs/reverse/acit_space_sector_classes.md.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xC8)] = "Zoni (run time: found by Init)",
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xCC)] = "Gold bolt (run time: found by Init)",
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xD8)] = "Pod of the moon's objects (run time: built by Init)",
+        // The embedded prompt (+0x28): its text id is one of the EBOOT's SSn_PROMPT_SPACE_LNDONMOONnX, but Init
+        // replaces it with GEN_PROMPT_GPLAY_LAND (0x53F); its range is tested by 0x004DEDF0.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0x80)] = "Land prompt text id (replaced at Init)",
+        [(Games.GameId.ACrackInTime, 0x4BC, 0x8C)] = "Prompt range",
+        // SSn_TXT_SPACE_MNxMC in the EBOOT's text table, a different one on each moon.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xD4)] = "Moon name text id",
+        // Fixed up with the beam and the area (0x002F30BC); 0 on every retail moon.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xC4)] = "Reference (unused in retail)",
+        // 0x00304790: when byte 0 is set, landing sends message 0xD2 to the beam and to the ship (0x0091D990).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xE4)] = "Landing message flags",
+        // The moon's area (moon1a_vol...), a sphere of radius 400: the level script (space_sector_1 main.lua) runs a
         // moon's script while Ratchet is inside its table_moons[i].vol. Not the gravity range (the user's test,
-        // 2026-11-12). The Clue itself is the ship's landing target: moons_init.lua space_land_ship(aphelion, clue).
+        // 2026-11-12). It is also where the moon's name and stats (Zoni...) are shown, the area growing with the volume
+        // (user, 2026-11-12). The Clue itself is the ship's landing target: moons_init.lua space_land_ship(aphelion, clue).
         [(Games.GameId.ACrackInTime, 0x4BC, 0xD0)] = "Moon area",
         // The moon's surface radius: 50 on the large moons, 25 on the small ones; every Tie and volume placed on
         // moon1a (bunker, landing pad, spires, the 22 moon_ap*_vol) stands 50 from its centre, its volcanic_moon Tie.
-        [(Games.GameId.ACrackInTime, 0x4BC, 0xE0)] = "Moon radius",
+        // The moon map's orbiting camera (R3 on a moon) keeps its distance from it: a larger radius flies the camera
+        // higher (user's test, 2026-11-13).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xE0)] = "Moon radius (also the moon map camera's distance)",
+
+        // SpacePlanet, a destination the ship lands on to load another level (Init 0x002F61D4, Update 0x002F5670).
+        [(Games.GameId.ACrackInTime, 0x4C2, 0x88)] = "Land prompt text id (replaced at Init)",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0x8C)] = "Prompt volume",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0x94)] = "Prompt range",
+        // The EBOOT's LEVEL enum: 2 Zolar Forest, 4 Vorselon's ship, 7 Molonoth, 8 Axiom City, 11 Krell Canyon,
+        // 12 Agorian Arena, 13 Tombli, 16 Valkyrie Fleet, 17 Nefarious Station, 19 Gimlick Valley, 21 the museum.
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xC8)] = "Destination level",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xCC)] = "Planet name text id",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xD0)] = "Barrier name text id",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xD4)] = "Location volume (the ship can land inside it)",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xD8)] = "Barrier outer volume",
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xDC)] = "Barrier inner volume",
+        // A u16: 0 none, 1 Terachnos, 2 Tombli, 3 the Nefarious station.
+        [(Games.GameId.ACrackInTime, 0x4C2, 0xF0)] = "Barrier type",
+
+        // The landing pad beam (fix-up 0x002F3004).
+        [(Games.GameId.ACrackInTime, 0x72C, 0x80)] = "Take-off volume",
+        [(Games.GameId.ACrackInTime, 0x72C, 0x84)] = "Respawn volume (junk trader stations)",
     };
 
+    /// <summary>A Crack in Time's ClueGravity, which SpaceMoon derives from: a region with a gravity of its own.</summary>
+    private const uint CrackInTimeGravity = 0x11E;
+    /// <summary>The role of a plain volume a gravity Clue acts in instead of its own (ClueGravity +0x14, +0x18).</summary>
+    public const string GravityRegionRole = "Gravity region";
+
     /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
-    /// area. Only links that resolve count; nothing is guessed from names.</summary>
+    /// area. Only links that resolve count; nothing is guessed from names. Also marks where each gravity Clue acts
+    /// (<see cref="Volume.GravityRegion"/>).</summary>
     public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game)
     {
         var byName = volumes.Where(v => v.Name != null).ToLookup(v => v.Name!);
         foreach (var volume in volumes)
             if (volume.Clue is { } clue)
+            {
                 foreach (var reference in clue.References)
                 {
-                    if (reference.Kind != "Volume" || FieldName(game, clue.Class, reference.Offset) is not { } field) continue;
+                    if (reference.Kind != "Volume" || game is not { } g
+                        || !KnownFields.TryGetValue((g, clue.Class, reference.Offset), out var field)) continue;
                     foreach (var target in byName[reference.Name])
                     {
                         target.Role = field;
                         target.RoleSource = $"{clue.Name} ({clue.ClassName} +0x{reference.Offset:X})";
                     }
                 }
+                if (game == Games.GameId.ACrackInTime && ClassFields.IsA(game, clue.Class, CrackInTimeGravity))
+                    MarkGravityRegion(volume, clue, volumes, byName);
+            }
+    }
+
+    /// <summary>
+    /// Where a gravity Clue acts, as the game finds it (EBOOT 0x004F076C): the volumes of its Area (+0x18) when one is
+    /// set, else its volume reference (+0x14), else the Clue's own volume - a moon's case, every SpaceMoon leaving
+    /// both unset. Inside it, in the air, "up" points away from the volume's centre.
+    /// </summary>
+    private static void MarkGravityRegion(Volume own, VolumeClue clue, IReadOnlyList<Volume> volumes, ILookup<string, Volume> byName)
+    {
+        var targets = new List<Volume>();
+        if (clue.References.FirstOrDefault(r => r.Offset == 0x18 && r.Kind == "Area") is { } area)
+            targets.AddRange(volumes.Where(v => v.Areas.Contains(area.Name)));
+        else if (clue.References.FirstOrDefault(r => r.Offset == 0x14 && r.Kind == "Volume") is { } volume)
+            targets.AddRange(byName[volume.Name]);
+        if (targets.Count == 0) { own.GravityRegion = true; return; }
+        foreach (var target in targets)
+        {
+            target.GravityRegion = true;
+            if (target.Clue != null) continue;
+            target.Role = GravityRegionRole;
+            target.RoleSource = $"{clue.Name} ({clue.ClassName})";
+        }
     }
 
     /// <summary>A volume role's colour (see <see cref="Volume.Role"/>).</summary>
     public static System.Numerics.Vector3 RoleColour(string role) => role switch
     {
         "Moon area" => new(0.62f, 0.4f, 1f),
+        GravityRegionRole => new(0.3f, 0.85f, 1f),
         _ => ColourOf(role),
     };
 
@@ -106,11 +180,8 @@ public static class ClueClasses
     /// </summary>
     private static readonly (Games.GameId Game, string Name, string Effect)[] KnownBreaking =
     [
-        // A space sector moon's ap volumes (22 per moon, moon_ap00_vol..moon_ap21_vol, plus moon_ap00_vol1 and three
-        // _homevol): no Clue, controller, Area, Scent or script refers to them - they are not in the trimmed handle
-        // list the scripts use - so the engine finds them itself. Moving moon_ap00_vol1 by 4.5 units left
-        // space_sector_1 loading for ever (user test, 2026-11-12).
-        (Games.GameId.ACrackInTime, "moon_ap00_vol1", "Moving it left space_sector_1 loading for ever (the engine uses the moon_ap volumes itself)."),
+        // None known. (moon_ap00_vol1 was listed on 2026-11-12: moving it seemed to hang space_sector_1's load; the cause
+        // was the game's stale disk cache - see Packing.GameCaches - and saves now clear it.)
     ];
 
     /// <summary>What editing this instance is known to do to the game, or null.</summary>
@@ -119,7 +190,8 @@ public static class ClueClasses
 
     /// <summary>The name of the settings field at <paramref name="offset"/> of a Clue (or controller) class, when known.</summary>
     public static string? FieldName(Games.GameId? game, uint cls, int offset) =>
-        game is { } g && KnownFields.TryGetValue((g, cls, offset), out var name) ? name : null;
+        game is { } g && KnownFields.TryGetValue((g, cls, offset), out var name) ? name
+        : ClassFields.At(game, cls, offset) is { Name.Length: > 0 } field ? field.Name : null;
 
     /// <summary>The class's name: the known one, else the one most of <paramref name="instanceNames"/> share,
     /// else its number.</summary>

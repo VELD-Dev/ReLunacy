@@ -23,6 +23,23 @@ public class EntityVolume : Entity
 
     private Transform[] _edgeTransforms = [];
 
+    /// <summary>
+    /// How large a volume's unit shape is, in its matrix's units: the new engine's are radius / half-size 1 - the game's
+    /// containment test (A Crack in Time 0x0061A124) takes a point into the volume's frame and tests |x|, |y|, |z| (box),
+    /// the distance from the Y axis and |y| (cylinder), or the distance from the centre (sphere) against 1.0 - twice
+    /// the +-0.5 unit shapes the editor used to draw (the user saw moon areas and satellite_find / _keep twice as large
+    /// in game; moon1b's two 75 boxes only enclose its radius-50 moon at +-1). The old engine keeps +-0.5. Set by the
+    /// region before its volumes are built; each volume keeps the value it was built with.
+    /// </summary>
+    public static float NextShapeScale { get; set; } = 1f;
+
+    /// <summary>This volume's shape scale (see <see cref="NextShapeScale"/>): what its matrix's scale is multiplied by
+    /// to give the size of the shape the game tests against.</summary>
+    public float ShapeScale { get; } = NextShapeScale;
+
+    /// <summary>The shape's full size along each axis, as the game tests it: <see cref="scale"/> x <see cref="ShapeScale"/>.</summary>
+    public Vector3 ShapeSize => scale * ShapeScale;
+
     public EntityVolume(Volume volume)
     {
         BaseVolume = volume;
@@ -68,7 +85,7 @@ public class EntityVolume : Entity
         // BoundingSphere is LOCAL space per Entity's convention: center coincides with the volume's
         // own position, and the radius is the half-extents vector's length (distance to the cube's
         // furthest corner).
-        BoundingSphere = new Vector4(Vector3.Zero, (scale / 2f).Length());
+        BoundingSphere = new Vector4(Vector3.Zero, (ShapeSize / 2f).Length());
 
         RecomputeEdgeTransforms();
         IsDirty = false;
@@ -94,9 +111,12 @@ public class EntityVolume : Entity
             yield return e.GetMatrix();
     }
 
-    /// <summary>The world matrix of the volume's unit shape (+-0.5 box, radius-0.5 sphere, cylinder along Y),
-    /// for its translucent faces.</summary>
-    public Matrix4x4 FillMatrix => Matrix4x4.CreateScale(scale) * Transform.GetMatrix();
+    /// <summary>The volume's matrix as the file holds it: its unit shape scaled, turned and placed (the gizmo works on it
+    /// and a save writes it). The shape the game tests is <see cref="ShapeSize"/>, drawn by <see cref="ShapeMatrix"/>.</summary>
+        public Matrix4x4 FillMatrix => Matrix4x4.CreateScale(scale) * Transform.GetMatrix();
+
+    /// <summary>The faces' matrix: the unit fill shapes (+-0.5) at the size the game tests (<see cref="ShapeSize"/>).</summary>
+    public Matrix4x4 ShapeMatrix => Matrix4x4.CreateScale(ShapeSize) * Transform.GetMatrix();
 
     protected override void EnsureRenderables()
     {
@@ -133,16 +153,17 @@ public class EntityVolume : Entity
     private void RecomputeEdgeTransforms()
     {
         var edges = new List<Transform>(12);
-        Vector3 h = scale * 0.5f;
+        Vector3 size = ShapeSize;
+        Vector3 h = size * 0.5f;
         switch (BaseVolume.Shape)
         {
             case VolumeShape.Sphere:
                 AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, 0f, h.Z), 1f);
                 AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, h.Y, 0f), 1f);
                 AddRing(edges, Vector3.Zero, new Vector3(0f, 0f, h.Z), new Vector3(0f, h.Y, 0f), 1f);
-                // A sphere with a role (a moon's gravity) is drawn as a globe, so it reads as one from any side:
-                // meridians every 30 degrees and parallels at 30 and 60 degrees.
-                if (BaseVolume.Role != null)
+                // A gravity region (a moon's SpaceMoon sphere) is drawn as a globe, so it reads as one from any
+                // side: meridians every 30 degrees and parallels at 30 and 60 degrees.
+                if (BaseVolume.GravityRegion)
                 {
                     foreach (float degrees in new[] { 30f, 60f, 120f, 150f })
                     {
@@ -176,9 +197,9 @@ public class EntityVolume : Entity
                 break;
             }
             default:
-                AddAxisEdges(Vector3.UnitX, scale.X, Vector3.UnitY, scale.Y, Vector3.UnitZ, scale.Z, edges);
-                AddAxisEdges(Vector3.UnitY, scale.Y, Vector3.UnitX, scale.X, Vector3.UnitZ, scale.Z, edges);
-                AddAxisEdges(Vector3.UnitZ, scale.Z, Vector3.UnitX, scale.X, Vector3.UnitY, scale.Y, edges);
+                AddAxisEdges(Vector3.UnitX, size.X, Vector3.UnitY, size.Y, Vector3.UnitZ, size.Z, edges);
+                AddAxisEdges(Vector3.UnitY, size.Y, Vector3.UnitX, size.X, Vector3.UnitZ, size.Z, edges);
+                AddAxisEdges(Vector3.UnitZ, size.Z, Vector3.UnitX, size.X, Vector3.UnitY, size.Y, edges);
                 break;
         }
         _edgeTransforms = [.. edges];

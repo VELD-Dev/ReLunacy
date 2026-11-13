@@ -505,7 +505,7 @@ public class View3D : DockedFrame
                         var color = v.VolumeColour;
                         uint pickId = (uint)v.ID;
                         if (em.IsVolumeFilled(v.BaseVolume))
-                            _vkVolumeFills.Add((v.FillMatrix, v.KindColour with { W = em.VolumeFillOpacity }, (int)v.BaseVolume.Shape));
+                            _vkVolumeFills.Add((v.ShapeMatrix, v.KindColour with { W = em.VolumeFillOpacity }, (int)v.BaseVolume.Shape));
                         foreach (var edge in v.GetWorldEdgeTransforms())
                             _vkVolumes.Add((edge, color, pickId));
                         if (em.ShowRadiusPreviews) AddRadiusPreviews(v, em);

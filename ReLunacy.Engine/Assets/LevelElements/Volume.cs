@@ -34,6 +34,10 @@ public class Volume : IVolumeData
     /// <summary>The Clue that gave <see cref="Role"/>, e.g. "moon1a_moonclue (SpaceMoon +0xD0)".</summary>
     public string? RoleSource { get; set; }
 
+    /// <summary>The volume is where a gravity Clue acts (<see cref="ClueClasses.AssignVolumeRoles"/>): a moon's
+    /// SpaceMoon Clue sphere, inside which a jump curves back to the moon. Drawn as a globe, with faces.</summary>
+    public bool GravityRegion { get; set; }
+
     /// <summary>The Clue this volume is the shape of, when it is one: a Clue is a volume with a behaviour
     /// class (fall to death, ledge grab, camera field...). Null for a plain volume.</summary>
     public VolumeClue? Clue { get; set; }

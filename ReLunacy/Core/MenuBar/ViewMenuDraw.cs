@@ -159,6 +159,32 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new LuaEnvironmentFrame());
     }
 
+    /// <summary>The level's Pods (groups of Mobys), shown through their members and edited one at a time.</summary>
+    internal static void ShowPods()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PodsFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_Pods"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<PodsFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new PodsFrame());
+    }
+
+    /// <summary>The game's configuration tables (/data/configs/*.csv), edited and saved into their archive.</summary>
+    internal static void ShowConfigTables()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ConfigTablesFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_ConfigTables"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ConfigTablesFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new ConfigTablesFrame());
+    }
+
     internal static void ShowPSArcExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();
