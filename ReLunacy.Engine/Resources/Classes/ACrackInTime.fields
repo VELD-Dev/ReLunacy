@@ -1051,7 +1051,7 @@ F	1218	243	u8	1	E D	Not-a-planet flag	Not-a-planet flag: 1 on Vorselon's ship an
 F	1218	244	rt	5	E	Barrier flags and piece count	Barrier flags and piece count (+0xF4..+0xF8), set by Init and Update
 C	1220	71	space NPC	1
 F	1220	112	comp	152	E	Prompt component	Prompt component (+0x70..+0x107), see *Prompt component*
-F	1220	200	text	4	E T	Prompt text	Prompt text: 442 (the default, not in the EBOOT's name table) or SS0_PROMPT_GPLAY_HAIL_SHIP (1105)
+F	1220	200	text	4	E T	Prompt text	Prompt text: 442 (GEN_TRIPROMPT_GPLAY_TELEPORT, the default every prompt is saved with) or SS0_PROMPT_GPLAY_HAIL_SHIP (1105)
 F	1220	204	ref	4	E	Prompt volume	Prompt volume: the prompt shows while the hero is inside it. Only used when the range is <= 0
 F	1220	212	f32	4	E	Prompt range	Prompt range: the prompt shows within this distance (x1.5 once shown); <= 0 = use the volume
 F	1220	232	u32	4	D	Prompt value +0x78	Prompt value +0x78: 2 on nearly every instance (role open)

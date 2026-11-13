@@ -69,6 +69,20 @@ public static class ClassFields
         });
     }
 
+    /// <summary>The class and its ancestors by the table, the class first; just the class without a table.</summary>
+    public static List<uint> Chain(GameId? game, uint cls)
+    {
+        var chain = new List<uint> { cls };
+        if (game is not { } id) return chain;
+        var table = Load(id);
+        for (uint current = cls; table.Parents.TryGetValue(current, out int parent) && parent >= 0 && !chain.Contains((uint)parent);)
+        {
+            current = (uint)parent;
+            chain.Add(current);
+        }
+        return chain;
+    }
+
     /// <summary>The field that starts at <paramref name="offset"/>, when known.</summary>
     public static ClassField? At(GameId? game, uint cls, int offset)
     {

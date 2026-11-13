@@ -8,7 +8,7 @@ Measured 2026-11-13. Sector 1 was read from its shipped archive (the 134,875,469
 edited one. Value statistics are over all 22 levels of the game, so a class also used on the planets shows
 the planets' values too.
 
-**Where it stands.** 519 fields are listed; 315 have a meaning, 204 are listed with their values only. The
+**Where it stands.** 549 fields are listed; 350 have a meaning, 199 are listed with their values only. The
 space-only classes (moons, planets, beams, asteroids, satellites, attack controllers) are the ones read in
 the EBOOT; most of the general gameplay classes (enemies, platforms, pads, crates) are named from the data
 alone and say so. Nothing here was tested in game except the fields marked U.
@@ -86,8 +86,13 @@ It sits at +0x28 in SpaceMoon, +0x30 in SpacePlanet, +0x60 in GenericPrompt, +0x
 Aphelion, +0x80 in PromptTeleporter, +0x68 in the transport tube, +0x1C0 in VendorBase, +0x910 in NPCBase.
 
 **Names in the EBOOT.** Text ids and other enums are tables of (name pointer, value as a float, 0) in the
-data segment; `dev/tools/classfields/enums.py` reads them. Text id 442, the default prompt of most
-objects, is not in the table. Levels are the `LEVEL_` enum: 0 NONE, 1 GREAT_CLOCK_A, 2 ZOLAR_FOREST,
+data segment; `dev/tools/classfields/enums.py` reads them. An id whose float has no low bits (908, 912,
+442...) is stored as the name pointer alone and takes the number after the previous entry, which is why a
+plain scan misses one name in sixteen; `gentextids.py` walks the text enum with that rule and names ids 257
+to 4395 (`Resources/Classes/ACrackInTime.textids`). The strings themselves are `core_text_tags.<language>.pkg`
+in global_cached.psarc, one table per language indexed by the same id (`ReLunacy.Engine/Text/TextTable.cs`
+has the layout; View > Text Tables edits them). Text id 442, the value most prompts are saved with, is
+GEN_TRIPROMPT_GPLAY_TELEPORT. Levels are the `LEVEL_` enum: 0 NONE, 1 GREAT_CLOCK_A, 2 ZOLAR_FOREST,
 3 SPACE_SECTOR_1, 4 GALACTON_SHIP, 5 GREAT_CLOCK_B, 6 SPACE_SECTOR_2, 7 MOLONOTH, 8 AXIOM_CITY,
 9 GREAT_CLOCK_C, 10 SPACE_SECTOR_3, 11 KRELL_CANYON, 12 AGORIAN_ARENA, 13 TOMBLI, 14 GREAT_CLOCK_D,
 15 SPACE_SECTOR_4, 16 VALKYRIE_FLEET, 17 NEFARIOUS_STATION, 18 SPACE_SECTOR_5, 19 GIMLICK,
@@ -455,7 +460,7 @@ A character or ship the Aphelion can hail: the smuggler and his ship, Cassiopeia
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0x70 | component |  | Prompt component (+0x70..+0x107), see *Prompt component* | E |
-| +0xC8 | u32 text id | 442 `GEN_TRIPROMPT_GPLAY_TELEPORT` x11, 1105 `SS0_PROMPT_GPLAY_HAIL_SHIP` x3 | Prompt text: 442 (the default, not in the EBOOT's name table) or SS0_PROMPT_GPLAY_HAIL_SHIP (1105) | E T |
+| +0xC8 | u32 text id | 442 `GEN_TRIPROMPT_GPLAY_TELEPORT` x11, 1105 `SS0_PROMPT_GPLAY_HAIL_SHIP` x3 | Prompt text: 442 (GEN_TRIPROMPT_GPLAY_TELEPORT, the default every prompt is saved with) or SS0_PROMPT_GPLAY_HAIL_SHIP (1105) | E T |
 | +0xCC | reference | Volume, set on 6 of 14: `cassy_cam_vol`, `ss#_mission_junk_vol`, `smuggler_prompt_vol` | Prompt volume: the prompt shows while the hero is inside it. Only used when the range is <= 0 | E |
 | +0xD4 | f32 | 3 x9, 0 x5 | Prompt range: the prompt shows within this distance (x1.5 once shown); <= 0 = use the volume | E |
 | +0xE8 | u32 | 2 on all 14 | Prompt value +0x78: 2 on nearly every instance (role open) | D |

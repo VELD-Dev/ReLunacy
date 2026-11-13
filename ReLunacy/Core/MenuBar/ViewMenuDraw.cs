@@ -185,6 +185,19 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new ConfigTablesFrame());
     }
 
+    /// <summary>The game's strings in every language (core_text_tags.*.pkg), edited and saved into their archive.</summary>
+    internal static void ShowTextTables()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<TextTablesFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_TextTables"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<TextTablesFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new TextTablesFrame());
+    }
+
     internal static void ShowPSArcExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();

@@ -45,25 +45,28 @@ public sealed class TextTable
         if (BinaryPrimitives.ReadUInt32BigEndian(data[0x10..]) != HeaderSection)
             throw new InvalidDataException("Not a text table: its first section is not 0x26000.");
         int header = (int)BinaryPrimitives.ReadUInt32BigEndian(data[0x14..]);
-        uint U(int at) => BinaryPrimitives.ReadUInt32BigEndian(data[at..]);
-        int a = (int)U(header + 4), b = (int)U(header + 8);
-        int ids = (int)U(header + 0x10), strings = (int)U(header + 0x14);
+        var d = data.ToArray();
+        uint Uint(int at, ReadOnlySpan<byte> data) => BinaryPrimitives.ReadUInt32BigEndian(data[at..]);
+        int a = (int)Uint(header + 4, data);
+        int b = (int)Uint(header + 8, data);
+        int ids = (int)Uint(header + 0x10, data);
+        int strings = (int)Uint(header + 0x14, data);
         if (a + ids * 4L > data.Length || b + strings * 12L > data.Length)
             throw new InvalidDataException("Text table: its tables run past the end of the file.");
 
         var byHash = new Dictionary<uint, string>(strings);
         for (int i = 0; i < strings; i++)
         {
-            uint hash = U(b + i * 12);
-            int at = (int)U(b + i * 12 + 8);
+            uint hash = Uint(b + i * 12, data);
+            int at = (int)Uint(b + i * 12 + 8, data);
             if (at >= data.Length) throw new InvalidDataException($"Text table: string {i} lies outside the file.");
             int end = data[at..].IndexOf((byte)0);
             byHash[hash] = Encoding.UTF8.GetString(data.Slice(at, end < 0 ? data.Length - at : end));
         }
-        var table = new TextTable { Language = U(header + 0x18) };
+        var table = new TextTable { Language = Uint(header + 0x18, data) };
         for (int i = 0; i < ids; i++)
         {
-            uint hash = U(a + i * 4);
+            uint hash = Uint(a + i * 4, data);
             table.Entries.Add(new Entry { Hash = hash, Text = byHash.GetValueOrDefault(hash) });
         }
         return table;
