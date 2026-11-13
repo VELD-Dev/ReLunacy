@@ -72,9 +72,9 @@ public class EntityManager : IDisposable
     public bool IsVolumeFilled(Assets.LevelElements.Volume volume)
     {
         var hazard = volume.Clue is { } clue ? Assets.LevelElements.ClueClasses.Hazard(clue.ClassName) : Assets.LevelElements.ClueHazard.None;
-        // A volume with a known role (a moon's gravity sphere) is filled whenever faces are on: its role is the
-        // reason it is worth seeing.
-        if (volume.Role != null && VolumeFillMode != VolumeFillMode.None) return true;
+        // Where a gravity Clue acts (a moon's SpaceMoon sphere) is filled whenever faces are on: how far the moon's
+        // gravity reaches is the reason it is worth seeing. A volume that only has a role (a moon's area) is not.
+        if (volume.GravityRegion && VolumeFillMode != VolumeFillMode.None) return true;
         return VolumeFillMode switch
         {
             VolumeFillMode.Death => hazard == Assets.LevelElements.ClueHazard.Death,

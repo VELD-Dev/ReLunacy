@@ -161,9 +161,9 @@ public class EntityVolume : Entity
                 AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, 0f, h.Z), 1f);
                 AddRing(edges, Vector3.Zero, new Vector3(h.X, 0f, 0f), new Vector3(0f, h.Y, 0f), 1f);
                 AddRing(edges, Vector3.Zero, new Vector3(0f, 0f, h.Z), new Vector3(0f, h.Y, 0f), 1f);
-                // A sphere with a role (a moon's gravity) is drawn as a globe, so it reads as one from any side:
-                // meridians every 30 degrees and parallels at 30 and 60 degrees.
-                if (BaseVolume.Role != null)
+                // A gravity region (a moon's SpaceMoon sphere) is drawn as a globe, so it reads as one from any
+                // side: meridians every 30 degrees and parallels at 30 and 60 degrees.
+                if (BaseVolume.GravityRegion)
                 {
                     foreach (float degrees in new[] { 30f, 60f, 120f, 150f })
                     {
