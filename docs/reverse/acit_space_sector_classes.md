@@ -8,7 +8,7 @@ Measured 2026-11-13. Sector 1 was read from its shipped archive (the 134,875,469
 edited one. Value statistics are over all 22 levels of the game, so a class also used on the planets shows
 the planets' values too.
 
-**Where it stands.** 549 fields are listed; 350 have a meaning, 199 are listed with their values only. The
+**Where it stands.** 712 fields are listed; 551 have a meaning, 161 are listed with their values only. The
 space-only classes (moons, planets, beams, asteroids, satellites, attack controllers) are the ones read in
 the EBOOT; most of the general gameplay classes (enemies, platforms, pads, crates) are named from the data
 alone and say so. Nothing here was tested in game except the fields marked U.
@@ -355,49 +355,59 @@ Base of everything the ship can shoot or hit in space: asteroids, mines, derelic
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0x60 | f32 | 1 on all 1148 | 1.0, 1.0, 1.0 at +0x60 / +0x64 / +0x68 on every instance | D |
+| +0x470 | u8 | 0 on all 1148 | Script: written by `space_make_attacker` | E S |
 | +0x490 | u32 | 1 on all 1148 | 1 on every instance | D |
 | +0x4A0 | u32 | 65535 on all 1148 | 0xFFFF on every instance: a run-time slot | D |
 | +0x4A4 | run time |  | Run-time pointer and scale (+0x4A4, +0x4A8 = 1.0), set by Init | E |
 | +0x4AC | u8 | 1 x984, 0 x164 | 1 on everything except the lava asteroids (asteroid_lava, sector 3). Read when the object is destroyed (0x00313670: when set, 0x00299354(moby, 0) runs - the reward / debris path) | E D |
 | +0x4AD | u8 | 1 on all 1148 | 1 on every instance; gates the second half of the same function | E D |
-| +0x4AE | run time u16 |  | State flags (+0x4AE, +0x4AF), zeroed by Init | E |
+| +0x4AE | run time u16 |  | State flags (+0x4AE, +0x4AF), zeroed by Init. Script: written by `space_set_indestructible` | E S |
 
 Same on every instance: +0x64 = 1, +0x68 = 1.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x6C u32, +0x74 u32, +0x78 u32, +0x9C f32, +0xA0 f32, +0xA4 f32, +0x150 u32, +0x168 u32, +0x180 f32, +0x184 f32, +0x188 f32, +0x18C f32, +0x190 u32, +0x194 u32, +0x198 u32, +0x220 u8, +0x2B0 u8, +0x340 u8, +0x3D0 u8, +0x460 u8, +0x470 u8, +0x480 u32, +0x484 f32, +0x48C f32, +0x494 u32, +0x498 f32, +0x49C u32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x6C u32, +0x74 u32, +0x78 u32, +0x9C f32, +0xA0 f32, +0xA4 f32, +0x150 u32, +0x168 u32, +0x180 f32, +0x184 f32, +0x188 f32, +0x18C f32, +0x190 u32, +0x194 u32, +0x198 u32, +0x220 u8, +0x2B0 u8, +0x340 u8, +0x3D0 u8, +0x460 u8, +0x480 u32, +0x484 f32, +0x48C f32, +0x494 u32, +0x498 f32, +0x49C u32.
 
 ### 0x24C PathFollower
 
 Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x560; 354 placed in the space sectors, 436 in the game; e.g. `space_junk_tetherable_#_#`, `moon_floating_platform_#_#`, `moon_floating_platform#`; own methods: fix-up 0x0039FEDC, Init 0x003A09F4, Update 0x003A161C.
 
-Anything that rides a path: tetherable space junk, the moons' floating platforms, ring asteroids. Fix-up 0x0039FEDC.
+Anything that rides a path: tetherable space junk, the moons' floating platforms, ring asteroids, skiffs. Fix-up 0x0039FEDC, Init 0x003A09F4, motion setup 0x003A07C4. The motion itself is an embedded component of class 0x247 at +0xB0 (GetInterface 0x0039FCD8), which the script functions `set_pf_speed`, `set_pf_stop`, `set_pf_reverse`, `set_pf_position` and `is_pf_moving` drive; the fields from +0x4C0 are what Init feeds it.
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
-| +0x4C0 | reference | Path, set on 428 of 436: `moon#a_spacejunk_ring#`, `moon#a_asteroidcurve#`, `moon#c_asteroid_path_outer` | The path followed | E D |
-| +0x4E0 | f32 | 10 x168, 5 x79, 14 x75, 20 x41, 30 x15 ... (19 values) | Speed-like value (10 by default) | D |
-| +0x4E4 | f32 | 10 x162, 28 x59, 20 x53, 30 x27, 35 x18 ... (26 values) | Second speed-like value (10 by default) | D |
-| +0x4E8 | f32 | 0 x434, 0.5 x1, 1 x1 | | |
-| +0x4EC | f32 | 1 x432, 2 x4 | | |
-| +0x4F0 | f32 | 0.5 x347, 0 x51, 0.1 x19, 0.3 x15, 1 x3 ... (6 values) | | |
+| +0x5C | run time u16 |  | State: 0 stopped, 1 moving, 2 no path; +0x5E the previous state, +0x60 / +0x64 its timing | E |
+| +0xB0 | component |  | Path-follow component, class 0x247 (+0xB0..): +0x10 the path, +0x1C flags (bit 3 = reversed), +0x20 the start fraction, +0x34 / +0x38 / +0x3C the speeds `set_pf_speed` sets. Script: read by `taxi_warp` | E S |
+| +0x4C0 | reference | Path, set on 428 of 436: `moon#a_spacejunk_ring#`, `moon#a_asteroidcurve#`, `moon#c_asteroid_path_outer` | The path followed. Script: read by `taxi_warp` | E D S |
+| +0x4E0 | f32 | 10 x168, 5 x79, 14 x75, 20 x41, 30 x15 ... (19 values) | Speed: given to the path-follow component with +0x4E4 (0x004DC788). 10 by default | E D |
+| +0x4E4 | f32 | 10 x162, 28 x59, 20 x53, 30 x27, 35 x18 ... (26 values) | Second speed value given with it (10 by default; most likely the acceleration) | E D |
+| +0x4E8 | f32 | 0 x434, 0.5 x1, 1 x1 | Start position along the path, 0-1 (clamped by 0x004DC3F8) | E |
+| +0x4EC | f32 | 1 x432, 2 x4 | A factor given to the component at setup (1 on nearly all, 2 on four) | E D |
+| +0x4F0 | f32 | 0.5 x347, 0 x51, 0.1 x19, 0.3 x15, 1 x3 ... (6 values) | With +0x4F4: two values given to the component (0x004DC3C4); the second is clamped to 0.1-60. 0.5 and 5 by default | E |
 | +0x4F4 | f32 | 5 x383, 0 x45, 4 x6, 3 x2 | | |
+| +0x4F8 | run time |  | Zeroed by Init; +0x4FC a handle Init looks up from the Moby's position | E |
 | +0x504 | u32 | 0 x386, 8 x50 | | |
 | +0x50C | reference | Pod, set on 10 of 436: `BD_TRAFFIC_SKIFF#_MOVE#`, `FUEL_SHIP#_MOVE_POD`, `BD_SKIFF#_MOVE` | Pod of Mobys carried along (skiffs, fuel ships) | E D |
 | +0x510 | reference | Area, set on 3 of 436: `move_area_skiffs_#`, `AZI_SHIP_ESCAPE_MOVE_AREA`, `AZI_SHIP_PICKUP_MOVE_AREA` | Area of stop positions | E D |
 | +0x514 | f32 | -1 x392, 20 x28, 70 x13, 65 x3 | -1 by default; 20-70 on some | D |
-| +0x52C | reference | Volume, set on 2 of 436: `graveyard_stop#`, `VOL_PLAT#_PICKUP_POS` | Stop volumes (+0x52C..+0x538) | E D |
-| +0x530 | reference | Volume, set on 1 of 436: `graveyard_stop#` | | |
-| +0x534 | reference | Volume, set on 1 of 436: `graveyard_stop#` | | |
-| +0x538 | reference | Volume, set on 1 of 436: `graveyard_stop#` | | |
-| +0x540 | 4 bytes | 0x01010000 x259, 0x00000000 x80, 0x00010000 x51, 0x01010100 x40, 0x00010001 x5 ... (6 values) | | |
-| +0x544 | 4 bytes | 0x00010100 x241, 0x00000100 x117, 0x00000000 x60, 0x00010000 x10, 0x01010100 x6 ... (7 values) | | |
-| +0x548 | 4 bytes | 0x00000000 x328, 0x00000001 x59, 0x00010000 x41, 0x00000100 x8 | | |
+| +0x518 | run time |  | Zeroed by Init; +0x51C..+0x528 the four stop distances along the path, from the stop volumes | E |
+| +0x52C | reference | Volume, set on 2 of 436: `graveyard_stop#`, `VOL_PLAT#_PICKUP_POS` | Stop volume 1: Init turns each into a distance along the path. Script: read by `taxi_warp` | E D S |
+| +0x530 | reference | Volume, set on 1 of 436: `graveyard_stop#` | Stop volume 2. Script: read by `taxi_warp` | E D S |
+| +0x534 | reference | Volume, set on 1 of 436: `graveyard_stop#` | Stop volume 3 | E D |
+| +0x538 | reference | Volume, set on 1 of 436: `graveyard_stop#` | Stop volume 4 | E D |
+| +0x540 | u8 | 1 x299, 0 x137 | A flag given to the component at setup (1 on two thirds) | E D |
+| +0x541 | u8 | 1 x355, 0 x81 | Starts moving: Init sets the state to 1 (moving) instead of 0. Script: written by `taxi_warp` | E S |
+| +0x542 | u8 | 0 x396, 1 x40 | Init changes the Moby's collision mode (0x00523690(moby, 2)) | E |
+| +0x543 | u8 | 0 x430, 1 x6 | Init sends the object message 0x183 | E |
+| +0x547 | u8 | 0 on all 436 | Init sets bit 8 of the Moby's flags | E |
+| +0x548 | u8 | 0 on all 436 | Enables the component of class 0x4C at +0x1C0 | E |
+| +0x549 | u8 | 0 x395, 1 x41 | Starts hidden | E |
+| +0x54A | u8 | 0 x428, 1 x8 | Picks the other of two draw distances | E |
 | +0x54C | f32 | 0 x377, 15 x59 | | |
 | +0x550 | f32 | 0 x377, 50 x59 | | |
 
 Same on every instance: +0x53C = -1.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x5C u16, +0x5E u16, +0x60 f32, +0x64 f32, +0x68 u16, +0xB0 f32, +0xB4 f32, +0xB8 f32, +0xBC f32, +0xC0 u32, +0xC4 u32, +0xC8 u32, +0xCC u32, +0xD0 f32, +0xD4 f32, +0xD8 f32, +0xDC f32, +0xE0 f32, +0xE4 f32, +0xE8 f32, +0xEC f32, +0x130 f32, +0x134 f32, +0x138 f32, +0x13C f32, +0x140 f32, +0x144 f32, +0x150 f32, +0x154 f32, +0x158 f32, +0x15C f32, +0x160 f32, +0x164 f32, +0x168 f32, +0x16C f32, +0x170 f32, +0x174 f32, +0x178 f32, +0x17C f32, +0x180 f32, +0x184 f32, +0x188 f32, +0x18C f32, +0x1B0 u32, +0x1B4 u32, +0x1B8 u32, +0x1C0 f32, +0x1C4 f32, +0x1C8 f32, +0x1CC f32, +0x1D0 u32, +0x1D4 u32, +0x1D8 u32, +0x260 u8, +0x2F0 u8, +0x380 u8, +0x410 u8, +0x4A0 u8, +0x4B0 u8, +0x4F8 f32, +0x4FC u32, +0x500 u32, +0x518 u32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x150 f32, +0x154 f32, +0x158 f32, +0x15C f32, +0x160 f32, +0x164 f32, +0x168 f32, +0x16C f32, +0x170 f32, +0x174 f32, +0x178 f32, +0x17C f32, +0x180 f32, +0x184 f32, +0x188 f32, +0x18C f32, +0x1B0 u32, +0x1B4 u32, +0x1B8 u32, +0x1C0 f32, +0x1C4 f32, +0x1C8 f32, +0x1CC f32, +0x1D0 u32, +0x1D4 u32, +0x1D8 u32, +0x260 u8, +0x2F0 u8, +0x380 u8, +0x410 u8, +0x4A0 u8, +0x4B0 u8, +0x500 u32.
 
 ### 0x28F Aphelion (ship hero)
 
@@ -421,11 +431,38 @@ The ship. 0x1AC0 bytes of run-time state; its tuning is `space.csv` (Aphelion bl
 | +0x107 | run time u8 |  | Prompt button state | E |
 | +0x420 | reference | Moby, set on 5 of 5: `ratchet` | The pilot: ratchet | E D |
 | +0x424 | reference | Controller, set on 2 of 5: `scene_sat_cam` | A camera controller (scene_sat_cam, sectors with satellites) | E D |
+| +0x1690 | u32 | 0 on all 5 | Script: read by `space_land_ship` | E S |
 | +0x16D0 | component |  | CAM_CameraShakeEffect (class 221) embedded | T |
+| +0x1710 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1714 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1718 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x171C | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1730 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1734 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1738 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x173C | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1760 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1764 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1768 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x176C | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x17C0 | u32 | 0 on all 5 | Script: read by `space_land_ship` | E S |
+| +0x1830 | u32 | 0 on all 5 | Script: read by `space_land_ship` | E S |
+| +0x1840 | u32 | 1065353216 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x186C | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1938 | u32 | 0 on all 5 | Script: read by `space_land_ship` | E S |
+| +0x1988 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1990 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1994 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1998 | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x199C | f32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x19BC | u32 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x19FE | u8 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1A02 | u8 | 0 on all 5 | Script: written by `space_land_ship` | E S |
+| +0x1A04 | u8 | 0 on all 5 | Script: written by `space_land_ship` | E S |
 
-Same on every instance: +0x1840 = 1, +0x1844 = 1, +0x1848 = 1.
+Same on every instance: +0x1844 = 1, +0x1848 = 1.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x110 f32, +0x114 f32, +0x118 f32, +0x11C f32, +0x120 u32, +0x124 u32, +0x128 u32, +0x1B0 u8, +0x240 u8, +0x2D0 u8, +0x360 u8, +0x3F0 u8, +0x400 u8, +0x42C u32, +0x43C u32, +0x450 u16, +0x460 u16, +0x4F4 u32, +0x538 u32, +0x53C f32, +0x15F0 u32, +0x15F4 u32, +0x1680 u8, +0x1681 u8, +0x1682 u8, +0x1683 u8, +0x1684 u8, +0x1685 u8, +0x1686 u8, +0x1687 u8, +0x16C0 u32, +0x16F4 u32, +0x1710 f32, +0x1714 f32, +0x1718 f32, +0x171C f32, +0x1720 f32, +0x1724 f32, +0x1728 f32, +0x1730 f32, +0x1734 f32, +0x1738 f32, +0x173C f32, +0x1740 f32, +0x1744 f32, +0x1748 f32, +0x174C f32, +0x1750 f32, +0x1754 f32, +0x1758 f32, +0x175C f32, +0x1760 f32, +0x1764 f32, +0x1768 f32, +0x176C f32, +0x1770 f32, +0x1774 f32, +0x1778 f32, +0x177C f32, +0x17B0 f32, +0x17B4 f32, +0x17B8 f32, +0x17BC f32, +0x17D0 f32, +0x17D4 f32, +0x17D8 f32, +0x17DC f32, +0x1830 f32, +0x1834 f32, +0x1838 u32, +0x183C u32, +0x186C f32, +0x1870 f32, +0x1874 f32, +0x18CC u32, +0x1920 u32, +0x1930 u32, +0x1934 u32, +0x1938 u32, +0x193C u32, +0x1940 f32, +0x1944 f32, +0x1948 f32, +0x194C f32, +0x1950 f32, +0x1958 f32, +0x195C f32, +0x1968 f32, +0x196C f32, +0x1970 f32, +0x197C f32, +0x1980 f32, +0x1984 f32, +0x1988 f32, +0x198C u32, +0x1990 f32, +0x1994 f32, +0x1998 f32, +0x199C f32, +0x19A0 f32, +0x19A4 f32, +0x19A8 u32, +0x19AC f32, +0x19B0 f32, +0x19B4 f32, +0x19B8 f32, +0x19BC f32, +0x19C0 f32, +0x19C4 f32, +0x19C8 f32, +0x19CC f32, +0x19D0 u32, +0x19D4 f32, +0x19D8 u32, +0x19DC u32, +0x19E0 u32, +0x19E4 u32, +0x19E8 u32, +0x19EC u16, +0x19EE u8, +0x19F5 u8, +0x19F6 u8, +0x19F7 u8, +0x19F8 u8, +0x19F9 u8, +0x19FB u8, +0x19FC u8, +0x19FD u8, +0x19FE u8, +0x19FF u8, +0x1A00 u8, +0x1A01 u8, +0x1A02 u8, +0x1A04 u8, +0x1A05 u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x110 f32, +0x114 f32, +0x118 f32, +0x11C f32, +0x120 u32, +0x124 u32, +0x128 u32, +0x1B0 u8, +0x240 u8, +0x2D0 u8, +0x360 u8, +0x3F0 u8, +0x400 u8, +0x42C u32, +0x43C u32, +0x450 u16, +0x460 u16, +0x4F4 u32, +0x538 u32, +0x53C f32, +0x15F0 u32, +0x15F4 u32, +0x1680 u8, +0x1681 u8, +0x1682 u8, +0x1683 u8, +0x1684 u8, +0x1685 u8, +0x1686 u8, +0x1687 u8, +0x16C0 u32, +0x16F4 u32, +0x1720 f32, +0x1724 f32, +0x1728 f32, +0x1740 f32, +0x1744 f32, +0x1748 f32, +0x174C f32, +0x1750 f32, +0x1754 f32, +0x1758 f32, +0x175C f32, +0x1770 f32, +0x1774 f32, +0x1778 f32, +0x177C f32, +0x17B0 f32, +0x17B4 f32, +0x17B8 f32, +0x17BC f32, +0x17D0 f32, +0x17D4 f32, +0x17D8 f32, +0x17DC f32, +0x1834 f32, +0x1838 u32, +0x183C u32, +0x1870 f32, +0x1874 f32, +0x18CC u32, +0x1920 u32, +0x1930 u32, +0x1934 u32, +0x193C u32, +0x1940 f32, +0x1944 f32, +0x1948 f32, +0x194C f32, +0x1950 f32, +0x1958 f32, +0x195C f32, +0x1968 f32, +0x196C f32, +0x1970 f32, +0x197C f32, +0x1980 f32, +0x1984 f32, +0x198C u32, +0x19A0 f32, +0x19A4 f32, +0x19A8 u32, +0x19AC f32, +0x19B0 f32, +0x19B4 f32, +0x19B8 f32, +0x19C0 f32, +0x19C4 f32, +0x19C8 f32, +0x19CC f32, +0x19D0 u32, +0x19D4 f32, +0x19D8 u32, +0x19DC u32, +0x19E0 u32, +0x19E4 u32, +0x19E8 u32, +0x19EC u16, +0x19EE u8, +0x19F5 u8, +0x19F6 u8, +0x19F7 u8, +0x19F8 u8, +0x19F9 u8, +0x19FB u8.
 
 ### 0x337 SimplePathFollower
 
@@ -499,9 +536,10 @@ Adds drift / tumble (floats +0x4D0..+0x4F8, +0x508) to the space object base. In
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
+| +0x4E0 | u32 | 0 on all 915 | Script: read by `space_make_attacker` | E S |
 | +0x50E | u8 | 0 x902, 1 x13 | 1 on the space flotsam (class 0x842), 0 elsewhere. Read by the base (role open) | E D |
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x4B0 u16, +0x4C0 u32, +0x4D0 f32, +0x4D4 f32, +0x4D8 f32, +0x4DC f32, +0x4E0 f32, +0x4E4 f32, +0x4E8 f32, +0x4EC f32, +0x4F0 f32, +0x4F4 f32, +0x4F8 f32, +0x500 u32, +0x504 u32, +0x508 f32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x4B0 u16, +0x4C0 u32, +0x4D0 f32, +0x4D4 f32, +0x4D8 f32, +0x4DC f32, +0x4E4 f32, +0x4E8 f32, +0x4EC f32, +0x4F0 f32, +0x4F4 f32, +0x4F8 f32, +0x500 u32, +0x504 u32, +0x508 f32.
 
 ### 0x72C landing pad beam
 
@@ -578,9 +616,10 @@ Ad-war signs, the tow mission's NPC, haulers. Fix-up 0x00313DCC.
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
-| +0x514 | reference | Controller, set on 6 of 13: `vorselon_satellite_controller`, `ss#_mission_lost_attack_controller`, `SpaceAttackController_Agorian#` | Attack controller that ambushes around it (set on 6 of 13) | E D |
-
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x510 u32, +0x518 u32, +0x51C u8.
+| +0x510 | u32 | 0 on all 13 | Script: written by `space_make_attacker` | E S |
+| +0x514 | reference | Controller, set on 6 of 13: `vorselon_satellite_controller`, `ss#_mission_lost_attack_controller`, `SpaceAttackController_Agorian#` | Attack controller that ambushes around it (set on 6 of 13). Script: read by `space_make_attacker` | E D S |
+| +0x518 | u32 | 0 on all 13 | Script: written by `space_make_attacker` | E S |
+| +0x51C | u8 | 0 on all 13 | Script: written by `space_make_attacker` | E S |
 
 ### 0x7A5 SpaceJumpingFireball
 
@@ -654,8 +693,10 @@ Sector 4's valkyrie_boss. Fix-up 0x0031D504.
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0x4CC | reference | Controller, set on 1 of 1: `valkyrie_boss_controller` | Attack controller (valkyrie_boss_controller) | E D |
+| +0x51C | u8 | 0 on all 1 | Script: read by `space_is_aware` | E S |
+| +0x530 | u8 | 0 on all 1 | Script: read by `space_is_aware` | E S |
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x4C0 u32, +0x4C4 u32, +0x4C8 u32, +0x4D0 u32, +0x4D4 u32, +0x4D8 u32, +0x4E4 u32, +0x4EC u32, +0x4F0 u32, +0x4F4 u32, +0x4F8 u32, +0x4FC u8, +0x4FD u8, +0x4FE u8, +0x504 u32, +0x508 f32, +0x50C f32, +0x510 u32, +0x514 u32, +0x518 u32, +0x51C u32, +0x524 f32, +0x528 f32, +0x52C u32, +0x530 u8, +0x531 u8, +0x532 u8, +0x533 u8, +0x535 u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x4C0 u32, +0x4C4 u32, +0x4C8 u32, +0x4D0 u32, +0x4D4 u32, +0x4D8 u32, +0x4E4 u32, +0x4EC u32, +0x4F0 u32, +0x4F4 u32, +0x4F8 u32, +0x4FC u8, +0x4FD u8, +0x4FE u8, +0x504 u32, +0x508 f32, +0x50C f32, +0x510 u32, +0x514 u32, +0x518 u32, +0x524 f32, +0x528 f32, +0x52C u32, +0x535 u8.
 
 ### 0x8A8 SpaceBillboard
 
@@ -673,7 +714,9 @@ A space NPC with 0x68 more bytes, all zero on its one instance (ss2_mission_junk
 
 *The name is descriptive (from the instances): this class has no name in the tables.*
 
-No instance sets anything in the class's own range.
+| Offset | Type | In the retail files | Meaning | Evidence |
+| --- | --- | --- | --- | --- |
+| +0x1E0 | u32 | 0 on all 1 | Script: written by `space_grab_junk` | E S |
 
 Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x190 f32, +0x194 f32, +0x198 f32, +0x19C f32, +0x1A0 f32, +0x1A4 f32, +0x1A8 f32, +0x1AC f32, +0x1B0 f32, +0x1B4 f32, +0x1B8 f32, +0x1BC f32, +0x1C0 f32, +0x1C4 u32, +0x1E4 u32.
 
@@ -801,29 +844,31 @@ A moon's opening view.
 
 Parent 0xCF ControllerBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x14..+0x60; 123 placed in the space sectors, 645 in the game; e.g. `CarSpawner#`, `car_controller_tombli_to_arena#`, `car_controller_arena#`; own methods: fix-up 0x0034ED48, Init 0x0034FCB8, Update 0x0034FC14.
 
-Ambient traffic: space transports, asteroid streams. Init 0x0034FCB8.
+Ambient traffic: space transports, asteroid streams, the Great Clock's cars. Init 0x0034FCB8 deactivates every Moby of the Pod and finds where on the path the stream starts; Update 0x0034FC14 sends the next one when its timer falls due.
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
+| +0xC | run time f32 |  | Range: Init overwrites it with a constant | E |
+| +0x10 | run time u8 |  | Active: set from +0x54 by Init | E |
 | +0x14 | reference | Path, set on 645 of 645: `curve#`, `carpath#`, `asteroid_path_#` | Path the spawned objects fly | E D |
-| +0x18 | reference | Pod, set on 645 of 645: `time_energy_cars`, `ambient_space_transports`, `ambient_clock_cars` | Pod of the Mobys to spawn from (ambient_space_transports...) | E D |
-| +0x1C | reference | unset on all 645 | Reference slot: resolved by the class's fix-up | E |
+| +0x18 | reference | Pod, set on 645 of 645: `time_energy_cars`, `ambient_space_transports`, `ambient_clock_cars` | Pod of the Mobys to send (ambient_space_transports...). Init deactivates them all | E D |
+| +0x1C | reference | unset on all 645 | Start volume: the stream starts at the point of the path nearest to it; unset = the path's start | E |
 | +0x20 | f32 | 0 x514, 30 x64, 10 x39, 1 x28 | | |
 | +0x24 | f32 | 0 x575, 10 x39, 1 x28, 20 x3 | | |
 | +0x28 | f32 | 0 x578, 10 x39, 1 x28 | | |
 | +0x2C | f32 | 0 x578, 10 x39, 1 x28 | | |
-| +0x30 | f32 | 1 x114, 5 x44, 10 x33, 15 x28, 3 x23 ... (77 values) | With +0x34: most likely the spawn interval range | D |
-| +0x34 | f32 | 20 x95, 2 x43, 10 x42, 4 x37, 60 x24 ... (78 values) | | |
+| +0x30 | f32 | 1 x114, 5 x44, 10 x33, 15 x28, 3 x23 ... (77 values) | Spawn interval, minimum seconds | E |
+| +0x34 | f32 | 20 x95, 2 x43, 10 x42, 4 x37, 60 x24 ... (78 values) | Spawn interval, maximum seconds: the next one leaves after a random time between the two | E |
+| +0x38 | run time f32 |  | When the next one leaves | E |
 | +0x3C | f32 | 250 x67, 20 x58, 71 x41, 70 x36, 60 x29 ... (67 values) | Most likely the speed | D |
 | +0x40 | f32 | 0 x622, 0.6 x18, 0.3 x3, 0.5 x2 | | |
 | +0x44 | f32 | 0 x154, 10 x102, 12 x68, 13 x41, 2 x32 ... (25 values) | | |
+| +0x48 | run time f32 |  | Distance along the path where the stream starts | E |
 | +0x4C | u32 | 0 x517, 8 x117, 1 x11 | | |
-| +0x50 | 4 bytes | 0x00000000 x372, 0x00000001 x195, 0x00000101 x44, 0x01000000 x26, 0x01000001 x4 ... (7 values) | | |
-| +0x54 | 4 bytes | 0x00000000 x337, 0x01000000 x201, 0x00010000 x75, 0x01010000 x32 | | |
+| +0x53 | u8 | 0 x399, 1 x246 | When set, Update runs an extra pass every frame (0x0034FA4C; role open) | E |
+| +0x54 | u8 | 0 x412, 1 x233 | Start active | E |
 | +0x58 | f32 | 60 x566, 0 x50, 10 x12, -100 x11, 5 x6 | | |
 | +0x5C | f32 | 180 x566, 10 x38, 0 x12, 20 x12, -300 x11 ... (6 values) | | |
-
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x38 f32, +0x48 f32.
 
 ### 0x360 CamArgFixed
 
@@ -854,38 +899,46 @@ Zero in every retail file but used by the class's own code (run-time state, or a
 
 Parent 0xCF ControllerBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x14..+0x1B0; 583 placed in the space sectors, 3235 in the game; e.g. `FX_moon#a_lava_fireburst#`, `FX_moonDust_#`, `FxController#`; own methods: fix-up 0x00345864, Init 0x003466FC, Update 0x00346850.
 
+Plays an effect at the controller. The fields up to +0x9C are QForce's FxController four bytes earlier (its controller base is four bytes longer) and the retail values agree; the run-time fields from +0xB0 are at the same offsets in both games.
+
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
-| +0x14 | u32 | 10108 x301, 10128 x281, 10231 x232, 10172 x205, 10106 x204 ... (128 values) | Effect id (10000-range) | D |
-| +0x18 | u32 | 0 x3228, 10109 x7 | Second effect id (rare) | D |
-| +0x1C | u32 | 0 x1877, 1 x1358 | | |
-| +0x20 | u32 | 0 x2851, 1 x384 | | |
-| +0x24 | f32 | 0 x2514, 1.5 x393, 1 x151, 0.25 x92, 3 x32 ... (9 values) | | |
-| +0x28 | f32 | 0 x2514, 3 x521, 0.75 x92, 6 x53, 10 x31 ... (8 values) | | |
-| +0x2C | f32 | 1 x3207, 0.8 x28 | | |
-| +0x30 | f32 | 0 x3229, 4 x6 | | |
-| +0x34 | f32 | 0 x3229, 4 x6 | | |
+| +0x14 | u32 | 10108 x301, 10128 x281, 10231 x232, 10172 x205, 10106 x204 ... (128 values) | Effect key: the fxconduit record (class FxController, event ACTIVE) that gives the effect | Q D |
+| +0x18 | u32 | 0 x3228, 10109 x7 | Effect key (alternate): used when the start call asks for the alternate effect | Q D |
+| +0x1C | u32 | 0 x1877, 1 x1358 | Start active | Q D |
+| +0x20 | u32 | 0 x2851, 1 x384 | Tracked: the controller keeps the effect alive and can stop it | Q D |
+| +0x24 | f32 | 0 x2514, 1.5 x393, 1 x151, 0.25 x92, 3 x32 ... (9 values) | Retrigger delay min: with the max > 0, the effect plays again after a random delay between the two | Q D |
+| +0x28 | f32 | 0 x2514, 3 x521, 0.75 x92, 6 x53, 10 x31 ... (8 values) | Retrigger delay max | Q D |
+| +0x2C | f32 | 1 x3207, 0.8 x28 | Retrigger chance, 0-1: a retrigger that falls due only plays this often | Q D |
+| +0x30 | f32 | 0 x3229, 4 x6 | Timer B min: with the max > 0, an impulse / camera shake fires that long after the spawn | Q D |
+| +0x34 | f32 | 0 x3229, 4 x6 | Timer B max | Q D |
+| +0x38 | f32 | 0 on all 3235 | Timer C min: with the max > 0, the tracked effect is stopped that long after the spawn | Q |
+| +0x3C | f32 | 0 on all 3235 | Timer C max | Q |
+| +0x40 | u32 | 0 on all 3235 | Trigger source A (mode 2); +0x44 B (mode 1), +0x48 C (mode 3); 0 on every retail controller | Q |
 | +0x54 | reference | Volume, set on 104 of 3235: `FX_rainVolume_sneaky_#`, `FX_rainDrops_vol#`, `FX_ambFireballs_#` | Volume the effect fills (rain volumes) | E D |
 | +0x60 | u32 | 0 x3131, 1 x104 | | |
 | +0x64 | u32 | 0 x3139, 1 x96 | | |
 | +0x68 | u32 | 0 x3231, 1 x4 | | |
 | +0x6C | reference | unset on all 3235 | Reference slot: resolved by the class's fix-up | E |
-| +0x70 | f32 | 0 x3206, 1 x29 | | |
-| +0x74 | f32 | 2 x3208, 0.6 x14, 3 x10, 3.15 x1, 1 x1 ... (6 values) | | |
-| +0x78 | u32 | 1 x3211, 0 x14, 2 x10 | | |
+| +0x70 | f32 | 0 x3206, 1 x29 | Impulse amount, fired at the controller when Timer B falls due | Q D |
+| +0x74 | f32 | 2 x3208, 0.6 x14, 3 x10, 3.15 x1, 1 x1 ... (6 values) | Impulse radius (2 on nearly all) | Q D |
+| +0x78 | u32 | 1 x3211, 0 x14, 2 x10 | Impulse value passed with the amount (1 on nearly all) | Q D |
 | +0x7C | u32 | 0 x3220, 1 x15 | | |
 | +0x80 | u32 | 0 x3210, 512 x25 | | |
 | +0x8C | u32 | 0 x3190, 3 x45 | | |
-| +0x90 | f32 | 0 x2781, 6 x265, 3 x99, 1 x52, 12 x27 ... (6 values) | | |
-| +0x94 | f32 | 0 x2663, 22 x138, 12 x127, 10 x96, 50 x92 ... (11 values) | | |
-| +0x98 | f32 | 0 x2653, 0.6 x333, 0.3 x126, 3 x80, 1 x22 ... (10 values) | | |
-| +0x9C | f32 | 0 x2653, 1 x297, 0.7 x117, 0.3 x107, 0.8 x45 ... (8 values) | | |
+| +0x90 | f32 | 0 x2781, 6 x265, 3 x99, 1 x52, 12 x27 ... (6 values) | Camera shake A: with shake D > 0, Timer B starts the embedded camera shake with A, B, C, 20, D | Q D |
+| +0x94 | f32 | 0 x2663, 22 x138, 12 x127, 10 x96, 50 x92 ... (11 values) | Camera shake B | Q D |
+| +0x98 | f32 | 0 x2653, 0.6 x333, 0.3 x126, 3 x80, 1 x22 ... (10 values) | Camera shake C | Q D |
+| +0x9C | f32 | 0 x2653, 1 x297, 0.7 x117, 0.3 x107, 0.8 x45 ... (8 values) | Camera shake D: non-zero enables the shake | Q D |
+| +0xB0 | run time f32 |  | Activated at: the game clock when the controller became active (-1 in every file) | Q D |
+| +0xBC | run time f32 |  | Next retrigger (-1 in every file) | Q D |
+| +0xC0 | run time f32 |  | Timer C due (-1 in every file) | Q D |
 | +0x150 | component |  | CAM_CameraShakeEffect (class 221) embedded at +0x150..+0x187 | T Q |
 | +0x1A0 | 4 bytes | 0x00000000 x3212, 0x00010000 x23 | | |
 
-Same on every instance: +0x84 = 2, +0x88 = 3, +0xB0 = -1, +0xBC = -1, +0xC0 = -1.
+Same on every instance: +0x84 = 2, +0x88 = 3.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x38 f32, +0x3C f32, +0x40 u32, +0x44 u32, +0x48 u32, +0x4C u32, +0x5C f32, +0xA0 u32, +0xB4 u32, +0xB8 u8, +0xC4 f32, +0xE0 f32, +0xE4 f32, +0xE8 f32, +0xEC f32, +0xF0 f32, +0xF4 f32, +0xF8 f32, +0xFC f32, +0x100 f32, +0x104 f32, +0x108 f32, +0x10C f32, +0x110 f32, +0x114 f32, +0x118 f32, +0x11C f32, +0x120 f32, +0x124 f32, +0x128 f32, +0x12C f32, +0x130 u8, +0x131 u8, +0x132 u8, +0x134 f32, +0x138 u32, +0x13C u32, +0x140 u32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x44 u32, +0x48 u32, +0x4C u32, +0x5C f32, +0xA0 u32, +0xB4 u32, +0xB8 u8, +0xC4 f32, +0xE0 f32, +0xE4 f32, +0xE8 f32, +0xEC f32, +0xF0 f32, +0xF4 f32, +0xF8 f32, +0xFC f32, +0x100 f32, +0x104 f32, +0x108 f32, +0x10C f32, +0x110 f32, +0x114 f32, +0x118 f32, +0x11C f32, +0x120 f32, +0x124 f32, +0x128 f32, +0x12C f32, +0x130 u8, +0x131 u8, +0x132 u8, +0x134 f32, +0x138 u32, +0x13C u32, +0x140 u32.
 
 ### 0x402 CamArgFixedFollow
 
@@ -1021,11 +1074,22 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0xE0; 
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
+| +0x64 | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
 | +0x68 | u32 | 5 x58, 0 x1 | | |
+| +0x6C | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0x70 | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0x74 | u32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0x78 | u32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0x90 | u32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0x94 | u32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0xA0 | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0xA4 | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0xA8 | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
+| +0xAC | f32 | 0 on all 59 | Script: written by `reset_flares` | E S |
 
 Same on every instance: +0x5C = 4096, +0x60 = 16.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x64 f32, +0x6C f32, +0x70 f32, +0x74 u32, +0x78 u32, +0x8C u32, +0x90 u32, +0x94 u32, +0xA0 f32, +0xA4 f32, +0xA8 f32, +0xAC f32, +0xC0 f32, +0xC4 f32, +0xC8 f32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x8C u32, +0xC0 f32, +0xC4 f32, +0xC8 f32.
 
 ### 0xD8 PickupSpecialBase
 
@@ -1061,6 +1125,7 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x120;
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0x118 | 4 bytes | 0x00000100 x325, 0x00000000 x35, 0x00010000 x14, 0x00010100 x2 | | |
+| +0x11C | f32 | 0 on all 376 | Speed: Script: written by `gear_hazard_set_speed` | E S |
 
 Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x60 f32, +0x64 f32, +0x68 f32, +0x6C f32, +0x70 f32, +0x74 f32, +0x78 f32, +0x7C f32, +0x80 f32, +0x84 f32, +0x88 f32, +0x8C f32, +0x90 f32, +0x94 f32, +0x98 f32, +0x9C f32, +0xC0 u32, +0xC4 u32, +0xC8 u32, +0xD0 u32, +0xD4 u32, +0xD8 u32, +0xDC u32, +0xE0 f32, +0xE4 u32, +0xF4 u32, +0x116 u8.
 
@@ -1187,8 +1252,10 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x88; 
 | +0x70 | f32 | 2 x80, 100 x14, 4 x10, 1 x9 | Timing: +0x70 2, +0x74 3, +0x78 0 by default | D |
 | +0x74 | f32 | 3 x59, 0 x45, 4 x9 | | |
 | +0x78 | f32 | 0 x104, 2 x6, 1 x3 | | |
+| +0x82 | u8 | 0 on all 113 | Script: written by `flame_jet_on`, `flame_jet_off`, `flame_jet_restart` | E S |
+| +0x83 | u8 | 0 on all 113 | Script: written by `flame_jet_on`, `flame_jet_off`, `flame_jet_restart` | E S |
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x6C u32, +0x7C f32, +0x80 u8, +0x81 u8, +0x83 u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x6C u32, +0x7C f32.
 
 ### 0x384 PlatformBoltCrank
 
@@ -1215,7 +1282,7 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x140;
 | +0x115 | run time u8 |  | Prompt enabled | E |
 | +0x116 | run time u8 |  | Prompt showing | E |
 | +0x117 | run time u8 |  | Prompt button state | E |
-| +0x138 | u32 | 257 x63, 256 x2 | | |
+| +0x138 | u8 | 0 on all 65 | Script: written by `has_teleported` | E S |
 
 Same on every instance: +0x118 = 1.
 
@@ -1281,15 +1348,24 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x3D0;
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0x37C | 4 bytes | 0xE4000000 x10, 0x00000000 x9, 0xD8000000 x7, 0xDC000000 x4, 0xAC000000 x3 ... (6 values) | | |
+| +0x380 | f32 | 0 on all 35 | Script: written by `crank_reset` | E S |
+| +0x384 | f32 | 0 on all 35 | Script: written by `crank_reset` | E S |
+| +0x388 | f32 | 0 on all 35 | Script: written by `crank_reset` | E S |
+| +0x38C | f32 | 0 on all 35 | Script: written by `crank_reset` | E S |
 | +0x390 | f32 | 5 x15, 3 x13, 2 x6, 20 x1 | | |
+| +0x394 | u32 | 0 on all 35 | Script: written by `crank_reset` | E S |
 | +0x398 | f32 | 5 x32, 3 x3 | | |
+| +0x3A4 | u32 | 0 on all 35 | Script: written by `crank_reset` | E S |
 | +0x3C0 | u32 | 0 x33, 1 x2 | | |
 | +0x3C4 | u32 | 0 x34, 1 x1 | | |
+| +0x3C8 | u8 | 0 on all 35 | Script: written by `crank_reset` | E S |
+| +0x3C9 | u8 | 0 on all 35 | Script: written by `crank_reset` | E S |
+| +0x3CA | u8 | 0 on all 35 | Script: written by `crank_reset` | E S |
 | +0x3CC | 4 bytes | 0x00140000 x9, 0x00840000 x4, 0x00000000 x3, 0x01700000 x3, 0x00D00000 x2 ... (17 values) | | |
 
 Same on every instance: +0x360 = 2, +0x370 = -1, +0x3B0 = -1, +0x3B4 = -1.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x60 f32, +0x64 f32, +0x68 f32, +0x6C f32, +0x70 u32, +0x74 u32, +0x78 u32, +0x100 u8, +0x190 u8, +0x220 u8, +0x2B0 u8, +0x340 u8, +0x350 u8, +0x378 f32, +0x380 f32, +0x384 f32, +0x388 f32, +0x38C f32, +0x394 f32, +0x39C f32, +0x3A0 f32, +0x3A4 f32, +0x3A8 u32, +0x3AC f32, +0x3B8 u32, +0x3BC u32, +0x3C8 u8, +0x3C9 u8, +0x3CA u8, +0x3CB u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x60 f32, +0x64 f32, +0x68 f32, +0x6C f32, +0x70 u32, +0x74 u32, +0x78 u32, +0x100 u8, +0x190 u8, +0x220 u8, +0x2B0 u8, +0x340 u8, +0x350 u8, +0x378 f32, +0x39C f32, +0x3A0 f32, +0x3A8 u32, +0x3AC f32, +0x3B8 u32, +0x3BC u32.
 
 ### 0x43B BreakableBoltCrate
 
@@ -1325,7 +1401,8 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x110;
 | +0xEC | reference | Volume, set on 71 of 143: `door_close_hall_east#`, `elevator_doors_close`, `ENEMY_WAVE_DOOR#_CLOSE_VOL` | Close volume | E D |
 | +0xF0 | reference | Pod, set on 28 of 143: `gcc_subcon_puzzle#_p#_cham#_button`, `gcb_subcon_puzzle#_button_chamber#`, `gcd_subcon_puzzle#_chambutton_#` | Pod of the buttons that open it | E D |
 | +0xF4 | reference | unset on all 143 | Reference slot: resolved by the class's fix-up | E |
-| +0x100 | 4 bytes | 0x00000101 x91, 0x00000001 x42, 0x01000101 x6, 0x00000100 x3, 0x00000000 x1 | | |
+| +0xFC | f32 | 0 on all 143 | Script: written by `door_force_open`, `door_force_closed`, `door_clear_force` | E S |
+| +0x101 | u8 | 0 on all 143 | Script: written by `door_force_open`, `door_force_closed`, `door_clear_force` | E S |
 | +0x108 | f32 | 1 x124, 7 x9, 8 x3, 0.5 x3, 0.3 x1 ... (8 values) | Speed-like value (1 by default) | D |
 
 Same on every instance: +0xB0 = -1.
@@ -1360,6 +1437,7 @@ Base of everything breakable. GetInterface (0x004B2418) hands out its embedded c
 | +0x1E4 | f32 | 1 x7881, 10 x17, 3.5 x3, 2.5 x3, 5 x1 ... (8 values) | Health: given to the Health component by Init (0x0008D3C8). 1 on nearly everything | E |
 | +0x1F0 | 4 bytes | 0x00000000 x6918, 0x00010000 x503, 0x00000001 x374, 0x01000000 x72, 0x00010001 x41 | | |
 | +0x1F4 | 4 bytes | 0x00000000 x6063, 0x01000000 x1725, 0x00000100 x93, 0x00010000 x26, 0x01000001 x1 | | |
+| +0x1FC | u16 | 0 on all 7908 | Script: read by `fixable_is_fixed`, `fixable_is_broken` | E S |
 
 Same on every instance: +0xA0 = 1, +0xA4 = 1, +0xA8 = 1, +0x1B0 = 1, +0x1CC = -1.
 
@@ -1410,30 +1488,35 @@ Zero in every retail file but used by the class's own code (run-time state, or a
 
 Parent 0x2B6 PadBase > 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0xC0..+0x120; 37 placed in the space sectors, 396 in the game; e.g. `dm_hovboot_arrow_ramp#`, `moon#a_kickpad#`, `moon#b_hoverboot_ramp#_arrows`; own methods: fix-up 0x00363950, Init 0x00363BBC, Update 0x00363F80.
 
-Also what a moon hill spawns around itself.
+Also what a moon hill spawns around itself. Init 0x00363BBC: when the pad has a destination pad, the flight path's first point is moved onto this pad and its last point onto the destination, so the path's ends in the file do not matter.
 
 *The name is descriptive (from the instances): this class has no name in the tables.*
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
-| +0xC8 | reference | Path, set on 52 of 396: `curve#`, `moon#a_kickpad#_curve`, `CURVE_KICKPAD_#` | Flight path | E D |
+| +0xC8 | reference | Path, set on 52 of 396: `curve#`, `moon#a_kickpad#_curve`, `CURVE_KICKPAD_#` | Flight path; Init snaps its ends to the two pads | E D |
 | +0xCC | reference | Volume, set on 143 of 396: `vol_ring_bn#_ramp#`, `volume#`, `HOVERBOOT_JUMP_VOL#` | Trigger volume | E D |
 | +0xD0 | reference | Controller, set on 52 of 396: `CamArgFixed#`, `kickpad#cam`, `moon#a_kickpad#_cam` | Camera | E D |
 | +0xD4 | reference | Controller, set on 1 of 396: `moon#a_kickpad#_fake_cam` | Second camera (one instance) | E D |
-| +0xD8 | reference | Moby, set on 33 of 396: `wall_kick_pad#`, `ghost_pad_#`, `moon#a_kickpad#` | Next pad of a chain | E D |
-| +0xDC | reference | unset on all 396 | Reference slot: resolved by the class's fix-up | E |
-| +0xE0 | f32 | 35 x117, 40 x46, 20 x42, 25 x39, 18 x30 ... (32 values) | Launch tuning (+0xE0..+0xF4): 35, 2.5, 0.3, 1, -25, -25 by default | D |
+| +0xD8 | reference | Moby, set on 33 of 396: `wall_kick_pad#`, `ghost_pad_#`, `moon#a_kickpad#` | Destination pad (another pad of this class) | E D |
+| +0xDC | reference | unset on all 396 | Reference slot: resolved by the class's fix-up. Script: written by `set_jump_duncan_hack` | E S |
+| +0xE0 | f32 | 35 x117, 40 x46, 20 x42, 25 x39, 18 x30 ... (32 values) | Launch tuning (+0xE0..+0xEC): 35, 2.5, 0.3, 1 by default | D |
 | +0xE4 | f32 | 2.5 x143, 0.25 x65, 2 x57, 1.5 x41, 0.5 x32 ... (13 values) | | |
 | +0xE8 | f32 | 0.3 x324, 0.6 x34, 0.8 x12, 1 x10, 0.45 x7 ... (8 values) | | |
 | +0xEC | f32 | 1 x362, 0.25 x19, 0.5 x10, 2 x3, 0 x2 | | |
-| +0xF0 | f32 | -25 x268, -20 x38, -15 x17, -22 x13, -18 x12 ... (21 values) | | |
-| +0xF4 | f32 | -25 x294, -15 x20, -20 x20, -22 x13, -27 x8 ... (19 values) | | |
-| +0x108 | u32 | 0 x380, 2 x10, 4 x6 | | |
-| +0x10C | u32 | 0 x384, 2 x7, 3 x5 | | |
-| +0x110 | 4 bytes | 0x00000000 x282, 0x01000000 x58, 0x00010000 x17, 0x00010100 x15, 0x00010001 x14 ... (10 values) | | |
-| +0x114 | 4 bytes | 0x00000000 x322, 0x01000000 x61, 0x00010000 x13 | | |
+| +0xF0 | f32 | -25 x268, -20 x38, -15 x17, -22 x13, -18 x12 ... (21 values) | First of two angles (-25 by default) | E D |
+| +0xF4 | f32 | -25 x294, -15 x20, -20 x20, -22 x13, -27 x8 ... (19 values) | Second angle; Init copies the first over it when it holds the "unset" value | E |
+| +0xF8 | f32 | 0 on all 396 | Jump duncan hack: Script: written by `set_jump_duncan_hack` | E S |
+| +0xFC | f32 | 0 on all 396 | Jump duncan hack: Script: written by `set_jump_duncan_hack` | E S |
+| +0x100 | run time |  | Zeroed by Init (+0x100, +0x104) | E |
+| +0x108 | u32 | 0 x380, 2 x10, 4 x6 | Mode: set by Init from the flags below (5; or 2 / 4), otherwise as authored | E |
+| +0x10C | u32 | 0 x384, 2 x7, 3 x5 | Second mode: 2 or 3 from the flags | E |
+| +0x111 | u8 | 0 x344, 1 x52 | Flag: lets +0x112 and +0x113 pick the two modes | E |
+| +0x112 | u8 | 0 x373, 1 x23 | Flag: mode 4 instead of 2 | E |
+| +0x113 | u8 | 0 x375, 1 x21 | Flag: second mode 3 instead of 2, and only this pad's end of the path is snapped | E |
+| +0x114 | u8 | 0 x335, 1 x61 | Flag: mode 5 | E |
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0xC0 u32, +0xC4 u32, +0x100 f32, +0x104 f32, +0x118 u32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0xC0 u32, +0xC4 u32, +0x118 u32.
 
 ### 0x591 GenericPrompt
 
@@ -1482,9 +1565,11 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x3B0;
 
 *The name is descriptive (from the instances): this class has no name in the tables.*
 
-No instance sets anything in the class's own range.
+| Offset | Type | In the retail files | Meaning | Evidence |
+| --- | --- | --- | --- | --- |
+| +0x5C | u32 | 0 on all 46 | Script: read by `get_attached_battery_bot` | E S |
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x5C u32, +0x60 f32, +0x64 f32, +0x68 f32, +0x6C f32, +0x70 u32, +0x74 u32, +0x78 u32, +0x100 u8, +0x190 u8, +0x220 u8, +0x2B0 u8, +0x340 u8, +0x350 u8, +0x360 u32, +0x364 u32, +0x368 u32, +0x3A0 u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x60 f32, +0x64 f32, +0x68 f32, +0x6C f32, +0x70 u32, +0x74 u32, +0x78 u32, +0x100 u8, +0x190 u8, +0x220 u8, +0x2B0 u8, +0x340 u8, +0x350 u8, +0x360 u32, +0x364 u32, +0x368 u32, +0x3A0 u8.
 
 ### 0x61C destructible junk pile
 
@@ -1727,6 +1812,7 @@ Parent 0x52E PlayerBase > 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fi
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0x64 | 4 bytes | 0x00010000 x18, 0x00000000 x5 | | |
+| +0x6C | u32 | 0 on all 23 | Script: read by `is_hoverboot_thrusting` | E S |
 
 Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x68 u32.
 
@@ -1734,9 +1820,25 @@ Zero in every retail file but used by the class's own code (run-time state, or a
 
 Parent 0xE5 HERO_HeroBase > 0x52E PlayerBase > 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x70..+0x1AB0; not placed itself; values below are over its 18 placed descendants; own methods: Init 0x001E0B88, Update 0x001DF714.
 
-Same on every instance: +0x17F0 = 1, +0x17F4 = 1, +0x17F8 = 1.
+| Offset | Type | In the retail files | Meaning | Evidence |
+| --- | --- | --- | --- | --- |
+| +0x11BC | u32 | 0 on all 18 | Script: read by `ratchet_arm_nefarious_disguise` | E S |
+| +0x11FC | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x11FD | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x11FE | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x11FF | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x1200 | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x1201 | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x1202 | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x1203 | u8 | 0 on all 18 | Script: written by `ratchet_arm_nefarious_disguise` | E S |
+| +0x17E0 | u8 | 0 on all 18 | Script: written by `ratchet_deactivate_nefarious_disguise` | E S |
+| +0x17F0 | u32 | 1065353216 on all 18 | Script: read by `ratchet_deactivate_nefarious_disguise` | E S |
+| +0x1800 | u32 | 0 on all 18 | Script: written by `ratchet_deactivate_nefarious_disguise` | E S |
+| +0x1908 | u32 | 0 on all 18 | Script: read by `hero_has_object`, `hero_add_object`, `hero_get_num_objects`, `hero_set_num_objects` ... | E S |
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x11B4 u32, +0x120C u32, +0x1210 u16, +0x1212 u16, +0x1214 u16, +0x1216 u16, +0x1218 u32, +0x121C u32, +0x12AC u32, +0x1300 u32, +0x1304 u32, +0x1308 u32, +0x1508 u32, +0x1590 u8, +0x17E0 u8, +0x182C f32, +0x18F8 u32, +0x1904 u32, +0x1908 u32, +0x1910 u8, +0x1911 u8, +0x1912 u8, +0x1920 u32, +0x1980 f32, +0x1984 f32, +0x1988 f32, +0x198C f32, +0x19C0 u8, +0x19C1 u8, +0x19C2 u8, +0x1A10 f32, +0x1A14 f32, +0x1A18 f32, +0x1A1C f32, +0x1A20 f32, +0x1A24 f32, +0x1A28 f32, +0x1A2C f32, +0x1A30 f32, +0x1A34 f32, +0x1A38 f32, +0x1A40 f32, +0x1A44 f32, +0x1A48 f32, +0x1A4C u32, +0x1A80 f32, +0x1A84 f32, +0x1A88 f32, +0x1A8C f32, +0x1A90 f32, +0x1A98 f32, +0x1AA0 u32, +0x1AA4 u32, +0x1AA8 u8, +0x1AA9 u8, +0x1AAB u8.
+Same on every instance: +0x17F4 = 1, +0x17F8 = 1.
+
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x11B4 u32, +0x120C u32, +0x1210 u16, +0x1212 u16, +0x1214 u16, +0x1216 u16, +0x1218 u32, +0x121C u32, +0x12AC u32, +0x1300 u32, +0x1304 u32, +0x1308 u32, +0x1508 u32, +0x1590 u8, +0x182C f32, +0x18F8 u32, +0x1904 u32, +0x1910 u8, +0x1911 u8, +0x1912 u8, +0x1920 u32, +0x1980 f32, +0x1984 f32, +0x1988 f32, +0x198C f32, +0x19C0 u8, +0x19C1 u8, +0x19C2 u8, +0x1A10 f32, +0x1A14 f32, +0x1A18 f32, +0x1A1C f32, +0x1A20 f32, +0x1A24 f32, +0x1A28 f32, +0x1A2C f32, +0x1A30 f32, +0x1A34 f32, +0x1A38 f32, +0x1A40 f32, +0x1A44 f32, +0x1A48 f32, +0x1A4C u32, +0x1A80 f32, +0x1A84 f32, +0x1A88 f32, +0x1A8C f32, +0x1A90 f32, +0x1A98 f32, +0x1AA0 u32, +0x1AA4 u32, +0x1AA8 u8, +0x1AA9 u8, +0x1AAB u8.
 
 ### 0xF7 Ratchet
 
@@ -1746,7 +1848,17 @@ Parent 0xF6 HERO_HeroCharacter > 0xE5 HERO_HeroBase > 0x52E PlayerBase > 0x47 Mo
 
 *The name is descriptive (from the instances): this class has no name in the tables.*
 
-Same on every instance: +0x1AE0 = 310, +0x1D90 = 12, +0x1D94 = 12, +0x1D98 = 6, +0x1D9C = 12.5664, +0x1DA0 = 12.5664, +0x1DA4 = 6.28319, +0x1DA8 = 0.5, +0x1DAC = 0.15, +0x1DB0 = -0.5, +0x1DB4 = 0.872665, +0x1EF4 = -25, +0x1EF8 = -50, +0x1EFC = 1, +0x223C = 15, +0x2240 = 0.35, +0x2244 = 0.7, +0x2248 = 0.7, +0x2510 = 242, +0x27EC = 10.
+| Offset | Type | In the retail files | Meaning | Evidence |
+| --- | --- | --- | --- | --- |
+| +0x2510 | u32 | 242 on all 18 | Script: read by `is_hoverbooting`, `is_hoverboot_thrusting`, `ratchet_deactivate_nefarious_disguise` | E S |
+| +0x2631 | u8 | 0 on all 18 | Script: written by `ratchet_deactivate_nefarious_disguise` | E S |
+| +0x2754 | f32 | 0 on all 18 | Glide pitch: Script: written by `set_glide_pitch`, `reset_glide_pitch` | E S |
+| +0x2761 | u8 | 0 on all 18 | Script: written by `hero_force_underwater_fx` | E S |
+| +0x291C | u32 | 0 on all 18 | Script: written by `set_force_thrust`, `set_hoverboots`, `hero_force_idle_on_rail`, `ratchet_deactivate_nefarious_disguise` ... | E S |
+| +0x2920 | u32 | 0 on all 18 | Script: written by `ratchet_deactivate_nefarious_disguise`, `ratchet_arm_nefarious_disguise` | E S |
+| +0x2938 | u32 | 0 on all 18 | Lawrence hologram pod: Script: written by `ratchet_set_lawrence_hologram_pod` | E S |
+
+Same on every instance: +0x1AE0 = 310, +0x1D90 = 12, +0x1D94 = 12, +0x1D98 = 6, +0x1D9C = 12.5664, +0x1DA0 = 12.5664, +0x1DA4 = 6.28319, +0x1DA8 = 0.5, +0x1DAC = 0.15, +0x1DB0 = -0.5, +0x1DB4 = 0.872665, +0x1EF4 = -25, +0x1EF8 = -50, +0x1EFC = 1, +0x223C = 15, +0x2240 = 0.35, +0x2244 = 0.7, +0x2248 = 0.7, +0x27EC = 10.
 
 ### 0x160 CharacterBase
 
@@ -1754,16 +1866,34 @@ Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x840;
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
+| +0x70 | u16 | 0 on all 2900 | Script: read by `set_anim_modifier`, `npc_set_speed`, `ally_set_speed`, `azimuth_start_grind` ... | E S |
+| +0x9C | u32 | 0 on all 2900 | Script: read by `arena_hydra_tag_in`, `hydra_tank_kill`, `set_anim_modifier`, `npc_set_speed` ... | E S |
+| +0xD4 | u32 | 0 on all 2900 | Inner awareness: Script: written by `enemy_set_inner_awareness` | E S |
+| +0xD8 | u32 | 0 on all 2900 | Outer awareness: Script: written by `enemy_set_outer_awareness` | E S |
+| +0x13C | u32 | 0 on all 2900 | Script: read by `zoni_path_follow`, `ally_followpathhover`, `ally_gotopointhover`, `ally_setcollisionignore` | E S |
 | +0x148 | 4 bytes | 0x01010100 x2878, 0x00000000 x14, 0x00000100 x8 | | |
+| +0x1A0 | f32 | 1 on all 2900 | Script: written by `hydra_tank_kill` | E S |
+| +0x1A4 | f32 | 1 on all 2900 | Script: read by `hydra_tank_kill` | E S |
+| +0x29C | u32 | 0 on all 2900 | Script: read by `set_anim_modifier` | E S |
+| +0x2A0 | u32 | 0 on all 2900 | Script: read by `hydra_tank_kill` | E S |
+| +0x2B8 | u32 | 0 on all 2900 | Script: read by `hydra_tank_kill` | E S |
+| +0x3E0 | u32 | 0 on all 2900 | Script: read by `hydra_tank_kill` | E S |
+| +0x470 | u32 | 0 on all 2900 | Script: read by `hydra_tank_kill` | E S |
+| +0x4F0 | u8 | 0 on all 2900 | Script: written by `hydra_tank_kill` | E S |
+| +0x5F8 | u32 | 0 on all 2900 | Script: read by `nefarious_laser_create` | E S |
+| +0x5FC | u32 | 0 on all 2900 | Script: read by `nefarious_laser_create` | E S |
+| +0x760 | u32 | 0 on all 2900 | Script: read by `npc_interact`, `zoni_path_follow`, `qwark_start_smashers`, `qwark_startled_goto` | E S |
+| +0x7F0 | u32 | 0 on all 2900 | Script: written by `nefarious_resume_behavior` | E S |
+| +0x7F8 | u32 | 0 on all 2900 | Script: written by `nefarious_resume_behavior` | E S |
 | +0x808 | reference | Path, set on 602 of 2900: `agorian_warrior#_curve`, `agorian_battlebot#_curve`, `blob_small#_curve` | The character's path (<name>_curve) | D |
-| +0x80C | reference | Path, set on 651 of 2900: `curve#`, `group#_intro_curve#`, `INTRO_SHOOTER#` | Intro path | Q D |
-| +0x810 | reference | Path, set on 1132 of 2900: `agorian_warrior#_curve`, `agorian_battlebot#_curve`, `nefarious_medium_trooper#_curve` | Patrol path | Q D |
+| +0x80C | reference | Path, set on 651 of 2900: `curve#`, `group#_intro_curve#`, `INTRO_SHOOTER#` | Intro path. Script: written by `enemy_set_intro_path` | Q D S |
+| +0x810 | reference | Path, set on 1132 of 2900: `agorian_warrior#_curve`, `agorian_battlebot#_curve`, `nefarious_medium_trooper#_curve` | Patrol path. Script: written by `npc_patrol`, `npc_stop`, `enemy_set_patrol_path` | Q D S |
 | +0x814 | reference | Area, set on 360 of 2900: `moon#e_ap#_homearea`, `moon#b_ap#_homearea`, `moon#a_ap#_homearea` | Home Area (moonXx_apNN_homearea) | D |
 | +0x818 | reference | Path, set on 1 of 2900: `PATH_LAST_ZONI` | A further path (one Zoni) | E D |
 
-Same on every instance: +0x170 = 1, +0x180 = 65535, +0x1A0 = 1, +0x1A4 = 1, +0x1A8 = 1, +0x820 = 1, +0x83C = 0x01000000.
+Same on every instance: +0x170 = 1, +0x180 = 65535, +0x1A8 = 1, +0x820 = 1, +0x83C = 0x01000000.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x6C u32, +0x70 u16, +0x72 u16, +0x74 u32, +0x78 u32, +0x7C u32, +0x98 u32, +0x9C u32, +0xA0 u16, +0xA2 u16, +0xA4 u16, +0xA6 u16, +0xA8 u32, +0xAC u32, +0x10C u16, +0x134 u32, +0x138 u32, +0x13C u32, +0x140 u32, +0x150 f32, +0x154 f32, +0x158 f32, +0x15C f32, +0x18C u32, +0x1B0 u32, +0x234 u32, +0x250 u32, +0x2A0 f32, +0x2A4 f32, +0x2A8 f32, +0x2AC f32, +0x2B0 u32, +0x2B4 u32, +0x2B8 u32, +0x340 u8, +0x3D0 u8, +0x460 u8, +0x4F0 u8, +0x580 u8, +0x590 u8, +0x5A0 u32, +0x5A4 u32, +0x5A8 u32, +0x5AC u32, +0x5B0 u32, +0x5B4 u32, +0x5B8 u32, +0x5BC u32, +0x5C0 u32, +0x5C4 u32, +0x5C8 u32, +0x5CC u32, +0x5D0 u32, +0x5D4 u32, +0x5D8 u32, +0x5DC u32, +0x5E0 u32, +0x5E4 u32, +0x5E8 u32, +0x5EC u32, +0x5F0 u32, +0x5F4 u32, +0x5FC u32, +0x600 u32, +0x618 u32, +0x620 u32, +0x630 f32, +0x634 f32, +0x63C u32, +0x640 u32, +0x644 u32, +0x648 u32, +0x658 f32, +0x6A4 u32, +0x6A8 u8, +0x6B4 u32, +0x800 u32, +0x804 f32, +0x81C u32, +0x824 f32, +0x828 f32, +0x82C u32, +0x830 u8, +0x834 u32, +0x838 u32, +0x83D u8, +0x83E u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x6C u32, +0x74 u32, +0x78 u32, +0x7C u32, +0x98 u32, +0xA0 u16, +0xA2 u16, +0xA4 u16, +0xA6 u16, +0xA8 u32, +0xAC u32, +0x10C u16, +0x134 u32, +0x138 u32, +0x140 u32, +0x150 f32, +0x154 f32, +0x158 f32, +0x15C f32, +0x18C u32, +0x1B0 u32, +0x234 u32, +0x250 u32, +0x2A4 f32, +0x2A8 f32, +0x2AC f32, +0x2B0 u32, +0x2B4 u32, +0x340 u8, +0x3D0 u8, +0x460 u8, +0x580 u8, +0x590 u8, +0x5A0 u32, +0x5A4 u32, +0x5A8 u32, +0x5AC u32, +0x5B0 u32, +0x5B4 u32, +0x5B8 u32, +0x5BC u32, +0x5C0 u32, +0x5C4 u32, +0x5C8 u32, +0x5CC u32, +0x5D0 u32, +0x5D4 u32, +0x5D8 u32, +0x5DC u32, +0x5E0 u32, +0x5E4 u32, +0x5E8 u32, +0x5EC u32, +0x5F0 u32, +0x5F4 u32, +0x600 u32, +0x618 u32, +0x620 u32, +0x630 f32, +0x634 f32, +0x63C u32, +0x640 u32, +0x644 u32, +0x648 u32, +0x658 f32, +0x6A4 u32, +0x6A8 u8, +0x6B4 u32, +0x800 u32, +0x804 f32, +0x81C u32, +0x824 f32, +0x828 f32, +0x82C u32, +0x830 u8, +0x834 u32, +0x838 u32, +0x83D u8, +0x83E u8.
 
 ### 0x181 EnemyBase
 
@@ -1776,26 +1906,28 @@ The two awareness blocks have QForce's ClueEnemy shape: (Volume, Area, distance,
 | +0x840 | u32 | 0 x2356, 1 x261, 2 x55 | 1 = Init deactivates the enemy (0x005238B4): it waits for a script or a spawner. 2 on a few (role open) | E D |
 | +0x844 | u32 | 0 x1589, 1 x1001, 3 x57, 2 x25 | SEGMENT_Spawn rule, the same component as Damageable +0x5C (GetInterface 0x0008EB38 returns it for class 0x4BD) | E T |
 | +0x848 | u32 | 0 x1199, 1 x457, 2 x296, 9 x151, 6 x130 ... (16 values) | Variant index, read by each enemy class's Init (the Agorian warrior switches on 0-9) | E D |
-| +0x864 | reference | Volume, set on 1647 of 2672: `hangar_int_inner_vol`, `bat_bot_home_vol#`, `VOL_TRIGGER_ENTRANCE_BATTLE` | Inner awareness volume: the hero inside it wakes the enemy | Q D |
-| +0x868 | reference | Area, set on 231 of 2672: `cargo_near_area_inner_#`, `vorselon_inner`, `moon#e_ap#_awarenessarea` | Inner awareness Area (several volumes) | Q D |
-| +0x86C | f32 | 30 x2082, 15 x298, 20 x110, 0 x39, 35 x36 ... (21 values) | Inner awareness distance (30 by default) | Q D |
+| +0x864 | reference | Volume, set on 1647 of 2672: `hangar_int_inner_vol`, `bat_bot_home_vol#`, `VOL_TRIGGER_ENTRANCE_BATTLE` | Inner awareness volume: the hero inside it wakes the enemy. Script: written by `enemy_set_inner_awareness` | Q D S |
+| +0x868 | reference | Area, set on 231 of 2672: `cargo_near_area_inner_#`, `vorselon_inner`, `moon#e_ap#_awarenessarea` | Inner awareness Area (several volumes). Script: written by `enemy_set_inner_awareness` | Q D S |
+| +0x86C | f32 | 30 x2082, 15 x298, 20 x110, 0 x39, 35 x36 ... (21 values) | Inner awareness distance (30 by default). Script: written by `enemy_set_inner_awareness` | Q D S |
 | +0x870 | u32 | 0 x2652, 1 x20 | Inner awareness flag (0 / 1) | Q D |
-| +0x874 | reference | Volume, set on 1641 of 2672: `hangar_int_outer_vol`, `bat_bot_home_vol#`, `volume#` | Outer awareness volume: the enemy gives up when the hero leaves it | Q D |
-| +0x878 | reference | Area, set on 255 of 2672: `cargo_near_area_outter_#`, `vorselon_inner`, `moon#e_ap#_awarenessarea` | Outer awareness Area | Q D |
-| +0x87C | f32 | 30 x2425, 20 x78, 0 x41, 35 x36, 0.5 x16 ... (20 values) | Outer awareness distance (30 by default) | Q D |
+| +0x874 | reference | Volume, set on 1641 of 2672: `hangar_int_outer_vol`, `bat_bot_home_vol#`, `volume#` | Outer awareness volume: the enemy gives up when the hero leaves it. Script: written by `enemy_set_outer_awareness` | Q D S |
+| +0x878 | reference | Area, set on 255 of 2672: `cargo_near_area_outter_#`, `vorselon_inner`, `moon#e_ap#_awarenessarea` | Outer awareness Area. Script: written by `enemy_set_outer_awareness` | Q D S |
+| +0x87C | f32 | 30 x2425, 20 x78, 0 x41, 35 x36, 0.5 x16 ... (20 values) | Outer awareness distance (30 by default). Script: written by `enemy_set_outer_awareness` | Q D S |
 | +0x880 | u32 | 0 x2630, 1 x42 | Outer awareness flag (0 / 1) | Q D |
-| +0x884 | reference | Area, set on 338 of 2672: `FIREPOINTS_BLOB_ALLEY_BLOBS#`, `firepoints_control_wave#_set#`, `firepoints_entrance_wave#_set#` | Firepoints Area | D |
+| +0x884 | reference | Area, set on 338 of 2672: `FIREPOINTS_BLOB_ALLEY_BLOBS#`, `firepoints_control_wave#_set#`, `firepoints_entrance_wave#_set#` | Firepoints Area. Script: written by `enemy_clear_firepoints`, `enemy_set_firepoints` | D S |
 | +0x888 | reference | Controller, set on 689 of 2672: `moon#x_battlefield_controller`, `moon#y_battlefield_controller`, `td_battlefieldcontroller_#` | EnemyBattlefieldController | D |
 | +0x88C | reference | Controller, set on 502 of 2672: `EnemyFirepointController#`, `moon#x_group#_firepoint_controller`, `wasps#_firepoint_controller` | EnemyFirepointController | D |
-| +0x890 | reference | Scent, set on 127 of 2672: `AMBIENT_A#_Targets`, `AREA_AMBIENT_DAM`, `AMBIENT_A#_Targets_wtower` | Scent of ambient targets | E D |
+| +0x890 | reference | Scent, set on 127 of 2672: `AMBIENT_A#_Targets`, `AREA_AMBIENT_DAM`, `AMBIENT_A#_Targets_wtower` | Scent of ambient targets. Script: written by `enemy_set_ambient_attack_scent` | E D S |
 | +0x8A0 | reference | Area, set on 9 of 2672: `A#_BEAST_NOGO`, `batterybot_cant_go` | No-go Area | E D |
 | +0x8A4 | reference | unset on all 2672 | Reference slot: resolved by the class's fix-up | E |
 | +0x8A8 | reference | Pod, set on 1267 of 2672: `BLOB_SPAWNER_BATBOT#_#`, `AGORIAN_A#_PART_OF_POD`, `moon#x_group#_enemies` | The enemy's Pod (its group: moonXx_apNN_enemies) | E D |
+| +0x8B0 | u32 | 0 on all 2672 | Volume target: Script: written by `enemy_set_volume_target`, `enemy_clear_volume_target` | E S |
 | +0x8B4 | 4 bytes | 0x00000000 x2530, 0x01000000 x142 | | |
 | +0x8B8 | component |  | Component of class 0x835 (+0x8B8..), returned by GetInterface; holds the two fields below | E |
 | +0x8C4 | u8 | 0 x2498, 1 x174 | 1 on a tenth of the enemies (in the 0x835 component; role open) | D |
 | +0x8C8 | f32 | -1 x2634, 2 x9, 35 x9, 50 x8, 5 x4 ... (8 values) | A distance of the 0x835 component: Init squares it when positive; -1 = none. 35-80 where set | E D |
 | +0x918 | u32 | 0 x2635, 4 x21, 2 x6, 1 x5, 3 x5 | | |
+| +0x91C | u32 | 0 on all 2672 | Script: written by `hydra_tank_kill` | E S |
 
 Same on every instance: +0x8AC = -1.
 
@@ -1834,8 +1966,16 @@ Parent 0x160 CharacterBase > 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own
 | +0x9A5 | run time u8 |  | Prompt enabled | E |
 | +0x9A6 | run time u8 |  | Prompt showing | E |
 | +0x9A7 | run time u8 |  | Prompt button state | E |
-| +0xC88 | u32 | 0 x170, 2 x42, 3 x13, 1 x3 | 0-3 (role open) | D |
-| +0xC8C | reference | Area, set on 18 of 228: `TRADER_STOP_VOLS#`, `TERACH_#_STOP_POINTS`, `AREA_PRISON_STOP#` | Area of stop points | E D |
+| +0xC70 | u32 | 1 on all 228 | Script: written by `npc_icon_off` | E S |
+| +0xC74 | u32 | 0 on all 228 | Script: written by `npc_icon_on` | E S |
+| +0xC88 | u32 | 0 x170, 2 x42, 3 x13, 1 x3 | 0-3 (role open). Script: written by `npc_patrol` | D S |
+| +0xC8C | reference | Area, set on 18 of 228: `TRADER_STOP_VOLS#`, `TERACH_#_STOP_POINTS`, `AREA_PRISON_STOP#` | Area of stop points. Script: written by `npc_patrol`, `npc_stop` | E D S |
+| +0xC90 | u32 | 0 on all 228 | Face moby: Script: written by `npc_set_face_moby`, `npc_clear_face_moby` | E S |
+| +0xC94 | u32 | 0 on all 228 | Face hero: Script: written by `npc_set_face_hero` | E S |
+| +0xCA0 | f32 | 0 on all 228 | Script: written by `npc_start_attack` | E S |
+| +0xCA4 | f32 | 0 on all 228 | Script: written by `npc_start_attack` | E S |
+| +0xCA8 | f32 | 0 on all 228 | Script: written by `npc_start_attack` | E S |
+| +0xCAC | f32 | 0 on all 228 | Script: written by `npc_start_attack` | E S |
 | +0xCB4 | reference | Volume, set on 8 of 228: `VOL_POLLYX_TRAITOR_POS`, `terrachnoid_escape_vol` | Reference slot: resolved by the class's fix-up | E |
 | +0xCB8 | reference | Volume, set on 10 of 228: `VOL_CTRL_TERACHNOID#_POS`, `terach_#_stop_point_#`, `terrachnoid_escape_vol` | Reference slot: resolved by the class's fix-up | E |
 | +0xCBC | f32 | 10.5 x227, 10 x1 | | |
@@ -1845,13 +1985,22 @@ Parent 0x160 CharacterBase > 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own
 | +0xCD0 | reference | Volume, set on 13 of 228: `junk_trader_lightlink`, `vorselon_lightlink`, `terachnoid_lightlink` | "Light link" volume | D |
 | +0xCD8 | f32 | 0 x226, 1.175 x2 | | |
 | +0xCDC | f32 | -2 x226, -3 x2 | | |
-| +0xD04 | 4 bytes | 0x00010000 x186, 0x00010001 x31, 0x01010000 x7, 0x01010001 x4 | | |
+| +0xCF8 | u32 | 0 on all 228 | Target: Script: written by `npc_set_target`, `npc_clear_targets` | E S |
+| +0xCFC | u32 | 0 on all 228 | Script: written by `npc_clear_targets` | E S |
+| +0xD00 | u32 | 0 on all 228 | Script: written by `npc_clear_targets` | E S |
+| +0xD05 | u8 | 1 on all 228 | Script: written by `npc_idle_dialogue_enable` | E S |
+| +0xD06 | u8 | 0 on all 228 | Script: written by `npc_holo_down`, `npc_holo_up` | E S |
 | +0xD08 | reference | Controller, set on 66 of 228: `CTRL_TERA#_AMBIENT_DIALOGUE`, `DIALOGUE_FONGOID_PAST#`, `AmbientFongoidDialog#` | Ambient dialogue controller | E D |
-| +0xD28 | u32 | 0 x222, 3 x3, 4 x1, 2 x1, 1 x1 | | |
+| +0xD14 | u32 | 1065353216 on all 228 | Script: written by `npc_enable_damage`, `npc_disable_damage`, `npc_scale_damage` | E S |
+| +0xD18 | u32 | 0 on all 228 | Script: written by `npc_get_attention` | E S |
+| +0xD1C | u32 | 0 on all 228 | Script: written by `npc_get_attention` | E S |
+| +0xD20 | u32 | 0 on all 228 | Script: written by `npc_goto`, `npc_patrol`, `npc_stop`, `npc_interact` ... | E S |
+| +0xD24 | u32 | 0 x196, 1 x9, 2 x8, 3 x8, 403632143 x1 ... (11 values) | Visible: Script: written by `npc_vorselon_set_visible` | E S |
+| +0xD28 | u8 | 0 on all 228 | Visible: Script: written by `npc_vorselon_set_visible` | E S |
 
-Same on every instance: +0x9B0 = 322, +0xC04 = 0.5, +0xC08 = -0.5, +0xC0C = 0.872665, +0xC10 = 7, +0xC14 = 18, +0xC18 = 0.2, +0xC1C = 0.5, +0xC24 = -25, +0xC28 = -50, +0xC70 = 1, +0xD14 = 1.
+Same on every instance: +0x9B0 = 322, +0xC04 = 0.5, +0xC08 = -0.5, +0xC0C = 0.872665, +0xC10 = 7, +0xC14 = 18, +0xC18 = 0.2, +0xC1C = 0.5, +0xC24 = -25, +0xC28 = -50.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x900 u32, +0x904 u32, +0x908 u32, +0x9B4 f32, +0x9B8 f32, +0xA80 u32, +0xA84 u32, +0xA88 f32, +0xAAC u32, +0xAC0 u32, +0xAC4 u32, +0xAC8 u32, +0xACC u32, +0xB00 u32, +0xB04 f32, +0xC50 u32, +0xC90 u32, +0xC94 u32, +0xCB0 u32, +0xCC8 u32, +0xCF8 u32, +0xCFC u32, +0xD00 u32, +0xD0C u32, +0xD10 u32, +0xD20 u32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x900 u32, +0x904 u32, +0x908 u32, +0x9B4 f32, +0x9B8 f32, +0xA80 u32, +0xA84 u32, +0xA88 f32, +0xAAC u32, +0xAC0 u32, +0xAC4 u32, +0xAC8 u32, +0xACC u32, +0xB00 u32, +0xB04 f32, +0xC50 u32, +0xCB0 u32, +0xCC8 u32, +0xD0C u32, +0xD10 u32.
 
 ### 0x19A swamp flyer / wasp
 
@@ -1892,18 +2041,23 @@ Parent 0x181 EnemyBase > 0x160 CharacterBase > 0x47 MobyBaseUpdate > 0x6 IGG_Gam
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
 | +0xC88 | u32 | 0 x189, 3 x49, 1 x42, 2 x26 | | |
+| +0xCF4 | f32 | 0 on all 306 | Rush dists: Script: written by `agorian_set_rush_dists` | E S |
+| +0xCF8 | f32 | 0 on all 306 | Rush dists: Script: written by `agorian_set_rush_dists` | E S |
+| +0xD0C | u32 | 0 on all 306 | Shots per volley: Script: written by `agorian_set_shots_per_volley` | E S |
 | +0xD10 | 4 bytes | 0x00000000 x304, 0x00010000 x2 | | |
 | +0xD1C | u32 | 0 x299, 256 x7 | | |
 
 Same on every instance: +0x930 = 322, +0xB84 = 0.5, +0xB88 = -0.5, +0xB8C = 0.872665, +0xB90 = 7, +0xB94 = 18, +0xB98 = 0.2, +0xB9C = 0.5, +0xBA4 = -25, +0xBA8 = -50.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x934 u32, +0x938 u32, +0xA00 u32, +0xA04 u32, +0xA08 u32, +0xA2C u32, +0xA80 u32, +0xA84 f32, +0xBD0 u32, +0xBD8 u32, +0xBDC f32, +0xBF4 u32, +0xBFC f32, +0xC00 f32, +0xC08 f32, +0xC0C f32, +0xC10 f32, +0xC14 f32, +0xC50 u32, +0xC5C u32, +0xC60 f32, +0xC64 f32, +0xC68 f32, +0xC6C f32, +0xC8C u32, +0xCD0 u32, +0xCD4 u32, +0xCD8 u32, +0xCDC u32, +0xCE0 u32, +0xCE4 u32, +0xCE8 u32, +0xCEC f32, +0xCF4 f32, +0xCF8 f32, +0xCFC f32, +0xD00 f32, +0xD08 f32, +0xD0C u32, +0xD14 u8, +0xD15 u8, +0xD18 u8, +0xD19 u8, +0xD1A u8, +0xD1B u8, +0xD20 f32, +0xD24 f32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x934 u32, +0x938 u32, +0xA00 u32, +0xA04 u32, +0xA08 u32, +0xA2C u32, +0xA80 u32, +0xA84 f32, +0xBD0 u32, +0xBD8 u32, +0xBDC f32, +0xBF4 u32, +0xBFC f32, +0xC00 f32, +0xC08 f32, +0xC0C f32, +0xC10 f32, +0xC14 f32, +0xC50 u32, +0xC5C u32, +0xC60 f32, +0xC64 f32, +0xC68 f32, +0xC6C f32, +0xC8C u32, +0xCD0 u32, +0xCD4 u32, +0xCD8 u32, +0xCDC u32, +0xCE0 u32, +0xCE4 u32, +0xCE8 u32, +0xCEC f32, +0xCFC f32, +0xD00 f32, +0xD08 f32, +0xD14 u8, +0xD15 u8, +0xD18 u8, +0xD19 u8, +0xD1A u8, +0xD1B u8, +0xD20 f32, +0xD24 f32.
 
 ### 0x52E PlayerBase
 
 Parent 0x47 MobyBaseUpdate > 0x6 IGG_GameObjectUpdate; own fields +0x5C..+0x60; not placed itself; values below are over its 23 placed descendants.
 
-No instance sets anything in the class's own range.
+| Offset | Type | In the retail files | Meaning | Evidence |
+| --- | --- | --- | --- | --- |
+| +0x5C | u32 | 0 on all 23 | Script: read by `default_follow_cam_pos`, `get_follow_cam_dist`, `get_follow_cam_pitch`, `get_follow_cam_fov` ... | E S |
 
 ### 0x54E battery bot
 
@@ -1949,15 +2103,21 @@ A SpaceMoon finds its Zoni by this class.
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
+| +0x920 | u32 | 409 on all 36 | Script: read by `zoni_set_forced_idle` | E S |
+| +0xB90 | u32 | 0 on all 36 | Forced idle: Script: written by `zoni_set_forced_idle` | E S |
+| +0xB94 | u32 | 3251109888 on all 36 | Forced idle: Script: written by `zoni_set_forced_idle` | E S |
+| +0xB98 | u32 | 3259498496 on all 36 | Forced idle: Script: written by `zoni_set_forced_idle` | E S |
 | +0xC90 | reference | Area, set on 14 of 36: `moon#b_zoni_path`, `moon#c_zoni_chase_paths`, `moon#a_zoni_chase_paths` | Area of chase paths | E D |
 | +0xC94 | reference | Volume, set on 8 of 36: `moon#b_zoni_homevol`, `zoni_chase#_inner_vol`, `zoni#_pre_wander_vol` | Volume: start of the chase / home | E D |
 | +0xC98 | reference | Volume, set on 10 of 36: `moon#b_zoni_homevol`, `zoni_chase_end_inner_vol`, `zoni#_post_wander_vol` | Volume: end of the chase | E D |
+| +0xCA0 | u32 | 0 on all 36 | Stop: Script: written by `zoni_path_follow`, `zoni_set_stop`, `zoni_clear_stop` | E S |
 | +0xCB8 | f32 | 0 x35, 1.25 x1 | | |
-| +0xCBC | 4 bytes | 0x00000000 x35, 0x00010000 x1 | | |
+| +0xCBD | u8 | 0 x35, 1 x1 | Forced idle: Script: written by `zoni_set_forced_idle` | E S |
+| +0xCC0 | u32 | 0 on all 36 | Script: read by `zoni_resurrect` | E S |
 
-Same on every instance: +0x920 = 409, +0xB74 = 0.5, +0xB78 = -0.5, +0xB7C = 0.872665, +0xB80 = 7, +0xB84 = 18, +0xB88 = 0.2, +0xB8C = 0.5, +0xB94 = -25, +0xB98 = -50, +0xBE4 = 0.5, +0xBE8 = 0.1, +0xBEC = 6.28319, +0xC30 = 2, +0xC40 = -1, +0xC50 = 1.
+Same on every instance: +0xB74 = 0.5, +0xB78 = -0.5, +0xB7C = 0.872665, +0xB80 = 7, +0xB84 = 18, +0xB88 = 0.2, +0xB8C = 0.5, +0xBE4 = 0.5, +0xBE8 = 0.1, +0xBEC = 6.28319, +0xC30 = 2, +0xC40 = -1, +0xC50 = 1.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x924 f32, +0x928 f32, +0x9F0 f32, +0x9F4 f32, +0x9F8 f32, +0xA1C u32, +0xA70 u32, +0xA74 f32, +0xB90 f32, +0xBC0 u32, +0xBE0 u32, +0xBF0 u16, +0xBF2 u16, +0xBF4 f32, +0xBF8 f32, +0xBFC u16, +0xC00 u32, +0xC04 u32, +0xC08 u32, +0xC0C u32, +0xC10 u32, +0xC20 u32, +0xC24 u32, +0xC28 u32, +0xC48 u8, +0xC49 u8, +0xC4A u8, +0xC4B u8, +0xC4C u8, +0xC4D u8, +0xC4E u8, +0xC4F u8, +0xC54 u32, +0xC60 u32, +0xC64 u32, +0xC80 f32, +0xC84 f32, +0xC88 f32, +0xC8C f32, +0xC9C u32, +0xCA4 f32, +0xCA8 f32, +0xCAC f32, +0xCB0 f32.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x924 f32, +0x928 f32, +0x9F0 f32, +0x9F4 f32, +0x9F8 f32, +0xA1C u32, +0xA70 u32, +0xA74 f32, +0xBC0 u32, +0xBE0 u32, +0xBF0 u16, +0xBF2 u16, +0xBF4 f32, +0xBF8 f32, +0xBFC u16, +0xC00 u32, +0xC04 u32, +0xC08 u32, +0xC0C u32, +0xC10 u32, +0xC20 u32, +0xC24 u32, +0xC28 u32, +0xC48 u8, +0xC49 u8, +0xC4A u8, +0xC4B u8, +0xC4C u8, +0xC4D u8, +0xC4E u8, +0xC4F u8, +0xC54 u32, +0xC60 u32, +0xC64 u32, +0xC80 f32, +0xC84 f32, +0xC88 f32, +0xC8C f32, +0xC9C u32, +0xCA4 f32, +0xCA8 f32, +0xCAC f32, +0xCB0 f32.
 
 ### 0x5E0 Fongoid
 
@@ -1980,13 +2140,23 @@ Parent 0x181 EnemyBase > 0x160 CharacterBase > 0x47 MobyBaseUpdate > 0x6 IGG_Gam
 
 | Offset | Type | In the retail files | Meaning | Evidence |
 | --- | --- | --- | --- | --- |
+| +0xC10 | f32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC14 | f32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC18 | f32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC1C | f32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC20 | u32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
 | +0xC30 | reference | Pod, set on 39 of 249: `BLOB_ALLEY_#`, `POD_FOREST_BLOBS`, `POD_WATERFALL_BLOBS` | Pod of the blob's group | E D |
-| +0xC34 | 4 bytes | 0x00000000 x153, 0x01000000 x96 | | |
+| +0xC35 | u8 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC36 | u8 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC37 | u8 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
 | +0xC6C | f32 | 0 x174, 2 x41, 1 x13, 2.5 x13, 1.5 x8 | | |
+| +0xC70 | u32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC74 | u32 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
+| +0xC78 | u8 | 0 on all 249 | Script: written by `blob_scripted_combine` | E S |
 
 Same on every instance: +0x920 = 322, +0xB74 = 0.5, +0xB78 = -0.5, +0xB7C = 0.872665, +0xB80 = 7, +0xB84 = 18, +0xB88 = 0.2, +0xB8C = 0.5, +0xB94 = -25, +0xB98 = -50.
 
-Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x924 u32, +0x928 u32, +0x9F0 f32, +0x9F4 f32, +0x9F8 f32, +0xA1C u32, +0xA70 u32, +0xA74 f32, +0xBC0 u32, +0xBF0 u32, +0xBF4 u32, +0xBF8 u32, +0xC00 f32, +0xC04 f32, +0xC10 f32, +0xC14 f32, +0xC18 f32, +0xC1C f32, +0xC20 u32, +0xC38 u32, +0xC3C u32, +0xC54 u32, +0xC5C u32, +0xC64 u32, +0xC68 f32, +0xC78 u8, +0xC79 u8.
+Zero in every retail file but used by the class's own code (run-time state, or a setting no level uses): +0x924 u32, +0x928 u32, +0x9F0 f32, +0x9F4 f32, +0x9F8 f32, +0xA1C u32, +0xA70 u32, +0xA74 f32, +0xBC0 u32, +0xBF0 u32, +0xBF4 u32, +0xBF8 u32, +0xC00 f32, +0xC04 f32, +0xC38 u32, +0xC3C u32, +0xC54 u32, +0xC5C u32, +0xC64 u32, +0xC68 f32.
 
 ### 0x699 Nefarious swarmer
 
