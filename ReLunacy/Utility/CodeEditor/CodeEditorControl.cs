@@ -655,14 +655,15 @@ public sealed class CodeEditorControl
 
     private void CopySelection()
     {
-        if (Selection is not null) ImGui.SetClipboardText(SelectedText);
+        if (Selection is not null) Input.SetClipboardText(SelectedText);
     }
 
     private void Paste()
     {
         if (ReadOnly) return;
-        // The pointer-returning overload needs unsafe; the S variant marshals to a string for us.
-        string? text = ImGui.GetClipboardTextS();
+        // Through SDL like the rest of the editor: ImGui.GetClipboardTextS crashes when ImGui gets no text
+        // back (a null pointer it then decodes - seen on paste in the Lua environment), where SDL gives null.
+        string text = Input.GetClipboardText();
         if (!string.IsNullOrEmpty(text)) Type(text);
     }
 

@@ -25,6 +25,9 @@ public class EntityRegion : IDisposable
     /// <summary>The level editor's layers (see <see cref="Region.Layers"/>).</summary>
     public readonly IReadOnlyList<string> Layers;
 
+    /// <summary>The region's Pods, their members resolved to this region's Mobys (see <see cref="EntityPod"/>).</summary>
+    public readonly List<EntityPod> Pods = [];
+
     /// <summary>The region's own zones, in the order it lists them. Kept so they can be built one at
     /// a time afterwards (see <paramref name="deferZones"/>).</summary>
     private readonly IReadOnlyList<Assets.Interfaces.IZone> _sourceZones;
@@ -43,6 +46,7 @@ public class EntityRegion : IDisposable
             MobyInstances.Add(minst);
 
         Volumes = new EntityCluster([], assetManager);
+        EntityVolume.NextShapeScale = region.IsOldEngine ? 1f : 2f;
         foreach (var volume in region.Volumes)
             Volumes.Add(volume, gd);
 
@@ -55,6 +59,14 @@ public class EntityRegion : IDisposable
         foreach (var path in region.Paths)
             if (path.Points.Count > 0)
                 Paths.Add(new EntityPath(path));
+
+        var mobysByTuid = new Dictionary<ulong, List<EntityMoby>>();
+        foreach (var moby in MobyInstances.Entities.OfType<EntityMoby>())
+        {
+            if (!mobysByTuid.TryGetValue(moby.Tuid, out var list)) mobysByTuid[moby.Tuid] = list = [];
+            list.Add(moby);
+        }
+        foreach (var pod in region.Pods) Pods.Add(new EntityPod(pod, mobysByTuid));
 
         _sourceZones = region.Zones;
         if (!deferZones)

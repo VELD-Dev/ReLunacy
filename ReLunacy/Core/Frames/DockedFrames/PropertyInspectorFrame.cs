@@ -201,6 +201,7 @@ public class PropertyInspectorFrame : DockedFrame
 
         if (SelectedEntity is EntityMoby moby)
         {
+            RenderPodMembership(moby);
             if (ImGui.InputFloat(LM.Get("GUI_Frame_InstanceInspector_CullDistance"), ref selectedCullDistance, 0, 0,
                     "%.3f", ImGuiInputTextFlags.ReadOnly))
             {
@@ -508,6 +509,26 @@ public class PropertyInspectorFrame : DockedFrame
             selectedCullDistance = moby.DisplayDistance;
             selectedUpdateDistance = moby.UpdateDistance;
         }
+    }
+
+    /// <summary>The Pods a Moby belongs to (A Crack in Time's level segments among them), each opening the Pods window.</summary>
+    private static void RenderPodMembership(EntityMoby moby)
+    {
+        var pods = EntityManager.Singleton.Regions.SelectMany(r => r.Pods).Where(p => p.Contains(moby)).ToList();
+        ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_Pods"));
+        ImGui.SameLine();
+        if (pods.Count == 0) { ImGui.TextDisabled("-"); return; }
+        foreach (var pod in pods)
+        {
+            if (ImGui.SmallButton($"{pod.Name}##pod{pod.Tuid}"))
+            {
+                var frame = LunaWindow.Instance.IsAnyFrameOpened<PodsFrame>() ? LunaWindow.Instance.GetFirstFrame<PodsFrame>() : null;
+                if (frame == null) { frame = new PodsFrame(); LunaWindow.Instance.AddFrame(frame); }
+                frame.Show(pod);
+            }
+            ImGui.SameLine();
+        }
+        ImGui.NewLine();
     }
 
     /// <summary>A Clue's or a controller's settings: the fields that name another instance, then every non-zero

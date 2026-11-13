@@ -53,15 +53,27 @@ public static class ClueClasses
     /// <summary>Settings fields with a known meaning, by game, class and offset in the class's struct.</summary>
     private static readonly Dictionary<(Games.GameId Game, uint Class, int Offset), string> KnownFields = new()
     {
-        // The landing pad's beam Moby (moon1a_landing_pad_beam, space_junktrader_landingpad).
-        [(Games.GameId.ACrackInTime, 0x4BC, 0xC0)] = "Landing pad beam",
-        // The moon's area (moon1a_vol...), a sphere 400 across: the level script (space_sector_1 main.lua) runs a
+        // Read from the decrypted EBOOT (2026-11-12): space_land_ship -> 0x0022BD84 -> 0x00304704(ship, Clue).
+        // The ship is put at the beam Moby's position and orientation: it lands exactly on the beam (the user's
+        // observation). The beam itself is placed by the level, not by the Clue.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xC0)] = "Landing pad beam (the ship lands on it)",
+        // 0x003029FC reads two more Moby references, each tested before use; 0 on every retail moon.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xC8)] = "Moby (optional)",
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xCC)] = "Moby (optional)",
+        // 0x003029FC: a Pod whose Mobys are sorted by class (0x54E, 0x5AC, 0x221, 0x3B2...); 0 on every retail moon.
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xD8)] = "Pod (optional)",
+        // 0x00304790: when byte 0 is set, landing sends message 0xD2 to the beam and to the ship (0x0091D990).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xE4)] = "Landing message flags",
+        // The moon's area (moon1a_vol...), a sphere of radius 400: the level script (space_sector_1 main.lua) runs a
         // moon's script while Ratchet is inside its table_moons[i].vol. Not the gravity range (the user's test,
-        // 2026-11-12). The Clue itself is the ship's landing target: moons_init.lua space_land_ship(aphelion, clue).
+        // 2026-11-12). It is also where the moon's name and stats (Zoni...) are shown, the area growing with the volume
+        // (user, 2026-11-12). The Clue itself is the ship's landing target: moons_init.lua space_land_ship(aphelion, clue).
         [(Games.GameId.ACrackInTime, 0x4BC, 0xD0)] = "Moon area",
         // The moon's surface radius: 50 on the large moons, 25 on the small ones; every Tie and volume placed on
         // moon1a (bunker, landing pad, spires, the 22 moon_ap*_vol) stands 50 from its centre, its volcanic_moon Tie.
-        [(Games.GameId.ACrackInTime, 0x4BC, 0xE0)] = "Moon radius",
+        // The moon map's orbiting camera (R3 on a moon) keeps its distance from it: a larger radius flies the camera
+        // higher (user's test, 2026-11-13).
+        [(Games.GameId.ACrackInTime, 0x4BC, 0xE0)] = "Moon radius (also the moon map camera's distance)",
     };
 
     /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
@@ -106,11 +118,8 @@ public static class ClueClasses
     /// </summary>
     private static readonly (Games.GameId Game, string Name, string Effect)[] KnownBreaking =
     [
-        // A space sector moon's ap volumes (22 per moon, moon_ap00_vol..moon_ap21_vol, plus moon_ap00_vol1 and three
-        // _homevol): no Clue, controller, Area, Scent or script refers to them - they are not in the trimmed handle
-        // list the scripts use - so the engine finds them itself. Moving moon_ap00_vol1 by 4.5 units left
-        // space_sector_1 loading for ever (user test, 2026-11-12).
-        (Games.GameId.ACrackInTime, "moon_ap00_vol1", "Moving it left space_sector_1 loading for ever (the engine uses the moon_ap volumes itself)."),
+        // None known. (moon_ap00_vol1 was listed on 2026-11-12: moving it seemed to hang space_sector_1's load; the cause
+        // was the game's stale disk cache - see Packing.GameCaches - and saves now clear it.)
     ];
 
     /// <summary>What editing this instance is known to do to the game, or null.</summary>

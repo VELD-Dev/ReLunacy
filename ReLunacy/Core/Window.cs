@@ -936,11 +936,13 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowShaderBrowser();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
+            ViewMenuDraw.ShowPods();
             ViewMenuDraw.ShowProfiler();
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();
             ViewMenuDraw.ShowPSArcExplorer();
             ViewMenuDraw.ShowLuaEnvironment();
+            ViewMenuDraw.ShowConfigTables();
             ImGui.Separator();
             ViewMenuDraw.LayoutPresets();
             ImGui.EndMenu();

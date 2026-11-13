@@ -133,6 +133,7 @@ public static class GameplayWriter
             foreach (var region in regions)
             {
                 foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>()) volume.MarkSaved();
+                foreach (var pod in region.Pods) pod.MarkSaved();
                 foreach (var zone in region.Zones)
                 {
                     foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>()) tie.MarkSaved();
@@ -164,9 +165,25 @@ public static class GameplayWriter
         FileManager files, IReadOnlyList<EntityRegion> regions, IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions,
         List<Action>? afterSave = null)
     {
+        // A region's gp_prius can grow (a Pod gaining members), and gameplay.dat records its size: the gp_prius
+        // entries run first and note their new lengths for the gameplay.dat entry after them.
+        var grown = new List<(int Old, int New)>();
         if (!files.isOld)
+        {
             foreach (var region in regions)
-                yield return ($"{region.RegionName}/gp_prius.dat", region.RegionName, original => Patch(original, region, afterSave));
+                yield return ($"{region.RegionName}/gp_prius.dat", region.RegionName, original =>
+                {
+                    var result = Patch(original, region, afterSave);
+                    if (result.Bytes.Length != original.Length) grown.Add((original.Length, result.Bytes.Length));
+                    return result;
+                });
+            yield return ("gameplay.dat", "gameplay", original =>
+            {
+                if (grown.Count == 0) return (original, [], []);
+                if (grown.Count > 1) return (original, [], ["several regions' gp_prius grew; gameplay.dat holds one size and was not updated"]);
+                return PodWriter.PatchGameplay(original, grown[0].Old, grown[0].New);
+            });
+        }
         // Ties and UFrags: every region's zones are in one file (zones.dat, or the old engine's main.dat).
         var ties = regions.SelectMany(r => r.Zones).SelectMany(z => z.TieInstances.Entities).OfType<EntityTie>().ToList();
         var ufrags = regions.SelectMany(r => r.Zones).SelectMany(z => z.UFrags.Entities).OfType<EntityUFrag>().ToList();
@@ -302,6 +319,9 @@ public static class GameplayWriter
                 Scalar(file, record + 0x08, distances[^1]);
                 changes.Add($"path {path.Name}: points");
             }
+
+        // Pods: their member lists (may grow the file; see PodWriter).
+        file = PodWriter.Patch(file, region.Pods, changes, problems).Bytes;
 
         return (file, changes, problems);
     }

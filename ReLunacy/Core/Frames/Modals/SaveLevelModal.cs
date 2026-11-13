@@ -20,6 +20,7 @@ public sealed class SaveLevelModal : Modal
     private string? _error;
     private Task<LevelSaveResult>? _saving;
     private LevelSaveResult? _result;
+    private Utility.GameCacheNotice? _cacheNotice;
 
     public SaveLevelModal()
     {
@@ -89,6 +90,8 @@ public sealed class SaveLevelModal : Modal
         List(result.Changes, new Vector4(0.8f, 0.8f, 0.8f, 1f));
         List(result.Problems, new Vector4(1f, 0.7f, 0.3f, 1f));
         if (result.BackupPath != null) ImGui.TextWrapped(LM.Get("GUI_SaveLevel_Backup", result.BackupPath));
+        if (result.Succeeded && result.Changes.Count > 0 && LunaWindow.Instance.fileManager?.ArchivePaths.FirstOrDefault() is { } archive)
+            (_cacheNotice ??= new Utility.GameCacheNotice(archive)).Draw();
         if (ImGui.Button(LM.Get("GUI_Common_CloseWord"))) isOpen = false;
     }
 

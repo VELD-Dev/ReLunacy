@@ -653,6 +653,14 @@ public sealed class LuaCompiler
             case LuaFunctionExpr function:
                 return CompileFunctionBody(function, function.Span.Start.Line + 1);
 
+            case LuaUnaryExpr { Operator: "#" } length:
+                _errors.Add(new LuaCompileError("'#' (length) is Lua 5.1; this Lua 5.0 compiler has no instruction for it - use table.getn", length.Span));
+                return new Exp { Kind = ExpKind.Nil };
+
+            case LuaBinaryExpr { Operator: "%" } modulo:
+                _errors.Add(new LuaCompileError("'%' (modulo) is Lua 5.1; this Lua 5.0 compiler has no instruction for it - use math.mod", modulo.Span));
+                return new Exp { Kind = ExpKind.Nil };
+
             case LuaUnaryExpr unary when unary.Operator == "-":
                 return CompileNegate(unary);
 
