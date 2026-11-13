@@ -533,113 +533,156 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.NewLine();
     }
 
-    /// <summary>A Clue's or a controller's settings: the fields that name another instance, then every non-zero
-    /// field raw (their meaning is not decoded yet), typed as flags, a float or an integer.</summary>
+    /// <summary>One line of the settings: a known field, a reference, or a word nothing names.</summary>
+    private sealed record SettingRow(uint Owner, int Offset, int Size, Engine.Assets.LevelElements.ClassField? Field,
+        Engine.Assets.LevelElements.ClueReference? Reference, Engine.Assets.LevelElements.ClassField? Component)
+    {
+        public bool RunTime => Field is { RunTime: true };
+    }
+
+    /// <summary>
+    /// A Clue's, a controller's or a Moby's settings, folded by the class that declares each field: the instance's
+    /// own class open, the classes it inherits from below it, closed, each with the count of what it shows. Two
+    /// columns, name and value; the offset, the type, the description and what the other instances of the class
+    /// hold are in the name's tooltip. An embedded object and the fields the game overwrites at start-up (read-only)
+    /// are folds of their own inside their class. Fields at zero stay hidden until "Show unset" is ticked.
+    /// </summary>
     private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls, bool moby = false)
     {
         var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
-        // References first, named where the field is known, each a link to what it names.
-        foreach (var reference in fieldReferences)
-        {
-            string? field = ClueClasses.FieldName(game, cls, reference.Offset);
-            ImGui.TextDisabled($"+0x{reference.Offset:X2}");
-            ImGui.SameLine();
-            if (field != null) { ImGui.TextUnformatted(field + ":"); ImGui.SameLine(); }
-            ReferenceLink(reference.Kind, reference.Name);
-        }
-        // The class tree, from the game's own EBOOT when it is decrypted (ClassRegistry): each class with its struct
-        // size, so a field's owner can be told.
         var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
-        if (registry != null)
-        {
-            ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ClassChain",
-                string.Join("  >  ", registry.Chain(cls).Select(c => ClassLabel(registry, c)))));
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ClassChainHint", Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(registry.SourcePath))) ?? ""));
-            if (registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
-                ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_ClassSizeMismatch", settings.Length, classSize));
-        }
-        if (!ImGui.TreeNode(LM.Get("GUI_Frame_InstanceInspector_ClueSettings", settings.Length))) return;
-        var references = fieldReferences.Select(r => r.Offset).ToHashSet();
+        if (registry != null && registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
+            ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_ClassSizeMismatch", settings.Length, classSize));
+
         // What the settings held when first shown, so an edit stands out and can be undone.
         if (!LoadedSettings.TryGetValue(settings, out var loaded))
             LoadedSettings.Add(settings, loaded = (byte[])settings.Clone());
         var settingsBefore = new Lazy<Core.Undo.UndoManager.Session>(() => Core.Undo.UndoManager.Singleton.Begin([settings]));
         if (!ImGui.IsAnyItemActive()) _ = settingsBefore.Value;
-        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowZero"), ref _showZeroWords);
+        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowUnset"), ref _showZeroWords);
         ImGui.SameLine();
-        ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsHint"));
+        ImGui.TextDisabled("(?)");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SettingsHint"));
         var survey = Survey(cls, moby);
-        if (ImGui.BeginTable("##cluesettings", 4, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
+
+        // The rows, by the class that owns each.
+        var schema = Engine.Assets.LevelElements.ClassFields.Of(game, cls);
+        var components = schema.Where(f => f.Kind == Engine.Assets.LevelElements.ClassFieldKind.Component).ToList();
+        var fieldsByWord = schema.Where(f => f.Kind is not (Engine.Assets.LevelElements.ClassFieldKind.Component or Engine.Assets.LevelElements.ClassFieldKind.Reference))
+            .ToLookup(f => f.Offset & ~3);
+        var referencesAt = fieldReferences.GroupBy(r => r.Offset).ToDictionary(g => g.Key, g => g.First());
+        Engine.Assets.LevelElements.ClassField? ComponentOf(int offset) =>
+            components.LastOrDefault(c => c.Offset <= offset && offset < c.Offset + c.Length);
+        uint OwnerOf(int offset) =>
+            ComponentOf(offset)?.Owner ?? Engine.Assets.LevelElements.ClassFields.At(game, cls, offset)?.Owner ?? registry?.Owner(cls, offset) ?? cls;
+        bool Unset(int offset, int size) =>
+            settings.AsSpan(offset, size).IndexOfAnyExcept((byte)0) < 0 && settings.AsSpan(offset, size).SequenceEqual(loaded.AsSpan(offset, size));
+
+        var rows = new List<SettingRow>();
+        for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
         {
-            ImGui.TableSetupColumn("offset");
-            ImGui.TableSetupColumn("type");
-            ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("class");
-            // What is known of the class's fields (ClassFields): each gets a row of its own, typed and named, and a
-            // field the game overwrites at start-up is shown read-only. Words nothing names keep the raw row.
-            var schema = Engine.Assets.LevelElements.ClassFields.Of(game, cls);
-            var fieldsByWord = schema.Where(f => f.Kind is not (Engine.Assets.LevelElements.ClassFieldKind.Component or Engine.Assets.LevelElements.ClassFieldKind.Reference))
-                .ToLookup(f => f.Offset & ~3);
-            var componentsByWord = schema.Where(f => f.Kind == Engine.Assets.LevelElements.ClassFieldKind.Component).ToLookup(f => f.Offset & ~3);
-
-            void RowMenu(int at, int length, bool edited)
+            if (referencesAt.TryGetValue(offset, out var reference))
             {
-                if (!ImGui.BeginPopupContextItem("word_menu")) return;
-                if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
-                {
-                    var source = settings.AsSpan(at, length).ToArray();
-                    var targets = SettingsOfClass(cls, moby).ToList();
-                    Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_CopySetting"), targets, () =>
-                    {
-                        foreach (var other in targets)
-                            if (other.Length >= at + length) source.CopyTo(other.AsSpan(at));
-                    });
-                }
-                if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
-                    Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
-                        () => loaded.AsSpan(at, length).CopyTo(settings.AsSpan(at, length)));
-                ImGui.EndPopup();
+                rows.Add(new SettingRow(OwnerOf(offset), offset, 4, Engine.Assets.LevelElements.ClassFields.At(game, cls, offset), reference, ComponentOf(offset)));
+                continue;
             }
-
-            void SurveyCell(int wordOffset)
+            int covered = 0;
+            foreach (var field in fieldsByWord[offset])
             {
-                ImGui.TableNextColumn();
-                if (survey.Count > 1 && survey.Words.TryGetValue(wordOffset, out var across))
-                {
-                    if (across.Distinct == 1) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_SettingsSameOnAll", survey.Count));
-                    else ImGui.TextColored(new Vector4(0.6f, 0.85f, 1f, 1f), LM.Get("GUI_Frame_InstanceInspector_SettingsValues", across.Distinct, survey.Count));
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(across.Sample);
-                }
+                int size = field.Kind switch { Engine.Assets.LevelElements.ClassFieldKind.U8 => 1, Engine.Assets.LevelElements.ClassFieldKind.U16 => 2, _ => 4 };
+                if (field.Offset + size > settings.Length) continue;
+                for (int b = 0; b < size; b++) covered |= 1 << (field.Offset - offset + b);
+                // A field the game overwrites always shows (read-only); any other only once it holds something.
+                if (!field.RunTime && Unset(field.Offset, size) && !_showZeroWords) continue;
+                rows.Add(new SettingRow(field.Owner, field.Offset, size, field, null, ComponentOf(field.Offset)));
             }
+            bool rest = covered == 0;
+            for (int b = 0; b < 4 && !rest; b++)
+                if ((covered & (1 << b)) == 0 && !Unset(offset + b, 1)) rest = true;
+            if (!rest || (Unset(offset, 4) && !_showZeroWords)) continue;
+            // A word nothing types: raw. A known reference field left unset lands here too, under its name.
+            rows.Add(new SettingRow(OwnerOf(offset), offset, 4, null, null, ComponentOf(offset)));
+        }
 
-            // One known field: its name, its type, an editor of that type (locked when the game overwrites it).
-            void FieldRow(Engine.Assets.LevelElements.ClassField field, int size)
+        // The folds: the instance's class first, then up its parents; anything else (no table, no EBOOT) last.
+        var chain = Engine.Assets.LevelElements.ClassFields.Chain(game, cls);
+        if (chain.Count <= 1 && registry != null) chain = registry.Chain(cls).ToList();
+        var owners = rows.Select(r => r.Owner).Distinct()
+            .OrderBy(o => chain.IndexOf(o) is var i && i >= 0 ? i : int.MaxValue).ThenBy(o => o).ToList();
+
+        void Tooltip(SettingRow row, string type)
+        {
+            if (!ImGui.IsItemHovered()) return;
+            ImGui.BeginTooltip();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30f);
+            ImGui.TextDisabled($"+0x{row.Offset:X2}  {type}");
+            if (row.Field is { } field)
             {
-                var bytes = settings.AsSpan(field.Offset, size);
-                bool edited = !bytes.SequenceEqual(loaded.AsSpan(field.Offset, size));
-                ImGui.PushID(0x10000 + field.Offset);
-                ImGui.TableNextRow();
+                ImGui.TextUnformatted(field.Description);
+                if (field.RunTime) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"));
+                ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldEvidence", field.Evidence));
+            }
+            // Across the class: what every instance of it in the level holds in this word.
+            if (survey.Count > 1 && survey.Words.TryGetValue(row.Offset & ~3, out var across))
+            {
+                ImGui.Separator();
+                ImGui.TextDisabled(across.Distinct == 1
+                    ? LM.Get("GUI_Frame_InstanceInspector_SettingsSameOnAll", survey.Count)
+                    : LM.Get("GUI_Frame_InstanceInspector_SettingsValues", across.Distinct, survey.Count));
+                ImGui.TextDisabled(across.Sample);
+            }
+            ImGui.PopTextWrapPos();
+            ImGui.EndTooltip();
+        }
 
-                ImGui.TableNextColumn();
-                string name = ClueClasses.FieldName(game, cls, field.Offset) ?? (field.CodeOnly ? LM.Get("GUI_Frame_InstanceInspector_FieldCodeOnly") : "");
-                string label = name.Length > 0 ? $"+0x{field.Offset:X2} {name}" : $"+0x{field.Offset:X2}";
-                if (registry?.Owner(cls, field.Offset) is { } owner && owner != cls) label += $"  [{ClassLabel(registry, owner)}]";
-                if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), label);
-                else if (field.RunTime || field.CodeOnly) ImGui.TextDisabled(label);
-                else ImGui.TextUnformatted(label);
-                if (ImGui.IsItemHovered())
+        void RowMenu(SettingRow row, bool edited)
+        {
+            if (!ImGui.BeginPopupContextItem("row_menu")) return;
+            int at = row.Offset, length = row.Size;
+            if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
+            {
+                var source = settings.AsSpan(at, length).ToArray();
+                var targets = SettingsOfClass(cls, moby).ToList();
+                Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_CopySetting"), targets, () =>
                 {
-                    ImGui.BeginTooltip();
-                    ImGui.PushTextWrapPos(ImGui.GetFontSize() * 32f);
-                    ImGui.TextUnformatted(field.Description);
-                    if (field.RunTime) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"));
-                    ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldEvidence", field.Evidence));
-                    ImGui.PopTextWrapPos();
-                    ImGui.EndTooltip();
-                }
-                if (!field.RunTime) RowMenu(field.Offset, size, edited);
+                    foreach (var other in targets)
+                        if (other.Length >= at + length) source.CopyTo(other.AsSpan(at));
+                });
+            }
+            if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
+                Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
+                    () => loaded.AsSpan(at, length).CopyTo(settings.AsSpan(at, length)));
+            // A word nothing types is read as it was guessed; this changes the guess.
+            if (row.Field == null && row.Reference == null && ImGui.BeginMenu(LM.Get("GUI_Frame_InstanceInspector_SettingsReadAs")))
+            {
+                foreach (var option in Enum.GetValues<SettingType>())
+                    if (ImGui.MenuItem(option.ToString(), "", SettingTypes.GetValueOrDefault((cls, at)) == option)) SettingTypes[(cls, at)] = option;
+                ImGui.EndMenu();
+            }
+            ImGui.EndPopup();
+        }
 
+        void Row(SettingRow row)
+        {
+            var bytes = settings.AsSpan(row.Offset, row.Size);
+            bool edited = !bytes.SequenceEqual(loaded.AsSpan(row.Offset, row.Size));
+            ImGui.PushID(row.Offset);
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            string name = ClueClasses.FieldName(game, cls, row.Offset) ?? $"+0x{row.Offset:X2}";
+            if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), name);
+            else if (row.RunTime || row.Field is null or { CodeOnly: true }) ImGui.TextDisabled(name);
+            else ImGui.TextUnformatted(name);
+
+            if (row.Reference is { } reference)
+            {
+                Tooltip(row, LM.Get("GUI_Frame_InstanceInspector_FieldReference"));
                 ImGui.TableNextColumn();
+                ReferenceLink(reference.Kind, reference.Name);
+            }
+            else if (row.Field is { } field)
+            {
                 string kind = field.Kind switch
                 {
                     Engine.Assets.LevelElements.ClassFieldKind.U8 => "u8",
@@ -649,11 +692,11 @@ public class PropertyInspectorFrame : DockedFrame
                     Engine.Assets.LevelElements.ClassFieldKind.TextId => "text id",
                     _ => "u32",
                 };
-                ImGui.TextDisabled(field.RunTime ? LM.Get("GUI_Frame_InstanceInspector_FieldRunTime", kind) : kind);
-
+                Tooltip(row, field.RunTime ? LM.Get("GUI_Frame_InstanceInspector_FieldRunTime", kind) : kind);
+                if (!field.RunTime) RowMenu(row, edited);
                 ImGui.TableNextColumn();
-                ImGui.SetNextItemWidth(-1f);
                 ImGui.BeginDisabled(field.RunTime);
+                ImGui.SetNextItemWidth(-1f);
                 switch (field.Kind)
                 {
                     case Engine.Assets.LevelElements.ClassFieldKind.F32:
@@ -672,138 +715,147 @@ public class PropertyInspectorFrame : DockedFrame
                     case Engine.Assets.LevelElements.ClassFieldKind.U16:
                     {
                         int v = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes);
-                        if (ImGui.InputInt("##v", ref v))
+                        if (ImGui.DragInt("##v", ref v, 0.2f, 0, 0xFFFF))
                             System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(bytes, (ushort)Math.Clamp(v, 0, 0xFFFF));
+                        break;
+                    }
+                    case Engine.Assets.LevelElements.ClassFieldKind.TextId:
+                    {
+                        // The number, then what it says in the game's first language; a click opens Text Tables on it.
+                        int v = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes);
+                        ImGui.SetNextItemWidth(64f);
+                        if (ImGui.DragInt("##v", ref v, 0.2f, 0, 0xFFFFFF)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, v);
+                        if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
+                        string? folder = string.IsNullOrEmpty(Program.ProvidedPath) ? null : Engine.Config.GameConfigs.GameFolderFor(Program.ProvidedPath);
+                        if (v != 0 && folder != null && Engine.Text.GameText.Reference(folder) is { } text)
+                        {
+                            ImGui.SameLine();
+                            string? said = v > 0 && v < text.Entries.Count ? text.Entries[v].Text : null;
+                            ImGui.EndDisabled();
+                            if (said == null) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldTextNone"));
+                            else
+                            {
+                                if (ImGui.Selectable(Engine.Text.TextTable.Escape(said) + "##said"))
+                                {
+                                    var frame = LunaWindow.Instance.IsAnyFrameOpened<TextTablesFrame>() ? LunaWindow.Instance.GetFirstFrame<TextTablesFrame>() : null;
+                                    if (frame == null) { frame = new TextTablesFrame(); LunaWindow.Instance.AddFrame(frame); }
+                                    frame.Reveal(v);
+                                }
+                                if (ImGui.IsItemHovered())
+                                    ImGui.SetTooltip((Engine.Text.GameText.TagName(game, v) is { } tag ? tag + "\n" : "") + Engine.Text.TextTable.Escape(said) + "\n" + LM.Get("GUI_Frame_InstanceInspector_FieldTextOpen"));
+                            }
+                            ImGui.BeginDisabled(field.RunTime);
+                        }
                         break;
                     }
                     default:
                     {
                         int v = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes);
-                        if (ImGui.InputInt("##v", ref v)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, v);
+                        if (ImGui.DragInt("##v", ref v, 0.2f)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, v);
                         break;
                     }
                 }
-                if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
+                if (!field.RunTime && field.Kind != Engine.Assets.LevelElements.ClassFieldKind.TextId) TrackField(settingsBefore, "GUI_Undo_EditSetting");
                 ImGui.EndDisabled();
-                SurveyCell(field.Offset & ~3);
-                ImGui.PopID();
             }
-
-            for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
+            else
             {
-                var word = settings.AsSpan(offset, 4);
-                uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(word);
-                bool edited = !word.SequenceEqual(loaded.AsSpan(offset, 4));
-
-                // An embedded object starts here: a heading, its fields follow as rows of their own.
-                foreach (var component in componentsByWord[offset])
-                {
-                    ImGui.TableNextRow();
-                    ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.75f, 0.75f, 1f, 1f), $"+0x{component.Offset:X2} {component.Name}");
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(component.Description);
-                    ImGui.TableNextColumn();
-                    ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldComponent", $"0x{component.Length:X}"));
-                }
-
-                // The word's known fields. A field only the code is known to touch stays hidden while it is zero,
-                // like an unknown word; a named one always shows, set or not.
-                var covered = 0;
-                foreach (var field in fieldsByWord[offset])
-                {
-                    int size = field.Kind switch { Engine.Assets.LevelElements.ClassFieldKind.U8 => 1, Engine.Assets.LevelElements.ClassFieldKind.U16 => 2, _ => 4 };
-                    if (field.Offset + size > settings.Length) continue;
-                    for (int b = 0; b < size; b++) covered |= 1 << (field.Offset - offset + b);
-                    bool fieldEdited = !settings.AsSpan(field.Offset, size).SequenceEqual(loaded.AsSpan(field.Offset, size));
-                    bool zero = settings.AsSpan(field.Offset, size).IndexOfAnyExcept((byte)0) < 0;
-                    if (field.CodeOnly && zero && !fieldEdited && !_showZeroWords) continue;
-                    FieldRow(field, size);
-                }
-                if (covered != 0)
-                {
-                    // Bytes of the word no field covers get the raw row only when they hold something.
-                    bool rest = false;
-                    for (int b = 0; b < 4; b++)
-                        if ((covered & (1 << b)) == 0 && (word[b] != 0 || word[b] != loaded[offset + b])) rest = true;
-                    if (!rest) continue;
-                }
-                if (references.Contains(offset) || (value == 0 && !edited && !_showZeroWords)) continue;
-                ImGui.PushID(offset);
-                ImGui.TableNextRow();
-
+                // How the word is read: as last chosen for this class and offset (right-click), else guessed once from
+                // the value it was loaded with and then kept, so an edit does not change the editor under the cursor.
+                if (!SettingTypes.TryGetValue((cls, row.Offset), out var type))
+                    SettingTypes[(cls, row.Offset)] = type = GuessType(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(loaded.AsSpan(row.Offset)));
+                Tooltip(row, type.ToString());
+                RowMenu(row, edited);
                 ImGui.TableNextColumn();
-                string label = ClueClasses.FieldName(game, cls, offset) is { } name ? $"+0x{offset:X2} {name}" : $"+0x{offset:X2}";
-                // The class that declares the field, when it is not the instance's own.
-                if (registry?.Owner(cls, offset) is { } owner && owner != cls) label += $"  [{ClassLabel(registry, owner)}]";
-                if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), label);
-                else ImGui.TextDisabled(label);
-                if (Engine.Assets.LevelElements.ClassFields.At(game, cls, offset) is { } known && ImGui.IsItemHovered()) ImGui.SetTooltip(known.Description);
-                RowMenu(offset, 4, edited);
-
-                // How the word is read: as last chosen for this class and offset, else guessed once from the value it
-                // was loaded with and then kept. Guessing from the current value made an edit change the editor under
-                // the cursor (a flag byte set to 2 is no longer 0-or-1 bytes, and the row turned hex).
-                ImGui.TableNextColumn();
-                if (!SettingTypes.TryGetValue((cls, offset), out var type))
-                    SettingTypes[(cls, offset)] = type = GuessType(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(loaded.AsSpan(offset)));
-                ImGui.SetNextItemWidth(70f);
-                if (ImGui.BeginCombo("##type", type.ToString()))
-                {
-                    foreach (var option in Enum.GetValues<SettingType>())
-                        if (ImGui.Selectable(option.ToString(), option == type)) SettingTypes[(cls, offset)] = type = option;
-                    ImGui.EndCombo();
-                }
-
-                ImGui.TableNextColumn();
-                ImGui.SetNextItemWidth(-1f);
+                uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes);
                 switch (type)
                 {
                     case SettingType.Float:
                     {
                         float f = BitConverter.UInt32BitsToSingle(value);
+                        ImGui.SetNextItemWidth(-1f);
                         if (ImGui.DragFloat("##v", ref f, MathF.Max(0.01f, MathF.Abs(f) * 0.01f), 0f, 0f, "%.6g"))
-                            System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(word, f);
+                            System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(bytes, f);
                         TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         break;
                     }
                     case SettingType.Int:
                     {
                         int n = (int)value;
-                        if (ImGui.InputInt("##v", ref n)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(word, n);
+                        ImGui.SetNextItemWidth(-1f);
+                        if (ImGui.DragInt("##v", ref n, 0.2f)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, n);
                         TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         break;
                     }
                     case SettingType.Hex:
                     {
                         string hex = value.ToString("X8");
+                        ImGui.SetNextItemWidth(-1f);
                         // The size counts the terminating zero: 8 digits need 9 (8 made ImGui assert on a full buffer).
                         if (ImGui.InputText("##v", ref hex, 9, ImGuiInputTextFlags.CharsHexadecimal | ImGuiInputTextFlags.EnterReturnsTrue)
                             && uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out uint parsed))
-                            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(word, parsed);
+                            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes, parsed);
                         TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         break;
                     }
                     default:
                     {
-                        // Four bytes, each its own field: most Clue flags are bytes of 0 or 1 (01 00 00 00).
+                        // Four bytes, each its own field: most flags are bytes of 0 or 1 (01 00 00 00).
+                        float width = (ImGui.GetContentRegionAvail().X - 3 * ImGui.GetStyle().ItemInnerSpacing.X) / 4f;
                         for (int b = 0; b < 4; b++)
                         {
-                            if (b > 0) ImGui.SameLine();
-                            int v = word[b];
-                            ImGui.SetNextItemWidth(42f);
-                            if (ImGui.DragInt($"##b{b}", ref v, 0.1f, 0, 255)) word[b] = (byte)v;
+                            if (b > 0) ImGui.SameLine(0f, ImGui.GetStyle().ItemInnerSpacing.X);
+                            int v = bytes[b];
+                            ImGui.SetNextItemWidth(width);
+                            if (ImGui.DragInt($"##b{b}", ref v, 0.1f, 0, 255)) bytes[b] = (byte)v;
                             TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         }
                         break;
                     }
                 }
-                // Across the class: what every instance of it in the level holds here.
-                SurveyCell(offset);
-                ImGui.PopID();
             }
+            ImGui.PopID();
+        }
+
+        // A fold inside a class's table: an embedded object, or the run-time state.
+        void SubFold(string label, string? hint, IEnumerable<SettingRow> group)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            bool open = ImGui.TreeNodeEx(label, ImGuiTreeNodeFlags.SpanAllColumns);
+            if (hint != null && ImGui.IsItemHovered()) ImGui.SetTooltip(hint);
+            if (!open) return;
+            foreach (var row in group) Row(row);
+            ImGui.TreePop();
+        }
+
+        foreach (uint owner in owners)
+        {
+            var own = rows.Where(r => r.Owner == owner).ToList();
+            // What counts: the fields a level can set. The run-time ones are there whatever the instance.
+            int set = own.Count(r => !r.RunTime);
+            string title = Engine.Assets.LevelElements.ClassFields.ClassName(game, owner) is { } known ? known
+                : registry != null ? ClassLabel(registry, owner) : $"0x{owner:X}";
+            bool open = ImGui.CollapsingHeader($"{title}  ({set})###class{owner}", owner == cls ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ClassFoldHint", $"0x{owner:X}",
+                    registry != null && registry.Sizes.TryGetValue(owner, out int size) ? $"0x{size:X}" : "?"));
+            if (!open) continue;
+            if (!ImGui.BeginTable($"##settings{owner}", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings)) continue;
+            ImGui.TableSetupColumn("name", ImGuiTableColumnFlags.WidthStretch, 0.45f);
+            ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch, 0.55f);
+            foreach (var row in own.Where(r => r.Component == null && !r.RunTime)) Row(row);
+            foreach (var component in own.Where(r => r.Component != null).Select(r => r.Component!).Distinct())
+            {
+                var inside = own.Where(r => r.Component == component).ToList();
+                SubFold($"{(component.Name.Length > 0 ? component.Name : $"+0x{component.Offset:X2}")}  ({inside.Count(r => !r.RunTime)})###component{component.Offset}",
+                    $"+0x{component.Offset:X2}, {LM.Get("GUI_Frame_InstanceInspector_FieldComponent", $"0x{component.Length:X}")}\n{component.Description}", inside);
+            }
+            var runTime = own.Where(r => r.Component == null && r.RunTime).ToList();
+            if (runTime.Count > 0)
+                SubFold($"{LM.Get("GUI_Frame_InstanceInspector_RunTimeGroup", runTime.Count)}###runtime", LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"), runTime);
             ImGui.EndTable();
         }
-        ImGui.TreePop();
     }
 
     /// <summary>The undo step a field being edited is building: opened when the field is clicked into, from the
@@ -844,7 +896,7 @@ public class PropertyInspectorFrame : DockedFrame
     /// <summary>How each settings word is shown, as last chosen, by class and offset.</summary>
     private static readonly Dictionary<(uint Class, int Offset), SettingType> SettingTypes = [];
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> LoadedSettings = new();
-    private static bool _showZeroWords = true;
+    private static bool _showZeroWords;
 
     /// <summary>The settings of every Clue and camera of a class in the level.</summary>
     private static IEnumerable<byte[]> SettingsOfClass(uint cls)

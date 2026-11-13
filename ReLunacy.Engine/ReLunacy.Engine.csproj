@@ -56,5 +56,7 @@
     <EmbeddedResource Include="Resources\Classes\*.classes" />
     <!-- Settings fields by class (ClassFields), generated from the reverse-engineering notes. -->
     <EmbeddedResource Include="Resources\Classes\*.fields" />
+    <!-- Text id -> tag name, from the EBOOT's text enum (GameText). -->
+    <EmbeddedResource Include="Resources\Classes\*.textids" />
   </ItemGroup>
 </Project>
