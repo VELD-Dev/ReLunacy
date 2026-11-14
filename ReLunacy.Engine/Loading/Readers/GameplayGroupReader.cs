@@ -113,6 +113,7 @@ public static class GameplayGroupReader
                     volume.Clue = new VolumeClue(clueClasses[i], clueMeta[i].Name, classNames[clueClasses[i]])
                     {
                         Tuid = clueMeta[i].Tuid,
+                        Index = i,
                         Settings = clueSettings[i].Struct ?? [],
                         References = clueSettings[i].References ?? [],
                     };
@@ -239,7 +240,7 @@ public static class GameplayGroupReader
                 for (int w = 4; w + 4 <= body.Length; w += 4)
                 {
                     var target = index.Inline(BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(w)), BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(w + 2)));
-                    if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+                    if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target), target.Index));
                 }
             else for (int w = 4; w + 4 <= body.Length; w += 4)
             {
@@ -247,7 +248,7 @@ public static class GameplayGroupReader
                 if (pool.Length == 0 || value < pool.Offset || value >= pool.Offset + pool.Length
                     || (value - pool.Offset) % 0x10 != 0 || value + 0x0C > block.Length) continue;
                 var target = index.Pooled16(span[(int)value..]);
-                if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+                if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target), target.Index));
             }
             return (body, references);
         }
@@ -255,7 +256,7 @@ public static class GameplayGroupReader
         for (int w = 4; w + 4 <= block.Length; w += 4)
         {
             var target = index.Inline(BinaryPrimitives.ReadUInt16BigEndian(span[w..]), BinaryPrimitives.ReadUInt16BigEndian(span[(w + 2)..]));
-            if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+            if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target), target.Index));
         }
         return (block, references);
     }
@@ -314,6 +315,7 @@ public static class GameplayGroupReader
                 {
                     Tuid = meta[i].Tuid,
                     Name = meta[i].Name,
+                    Index = i,
                     Layer = meta[i].Layer < layers.Count ? layers[meta[i].Layer] : null,
                     Class = classes[i],
                     ClassName = GameClassNames.Name(game, classes[i]),
@@ -370,6 +372,7 @@ public static class GameplayGroupReader
                 {
                     Tuid = meta[i].Tuid,
                     Name = meta[i].Name,
+                    Index = i,
                     Layer = meta[i].Layer < layers.Count ? layers[meta[i].Layer] : null,
                     Length = length,
                     Closed = closed != 0,

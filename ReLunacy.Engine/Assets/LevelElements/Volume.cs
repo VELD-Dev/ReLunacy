@@ -24,6 +24,10 @@ public class Volume : IVolumeData
     public ushort group { get; set; }
     public VolumeShape Shape { get; init; }
 
+    /// <summary>The volume's place in the region's volume table, which is what a reference names it by (names
+    /// repeat: axiom_city has six "volume30"); -1 on the old engine.</summary>
+    public int Index { get; init; } = -1;
+
     /// <summary>The editor layer the volume was placed in (gp_prius 0x25008, indexed by <see cref="group"/>),
     /// e.g. "gameplay", "cameras", "audio_reverb". Null on the old engine.</summary>
     public string? Layer { get; set; }
@@ -66,6 +70,9 @@ public sealed record VolumeClue(uint Class, string Name, string ClassName)
     /// <summary>The Clue instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
     public ulong Tuid { get; init; }
 
+    /// <summary>The Clue's place in the region's Clue table (see <see cref="Volume.Index"/>).</summary>
+    public int Index { get; init; } = -1;
+
     /// <summary>The class's struct as the level stores it, big-endian, starting with the class number. Its
     /// fields are not named yet beyond <see cref="References"/>.</summary>
     public byte[] Settings { get; init; } = [];
@@ -77,4 +84,6 @@ public sealed record VolumeClue(uint Class, string Name, string ClassName)
 
 /// <summary>A field of a Clue's settings, at <paramref name="Offset"/>, naming an instance.</summary>
 /// <param name="Kind">Moby, Path, Volume, Clue, Controller, Scent, Area or Pod.</param>
-public sealed record ClueReference(int Offset, string Kind, string Name);
+/// <param name="Name">The instance's name, for display: several instances of a kind can share one.</param>
+/// <param name="Index">The instance's place in its kind's table, which is what tells it from its namesakes.</param>
+public sealed record ClueReference(int Offset, string Kind, string Name, int Index);

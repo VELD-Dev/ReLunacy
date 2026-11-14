@@ -41,6 +41,8 @@ public class EntityMoby : Entity
     /// PlacedInstance.Settings. Empty when it has none.</summary>
     public byte[] Settings { get; } = [];
     public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; } = [];
+    /// <summary>The instance's place in the region's Moby table (see PlacedInstance.GameplayIndex).</summary>
+    public int GameplayIndex { get; } = -1;
 
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
@@ -68,6 +70,7 @@ public class EntityMoby : Entity
         {
             Settings = placed.Settings;
             References = placed.References;
+            GameplayIndex = placed.GameplayIndex;
         }
         UpdateDistance = mobyInstance.UpdateDistance;
 

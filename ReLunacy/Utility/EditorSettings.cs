@@ -102,8 +102,8 @@ public class EditorSettings
     public float VolumeWireThickness;
     // The camera controllers' model, relative to the OBJ's own size (EntityCamera.ModelScale).
     public float CameraModelScale;
-    // Horizontal FOV, in degrees, of a camera looked through when its settings give none: the game's own
-    // default is not known.
+    // Horizontal FOV, in degrees, of a camera looked through when its settings give none and the game's own
+    // default is not known (View3D.GameDefaultFieldOfView).
     public float CameraPovFov;
     public Vector4 VolumeColor;
     public Vector4 NavmeshColor;
@@ -224,7 +224,7 @@ public class EditorSettings
         GizmoSnapScale = 0.25f;
         VolumeWireThickness = 0.1f;
         CameraModelScale = 0.5f;
-        CameraPovFov = 90f;
+        CameraPovFov = 75.9f;
         VolumeColor = new Vector4(1f, 1f, 0f, 1f);
         // Semi-transparent blue; alpha is the overlay's opacity over the level.
         NavmeshColor = new Vector4(0.2f, 0.45f, 1f, 0.35f);

@@ -278,6 +278,7 @@ public sealed class RegionReader
                 {
                     Settings = i < settings.Count ? settings[i].Struct : [],
                     References = i < settings.Count ? settings[i].References : [],
+                    GameplayIndex = i,
                 });
             }
         }
@@ -350,7 +351,7 @@ public sealed class RegionReader
             string name = i < metadataNames.Length && metadataNames[i] != null
                 ? metadataNames[i]!
                 : $"Volume_{i}";
-            volumes[i] = new Volume(tuid, transform, name, group, shape);
+            volumes[i] = new Volume(tuid, transform, name, group, shape) { Index = i };
         }
 
         GameplayGroupReader.Annotate(prius, volumes, [.. volumes.Select(v => v.group)], game);

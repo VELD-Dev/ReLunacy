@@ -12,6 +12,8 @@ public sealed class GameplayController
 {
     public required ulong Tuid { get; init; }
     public required string Name { get; init; }
+    /// <summary>The controller's place in the region's controller table (see <see cref="Volume.Index"/>).</summary>
+    public int Index { get; init; } = -1;
     public string? Layer { get; init; }
     public uint Class { get; init; }
     /// <summary>The class's name where the game's class table gives it (All 4 One, QForce: CamArgBlendable,

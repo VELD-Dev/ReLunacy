@@ -414,13 +414,19 @@ public class View3D : DockedFrame
         Camera.Target = Camera.Position + forward;
     }
 
-    /// <summary>The camera's FOV: from its settings when they give one, else the editor's default (the
-    /// game's own default is not known). Horizontal, in degrees, over the 16:9 frame.</summary>
+    /// <summary>The camera's FOV: from its settings when they give one, else the game's own default where it is
+    /// known, else the editor's default. Horizontal, in degrees, over the 16:9 frame.</summary>
     public static (float Degrees, bool Authored) PovFieldOfView(EntityCamera camera)
     {
         var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
-        return camera.AuthoredFieldOfView(game) is { } authored ? (authored, true) : (Program.Settings.CameraPovFov, false);
+        return camera.AuthoredFieldOfView(game) is { } authored ? (authored, true) : (GameDefaultFieldOfView(game) ?? Program.Settings.CameraPovFov, false);
     }
+
+    /// <summary>The field of view the game itself gives a camera whose settings set none, in degrees, horizontal;
+    /// null where it is not known. A Crack in Time: 75.9, the first entry of its camera manager's table (the same
+    /// on 4:3 and 16:9).</summary>
+    public static float? GameDefaultFieldOfView(Engine.Games.GameId? game) =>
+        game == Engine.Games.GameId.ACrackInTime ? 75.9f : null;
 
     /// <summary>The 16:9 frame inside the viewport, in viewport pixels.</summary>
     private Vector4 PovFrame()

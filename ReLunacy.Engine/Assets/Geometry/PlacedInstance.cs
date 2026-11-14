@@ -36,6 +36,9 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     /// in place by the inspector and written back by a save, and the fields that name another instance.</summary>
     public byte[] Settings { get; init; } = [];
     public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; init; } = [];
+    /// <summary>New engine, a Moby's place in the region's Moby table, which is what a reference names it by; -1
+    /// when unknown.</summary>
+    public int GameplayIndex { get; init; } = -1;
 
     public PlacedInstance(TAsset asset, Transform3D transform, ulong tuid, ushort group = 0, string name = "", float displayDistance = -1f, float updateDistance = -1f)
     {

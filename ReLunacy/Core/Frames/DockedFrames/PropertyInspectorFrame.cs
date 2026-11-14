@@ -199,6 +199,8 @@ public class PropertyInspectorFrame : DockedFrame
             SelectedEntity.BoundingSphere = new Vector4(s.X, s.Y, s.Z, selectedBSphereRadius);
         }
 
+        RenderReferenceIds(SelectedEntity);
+
         if (SelectedEntity is EntityMoby moby)
         {
             RenderPodMembership(moby);
@@ -222,7 +224,7 @@ public class PropertyInspectorFrame : DockedFrame
                 uint mobyClass = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(moby.Settings);
                 ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_MobySettings"));
                 ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_MobyClass", $"0x{mobyClass:X}", moby.BaseMoby.Name?.Split('/')[^1] ?? "?"));
-                RenderSettings(moby.Settings, moby.References, mobyClass, moby: true, refs: ReferencesFor(moby));
+                RenderSettings(moby.Settings, moby.References, mobyClass, moby: true, region: RegionOf(moby));
             }
 
             ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_AnimationCategory"));
@@ -260,11 +262,12 @@ public class PropertyInspectorFrame : DockedFrame
             {
                 // The Clue with what it names (a moon: its area and its landing pad beam), so the gizmo
                 // moves them as one.
-                var linked = clueSettings.References.Select(r => FindInstance(r.Kind, r.Name)).OfType<Entity>().Distinct().ToList();
+                var clueRegion = RegionOf(volumeEntity);
+                var linked = clueSettings.References.Select(r => FindInstance(clueRegion, r.Kind, r.Index)).OfType<Entity>().Distinct().ToList();
                 if (linked.Count > 0 && ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferences", linked.Count)))
                     SelectionManager.Singleton.Set([.. linked, volumeEntity], volumeEntity);
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferencesHint"));
-                RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class, refs: ReferencesFor(volumeEntity));
+                RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class, region: clueRegion);
             }
             RenderUsedBy(volumeEntity);
             if (baseVolume.Areas.Count > 0)
@@ -289,11 +292,15 @@ public class PropertyInspectorFrame : DockedFrame
                 }
                 var (fov, authored) = View3D.PovFieldOfView(camera);
                 ImGui.SameLine();
-                ImGui.TextDisabled(LM.Get(authored ? "GUI_Frame_InstanceInspector_CameraFov" : "GUI_Frame_InstanceInspector_CameraFovDefault", fov.ToString("0.#")));
+                var povGame = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+                var fovKey = authored ? "GUI_Frame_InstanceInspector_CameraFov"
+                    : View3D.GameDefaultFieldOfView(povGame) != null ? "GUI_Frame_InstanceInspector_CameraFovGameDefault"
+                    : "GUI_Frame_InstanceInspector_CameraFovDefault";
+                ImGui.TextDisabled(LM.Get(fovKey, fov.ToString("0.#")));
             }
             ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CameraNote"));
             if (controller.Settings.Length > 4)
-                RenderSettings(controller.Settings, controller.References, controller.Class, refs: ReferencesFor(SelectedEntity));
+                RenderSettings(controller.Settings, controller.References, controller.Class, region: RegionOf(SelectedEntity));
         }
         else if (SelectedEntity is EntityPath pathEntity)
         {
@@ -545,25 +552,27 @@ public class PropertyInspectorFrame : DockedFrame
     public static Entity? DraggedEntity;
     public const string DragPayload = "RELUNACY_ENTITY";
 
-    /// <summary>The region's reference index for an entity: what reads and writes its reference fields.</summary>
-    private static Engine.Loading.Readers.GameplayReferences? ReferencesFor(Entity entity)
+    /// <summary>The region an entity is in: its references name that region's instances, and its
+    /// <see cref="EntityRegion.References"/> reads and writes them.</summary>
+    private static EntityRegion? RegionOf(Entity? entity)
     {
+        if (entity == null) return null;
         foreach (var region in EntityManager.Singleton.Regions)
             if (region.MobyInstances.Entities.Contains(entity) || region.Volumes.Entities.Contains(entity)
                 || region.Cameras.Entities.Contains(entity) || region.Paths.Entities.Contains(entity))
-                return region.References;
+                return region;
         return null;
     }
 
-    /// <summary>The kind and name a reference to this entity carries. A volume with a Clue counts as the Clue when
-    /// the field wants one.</summary>
-    private static (string Kind, string Name)? ReferenceTo(Entity entity, string? wanted) => entity switch
+    /// <summary>The kind a reference to this entity carries and its place in that kind's table (names repeat, so
+    /// they cannot stand for it). A volume with a Clue counts as the Clue when the field wants one.</summary>
+    private static (string Kind, int Index)? ReferenceTo(Entity entity, string? wanted) => entity switch
     {
-        EntityMoby moby => ("Moby", moby.Name),
-        EntityVolume { BaseVolume.Clue: { } clue } when wanted == "Clue" => ("Clue", clue.Name),
-        EntityVolume { BaseVolume.Name: { } name } => ("Volume", name),
-        EntityPath path => ("Path", path.Path.Name),
-        EntityCamera camera => ("Controller", camera.Controller.Name),
+        EntityMoby moby => ("Moby", moby.GameplayIndex),
+        EntityVolume { BaseVolume.Clue: { } clue } when wanted == "Clue" => ("Clue", clue.Index),
+        EntityVolume volume => ("Volume", volume.BaseVolume.Index),
+        EntityPath path => ("Path", path.Path.Index),
+        EntityCamera camera => ("Controller", camera.Controller.Index),
         _ => null,
     };
 
@@ -582,8 +591,9 @@ public class PropertyInspectorFrame : DockedFrame
     /// the lists a field can be typed with.
     /// </summary>
     private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls,
-        bool moby = false, Engine.Loading.Readers.GameplayReferences? refs = null)
+        bool moby = false, EntityRegion? region = null)
     {
+        var refs = region?.References;
         var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
         var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
         if (registry != null && registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
@@ -624,10 +634,10 @@ public class PropertyInspectorFrame : DockedFrame
         uint OwnerOf(int offset) =>
             ComponentOf(offset)?.Owner ?? registry?.Owner(cls, offset) ?? cls;
         // The instance a word names: read from the bytes when the region's references can be, so an edit shows at once.
-        (string Kind, string Name)? ReferenceAt(int offset)
+        (string Kind, string Name, int Index)? ReferenceAt(int offset)
         {
             if (canWriteReferences) return refs!.Decode(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(offset)));
-            return staticReferences.TryGetValue(offset, out var r) ? (r.Kind, r.Name) : null;
+            return staticReferences.TryGetValue(offset, out var r) ? (r.Kind, r.Name, r.Index) : null;
         }
 
         var rows = new List<SettingRow>();
@@ -732,7 +742,7 @@ public class PropertyInspectorFrame : DockedFrame
             uint word = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(row.Offset));
             float buttons = canWriteReferences && !locked ? ImGui.GetFrameHeight() * 2f + ImGui.GetStyle().ItemInnerSpacing.X * 2f : 0f;
             ImGui.BeginGroup();
-            if (named is { } target) ReferenceLink(target.Kind, target.Name);
+            if (named is { } target) ReferenceLink(region, target.Kind, target.Name, target.Index);
             else ImGui.TextDisabled(word == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone") : $"0x{word:X8}");
             ImGui.EndGroup();
             if (canWriteReferences && !locked && ImGui.BeginDragDropTarget())
@@ -740,8 +750,9 @@ public class PropertyInspectorFrame : DockedFrame
                 var payload = ImGui.AcceptDragDropPayload(DragPayload);
                 unsafe
                 {
-                    if (payload.Handle != null && DraggedEntity is { } dropped && ReferenceTo(dropped, wanted) is { } to
-                        && (wanted == null || wanted == to.Kind) && refs!.Encode(to.Kind, to.Name) is { } encoded)
+                    if (payload.Handle != null && DraggedEntity is { } dropped && RegionOf(dropped) == region
+                        && ReferenceTo(dropped, wanted) is { } to
+                        && (wanted == null || wanted == to.Kind) && refs!.Encode(to.Kind, to.Index) is { } encoded)
                         WriteWord(row.Offset, encoded);
                 }
                 ImGui.EndDragDropTarget();
@@ -766,18 +777,22 @@ public class PropertyInspectorFrame : DockedFrame
                 {
                     int shown = 0;
                     foreach (string kind in wanted != null ? [wanted] : Engine.Assets.LevelElements.ClassFields.ReferenceKinds)
+                    {
+                        int instance = -1;
                         foreach (string name in refs!.Names(kind))
                         {
+                            instance++;
                             if (name.Length == 0 || (_referenceFilter.Length > 0 && !name.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase))) continue;
                             if (++shown > 300) break;
-                            bool current = named is { } n && n.Kind == kind && n.Name == name;
+                            bool current = named is { } n && n.Kind == kind && n.Index == instance;
                             if (ImGui.Selectable(wanted != null ? $"{name}##{kind}{shown}" : $"{kind}  {name}##{shown}", current)
-                                && refs.Encode(kind, name) is { } encoded)
+                                && refs.Encode(kind, instance) is { } encoded)
                             {
                                 WriteWord(row.Offset, encoded);
                                 ImGui.CloseCurrentPopup();
                             }
                         }
+                    }
                     if (shown > 300) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ReferenceMore"));
                 }
                 ImGui.EndChild();
@@ -1302,75 +1317,105 @@ public class PropertyInspectorFrame : DockedFrame
     }
 
     /// <summary>A reference shown as a link: a click selects the instance it names (its volume, for a Clue), and
-    /// the 3D view's selection follows. Names are matched as written; several instances can share one.</summary>
-    private static void ReferenceLink(string kind, string name)
+    /// the 3D view's selection follows. The instance is found by its place in the region's table, not its name,
+    /// which several can share.</summary>
+    private static void ReferenceLink(EntityRegion? region, string kind, string name, int index)
     {
-        var target = FindInstance(kind, name);
+        var target = FindInstance(region, kind, index);
         string label = $"{kind} {name}";
         if (target == null) { ImGui.TextUnformatted(label); return; }
         ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.45f, 0.75f, 1f, 1f));
-        bool clicked = ImGui.Selectable($"{label}##ref_{kind}_{name}", false, ImGuiSelectableFlags.None, ImGui.CalcTextSize(label));
+        bool clicked = ImGui.Selectable($"{label}##ref_{kind}_{index}", false, ImGuiSelectableFlags.None, ImGui.CalcTextSize(label));
         ImGui.PopStyleColor();
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceSelect"));
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceSelect")
+                + (ReferenceIdText(region, kind, index) is { } id ? "\n" + LM.Get("GUI_Frame_InstanceInspector_ReferenceId", id) : ""));
         if (clicked) SelectionManager.Singleton.Select(target);
     }
 
-    private static Entity? FindInstance(string kind, string name)
+    /// <summary>An instance's reference ID as a settings field holds it, spelled out: the word, then the kind, the
+    /// editor layer and the place in that layer the word is made of. Null where the game's references are not
+    /// such words (All 4 One, Into the Nexus).</summary>
+    private static string? ReferenceIdText(EntityRegion? region, string kind, int index)
     {
-        foreach (var region in EntityManager.Singleton.Regions)
+        if (region?.References.Encode(kind, index) is not { } word) return null;
+        int layer = (int)(word >> 16) & 0x3FF;
+        string layerName = layer < region.Layers.Count ? $" {region.Layers[layer]}" : "";
+        return $"0x{word:X8}  ({kind}, layer {layer}{layerName}, #{word & 0xFFF})";
+    }
+
+    /// <summary>The selected instance's reference ID - what a field naming it holds - a click copying the word. A
+    /// volume with a Clue has two, one for each.</summary>
+    private static void RenderReferenceIds(Entity entity)
+    {
+        var region = RegionOf(entity);
+        if (region is not { References.Editable: true }) return;
+        void Line(string kind, int index)
         {
-            IEnumerable<Entity> candidates = kind switch
-            {
-                "Volume" => region.Volumes.Entities.Where(e => e is EntityVolume v && v.BaseVolume.Name == name),
-                "Clue" => region.Volumes.Entities.Where(e => e is EntityVolume v && v.BaseVolume.Clue?.Name == name),
-                "Path" => region.Paths.Entities.Where(e => e is EntityPath p && p.Path.Name == name),
-                "Controller" => region.Cameras.Entities.Where(e => e is EntityCamera c && c.Controller.Name == name),
-                "Moby" => region.MobyInstances.Entities.Where(e => e.Name == name),
-                _ => [],
-            };
-            if (candidates.FirstOrDefault() is { } found) return found;
+            if (ReferenceIdText(region, kind, index) is not { } id) return;
+            ImGui.TextUnformatted(LM.Get("GUI_Frame_InstanceInspector_ReferenceId", id));
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceIdHint"));
+            if (ImGui.IsItemClicked()) ImGui.SetClipboardText(id[..10]);
         }
-        return null;
+        if (ReferenceTo(entity, null) is { } self) Line(self.Kind, self.Index);
+        if (entity is EntityVolume { BaseVolume.Clue: { } clue }) Line("Clue", clue.Index);
+    }
+
+    private static Entity? FindInstance(EntityRegion? region, string kind, int index)
+    {
+        if (region == null || index < 0) return null;
+        return kind switch
+        {
+            "Volume" => region.Volumes.Entities.FirstOrDefault(e => e is EntityVolume v && v.BaseVolume.Index == index),
+            "Clue" => region.Volumes.Entities.FirstOrDefault(e => e is EntityVolume v && v.BaseVolume.Clue?.Index == index),
+            "Path" => region.Paths.Entities.FirstOrDefault(e => e is EntityPath p && p.Path.Index == index),
+            "Controller" => region.Cameras.Entities.FirstOrDefault(e => e is EntityCamera c && c.Controller.Index == index),
+            "Moby" => region.MobyInstances.Entities.FirstOrDefault(e => e is EntityMoby m && m.GameplayIndex == index),
+            _ => null,
+        };
     }
 
     private EntityVolume? _usedByVolume;
-    private List<(string Kind, string User, string Field)> _usedBy = [];
+    private EntityRegion? _usedByRegion;
+    private List<(string Kind, string User, int Index, string Field)> _usedBy = [];
 
     /// <summary>What names this volume in its settings (a moon's area, a camera's look-at volume...),
     /// each a link to it.</summary>
     private void RenderUsedBy(EntityVolume volume)
     {
-        var name = volume.BaseVolume.Name;
-        if (name == null) return;
+        int index = volume.BaseVolume.Index;
+        if (index < 0) return;
         if (!ReferenceEquals(volume, _usedByVolume))
         {
             _usedByVolume = volume;
             var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
             _usedBy = [];
-            foreach (var region in EntityManager.Singleton.Regions)
+            // Only its own region's instances can name it: a reference is a place in that region's tables.
+            _usedByRegion = RegionOf(volume);
+            if (_usedByRegion is { } region)
             {
                 foreach (var other in region.Volumes.Entities.OfType<EntityVolume>())
                     if (other.BaseVolume.Clue is { } clue)
                         foreach (var reference in clue.References)
-                            if (reference.Kind == "Volume" && reference.Name == name)
-                                _usedBy.Add(("Clue", clue.Name, $"{clue.ClassName} +0x{reference.Offset:X}" +
+                            if (reference.Kind == "Volume" && reference.Index == index)
+                                _usedBy.Add(("Clue", clue.Name, clue.Index, $"{clue.ClassName} +0x{reference.Offset:X}" +
                                     (ClueClasses.FieldName(game, clue.Class, reference.Offset) is { } field ? $" {field}" : "")));
                 foreach (var camera in region.Cameras.Entities.OfType<EntityCamera>())
                     foreach (var reference in camera.Controller.References)
-                        if (reference.Kind == "Volume" && reference.Name == name)
-                            _usedBy.Add(("Controller", camera.Controller.Name, $"{camera.Controller.ClassName ?? $"0x{camera.Controller.Class:X}"} +0x{reference.Offset:X}"));
+                        if (reference.Kind == "Volume" && reference.Index == index)
+                            _usedBy.Add(("Controller", camera.Controller.Name, camera.Controller.Index, $"{camera.Controller.ClassName ?? $"0x{camera.Controller.Class:X}"} +0x{reference.Offset:X}"));
                 foreach (var moby in region.MobyInstances.Entities.OfType<EntityMoby>())
                     foreach (var reference in moby.References)
-                        if (reference.Kind == "Volume" && reference.Name == name)
-                            _usedBy.Add(("Moby", moby.Name, $"{moby.BaseMoby.Name?.Split('/')[^1]} +0x{reference.Offset:X}"));
+                        if (reference.Kind == "Volume" && reference.Index == index)
+                            _usedBy.Add(("Moby", moby.Name, moby.GameplayIndex, $"{moby.BaseMoby.Name?.Split('/')[^1]} +0x{reference.Offset:X}"));
             }
         }
         if (_usedBy.Count == 0) return;
         ImGui.TextUnformatted(LM.Get("GUI_Frame_InstanceInspector_UsedBy"));
-        foreach (var (kind, user, field) in _usedBy)
+        foreach (var (kind, user, userIndex, field) in _usedBy)
         {
             ImGui.Bullet();
-            ReferenceLink(kind, user);
+            ReferenceLink(_usedByRegion, kind, user, userIndex);
             ImGui.SameLine();
             ImGui.TextDisabled(field);
         }

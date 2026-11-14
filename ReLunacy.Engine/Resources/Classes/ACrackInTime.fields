@@ -691,8 +691,8 @@ class 0x2C9 aphelion_zoni : 0x47
     [0x468, u32] = "Used by the script functions hero_ship_add_exit_cine, hero_ship_add_exit_movie.";
     [0x4E8, ref] = "";
     [0x4EC, ref] = "";
-    [0x4F0, float] Path Far Speed? = "Ship speed when at the beginning of the landing path\nShip speed when at the end of the take-off path\nFor some reason, large numbers remove takeof                anim.";
-    [0x4F4, float] Path Near Speed? = "Ship speed when at the end of landing path\nShip speed when at the beginning of take-off path";
+    [0x4F0, float] Path Max Speed = "Top speed along the intro and outro paths, in units per second.\nLanding: the ship enters the path at this speed.\nTake-off: the ship speeds up to it, and the flight ends once less than 0.6 x this + 1 units of path are left, so a value too large for the path skips the take-off flight.";
+    [0x4F4, float] Path Acceleration = "How fast the ship gains and loses speed on its paths, in units per second, per second.\nTake-off: starts still and speeds up by this much until it reaches Path Max Speed.\nLanding: brakes by this much over the end of the path (the last Max Speed x Max Speed / (2 x this) units).";
     [0x4F8, float] Path Curve Damping = "1 = ship will stay horizontal\n0 = ship will totally follow path's curve/inclination";
     [0x4FC, Path] Intro Path = "";
     [0x500, Controller] Intro Camera = "";

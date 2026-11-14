@@ -21,16 +21,16 @@ public static class PathRoles
     public static void Assign(IReadOnlyList<GameplayPath> paths, IReadOnlyList<Volume> volumes, IReadOnlyList<GameplayController> controllers,
         IEnumerable<(string Name, string Asset, IReadOnlyList<ClueReference> References)>? mobys = null)
     {
-        // References name their target; several paths can share a name, and all of them get the role.
-        var found = new Dictionary<string, (int Rank, string Role, string Source)>();
-        void Note(string target, int rank, string role, string source)
+        // By the path's place in the table: several paths can share a name, and a reference means one of them.
+        var found = new Dictionary<int, (int Rank, string Role, string Source)>();
+        void Note(int target, int rank, string role, string source)
         {
             if (!found.TryGetValue(target, out var current) || rank < current.Rank) found[target] = (rank, role, source);
         }
         foreach (var volume in volumes)
             if (volume.Clue is { } clue)
                 foreach (var reference in clue.References)
-                    if (reference.Kind == "Path") Note(reference.Name, 0, clue.ClassName, $"Clue {clue.Name} ({clue.ClassName} +0x{reference.Offset:X})");
+                    if (reference.Kind == "Path") Note(reference.Index, 0, clue.ClassName, $"Clue {clue.Name} ({clue.ClassName} +0x{reference.Offset:X})");
         foreach (var controller in controllers)
             foreach (var reference in controller.References)
             {
@@ -38,18 +38,18 @@ public static class PathRoles
                 string cls = controller.ClassName ?? $"0x{controller.Class:X}";
                 if (controller.IsCamera)
                     // CamArgFollowPath: +0x64 the camera path, +0x68 the look-at path (Fianshoo's NEW_ENGINE_CAMERAS).
-                    Note(reference.Name, 1, reference.Offset == 0x68 ? CameraLookAt : Camera, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
+                    Note(reference.Index, 1, reference.Offset == 0x68 ? CameraLookAt : Camera, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
                 else
-                    Note(reference.Name, 3, cls, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
+                    Note(reference.Index, 3, cls, $"{controller.Name} ({cls} +0x{reference.Offset:X})");
             }
         // A Moby's settings naming a path: an enemy's patrol (dust_creeper +0x808), its role the Moby's asset.
         foreach (var (name, asset, references) in mobys ?? [])
             foreach (var reference in references)
-                if (reference.Kind == "Path") Note(reference.Name, 2, asset, $"{name} ({asset} +0x{reference.Offset:X})");
+                if (reference.Kind == "Path") Note(reference.Index, 2, asset, $"{name} ({asset} +0x{reference.Offset:X})");
 
         foreach (var path in paths)
         {
-            if (found.TryGetValue(path.Name, out var hit)) { path.Role = hit.Role; path.RoleSource = hit.Source; continue; }
+            if (found.TryGetValue(path.Index, out var hit)) { path.Role = hit.Role; path.RoleSource = hit.Source; continue; }
             path.Role = FromName(path.Name);
             path.RoleSource = null;
         }

@@ -18,6 +18,8 @@ public sealed class GameplayPath
 {
     public required ulong Tuid { get; init; }
     public required string Name { get; init; }
+    /// <summary>The path's place in the region's path table (see <see cref="Volume.Index"/>).</summary>
+    public int Index { get; init; } = -1;
     public string? Layer { get; init; }
     public float Length { get; init; }
     public bool Closed { get; init; }

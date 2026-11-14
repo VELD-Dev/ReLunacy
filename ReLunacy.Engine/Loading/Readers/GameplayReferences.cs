@@ -38,33 +38,28 @@ public sealed class GameplayReferences
         return k < 0 ? [] : _kinds[k].Instances.Select(i => i.Name);
     }
 
-    /// <summary>The instance a reference word names, or null (zero, or nothing there).</summary>
-    public (string Kind, string Name)? Decode(uint word)
+    /// <summary>The instance a reference word names, or null (zero, or nothing there): its kind, its name and its
+    /// place among <see cref="Names"/> of that kind - the name alone does not tell it from its namesakes.</summary>
+    public (string Kind, string Name, int Index)? Decode(uint word)
     {
         if (!Editable) return null;
         ushort a = (ushort)(word >> 16), b = (ushort)word;
         int kind = a >> 10;
         if ((b & 0xF000) != 0xF000 || kind >= _kinds.Count) return null;
         return _byLayer.TryGetValue((kind, (ushort)(a & 0x3FF)), out var list) && (b & 0x0FFF) < list.Count
-            ? (_kinds[kind].Kind, _kinds[kind].Instances[list[b & 0x0FFF]].Name) : null;
+            ? (_kinds[kind].Kind, _kinds[kind].Instances[list[b & 0x0FFF]].Name, list[b & 0x0FFF]) : null;
     }
 
-    /// <summary>The reference word for an instance, by kind and name (the first of that name); null when there is
-    /// none or the region's references cannot be written.</summary>
-    public uint? Encode(string kind, string name)
+    /// <summary>The reference word for an instance, by kind and place among <see cref="Names"/> of that kind; null
+    /// when there is none or the region's references cannot be written.</summary>
+    public uint? Encode(string kind, int instance)
     {
         if (!Editable) return null;
         int k = _kinds.FindIndex(x => x.Kind == kind);
-        if (k < 0) return null;
-        var instances = _kinds[k].Instances;
-        for (int i = 0; i < instances.Count; i++)
-        {
-            if (instances[i].Name != name) continue;
-            ushort layer = instances[i].Layer;
-            int index = _byLayer[(k, layer)].IndexOf(i);
-            if (layer > 0x3FF || index > 0xFFF) return null;
-            return (uint)(((k << 10) | layer) << 16) | 0xF000u | (uint)index;
-        }
-        return null;
+        if (k < 0 || instance < 0 || instance >= _kinds[k].Instances.Count) return null;
+        ushort layer = _kinds[k].Instances[instance].Layer;
+        int index = _byLayer[(k, layer)].IndexOf(instance);
+        if (layer > 0x3FF || index > 0xFFF) return null;
+        return (uint)(((k << 10) | layer) << 16) | 0xF000u | (uint)index;
     }
 }

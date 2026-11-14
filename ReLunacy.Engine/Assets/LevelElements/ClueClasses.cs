@@ -114,7 +114,8 @@ public static class ClueClasses
     /// (<see cref="Volume.GravityRegion"/>).</summary>
     public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game)
     {
-        var byName = volumes.Where(v => v.Name != null).ToLookup(v => v.Name!);
+        // By place in the table: volume names repeat, and a reference means one of the namesakes.
+        var byIndex = volumes.Where(v => v.Index >= 0).ToLookup(v => v.Index);
         foreach (var volume in volumes)
             if (volume.Clue is { } clue)
             {
@@ -122,14 +123,14 @@ public static class ClueClasses
                 {
                     if (reference.Kind != "Volume" || game is not { } g
                         || !KnownFields.TryGetValue((g, clue.Class, reference.Offset), out var field)) continue;
-                    foreach (var target in byName[reference.Name])
+                    foreach (var target in byIndex[reference.Index])
                     {
                         target.Role = field;
                         target.RoleSource = $"{clue.Name} ({clue.ClassName} +0x{reference.Offset:X})";
                     }
                 }
                 if (game == Games.GameId.ACrackInTime && ClassFields.IsA(game, clue.Class, CrackInTimeGravity))
-                    MarkGravityRegion(volume, clue, volumes, byName);
+                    MarkGravityRegion(volume, clue, volumes, byIndex);
             }
     }
 
@@ -138,13 +139,13 @@ public static class ClueClasses
     /// set, else its volume reference (+0x14), else the Clue's own volume - a moon's case, every SpaceMoon leaving
     /// both unset. Inside it, in the air, "up" points away from the volume's centre.
     /// </summary>
-    private static void MarkGravityRegion(Volume own, VolumeClue clue, IReadOnlyList<Volume> volumes, ILookup<string, Volume> byName)
+    private static void MarkGravityRegion(Volume own, VolumeClue clue, IReadOnlyList<Volume> volumes, ILookup<int, Volume> byIndex)
     {
         var targets = new List<Volume>();
         if (clue.References.FirstOrDefault(r => r.Offset == 0x18 && r.Kind == "Area") is { } area)
             targets.AddRange(volumes.Where(v => v.Areas.Contains(area.Name)));
         else if (clue.References.FirstOrDefault(r => r.Offset == 0x14 && r.Kind == "Volume") is { } volume)
-            targets.AddRange(byName[volume.Name]);
+            targets.AddRange(byIndex[volume.Index]);
         if (targets.Count == 0) { own.GravityRegion = true; return; }
         foreach (var target in targets)
         {
