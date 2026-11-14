@@ -185,9 +185,16 @@ public sealed class TextTablesFrame : DockedFrame
                 if (ImGui.Selectable($"{id}", _selected == id)) { _selected = id; ImGui.SetClipboardText(id.ToString()); }
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_TextTables_IdHint", $"0x{id:X}"));
                 ImGui.TableNextColumn();
-                string? tag = GameText.TagName(game, id);
-                if (tag != null) ImGui.TextUnformatted(tag);
-                else ImGui.TextDisabled(_languages.Any(l => id >= l.Loaded.Count) ? LM.Get("GUI_TextTables_Custom") : "-");
+                // The tag is the project's own note of what the id is (Resources/Classes/<Game>.textids): editable,
+                // and written to that file as soon as it is entered.
+                string tag = GameText.TagName(game, id) ?? "";
+                ImGui.SetNextItemWidth(-1f);
+                if (game is { } named && ImGui.InputTextWithHint("##tag", _languages.Any(l => id >= l.Loaded.Count) ? LM.Get("GUI_TextTables_Custom") : "-",
+                        ref tag, 96, ImGuiInputTextFlags.EnterReturnsTrue))
+                {
+                    GameText.SetTagName(named, id, new string(tag.Where(ch => char.IsLetterOrDigit(ch) || ch == '_').ToArray()));
+                    _version++;
+                }
                 foreach (var language in shown)
                 {
                     ImGui.TableNextColumn();

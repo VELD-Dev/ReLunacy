@@ -157,6 +157,22 @@ public static class GameplayGroupReader
         }
     }
 
+    /// <summary>The region's instances as its references name them (see <see cref="GameplayReferences"/>).</summary>
+    public static GameplayReferences ReadReferences(IGFile prius)
+    {
+        try
+        {
+            var index = BuildIndex(prius);
+            return new GameplayReferences(!index.Pooled,
+                Kinds.Select((k, i) => (k.Kind, (IReadOnlyList<(string Name, ushort Layer)>)index.Instances[i].Select(m => (m.Name, m.Layer)).ToList())).ToList());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"References: could not be indexed: {ex.Message}");
+            return GameplayReferences.None;
+        }
+    }
+
     private static Index BuildIndex(IGFile prius)
     {
         var index = new Index { Pooled = prius.QuerySection(ReferencePoolSection).id == ReferencePoolSection };

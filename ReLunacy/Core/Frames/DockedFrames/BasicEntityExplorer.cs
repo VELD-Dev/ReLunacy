@@ -338,6 +338,18 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             Click(entity);
             if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) Focus(entity);
         }
+        // Dragged onto a reference field of the inspector, the instance becomes what the field names.
+        if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceAllowNullId))
+        {
+            PropertyInspectorFrame.DraggedEntity = entity;
+            unsafe
+            {
+                int tag = entity.ID;
+                ImGui.SetDragDropPayload(PropertyInspectorFrame.DragPayload, &tag, sizeof(int));
+            }
+            ImGui.TextUnformatted(entity.Name);
+            ImGui.EndDragDropSource();
+        }
         EntityMenu(entity);
         ImGui.SameLine(x);
         // A volume or a path shows the colour it is drawn in (its kind's or role's, its layer's, or the single colour).

@@ -23,6 +23,9 @@ public sealed class Region : IRegion
     /// <summary>The level editor's layers, which a Moby's <see cref="IPlacedInstance{TAsset}.Group"/> indexes; empty on
     /// the old engine. A zone is the layer of the same name.</summary>
     public IReadOnlyList<string> Layers { get; init; } = [];
+
+    /// <summary>The region's instances as references name them: what reads and writes a reference field.</summary>
+    public Loading.Readers.GameplayReferences References { get; init; } = Loading.Readers.GameplayReferences.None;
     public bool IsOldEngine { get; init; }
 
     public Region(

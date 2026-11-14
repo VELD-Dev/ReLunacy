@@ -13,25 +13,14 @@ namespace ReLunacy.Engine.Assets.LevelElements;
 /// </summary>
 public static class GameClassNames
 {
-    private static readonly ConcurrentDictionary<GameId, IReadOnlyDictionary<uint, string>> Cache = new();
+    private static readonly ConcurrentDictionary<GameId, NamedNumbers> Cache = new();
+
+    private static NamedNumbers Table(GameId game) => Cache.GetOrAdd(game, static id => new NamedNumbers($"{id}.classes"));
 
     /// <summary>The class's name without "_CLASS" (ClueFallToDeath, CamArgBlendable), or null when the game has no
     /// table or the table does not have it.</summary>
-    public static string? Name(GameId? game, uint classId) =>
-        game is { } id && Table(id).TryGetValue(classId, out var name) ? name : null;
+    public static string? Name(GameId? game, uint classId) => game is { } id ? Table(id).Name(classId) : null;
 
-    private static IReadOnlyDictionary<uint, string> Table(GameId game) => Cache.GetOrAdd(game, static id =>
-    {
-        var table = new Dictionary<uint, string>();
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"ReLunacy.Engine.Resources.Classes.{id}.classes");
-        if (stream == null) return table;
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
-        {
-            if (line.StartsWith('#')) continue;
-            int eq = line.IndexOf('=');
-            if (eq > 0 && uint.TryParse(line[..eq], out uint value)) table[value] = line[(eq + 1)..];
-        }
-        return table;
-    });
+    /// <summary>Names a class in the game's table and writes the file (see <see cref="ClassDataFiles"/>).</summary>
+    public static void SetName(GameId game, uint classId, string name) => Table(game).Set(classId, name);
 }

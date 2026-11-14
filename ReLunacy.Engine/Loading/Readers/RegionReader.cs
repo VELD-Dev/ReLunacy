@@ -119,6 +119,7 @@ public sealed class RegionReader
             Pods = GameplayGroupReader.ReadPods(prius),
             Squadrons = GameplayGroupReader.ReadSquadrons(prius),
             Layers = GameplayGroupReader.ReadLayers(prius),
+            References = GameplayGroupReader.ReadReferences(prius),
         };
         PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers,
             newRegion.MobyInstances.OfType<PlacedInstance<IMoby>>().Where(m => m.References.Count > 0)

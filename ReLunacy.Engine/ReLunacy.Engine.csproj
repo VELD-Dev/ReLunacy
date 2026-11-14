@@ -53,6 +53,10 @@
 
   <ItemGroup>
     <!-- Class number -> name tables recovered from the EBOOTs (see the files' headers). -->
+    <!-- The same files beside the executable, so an installed editor can change them (ClassDataFiles). -->
+    <Content Include="Resources\Classes\*.classes;Resources\Classes\*.fields;Resources\Classes\*.textids">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <EmbeddedResource Include="Resources\Classes\*.classes" />
     <!-- Settings fields by class (ClassFields), generated from the reverse-engineering notes. -->
     <EmbeddedResource Include="Resources\Classes\*.fields" />

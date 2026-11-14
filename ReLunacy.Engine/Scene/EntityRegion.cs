@@ -25,6 +25,9 @@ public class EntityRegion : IDisposable
     /// <summary>The level editor's layers (see <see cref="Region.Layers"/>).</summary>
     public readonly IReadOnlyList<string> Layers;
 
+    /// <summary>The region's instances as references name them (see <see cref="Region.References"/>).</summary>
+    public readonly Loading.Readers.GameplayReferences References;
+
     /// <summary>The region's Pods, their members resolved to this region's Mobys (see <see cref="EntityPod"/>).</summary>
     public readonly List<EntityPod> Pods = [];
 
@@ -40,6 +43,7 @@ public class EntityRegion : IDisposable
     {
         RegionName = region.Name ?? "UnnamedRegion";
         Layers = region.Layers;
+        References = region.References;
 
         MobyInstances = new EntityCluster([], assetManager);
         foreach (var minst in region.MobyInstances)

@@ -47,27 +47,17 @@ public static class GameText
 
     public static TextTable Read(TextTableRef table) => TextTable.Parse(ReadBytes(table));
 
-    private static readonly ConcurrentDictionary<GameId, IReadOnlyDictionary<int, string>> Tags = new();
+    private static readonly ConcurrentDictionary<GameId, Assets.LevelElements.NamedNumbers> Tags = new();
 
-    /// <summary>The tag a text id has in the game's code (SS1_TXT_SPACE_MN1MC), where the EBOOT's text enum gave it:
-    /// A Crack in Time's ids 257 and up. Null for a game without a table, and for strings added in the editor.</summary>
-    public static string? TagName(GameId? game, int id) =>
-        game is { } g && Tags.GetOrAdd(g, LoadTags).TryGetValue(id, out var name) ? name : null;
+    private static Assets.LevelElements.NamedNumbers TagTable(GameId game) =>
+        Tags.GetOrAdd(game, static id => new Assets.LevelElements.NamedNumbers($"{id}.textids"));
 
-    private static IReadOnlyDictionary<int, string> LoadTags(GameId game)
-    {
-        var table = new Dictionary<int, string>();
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"ReLunacy.Engine.Resources.Classes.{game}.textids");
-        if (stream == null) return table;
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
-        {
-            if (line.StartsWith('#')) continue;
-            int eq = line.IndexOf('=');
-            if (eq > 0 && int.TryParse(line[..eq], out int id)) table[id] = line[(eq + 1)..];
-        }
-        return table;
-    }
+    /// <summary>The tag a text id has (SS1_TXT_SPACE_MN1MC): from the game's code where the EBOOT's text enum gave
+    /// it, or written by hand in Resources/Classes/&lt;Game&gt;.textids. Null when the table has none.</summary>
+    public static string? TagName(GameId? game, int id) => game is { } g ? TagTable(g).Name(id) : null;
+
+    /// <summary>Names a text id and writes the table (see <see cref="Assets.LevelElements.ClassDataFiles"/>).</summary>
+    public static void SetTagName(GameId game, int id, string name) => TagTable(game).Set(id, name);
 
     private static readonly object CacheLock = new();
     private static (string Folder, string? Archive, DateTime Stamp, long CheckedAt, TextTable? Table)? _first;

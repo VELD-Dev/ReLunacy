@@ -222,7 +222,7 @@ public class PropertyInspectorFrame : DockedFrame
                 uint mobyClass = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(moby.Settings);
                 ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_MobySettings"));
                 ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_MobyClass", $"0x{mobyClass:X}", moby.BaseMoby.Name?.Split('/')[^1] ?? "?"));
-                RenderSettings(moby.Settings, moby.References, mobyClass, moby: true);
+                RenderSettings(moby.Settings, moby.References, mobyClass, moby: true, refs: ReferencesFor(moby));
             }
 
             ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_AnimationCategory"));
@@ -264,7 +264,7 @@ public class PropertyInspectorFrame : DockedFrame
                 if (linked.Count > 0 && ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferences", linked.Count)))
                     SelectionManager.Singleton.Set([.. linked, volumeEntity], volumeEntity);
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SelectWithReferencesHint"));
-                RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class);
+                RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class, refs: ReferencesFor(volumeEntity));
             }
             RenderUsedBy(volumeEntity);
             if (baseVolume.Areas.Count > 0)
@@ -293,7 +293,7 @@ public class PropertyInspectorFrame : DockedFrame
             }
             ImGui.TextWrapped(LM.Get("GUI_Frame_InstanceInspector_CameraNote"));
             if (controller.Settings.Length > 4)
-                RenderSettings(controller.Settings, controller.References, controller.Class);
+                RenderSettings(controller.Settings, controller.References, controller.Class, refs: ReferencesFor(SelectedEntity));
         }
         else if (SelectedEntity is EntityPath pathEntity)
         {
@@ -533,33 +533,82 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.NewLine();
     }
 
-    /// <summary>One line of the settings: a known field, a reference, or a word nothing names.</summary>
+    /// <summary>One line of the settings: a documented field, or a word nothing documents.</summary>
     private sealed record SettingRow(uint Owner, int Offset, int Size, Engine.Assets.LevelElements.ClassField? Field,
-        Engine.Assets.LevelElements.ClueReference? Reference, Engine.Assets.LevelElements.ClassField? Component)
+        Engine.Assets.LevelElements.ClassField? Component)
     {
         public bool RunTime => Field is { RunTime: true };
     }
 
+    /// <summary>The instance being dragged from the hierarchy onto a reference field (set by the hierarchy when a
+    /// drag starts; the payload itself carries nothing).</summary>
+    public static Entity? DraggedEntity;
+    public const string DragPayload = "RELUNACY_ENTITY";
+
+    /// <summary>The region's reference index for an entity: what reads and writes its reference fields.</summary>
+    private static Engine.Loading.Readers.GameplayReferences? ReferencesFor(Entity entity)
+    {
+        foreach (var region in EntityManager.Singleton.Regions)
+            if (region.MobyInstances.Entities.Contains(entity) || region.Volumes.Entities.Contains(entity)
+                || region.Cameras.Entities.Contains(entity) || region.Paths.Entities.Contains(entity))
+                return region.References;
+        return null;
+    }
+
+    /// <summary>The kind and name a reference to this entity carries. A volume with a Clue counts as the Clue when
+    /// the field wants one.</summary>
+    private static (string Kind, string Name)? ReferenceTo(Entity entity, string? wanted) => entity switch
+    {
+        EntityMoby moby => ("Moby", moby.Name),
+        EntityVolume { BaseVolume.Clue: { } clue } when wanted == "Clue" => ("Clue", clue.Name),
+        EntityVolume { BaseVolume.Name: { } name } => ("Volume", name),
+        EntityPath path => ("Path", path.Path.Name),
+        EntityCamera camera => ("Controller", camera.Controller.Name),
+        _ => null,
+    };
+
+    // The field being documented in the edit popup.
+    private static (uint Owner, int Offset, string Name, string Type, bool RunTime, string Description, bool Existing)? _fieldEdit2;
+    private static bool _openFieldEdit, _openEnums;
+    private static Engine.Assets.LevelElements.ClassEnum? _enumEdit;
+    private static string? _enumEditOriginal;
+    private static string _referenceFilter = "", _className = "";
+
     /// <summary>
     /// A Clue's, a controller's or a Moby's settings, folded by the class that declares each field: the instance's
-    /// own class open, the classes it inherits from below it, closed, each with the count of what it shows. Two
-    /// columns, name and value; the offset, the type, the description and what the other instances of the class
-    /// hold are in the name's tooltip. An embedded object and the fields the game overwrites at start-up (read-only)
-    /// are folds of their own inside their class. Fields at zero stay hidden until "Show unset" is ticked.
+    /// own class open, the classes it inherits from below it, closed. Two columns, name and value. Every documented
+    /// field shows, set or not; the words nothing documents show with "Show undocumented". "Edit fields" adds a
+    /// button to each row to name it, type it and describe it (kept in ClassFields' user file), and "Enums" manages
+    /// the lists a field can be typed with.
     /// </summary>
-    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls, bool moby = false)
+    private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls,
+        bool moby = false, Engine.Loading.Readers.GameplayReferences? refs = null)
     {
         var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
         var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
         if (registry != null && registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_ClassSizeMismatch", settings.Length, classSize));
+        bool canWriteReferences = refs is { Editable: true };
 
         // What the settings held when first shown, so an edit stands out and can be undone.
         if (!LoadedSettings.TryGetValue(settings, out var loaded))
             LoadedSettings.Add(settings, loaded = (byte[])settings.Clone());
         var settingsBefore = new Lazy<Core.Undo.UndoManager.Session>(() => Core.Undo.UndoManager.Singleton.Begin([settings]));
         if (!ImGui.IsAnyItemActive()) _ = settingsBefore.Value;
-        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowUnset"), ref _showZeroWords);
+        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowUndocumented"), ref _showUndocumented);
+        ImGui.SameLine();
+        ImGui.BeginDisabled(game == null);
+        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsEditFields"), ref _editFields);
+        ImGui.EndDisabled();
+        if (_editFields && game is { } tableOf)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton(LM.Get("GUI_Frame_InstanceInspector_SettingsEnums"))) _openEnums = true;
+            ImGui.SameLine();
+            // The table is a text file anyone can also edit by hand: this reads it again.
+            if (ImGui.SmallButton(LM.Get("GUI_Frame_InstanceInspector_SettingsReload"))) Engine.Assets.LevelElements.ClassFields.Reload();
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_FieldsFileHint", Engine.Assets.LevelElements.ClassFields.FilePath(tableOf)));
+        }
         ImGui.SameLine();
         ImGui.TextDisabled("(?)");
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SettingsHint"));
@@ -568,40 +617,41 @@ public class PropertyInspectorFrame : DockedFrame
         // The rows, by the class that owns each.
         var schema = Engine.Assets.LevelElements.ClassFields.Of(game, cls);
         var components = schema.Where(f => f.Kind == Engine.Assets.LevelElements.ClassFieldKind.Component).ToList();
-        var fieldsByWord = schema.Where(f => f.Kind is not (Engine.Assets.LevelElements.ClassFieldKind.Component or Engine.Assets.LevelElements.ClassFieldKind.Reference))
-            .ToLookup(f => f.Offset & ~3);
-        var referencesAt = fieldReferences.GroupBy(r => r.Offset).ToDictionary(g => g.Key, g => g.First());
+        var fieldsByWord = schema.Where(f => f.Kind != Engine.Assets.LevelElements.ClassFieldKind.Component).ToLookup(f => f.Offset & ~3);
+        var staticReferences = fieldReferences.GroupBy(r => r.Offset).ToDictionary(g => g.Key, g => g.First());
         Engine.Assets.LevelElements.ClassField? ComponentOf(int offset) =>
             components.LastOrDefault(c => c.Offset <= offset && offset < c.Offset + c.Length);
         uint OwnerOf(int offset) =>
-            ComponentOf(offset)?.Owner ?? Engine.Assets.LevelElements.ClassFields.At(game, cls, offset)?.Owner ?? registry?.Owner(cls, offset) ?? cls;
-        bool Unset(int offset, int size) =>
-            settings.AsSpan(offset, size).IndexOfAnyExcept((byte)0) < 0 && settings.AsSpan(offset, size).SequenceEqual(loaded.AsSpan(offset, size));
+            ComponentOf(offset)?.Owner ?? registry?.Owner(cls, offset) ?? cls;
+        // The instance a word names: read from the bytes when the region's references can be, so an edit shows at once.
+        (string Kind, string Name)? ReferenceAt(int offset)
+        {
+            if (canWriteReferences) return refs!.Decode(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(offset)));
+            return staticReferences.TryGetValue(offset, out var r) ? (r.Kind, r.Name) : null;
+        }
 
         var rows = new List<SettingRow>();
         for (int offset = 4; offset + 4 <= settings.Length; offset += 4)
         {
-            if (referencesAt.TryGetValue(offset, out var reference))
-            {
-                rows.Add(new SettingRow(OwnerOf(offset), offset, 4, Engine.Assets.LevelElements.ClassFields.At(game, cls, offset), reference, ComponentOf(offset)));
-                continue;
-            }
             int covered = 0;
             foreach (var field in fieldsByWord[offset])
             {
-                int size = field.Kind switch { Engine.Assets.LevelElements.ClassFieldKind.U8 => 1, Engine.Assets.LevelElements.ClassFieldKind.U16 => 2, _ => 4 };
-                if (field.Offset + size > settings.Length) continue;
-                for (int b = 0; b < size; b++) covered |= 1 << (field.Offset - offset + b);
-                // A field the game overwrites always shows (read-only); any other only once it holds something.
-                if (!field.RunTime && Unset(field.Offset, size) && !_showZeroWords) continue;
-                rows.Add(new SettingRow(field.Owner, field.Offset, size, field, null, ComponentOf(field.Offset)));
+                if (field.Offset + field.Length > settings.Length || field.Length is < 1 or > 4) continue;
+                for (int b = 0; b < field.Length; b++) covered |= 1 << (field.Offset - offset + b);
+                rows.Add(new SettingRow(field.Owner, field.Offset, field.Length, field, ComponentOf(field.Offset)));
             }
-            bool rest = covered == 0;
-            for (int b = 0; b < 4 && !rest; b++)
-                if ((covered & (1 << b)) == 0 && !Unset(offset + b, 1)) rest = true;
-            if (!rest || (Unset(offset, 4) && !_showZeroWords)) continue;
-            // A word nothing types: raw. A known reference field left unset lands here too, under its name.
-            rows.Add(new SettingRow(OwnerOf(offset), offset, 4, null, null, ComponentOf(offset)));
+            if (covered == 0xF) continue;
+            // What no field covers: shown when asked for, and always when it names an instance or was edited.
+            bool edited = !settings.AsSpan(offset, 4).SequenceEqual(loaded.AsSpan(offset, 4));
+            if (covered != 0)
+            {
+                bool rest = false;
+                for (int b = 0; b < 4; b++)
+                    if ((covered & (1 << b)) == 0 && (settings[offset + b] != 0 || settings[offset + b] != loaded[offset + b])) rest = true;
+                if (!rest) continue;
+            }
+            if (!_showUndocumented && !edited && (covered != 0 || ReferenceAt(offset) == null)) continue;
+            rows.Add(new SettingRow(OwnerOf(offset), offset, 4, null, ComponentOf(offset)));
         }
 
         // The folds: the instance's class first, then up its parents; anything else (no table, no EBOOT) last.
@@ -614,16 +664,12 @@ public class PropertyInspectorFrame : DockedFrame
         {
             if (!ImGui.IsItemHovered()) return;
             ImGui.BeginTooltip();
-            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30f);
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+            if (row.Field is { Description.Length: > 0 } field) ImGui.TextUnformatted(field.Description);
+            if (row.RunTime) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"));
             ImGui.TextDisabled($"+0x{row.Offset:X2}  {type}");
-            if (row.Field is { } field)
-            {
-                ImGui.TextUnformatted(field.Description);
-                if (field.RunTime) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"));
-                ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldEvidence", field.Evidence));
-            }
             // Across the class: what every instance of it in the level holds in this word.
-            if (survey.Count > 1 && survey.Words.TryGetValue(row.Offset & ~3, out var across))
+            if (_showUndocumented && survey.Count > 1 && survey.Words.TryGetValue(row.Offset & ~3, out var across))
             {
                 ImGui.Separator();
                 ImGui.TextDisabled(across.Distinct == 1
@@ -635,10 +681,22 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.EndTooltip();
         }
 
+        void StartEdit(SettingRow row)
+        {
+            _fieldEdit2 = row.Field is { } f
+                ? (f.Owner, f.Offset, f.Name, f.TypeText, f.RunTime, f.Description, true)
+                : (row.Owner, row.Offset, "", ReferenceAt(row.Offset) is { } r ? r.Kind
+                    : GuessType(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(loaded.AsSpan(row.Offset))) == SettingType.Float ? "float" : "u32",
+                    false, "", false);
+            _openFieldEdit = true;
+        }
+
         void RowMenu(SettingRow row, bool edited)
         {
             if (!ImGui.BeginPopupContextItem("row_menu")) return;
             int at = row.Offset, length = row.Size;
+            if (game != null && ImGui.MenuItem(LM.Get(row.Field != null ? "GUI_Frame_InstanceInspector_FieldEdit" : "GUI_Frame_InstanceInspector_FieldDocument")))
+                StartEdit(row);
             if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsCopyToClass")))
             {
                 var source = settings.AsSpan(at, length).ToArray();
@@ -652,14 +710,79 @@ public class PropertyInspectorFrame : DockedFrame
             if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_SettingsRevert"), "", false, edited))
                 Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
                     () => loaded.AsSpan(at, length).CopyTo(settings.AsSpan(at, length)));
-            // A word nothing types is read as it was guessed; this changes the guess.
-            if (row.Field == null && row.Reference == null && ImGui.BeginMenu(LM.Get("GUI_Frame_InstanceInspector_SettingsReadAs")))
+            // A word nothing documents is read as it was guessed; this changes the guess.
+            if (row.Field == null && ImGui.BeginMenu(LM.Get("GUI_Frame_InstanceInspector_SettingsReadAs")))
             {
                 foreach (var option in Enum.GetValues<SettingType>())
                     if (ImGui.MenuItem(option.ToString(), "", SettingTypes.GetValueOrDefault((cls, at)) == option)) SettingTypes[(cls, at)] = option;
                 ImGui.EndMenu();
             }
             ImGui.EndPopup();
+        }
+
+        void WriteWord(int offset, uint value) =>
+            Core.Undo.UndoManager.Singleton.Record(LM.Get("GUI_Undo_EditSetting"), [settings],
+                () => System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(settings.AsSpan(offset), value));
+
+        // A reference: what it names (a click selects it), a list to pick another from, a cross to unset it, and a
+        // drop target for an instance dragged from the hierarchy.
+        void ReferenceEditor(SettingRow row, string? wanted, bool locked)
+        {
+            var named = ReferenceAt(row.Offset);
+            uint word = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(row.Offset));
+            float buttons = canWriteReferences && !locked ? ImGui.GetFrameHeight() * 2f + ImGui.GetStyle().ItemInnerSpacing.X * 2f : 0f;
+            ImGui.BeginGroup();
+            if (named is { } target) ReferenceLink(target.Kind, target.Name);
+            else ImGui.TextDisabled(word == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone") : $"0x{word:X8}");
+            ImGui.EndGroup();
+            if (canWriteReferences && !locked && ImGui.BeginDragDropTarget())
+            {
+                var payload = ImGui.AcceptDragDropPayload(DragPayload);
+                unsafe
+                {
+                    if (payload.Handle != null && DraggedEntity is { } dropped && ReferenceTo(dropped, wanted) is { } to
+                        && (wanted == null || wanted == to.Kind) && refs!.Encode(to.Kind, to.Name) is { } encoded)
+                        WriteWord(row.Offset, encoded);
+                }
+                ImGui.EndDragDropTarget();
+            }
+            if (!canWriteReferences || locked) return;
+            ImGui.SameLine();
+            float room = ImGui.GetContentRegionAvail().X - buttons;
+            if (room > 0f) ImGui.SetCursorPosX(ImGui.GetCursorPosX() + room);
+            if (ImGui.ArrowButton("##pick", ImGuiDir.Down)) { _referenceFilter = ""; ImGui.OpenPopup("##references"); }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferencePick", wanted ?? LM.Get("GUI_Frame_InstanceInspector_ReferenceAny")));
+            ImGui.SameLine(0f, ImGui.GetStyle().ItemInnerSpacing.X);
+            ImGui.BeginDisabled(word == 0);
+            if (ImGui.Button("x##unset", new Vector2(ImGui.GetFrameHeight(), 0f))) WriteWord(row.Offset, 0);
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceUnset"));
+            if (ImGui.BeginPopup("##references"))
+            {
+                ImGui.SetNextItemWidth(260f);
+                if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+                ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _referenceFilter, 64);
+                if (ImGui.BeginChild("##list", new Vector2(320f, 260f)))
+                {
+                    int shown = 0;
+                    foreach (string kind in wanted != null ? [wanted] : Engine.Assets.LevelElements.ClassFields.ReferenceKinds)
+                        foreach (string name in refs!.Names(kind))
+                        {
+                            if (name.Length == 0 || (_referenceFilter.Length > 0 && !name.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase))) continue;
+                            if (++shown > 300) break;
+                            bool current = named is { } n && n.Kind == kind && n.Name == name;
+                            if (ImGui.Selectable(wanted != null ? $"{name}##{kind}{shown}" : $"{kind}  {name}##{shown}", current)
+                                && refs.Encode(kind, name) is { } encoded)
+                            {
+                                WriteWord(row.Offset, encoded);
+                                ImGui.CloseCurrentPopup();
+                            }
+                        }
+                    if (shown > 300) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ReferenceMore"));
+                }
+                ImGui.EndChild();
+                ImGui.EndPopup();
+            }
         }
 
         void Row(SettingRow row)
@@ -670,33 +793,31 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.AlignTextToFramePadding();
-            string name = ClueClasses.FieldName(game, cls, row.Offset) ?? $"+0x{row.Offset:X2}";
+            if (_editFields && game != null)
+            {
+                if (ImGui.SmallButton(row.Field != null ? "..." : "+")) StartEdit(row);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(row.Field != null ? "GUI_Frame_InstanceInspector_FieldEdit" : "GUI_Frame_InstanceInspector_FieldDocument"));
+                ImGui.SameLine();
+            }
+            string name = row.Field is { Name.Length: > 0 } documented ? documented.Name : $"+0x{row.Offset:X2}";
             if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), name);
-            else if (row.RunTime || row.Field is null or { CodeOnly: true }) ImGui.TextDisabled(name);
+            else if (row.RunTime || row.Field == null) ImGui.TextDisabled(name);
             else ImGui.TextUnformatted(name);
 
-            if (row.Reference is { } reference)
+            if (row.Field is { } field)
             {
-                Tooltip(row, LM.Get("GUI_Frame_InstanceInspector_FieldReference"));
+                Tooltip(row, field.RunTime ? LM.Get("GUI_Frame_InstanceInspector_FieldRunTime", field.TypeText) : field.TypeText);
+                RowMenu(row, edited);
                 ImGui.TableNextColumn();
-                ReferenceLink(reference.Kind, reference.Name);
-            }
-            else if (row.Field is { } field)
-            {
-                string kind = field.Kind switch
+                if (field.Kind == Engine.Assets.LevelElements.ClassFieldKind.Reference)
                 {
-                    Engine.Assets.LevelElements.ClassFieldKind.U8 => "u8",
-                    Engine.Assets.LevelElements.ClassFieldKind.U16 => "u16",
-                    Engine.Assets.LevelElements.ClassFieldKind.S32 => "s32",
-                    Engine.Assets.LevelElements.ClassFieldKind.F32 => "float",
-                    Engine.Assets.LevelElements.ClassFieldKind.TextId => "text id",
-                    _ => "u32",
-                };
-                Tooltip(row, field.RunTime ? LM.Get("GUI_Frame_InstanceInspector_FieldRunTime", kind) : kind);
-                if (!field.RunTime) RowMenu(row, edited);
-                ImGui.TableNextColumn();
+                    ReferenceEditor(row, field.TypeName, field.RunTime);
+                    ImGui.PopID();
+                    return;
+                }
                 ImGui.BeginDisabled(field.RunTime);
                 ImGui.SetNextItemWidth(-1f);
+                bool tracked = true;
                 switch (field.Kind)
                 {
                     case Engine.Assets.LevelElements.ClassFieldKind.F32:
@@ -704,6 +825,51 @@ public class PropertyInspectorFrame : DockedFrame
                         float f = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(bytes);
                         if (ImGui.DragFloat("##v", ref f, MathF.Max(0.01f, MathF.Abs(f) * 0.01f), 0f, 0f, "%.6g"))
                             System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(bytes, f);
+                        break;
+                    }
+                    case Engine.Assets.LevelElements.ClassFieldKind.Bool:
+                    {
+                        // A tick box over one byte or four: unticking clears it, ticking writes 1.
+                        bool on = bytes.IndexOfAnyExcept((byte)0) >= 0;
+                        if (ImGui.Checkbox("##v", ref on))
+                        {
+                            bytes.Clear();
+                            if (on) bytes[^1] = 1;
+                        }
+                        break;
+                    }
+                    case Engine.Assets.LevelElements.ClassFieldKind.Enum:
+                    {
+                        long value = row.Size switch { 1 => bytes[0], 2 => System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes), _ => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes) };
+                        void Store(long v)
+                        {
+                            var target = settings.AsSpan(row.Offset, row.Size);
+                            if (row.Size == 1) target[0] = (byte)v;
+                            else if (row.Size == 2) System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(target, (ushort)v);
+                            else System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(target, (uint)v);
+                        }
+                        var list = Engine.Assets.LevelElements.ClassFields.Enum(game, field.TypeName);
+                        string preview = list == null ? value.ToString()
+                            : list.Flags ? (value == 0 ? "-" : string.Join(" | ", list.Entries.Where(e => e.Value != 0 && (value & e.Value) == e.Value).Select(e => e.Name).DefaultIfEmpty($"0x{value:X}")))
+                            : list.Entries.FirstOrDefault(e => e.Value == value) is { Name: { } current } ? current : $"{value} ?";
+                        if (ImGui.BeginCombo("##v", preview))
+                        {
+                            if (list != null)
+                                foreach (var (entry, entryValue) in list.Entries)
+                                {
+                                    if (list.Flags)
+                                    {
+                                        bool set = entryValue != 0 && (value & entryValue) == entryValue;
+                                        if (ImGui.Checkbox($"{entry}##{entryValue}", ref set)) { value = set ? value | entryValue : value & ~entryValue; Store(value); }
+                                    }
+                                    else if (ImGui.Selectable($"{entry}  ({entryValue})", entryValue == value)) Store(entryValue);
+                                }
+                            // The number itself, for a value the list does not have yet.
+                            int raw = (int)value;
+                            ImGui.SetNextItemWidth(120f);
+                            if (ImGui.InputInt(LM.Get("GUI_Frame_InstanceInspector_EnumRaw"), ref raw)) Store(raw);
+                            ImGui.EndCombo();
+                        }
                         break;
                     }
                     case Engine.Assets.LevelElements.ClassFieldKind.U8:
@@ -726,6 +892,7 @@ public class PropertyInspectorFrame : DockedFrame
                         ImGui.SetNextItemWidth(64f);
                         if (ImGui.DragInt("##v", ref v, 0.2f, 0, 0xFFFFFF)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, v);
                         if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
+                        tracked = false;
                         string? folder = string.IsNullOrEmpty(Program.ProvidedPath) ? null : Engine.Config.GameConfigs.GameFolderFor(Program.ProvidedPath);
                         if (v != 0 && folder != null && Engine.Text.GameText.Reference(folder) is { } text)
                         {
@@ -755,8 +922,16 @@ public class PropertyInspectorFrame : DockedFrame
                         break;
                     }
                 }
-                if (!field.RunTime && field.Kind != Engine.Assets.LevelElements.ClassFieldKind.TextId) TrackField(settingsBefore, "GUI_Undo_EditSetting");
+                if (!field.RunTime && tracked) TrackField(settingsBefore, "GUI_Undo_EditSetting");
                 ImGui.EndDisabled();
+            }
+            else if (ReferenceAt(row.Offset) != null)
+            {
+                // Nothing documents the word, but it names an instance.
+                Tooltip(row, LM.Get("GUI_Frame_InstanceInspector_FieldReference"));
+                RowMenu(row, edited);
+                ImGui.TableNextColumn();
+                ReferenceEditor(row, null, false);
             }
             else
             {
@@ -823,7 +998,7 @@ public class PropertyInspectorFrame : DockedFrame
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             bool open = ImGui.TreeNodeEx(label, ImGuiTreeNodeFlags.SpanAllColumns);
-            if (hint != null && ImGui.IsItemHovered()) ImGui.SetTooltip(hint);
+            if (hint is { Length: > 0 } && ImGui.IsItemHovered()) ImGui.SetTooltip(hint);
             if (!open) return;
             foreach (var row in group) Row(row);
             ImGui.TreePop();
@@ -832,14 +1007,26 @@ public class PropertyInspectorFrame : DockedFrame
         foreach (uint owner in owners)
         {
             var own = rows.Where(r => r.Owner == owner).ToList();
-            // What counts: the fields a level can set. The run-time ones are there whatever the instance.
-            int set = own.Count(r => !r.RunTime);
             string title = Engine.Assets.LevelElements.ClassFields.ClassName(game, owner) is { } known ? known
                 : registry != null ? ClassLabel(registry, owner) : $"0x{owner:X}";
-            bool open = ImGui.CollapsingHeader($"{title}  ({set})###class{owner}", owner == cls ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+            bool open = ImGui.CollapsingHeader($"{title}  ({own.Count(r => !r.RunTime)})###class{owner}", owner == cls ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ClassFoldHint", $"0x{owner:X}",
                     registry != null && registry.Sizes.TryGetValue(owner, out int size) ? $"0x{size:X}" : "?"));
+            // Edit fields: the class's own name is part of the table too.
+            if (_editFields && game is { } renameIn && ImGui.BeginPopupContextItem($"##rename{owner}"))
+            {
+                if (ImGui.IsWindowAppearing()) _className = Engine.Assets.LevelElements.ClassFields.ClassName(game, owner) ?? "";
+                ImGui.SetNextItemWidth(240f);
+                ImGui.InputText(LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _className, 64);
+                if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")))
+                {
+                    int? parent = chain.IndexOf(owner) is var at && at >= 0 && at + 1 < chain.Count ? (int)chain[at + 1] : null;
+                    Engine.Assets.LevelElements.ClassFields.SetClassName(renameIn, owner, _className, parent);
+                    ImGui.CloseCurrentPopup();
+                }
+                ImGui.EndPopup();
+            }
             if (!open) continue;
             if (!ImGui.BeginTable($"##settings{owner}", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings)) continue;
             ImGui.TableSetupColumn("name", ImGuiTableColumnFlags.WidthStretch, 0.45f);
@@ -849,13 +1036,173 @@ public class PropertyInspectorFrame : DockedFrame
             {
                 var inside = own.Where(r => r.Component == component).ToList();
                 SubFold($"{(component.Name.Length > 0 ? component.Name : $"+0x{component.Offset:X2}")}  ({inside.Count(r => !r.RunTime)})###component{component.Offset}",
-                    $"+0x{component.Offset:X2}, {LM.Get("GUI_Frame_InstanceInspector_FieldComponent", $"0x{component.Length:X}")}\n{component.Description}", inside);
+                    component.Description, inside);
             }
             var runTime = own.Where(r => r.Component == null && r.RunTime).ToList();
             if (runTime.Count > 0)
                 SubFold($"{LM.Get("GUI_Frame_InstanceInspector_RunTimeGroup", runTime.Count)}###runtime", LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"), runTime);
             ImGui.EndTable();
         }
+
+        if (game is { } id) RenderFieldEditors(id, cls, chain);
+    }
+
+    /// <summary>The two editors of "Edit fields": one field's name, type and description, and the game's enums.</summary>
+    private static void RenderFieldEditors(Engine.Games.GameId game, uint cls, List<uint> chain)
+    {
+        if (_openFieldEdit) { ImGui.OpenPopup("##fieldedit"); _openFieldEdit = false; }
+        if (ImGui.BeginPopup("##fieldedit") && _fieldEdit2 is { } edit)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldEditTitle", $"0x{edit.Offset:X}",
+                Engine.Assets.LevelElements.ClassFields.ClassName(game, edit.Owner) ?? $"0x{edit.Owner:X}"));
+            string name = edit.Name, description = edit.Description, type = edit.Type;
+            bool runTime = edit.RunTime;
+            int offset = edit.Offset;
+            ImGui.SetNextItemWidth(320f);
+            ImGui.InputText(LM.Get("GUI_Frame_InstanceInspector_FieldName"), ref name, 64);
+            ImGui.SetNextItemWidth(320f);
+            if (ImGui.BeginCombo(LM.Get("GUI_Frame_InstanceInspector_FieldType"), type))
+            {
+                foreach (string option in new[] { "u8", "u16", "u32", "s32", "float", "bool", "bool32", "text", "ref" })
+                    if (ImGui.Selectable(option, option == type)) type = option;
+                ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_FieldTypeReferences"));
+                foreach (string option in Engine.Assets.LevelElements.ClassFields.ReferenceKinds)
+                    if (ImGui.Selectable(option, option == type)) type = option;
+                var enums = Engine.Assets.LevelElements.ClassFields.Enums(game);
+                if (enums.Count > 0) ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_SettingsEnums"));
+                foreach (var e in enums)
+                    if (ImGui.Selectable($"{e.Name}{(e.Flags ? "  (flags)" : "")}", e.Name == type)) type = e.Name;
+                ImGui.EndCombo();
+            }
+            if (!edit.Existing)
+            {
+                ImGui.SetNextItemWidth(120f);
+                ImGui.InputInt(LM.Get("GUI_Frame_InstanceInspector_FieldOffset"), ref offset, 1, 4, ImGuiInputTextFlags.CharsHexadecimal);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_FieldOffsetHint"));
+            }
+            ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeBox"), ref runTime);
+            ImGui.InputTextMultiline(LM.Get("GUI_Frame_InstanceInspector_FieldDescription"), ref description, 512, new Vector2(320f, ImGui.GetTextLineHeight() * 4f));
+            _fieldEdit2 = (edit.Owner, Math.Max(4, offset), name, type, runTime, description, edit.Existing);
+
+            var parsed = Engine.Assets.LevelElements.ClassFields.TypeOf(type,
+                Engine.Assets.LevelElements.ClassFields.Enums(game).ToDictionary(e => e.Name));
+            ImGui.BeginDisabled(parsed == null);
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")) && parsed is { } t)
+            {
+                int? parent = chain.IndexOf(edit.Owner) is var at && at >= 0 && at + 1 < chain.Count ? (int)chain[at + 1] : null;
+                Engine.Assets.LevelElements.ClassFields.SetField(game,
+                    new Engine.Assets.LevelElements.ClassField(edit.Owner, Math.Max(4, offset), t.Length, t.Kind, runTime, name.Trim(), description.Trim(), t.TypeName), parent);
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndDisabled();
+            if (edit.Existing)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldRemove")))
+                {
+                    Engine.Assets.LevelElements.ClassFields.RemoveField(game, edit.Owner, edit.Offset);
+                    ImGui.CloseCurrentPopup();
+                }
+            }
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldCancel"))) ImGui.CloseCurrentPopup();
+            ImGui.EndPopup();
+        }
+
+        if (_openEnums) { ImGui.OpenPopup("##enums"); _openEnums = false; _enumEdit = null; }
+        if (!ImGui.BeginPopup("##enums")) return;
+        var all = Engine.Assets.LevelElements.ClassFields.Enums(game);
+        if (ImGui.BeginChild("##enumlist", new Vector2(180f, 300f), ImGuiChildFlags.Borders))
+        {
+            foreach (var e in all)
+                if (ImGui.Selectable($"{e.Name}{(e.Flags ? "  (flags)" : "")}", _enumEditOriginal == e.Name))
+                {
+                    _enumEdit = e.Clone();
+                    _enumEditOriginal = e.Name;
+                }
+            if (ImGui.Selectable(LM.Get("GUI_Frame_InstanceInspector_EnumNew")))
+            {
+                _enumEdit = new Engine.Assets.LevelElements.ClassEnum { Name = "NewEnum" };
+                _enumEditOriginal = null;
+            }
+        }
+        ImGui.EndChild();
+        ImGui.SameLine();
+        if (ImGui.BeginChild("##enumedit", new Vector2(360f, 300f)))
+        {
+            if (_enumEdit is not { } working) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_EnumPick"));
+            else
+            {
+                string enumName = working.Name;
+                ImGui.SetNextItemWidth(200f);
+                if (ImGui.InputText(LM.Get("GUI_Frame_InstanceInspector_FieldName"), ref enumName, 48))
+                    working.Name = new string(enumName.Where(ch => char.IsLetterOrDigit(ch) || ch == '_').ToArray());
+                bool flags = working.Flags;
+                if (ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_EnumFlags"), ref flags)) working.Flags = flags;
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(80f);
+                if (ImGui.BeginCombo(LM.Get("GUI_Frame_InstanceInspector_EnumSize"), working.Size.ToString()))
+                {
+                    foreach (int size in new[] { 1, 2, 4 })
+                        if (ImGui.Selectable(size.ToString(), working.Size == size)) working.Size = size;
+                    ImGui.EndCombo();
+                }
+                if (ImGui.BeginTable("##entries", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY, new Vector2(0f, 180f)))
+                {
+                    ImGui.TableSetupColumn("name", ImGuiTableColumnFlags.WidthStretch);
+                    ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthFixed, 90f);
+                    ImGui.TableSetupColumn("x", ImGuiTableColumnFlags.WidthFixed, 24f);
+                    int remove = -1;
+                    for (int i = 0; i < working.Entries.Count; i++)
+                    {
+                        ImGui.PushID(i);
+                        var (entryName, entryValue) = working.Entries[i];
+                        ImGui.TableNextRow();
+                        ImGui.TableNextColumn();
+                        ImGui.SetNextItemWidth(-1f);
+                        if (ImGui.InputText("##n", ref entryName, 48))
+                            working.Entries[i] = (new string(entryName.Where(ch => char.IsLetterOrDigit(ch) || ch == '_').ToArray()), entryValue);
+                        ImGui.TableNextColumn();
+                        int number = (int)entryValue;
+                        ImGui.SetNextItemWidth(-1f);
+                        if (ImGui.InputInt("##v", ref number, 0, 0, working.Flags ? ImGuiInputTextFlags.CharsHexadecimal : ImGuiInputTextFlags.None))
+                            working.Entries[i] = (working.Entries[i].Name, number);
+                        ImGui.TableNextColumn();
+                        if (ImGui.SmallButton("x")) remove = i;
+                        ImGui.PopID();
+                    }
+                    if (remove >= 0) working.Entries.RemoveAt(remove);
+                    ImGui.EndTable();
+                }
+                if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_EnumAddEntry")))
+                {
+                    long next = working.Entries.Count == 0 ? (working.Flags ? 1 : 0)
+                        : working.Flags ? working.Entries.Max(e => e.Value) * 2 : working.Entries.Max(e => e.Value) + 1;
+                    working.Entries.Add(($"Value{working.Entries.Count}", next));
+                }
+                ImGui.SameLine();
+                ImGui.BeginDisabled(working.Name.Length == 0 || working.Entries.Any(e => e.Name.Length == 0));
+                if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")))
+                {
+                    Engine.Assets.LevelElements.ClassFields.SetEnum(game, working.Clone(), _enumEditOriginal);
+                    _enumEditOriginal = working.Name;
+                }
+                ImGui.EndDisabled();
+                if (_enumEditOriginal != null)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldRemove")))
+                    {
+                        Engine.Assets.LevelElements.ClassFields.RemoveEnum(game, _enumEditOriginal);
+                        _enumEdit = null;
+                        _enumEditOriginal = null;
+                    }
+                }
+            }
+        }
+        ImGui.EndChild();
+        ImGui.TextDisabled(Engine.Assets.LevelElements.ClassFields.FilePath(game));
+        ImGui.EndPopup();
     }
 
     /// <summary>The undo step a field being edited is building: opened when the field is clicked into, from the
@@ -896,7 +1243,7 @@ public class PropertyInspectorFrame : DockedFrame
     /// <summary>How each settings word is shown, as last chosen, by class and offset.</summary>
     private static readonly Dictionary<(uint Class, int Offset), SettingType> SettingTypes = [];
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> LoadedSettings = new();
-    private static bool _showZeroWords;
+    private static bool _showUndocumented, _editFields;
 
     /// <summary>The settings of every Clue and camera of a class in the level.</summary>
     private static IEnumerable<byte[]> SettingsOfClass(uint cls)
