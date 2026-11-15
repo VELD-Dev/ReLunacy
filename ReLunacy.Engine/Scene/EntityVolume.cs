@@ -322,7 +322,7 @@ public class EntityVolume : Entity
     /// <summary>Rotation aligning the edge mesh's local +X (its length axis) to the unit vector
     /// <paramref name="axis"/>. Only the axis line matters, not polarity, since the edge mesh is
     /// radially symmetric.</summary>
-    private static Quaternion AlignUnitXTo(Vector3 axis)
+    internal static Quaternion AlignUnitXTo(Vector3 axis)
     {
         float dot = Vector3.Dot(Vector3.UnitX, axis);
         if (dot > 0.99999f || dot < -0.99999f) return Quaternion.Identity;

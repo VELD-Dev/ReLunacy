@@ -2,7 +2,8 @@
 # Hand-editable; the editor's inspector reads it and can change it (Edit fields).
 #
 #   [offset, type] Field name = "description";           add ", runtime" for a field the game overwrites
-#   types: u8 u16 u32 s32 float bool bool32 text  ref  Moby Path Volume Clue Controller Scent Area Pod
+#   types: u8 u16 u32 s32 float bool bool32 text sound effect  ref  Moby Path Volume Clue Controller Scent Area Pod
+#          ref list  Volume list  Controller list ...  a pointer to a list of references, read-only
 #          component(size)  or the name of an enum declared below
 #   enum Name : u32 { Entry = 1; }     flags Name : u8 { Bit = 0x1; }
 #   class 0xNUMBER Name : 0xPARENT { fields }           a class inherits its parents' fields
@@ -242,6 +243,7 @@ class 0x127 ClueFallToDeath : 0x11D
 
 class 0x129 ClueDeath : 0x11D
 {
+    [0x14, u32] = "";
 }
 
 class 0x12E ClueSwingshotEquip : 0x11D
@@ -326,6 +328,7 @@ class 0x171 EnemyBattlefieldController : 0xCF
 class 0x173 EnemyFirepointController : 0xCF
 {
     [0x14, Area] Firepoints = "Area of the firepoints it hands out.";
+    [0x618, u8, runtime] Firepoint count = "";
 }
 
 class 0x181 EnemyBase : 0x160
@@ -367,7 +370,7 @@ class 0x187 NPCBase : 0x160
 {
     [0x910, component(0x98)] Prompt = "The prompt shown near the object.";
     [0x968, text] Prompt text = "Text of the prompt.";
-    [0x96C, Volume] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
+    [0x96C, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0x974, float] Prompt range = "The prompt shows within this distance.";
     [0x988, u32] Prompt value A = "";
     [0x998, float] Prompt value B = "";
@@ -375,7 +378,16 @@ class 0x187 NPCBase : 0x160
     [0x9A5, u8, runtime] Prompt enabled = "";
     [0x9A6, u8, runtime] Prompt showing = "";
     [0x9A7, u8, runtime] Prompt button state = "";
-    [0x9B0, u32] = "";
+    [0x9B0, u32] 322 = "322 on every NPCs ?";
+    [0xC04, float] = "";
+    [0xC08, float] = "";
+    [0xC0C, float] = "";
+    [0xC10, float] = "";
+    [0xC14, float] = "";
+    [0xC18, float] = "";
+    [0xC1C, float] = "";
+    [0xC24, float] = "";
+    [0xC28, float] = "";
     [0xC70, u32] = "Used by the script function npc_icon_off.";
     [0xC74, u32] = "Used by the script function npc_icon_on.";
     [0xC88, u32] = "";
@@ -388,9 +400,12 @@ class 0x187 NPCBase : 0x160
     [0xCAC, float] = "Used by the script function npc_start_attack.";
     [0xCB4, Volume] = "";
     [0xCB8, Volume] = "";
+    [0xCBC, float] = "";
     [0xCC4, u32] = "";
     [0xCCC, Volume] Light Link Camera volume = "Used specifically in space levels";
     [0xCD0, Volume] Light Link volume = "\"Light link\" volume. Used in space levels specifically.";
+    [0xCD8, float] = "";
+    [0xCDC, float] = "";
     [0xCF8, ref] Target = "Used by the script functions npc_set_target, npc_clear_targets.";
     [0xCFC, u32] = "Used by the script function npc_clear_targets.";
     [0xD00, u32] = "Used by the script function npc_clear_targets.";
@@ -429,7 +444,21 @@ class 0x201 PlatformBase : 0x47
 
 class 0x202 SoundEnvironment : 0xCF
 {
-    [0x14, u32] Sound = "";
+    [0x14, sound] Sound = "Plays while the listener is inside.";
+    [0x18, float] Fade in = "Seconds the sound takes to fade in.";
+    [0x1C, float] Fade out = "Seconds the sound takes to fade out.";
+    [0x20, s32, runtime] Trigger state = "";
+    [0x24, s32, runtime] Sound handle = "";
+    [0x28, Volume list] Volumes = "The listener is inside one of these, or its own box when empty.";
+    [0x2C, Controller list] Linked environments = "Environments changed while inside this one.";
+    [0x30, u32, runtime] Listener inside = "";
+    [0x34, u32, runtime] Linked changed = "";
+    [0x38, bool32] Reverb = "Builds a reverb zone from the volumes.";
+    [0x40, s32, runtime] Reverb zone = "";
+    [0x44, u32] Reverb preset = "";
+    [0x48, float] Reverb value A = "";
+    [0x4C, float] Reverb value B = "";
+    [0x50, component(0x30), runtime] Box = "";
 }
 
 class 0x210 PickupGoldBolt : 0xD8
@@ -458,9 +487,12 @@ class 0x21D PlatformBuoyant : 0x201
 
 class 0x220 VendorBase : 0x47
 {
+    [0xC0, float] = "";
+    [0xC4, float] = "";
+    [0xC8, float] = "";
     [0x1C0, component(0x98)] Prompt = "The prompt shown near the object.";
     [0x218, text] Prompt text = "Text of the prompt.";
-    [0x21C, Volume] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
+    [0x21C, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0x224, float] Prompt range = "The prompt shows within this distance.";
     [0x238, u32] Prompt value A = "";
     [0x248, float] Prompt value B = "";
@@ -491,6 +523,8 @@ class 0x22E CamArgFixedZoom : 0xD1
 class 0x238 space object base : 0x47
 {
     [0x60, float] = "";
+    [0x64, float] = "";
+    [0x68, float] = "";
     [0x470, bool] = "Used by the script function space_make_attacker.";
     [0x490, u32] = "";
     [0x4A0, u32] = "";
@@ -586,7 +620,7 @@ class 0x28F Aphelion (ship hero) : 0xE5
 {
     [0x70, component(0x98)] Prompt = "The prompt shown near the object.";
     [0xC8, text] Prompt text = "Text of the prompt.";
-    [0xCC, ref] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
+    [0xCC, ref] Prompt volume = "The prompt also shows while the hero is inside.";
     [0xD4, float] Prompt range = "The prompt shows within this distance.";
     [0xE8, u32] Prompt value A = "";
     [0xF8, float] Prompt value B = "";
@@ -787,9 +821,11 @@ class 0x366 TurretBase : 0x47
 
 class 0x369 SoundEmitter : 0xCF
 {
-    [0x4, ref] = "";
-    [0x14, u32] Sound = "";
-    [0x18, u32] Volume = "";
+    [0x14, sound] Sound = "Plays at the controller.";
+    [0x18, Controller list] Environments = "Plays according to these environments.";
+    [0x1C, u32, runtime] Playing = "";
+    [0x20, s32, runtime] State = "";
+    [0x24, s32, runtime] Sound handle = "";
 }
 
 class 0x36F PlatformGrappleTwoAxis : 0x4D
@@ -830,8 +866,8 @@ class 0x3A7 PromptTeleporter : 0x47
     [0x78, Volume] Destination volume = "";
     [0x80, component(0x98)] Prompt = "The prompt shown near the object.";
     [0xD8, text] Prompt text = "Text of the prompt.";
-    [0xDC, ref] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
-    [0xE4, float] Prompt range = "The prompt shows within this distance. Used when no prompt volume is specified. Diameter, apparently.";
+    [0xDC, ref] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0xE4, float] Prompt range = "The prompt shows within this distance. Diameter, apparently.";
     [0xF8, u32] Prompt value A = "";
     [0x108, float] Prompt value B = "";
     [0x114, u8, runtime] Prompt 3D distance = "";
@@ -882,7 +918,7 @@ class 0x3CD ShotTargetHang : 0x245
 
 class 0x3D0 FxController : 0xCF
 {
-    [0x14, u32] Effect = "Id of the effect to play.";
+    [0x14, effect] Effect = "The effect to play.";
     [0x18, u32] Alternate effect = "";
     [0x1C, bool32] Start active = "";
     [0x20, bool32] Tracked = "The effect can be stopped later.";
@@ -979,7 +1015,12 @@ class 0x470 PlatformGrappleSpring : 0x4D
 
 class 0x472 VerticalFogController : 0xCF
 {
-    [0x14, Volume] = "";
+    [0x14, Volume] Fog volume = "The volume the fog fills.";
+    [0x18, u8] Fog red = "";
+    [0x19, u8] Fog green = "";
+    [0x1A, u8] Fog blue = "";
+    [0x1C, float, runtime] Fog density = "";
+    [0x20, float, runtime] Fog height = "";
 }
 
 class 0x474 RotaterConstant : 0x185
@@ -1048,7 +1089,7 @@ class 0x4C4 space NPC : 0x47
 {
     [0x70, component(0x98)] Prompt = "The prompt shown near the object.";
     [0xC8, text] Prompt text = "Text of the prompt.";
-    [0xCC, Volume] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
+    [0xCC, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0xD4, float] Prompt range = "The prompt shows within this distance.";
     [0xE8, u32] Prompt value A = "";
     [0xF8, float] Prompt value B = "";
@@ -1262,7 +1303,7 @@ class 0x591 GenericPrompt : 0x47
 {
     [0x60, component(0x98)] Prompt = "The prompt shown near the object.";
     [0xB8, text] Prompt text = "Text of the prompt.";
-    [0xBC, Volume] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
+    [0xBC, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0xC4, float] Prompt range = "The prompt shows within this distance.";
     [0xD8, u32] Prompt value A = "";
     [0xE8, float] Prompt value B = "";
@@ -1348,7 +1389,7 @@ class 0x5D2 hoverboot_bolt_crank : 0x425
 
 class 0x5D3 Zoni : 0x181
 {
-    [0x920, u32] = "Used by the script function zoni_set_forced_idle.";
+    [0x920, u32] 409 = "409 on all zonis. Used by script functions related to zoni.";
     [0xB90, u32] Forced idle = "Used by the script function zoni_set_forced_idle.";
     [0xB94, u32] Forced idle = "Used by the script function zoni_set_forced_idle.";
     [0xB98, u32] Forced idle = "Used by the script function zoni_set_forced_idle.";
@@ -1690,7 +1731,7 @@ class 0x6D7 vacuum pad / transport tube : 0x47
     [0x60, Controller] Camera = "";
     [0x68, component(0x98)] Prompt = "The prompt shown near the object.";
     [0xC0, text] Prompt text = "Text of the prompt.";
-    [0xC4, ref] Prompt volume = "The prompt shows while the hero is inside. Used when the range is 0.";
+    [0xC4, ref] Prompt volume = "The prompt also shows while the hero is inside.";
     [0xCC, float] Prompt range = "The prompt shows within this distance.";
     [0xE0, u32] Prompt value A = "";
     [0xF0, float] Prompt value B = "";
@@ -1706,6 +1747,9 @@ class 0x6DC zolar_bridge_chunks : 0x47
 
 class 0x6E0 nefarious_dropship : 0x181
 {
+    [0x1218, ref list] Actions = "Its flight and drop steps.";
+    [0x121C, u32, runtime] Action count = "";
+    [0x1220, u32, runtime] Action list = "";
 }
 
 class 0x6E3 SpaceAsteroidField : 0xCF
@@ -1866,7 +1910,7 @@ class 0x75E SpaceAttackController (Nefarious) : 0x714
 
 class 0x75F SpaceDefenseSatellite : 0x238
 {
-    [0x4D0, Controller] Attack controller = "Sends enemy ships when the satellite spots the player.";
+    [0x4D0, Controller] Attack controller = "Controller for waves, enemies types, health...";
     [0x4D4, Volume] Detection volume = "The ship inside it is spotted.";
     [0x4D8, Volume] Tracking volume = "The ship stays tracked until it leaves it.";
     [0x4DC, u32] Value = "";
@@ -1878,7 +1922,7 @@ class 0x762 jn_axm_planter_breakable : 0x569
 
 class 0x765 Vorselon's ship : 0x47
 {
-    [0x60, component(0x60)] Embedded SpaceAttackController = "";
+    [0x80, float] = "";
     [0xD4, Volume] Inner volume = "";
     [0xD8, Volume] Outer volume = "";
 }
@@ -1966,6 +2010,10 @@ class 0x7A3 hangar_chunk : 0xCF
 class 0x7A5 SpaceJumpingFireball : 0x47
 {
     [0x84, float] = "Roles open).";
+    [0x88, float] = "";
+    [0x8C, float] = "";
+    [0x90, float] = "";
+    [0x94, float] = "";
 }
 
 class 0x7B0 kb_gc_platform_gun_hazard : 0x3ED
@@ -2044,7 +2092,17 @@ class 0x7F4 breaking_floor : 0x47
 
 class 0x7F8 timeslowcontroller : 0xCF
 {
-    [0x18, Volume] = "";
+    [0x18, Volume] Time slow volume = "Time slows inside.";
+    [0x1C, u32, runtime] Time slow handle = "";
+    [0x20, u16] Start active = "";
+    [0x22, u16] Time slow flags = "";
+    [0x24, float] Time scale = "";
+    [0x28, float] Tint near = "";
+    [0x2C, float] Tint far = "";
+    [0x30, float] Tint value A = "";
+    [0x34, float] Tint value B = "";
+    [0x38, float] Tint value C = "";
+    [0x3C, float] Tint value D = "";
 }
 
 class 0x800 security_module : 0x47
@@ -2270,6 +2328,18 @@ class 0x8A8 SpaceBillboard : 0x238
 
 class 0x8A9 infocontroller : 0xCF
 {
+    [0x18, component(0x98)] Prompt = "The prompt shown near the exhibit.";
+    [0x70, text] Prompt text = "Text of the prompt.";
+    [0x74, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0x7C, float] Prompt range = "The prompt shows within this distance.";
+    [0x90, u32] Prompt value A = "";
+    [0xA0, float] Prompt value B = "";
+    [0xAC, u8, runtime] Prompt 3D distance = "";
+    [0xAD, u8, runtime] Prompt enabled = "";
+    [0xAE, u8, runtime] Prompt showing = "";
+    [0xAF, u8, runtime] Prompt button state = "";
+    [0xB0, text] Title = "Title of the info screen.";
+    [0xB4, text] Body = "Text of the info screen.";
 }
 
 class 0x8B6 cluenowater : 0x11D

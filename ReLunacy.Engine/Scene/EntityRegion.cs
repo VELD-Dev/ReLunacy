@@ -12,6 +12,10 @@ public class EntityRegion : IDisposable
     public readonly EntityCluster Cameras;
     /// <summary>The region's paths (splines), drawn as lines.</summary>
     public readonly EntityCluster Paths;
+    /// <summary>The region's other controllers (sound environments, info prompts, FX...), drawn as small diamonds.</summary>
+    public readonly EntityCluster ControllerInstances;
+    /// <summary>All of the region's controllers, cameras or not, in table order.</summary>
+    public readonly IReadOnlyList<Assets.LevelElements.GameplayController> Controllers;
     public readonly List<EntityZone> Zones = [];
 
     public int ZonesCount => Zones.Count;
@@ -54,10 +58,12 @@ public class EntityRegion : IDisposable
         foreach (var volume in region.Volumes)
             Volumes.Add(volume, gd);
 
+        Controllers = region.Controllers;
         Cameras = new EntityCluster([], assetManager);
+        ControllerInstances = new EntityCluster([], assetManager);
         foreach (var controller in region.Controllers)
-            if (controller.IsCamera)
-                Cameras.Add(new EntityCamera(controller));
+            if (controller.IsCamera) Cameras.Add(new EntityCamera(controller));
+            else ControllerInstances.Add(new EntityController(controller));
 
         Paths = new EntityCluster([], assetManager);
         foreach (var path in region.Paths)
@@ -89,14 +95,146 @@ public class EntityRegion : IDisposable
         return true;
     }
 
+    // --- Who names whom -------------------------------------------------------------------------------
+
+    private Dictionary<(string Kind, int Index), Entity>? _byReference;
+    private Dictionary<(string Kind, int Index), List<InstanceUser>>? _users;
+    private Dictionary<Entity, Entity>? _owners;
+
+    /// <summary>The entity a reference names: its kind and its place in that kind's table (names repeat, so they
+    /// cannot stand for it). A Clue is its volume. Null for what is not an entity (Pods, Areas, Scents).</summary>
+    public Entity? Find(string kind, int index)
+    {
+        if (index < 0) return null;
+        if (_byReference == null)
+        {
+            var map = new Dictionary<(string, int), Entity>();
+            foreach (var e in MobyInstances.Entities.OfType<EntityMoby>()) map.TryAdd(("Moby", e.GameplayIndex), e);
+            foreach (var e in Volumes.Entities.OfType<EntityVolume>())
+            {
+                map.TryAdd(("Volume", e.BaseVolume.Index), e);
+                if (e.BaseVolume.Clue is { } clue) map.TryAdd(("Clue", clue.Index), e);
+            }
+            foreach (var e in Cameras.Entities.Concat(ControllerInstances.Entities).OfType<EntityController>())
+                map.TryAdd(("Controller", e.Controller.Index), e);
+            foreach (var e in Paths.Entities.OfType<EntityPath>()) map.TryAdd(("Path", e.Path.Index), e);
+            _byReference = map;
+        }
+        return _byReference.GetValueOrDefault((kind, index));
+    }
+
+    /// <summary>Every Clue, controller and Moby whose settings name the instance, in a field or a list's entry, one
+    /// per reference. Built once from the references read at load.</summary>
+    public IReadOnlyList<InstanceUser> UsersOf(string kind, int index)
+    {
+        if (_users == null)
+        {
+            var users = new Dictionary<(string, int), List<InstanceUser>>();
+            void Add(InstanceUser user)
+            {
+                var key = (user.Reference.Kind, user.Reference.Index);
+                if (!users.TryGetValue(key, out var list)) users[key] = list = [];
+                list.Add(user);
+            }
+            foreach (var volume in Volumes.Entities.OfType<EntityVolume>())
+                if (volume.BaseVolume.Clue is { } clue)
+                    foreach (var reference in clue.References)
+                        Add(new InstanceUser("Clue", clue.Name, clue.Index, clue.Class, clue.ClassName, reference));
+            foreach (var controller in Controllers)
+                foreach (var reference in controller.References)
+                    Add(new InstanceUser("Controller", controller.Name, controller.Index, controller.Class, controller.ClassName, reference));
+            foreach (var moby in MobyInstances.Entities.OfType<EntityMoby>())
+            {
+                uint cls = moby.Settings.Length >= 4 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(moby.Settings) : 0;
+                foreach (var reference in moby.References)
+                    Add(new InstanceUser("Moby", moby.Name, moby.GameplayIndex, cls, moby.BaseMoby.Name?.Split('/')[^1] ?? "Moby", reference));
+            }
+            _users = users;
+        }
+        return _users.TryGetValue((kind, index), out var found) ? found : [];
+    }
+
+    /// <summary>The editor layer an instance was placed in; null for what has none (the old engine, Ties).</summary>
+    public string? LayerOf(Entity entity) => entity switch
+    {
+        EntityMoby moby => moby.Group < Layers.Count ? Layers[moby.Group] : null,
+        EntityVolume volume => volume.BaseVolume.Layer,
+        EntityController controller => controller.Controller.Layer,
+        EntityPath path => path.Path.Layer,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The one instance a volume or a path belongs to: the only Clue, controller or Moby whose settings name it (a
+    /// SoundEnvironment's volumes, an infocontroller's prompt volume, a moon's area), when that owner is an entity of
+    /// the same layer. Null when several name it, none does, or the owner is elsewhere. A Clue's volume counts what
+    /// names the Clue too. Ownership never loops: a link that would close a loop is dropped.
+    /// </summary>
+    public Entity? OwnerOf(Entity entity)
+    {
+        if (_owners == null)
+        {
+            var owners = new Dictionary<Entity, Entity>(ReferenceEqualityComparer.Instance);
+            void Consider(Entity child, IEnumerable<InstanceUser> users)
+            {
+                // A Clue naming its own volume does not own it.
+                var distinct = users.Select(u => (u.Kind, u.Index)).Distinct().Where(u => !ReferenceEquals(Find(u.Kind, u.Index), child)).ToList();
+                if (distinct.Count != 1 || Find(distinct[0].Kind, distinct[0].Index) is not { } owner) return;
+                if (LayerOf(owner) is not { } layer || layer != LayerOf(child)) return;
+                owners[child] = owner;
+            }
+            foreach (var volume in Volumes.Entities.OfType<EntityVolume>())
+            {
+                var users = UsersOf("Volume", volume.BaseVolume.Index).AsEnumerable();
+                if (volume.BaseVolume.Clue is { } clue) users = users.Concat(UsersOf("Clue", clue.Index));
+                Consider(volume, users);
+            }
+            foreach (var path in Paths.Entities.OfType<EntityPath>())
+                Consider(path, UsersOf("Path", path.Path.Index));
+            foreach (var child in owners.Keys.ToList())
+                for (var up = owners.GetValueOrDefault(child); up != null; up = owners.GetValueOrDefault(up))
+                    if (ReferenceEquals(up, child)) { owners.Remove(child); break; }
+            _owners = owners;
+        }
+        return _owners.GetValueOrDefault(entity);
+    }
+
+    /// <summary>The Pods a Moby is in, in table order.</summary>
+    public IEnumerable<(EntityPod Pod, int Index)> PodsOf(EntityMoby moby) =>
+        Pods.Select((pod, i) => (pod, i)).Where(p => p.pod.Contains(moby));
+
+    /// <summary>The Areas an instance is in (volumes and paths), by their place in the Area table.</summary>
+    public IReadOnlyList<int> AreasOf(Entity entity) => entity switch
+    {
+        EntityVolume volume => volume.BaseVolume.AreaIndexes,
+        EntityPath path => path.Path.AreaIndexes,
+        _ => [],
+    };
+
+    /// <summary>The Scents a Clue is in, by their place in the Scent table.</summary>
+    public IReadOnlyList<int> ScentsOf(Entity entity) => entity is EntityVolume volume ? volume.BaseVolume.ScentIndexes : [];
+
+    private IReadOnlyList<string>? _areaNames, _scentNames;
+    public IReadOnlyList<string> AreaNames => _areaNames ??= [.. References.Names("Area")];
+    public IReadOnlyList<string> ScentNames => _scentNames ??= [.. References.Names("Scent")];
+
     public void Dispose()
     {
         MobyInstances.Dispose();
         Volumes.Dispose();
         Cameras.Dispose();
+        ControllerInstances.Dispose();
         Paths.Dispose();
         foreach (var z in Zones) z.Dispose();
         Zones.Clear();
         GC.SuppressFinalize(this);
     }
 }
+
+/// <summary>A Clue, controller or Moby whose settings name another instance (<see cref="EntityRegion.UsersOf"/>).</summary>
+/// <param name="Kind">Clue, Controller or Moby.</param>
+/// <param name="Index">Its place in its kind's table.</param>
+/// <param name="ClassName">The class's name where it is known (a Clue's, a Moby's asset); null for a controller whose
+/// class the game's table does not name.</param>
+public sealed record InstanceUser(string Kind, string Name, int Index, uint Class, string? ClassName,
+    Assets.LevelElements.ClueReference Reference);

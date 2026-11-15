@@ -19,6 +19,13 @@ public enum ClassFieldKind
     Enum,
     /// <summary>An embedded object: the field is its first byte, <see cref="ClassField.Length"/> its size.</summary>
     Component,
+    /// <summary>A pointer to a list of references kept outside the struct (four bytes, an offset in the settings
+    /// block, never a number to edit); <see cref="ClassField.TypeName"/> says of which kind.</summary>
+    ReferenceList,
+    /// <summary>A sound the level can play: a SoundSpecs id (u32).</summary>
+    Sound,
+    /// <summary>An effect the level can play: a Tags key its fxconduit maps to an effect (u32).</summary>
+    Effect,
 }
 
 /// <summary>One documented field of a class's settings.</summary>
@@ -26,7 +33,7 @@ public enum ClassFieldKind
 /// <param name="Offset">Offset in the settings, which start with the class number.</param>
 /// <param name="Length">Bytes the field covers.</param>
 /// <param name="RunTime">The game overwrites the field when the level starts, so the editor shows it read-only.</param>
-/// <param name="TypeName">For a reference the kind it must name (Moby, Path, Volume, Clue, Controller, Scent, Area,
+/// <param name="TypeName">For a reference or a reference list the kind it must name (Moby, Path, Volume, Clue, Controller, Scent, Area,
 /// Pod; null for any); for an enum the name of its <see cref="ClassEnum"/>.</param>
 public sealed record ClassField(uint Owner, int Offset, int Length, ClassFieldKind Kind, bool RunTime,
     string Name, string Description, string? TypeName = null)
@@ -41,7 +48,10 @@ public sealed record ClassField(uint Owner, int Offset, int Length, ClassFieldKi
         ClassFieldKind.F32 => "float",
         ClassFieldKind.Bool => Length == 1 ? "bool" : "bool32",
         ClassFieldKind.TextId => "text",
+        ClassFieldKind.Sound => "sound",
+        ClassFieldKind.Effect => "effect",
         ClassFieldKind.Reference => TypeName ?? "ref",
+        ClassFieldKind.ReferenceList => (TypeName ?? "ref") + " list",
         ClassFieldKind.Enum => TypeName ?? "u32",
         _ => $"component(0x{Length:X})",
     };
@@ -194,8 +204,8 @@ public sealed class NamedNumbers
 ///   }
 ///
 /// A field is [offset, type] or [offset, type, runtime], a name, and a description in quotes. Types: u8 u16 u32 s32
-/// float bool bool32 text (a text id), ref (any instance) or Moby Path Volume Clue Controller Scent Area Pod,
-/// component(size), or the name of an enum. A class inherits its parents' fields, so the file carries each class's
+/// float bool bool32 text (a text id), sound (a SoundSpecs id), effect (a Tags key of the level's effects), ref (any instance) or Moby Path Volume Clue Controller Scent Area Pod,
+/// any of those followed by "list" (a pointer to a list of them: "Volume list"), component(size), or the name of an enum. A class inherits its parents' fields, so the file carries each class's
 /// parent and needs no EBOOT. Lines starting with # are comments; a comment above a class, an enum or a field stays
 /// with it when the editor rewrites the file.
 /// </summary>
@@ -208,7 +218,7 @@ public static class ClassFields
         public List<string> Header = [];
         public readonly Dictionary<uint, int> Parents = [];
         public readonly Dictionary<uint, string> Names = [];
-        public readonly Dictionary<uint, SortedDictionary<int, ClassField>> Own = [];
+        public readonly Dictionary<uint, SortedDictionary<(int Offset, bool Field), ClassField>> Own = [];
         public readonly Dictionary<string, ClassEnum> Enums = new(StringComparer.Ordinal);
         public readonly Dictionary<string, List<string>> Comments = new(StringComparer.Ordinal);
         public readonly Dictionary<uint, IReadOnlyList<ClassField>> All = [];
@@ -216,6 +226,9 @@ public static class ClassFields
 
     private static readonly object Lock = new();
     private static readonly Dictionary<GameId, Table> Games = [];
+
+    // An embedded object starts at the same byte as its first field: both are kept, the object first.
+    private static (int Offset, bool Field) KeyOf(ClassField field) => (field.Offset, field.Kind != ClassFieldKind.Component);
 
     private static Table Load(GameId id)
     {
@@ -265,20 +278,26 @@ public static class ClassFields
         lock (Lock)
         {
             if (table.All.TryGetValue(cls, out var cached)) return cached;
-            var fields = new Dictionary<int, ClassField>();
-            // The nearest class wins an offset two of them name.
+            var fields = new Dictionary<(int Offset, bool Field), ClassField>();
+            // The nearest class wins an offset two of them name, and the bytes of a field it declares: an
+            // ancestor's field overlapping them is left out.
             foreach (uint c in Chain(game, cls))
                 if (table.Own.TryGetValue(c, out var own))
-                    foreach (var (offset, field) in own) fields.TryAdd(offset, field);
-            return table.All[cls] = fields.Values.OrderBy(f => f.Offset).ToList();
+                {
+                    var nearer = fields.Values.Where(f => f.Kind != ClassFieldKind.Component).ToList();
+                    foreach (var (key, field) in own)
+                        if (field.Kind == ClassFieldKind.Component || !nearer.Any(f => Overlaps(f, field.Offset, field.Length)))
+                            fields.TryAdd(key, field);
+                }
+            return table.All[cls] = fields.OrderBy(f => f.Key).Select(f => f.Value).ToList();
         }
     }
 
-    /// <summary>The field that starts at <paramref name="offset"/>, when documented.</summary>
+    /// <summary>The field that starts at <paramref name="offset"/>, when documented (not an embedded object).</summary>
     public static ClassField? At(GameId? game, uint cls, int offset)
     {
         foreach (var field in Of(game, cls))
-            if (field.Offset == offset) return field;
+            if (field.Offset == offset && field.Kind != ClassFieldKind.Component) return field;
         return null;
     }
 
@@ -303,8 +322,22 @@ public static class ClassFields
 
     // ---------------------------------------------------------------- editing: every change is written to the file
 
-    /// <summary>Documents a field, or changes one. <paramref name="parent"/> declares the class when the table
-    /// does not have it yet.</summary>
+    private static bool Overlaps(ClassField field, int offset, int length) =>
+        field.Offset < offset + length && offset < field.Offset + field.Length;
+
+    /// <summary>The fields of <paramref name="owner"/> other than the one at <paramref name="offset"/> whose bytes a
+    /// field of <paramref name="length"/> there would cover: what <see cref="SetField"/> replaces.</summary>
+    public static IReadOnlyList<ClassField> Overlapping(GameId game, uint owner, int offset, int length)
+    {
+        var table = Load(game);
+        lock (Lock)
+            return table.Own.TryGetValue(owner, out var own)
+                ? own.Values.Where(f => f.Kind != ClassFieldKind.Component && f.Offset != offset && Overlaps(f, offset, length)).ToList()
+                : [];
+    }
+
+    /// <summary>Documents a field, or changes one; the class's other fields its bytes cover are removed.
+    /// <paramref name="parent"/> declares the class when the table does not have it yet.</summary>
     public static void SetField(GameId game, ClassField field, int? parent = null)
     {
         var table = Load(game);
@@ -312,19 +345,65 @@ public static class ClassFields
         {
             Declare(table, field.Owner, parent);
             if (!table.Own.TryGetValue(field.Owner, out var own)) table.Own[field.Owner] = own = [];
-            own[field.Offset] = field;
+            if (field.Kind != ClassFieldKind.Component)
+                foreach (var (key, covered) in own.ToList())
+                    if (key != KeyOf(field) && covered.Kind != ClassFieldKind.Component && Overlaps(covered, field.Offset, field.Length))
+                    {
+                        own.Remove(key);
+                        table.Comments.Remove(FieldKey(field.Owner, covered.Offset));
+                    }
+            own[KeyOf(field)] = field;
             Save(game, table);
         }
     }
 
-    /// <summary>Removes a field's documentation: the bytes go back to being undocumented.</summary>
-    public static void RemoveField(GameId game, uint owner, int offset)
+    /// <summary>
+    /// How a settings block of <paramref name="length"/> bytes splits into rows, by offset: each field that fits and
+    /// overlaps none before it, then the bytes no field covers, word by word. A word no field touches is one gap; what
+    /// fields leave of a word is cut at the size of the smallest of them, aligned, so a bool at +0 leaves three
+    /// one-byte gaps and a u16 at +0 one two-byte gap.
+    /// </summary>
+    public static List<(int Offset, int Size, ClassField? Field)> Layout(IEnumerable<ClassField> fields, int length, int start = 4)
+    {
+        var rows = new List<(int Offset, int Size, ClassField? Field)>();
+        var covered = new bool[Math.Max(length, 0)];
+        var smallest = new Dictionary<int, int>();
+        foreach (var field in fields.Where(f => f.Kind != ClassFieldKind.Component).OrderBy(f => f.Offset))
+        {
+            if (field.Offset < start || field.Length is < 1 or > 4 || field.Offset + field.Length > length) continue;
+            if (covered.AsSpan(field.Offset, field.Length).Contains(true)) continue;
+            for (int b = field.Offset; b < field.Offset + field.Length; b++)
+            {
+                covered[b] = true;
+                smallest[b & ~3] = Math.Min(smallest.GetValueOrDefault(b & ~3, 4), field.Length);
+            }
+            rows.Add((field.Offset, field.Length, field));
+        }
+        for (int word = (start + 3) & ~3; word + 4 <= length; word += 4)
+        {
+            int unit = smallest.GetValueOrDefault(word, 4);
+            for (int b = word; b < word + 4;)
+            {
+                if (covered[b]) { b++; continue; }
+                int size = unit;
+                while (size > 1 && (b % size != 0 || b + size > word + 4 || covered.AsSpan(b, size).Contains(true))) size /= 2;
+                rows.Add((b, size, null));
+                b += size;
+            }
+        }
+        rows.Sort((x, y) => x.Offset.CompareTo(y.Offset));
+        return rows;
+    }
+
+    /// <summary>Removes a field's documentation: the bytes go back to being undocumented. An embedded object at the
+    /// same offset stays unless <paramref name="component"/> asks for it.</summary>
+    public static void RemoveField(GameId game, uint owner, int offset, bool component = false)
     {
         var table = Load(game);
         lock (Lock)
         {
-            if (table.Own.TryGetValue(owner, out var own)) own.Remove(offset);
-            table.Comments.Remove(FieldKey(owner, offset));
+            if (table.Own.TryGetValue(owner, out var own)) own.Remove((offset, !component));
+            table.Comments.Remove(FieldKey(owner, offset, component));
             Save(game, table);
         }
     }
@@ -352,15 +431,15 @@ public static class ClassFields
                 if (table.Comments.Remove("enum " + renamedFrom, out var comment)) table.Comments["enum " + value.Name] = comment;
                 // The fields typed with it follow the new name.
                 foreach (var own in table.Own.Values)
-                    foreach (int offset in own.Keys.ToList())
-                        if (own[offset] is { Kind: ClassFieldKind.Enum } field && field.TypeName == renamedFrom)
-                            own[offset] = field with { TypeName = value.Name };
+                    foreach (var key in own.Keys.ToList())
+                        if (own[key] is { Kind: ClassFieldKind.Enum } field && field.TypeName == renamedFrom)
+                            own[key] = field with { TypeName = value.Name };
             }
             table.Enums[value.Name] = value;
             foreach (var own in table.Own.Values)
-                foreach (int offset in own.Keys.ToList())
-                    if (own[offset] is { Kind: ClassFieldKind.Enum } field && field.TypeName == value.Name && field.Length != value.Size)
-                        own[offset] = field with { Length = value.Size };
+                foreach (var key in own.Keys.ToList())
+                    if (own[key] is { Kind: ClassFieldKind.Enum } field && field.TypeName == value.Name && field.Length != value.Size)
+                        own[key] = field with { Length = value.Size };
             Save(game, table);
         }
     }
@@ -390,7 +469,7 @@ public static class ClassFields
 
     // ---------------------------------------------------------------- the file
 
-    private static string FieldKey(uint cls, int offset) => $"field {cls:X} {offset:X}";
+    private static string FieldKey(uint cls, int offset, bool component = false) => $"{(component ? "component" : "field")} {cls:X} {offset:X}";
 
     private static string Write(Table table)
     {
@@ -417,10 +496,10 @@ public static class ClassFields
             Comment($"class {cls:X}", "");
             text.Append($"class 0x{cls:X}{(name.Length > 0 ? " " + name : "")}{(parent >= 0 ? $" : 0x{parent:X}" : "")}\n{{\n");
             if (table.Own.TryGetValue(cls, out var own))
-                foreach (var (offset, field) in own)
+                foreach (var field in own.Values)
                 {
-                    Comment(FieldKey(cls, offset), "    ");
-                    text.Append($"    [0x{offset:X}, {field.TypeText}{(field.RunTime ? ", runtime" : "")}]");
+                    Comment(FieldKey(cls, field.Offset, field.Kind == ClassFieldKind.Component), "    ");
+                    text.Append($"    [0x{field.Offset:X}, {field.TypeText}{(field.RunTime ? ", runtime" : "")}]");
                     if (field.Name.Length > 0) text.Append(' ').Append(field.Name);
                     text.Append($" = \"{field.Description.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n")}\";\n");
                 }
@@ -507,15 +586,16 @@ public static class ClassFields
                 }
                 else name = rest.TrimEnd(';').Trim();
                 if (TypeOf(head[1], table.Enums) is not { } type) continue;
-                own[(int)offset] = new ClassField(cls, (int)offset, type.Length, type.Kind, runTime, name, description, type.TypeName);
-                Attach(FieldKey(cls, (int)offset));
+                var parsed = new ClassField(cls, (int)offset, type.Length, type.Kind, runTime, name, description, type.TypeName);
+                own[KeyOf(parsed)] = parsed;
+                Attach(FieldKey(cls, (int)offset, type.Kind == ClassFieldKind.Component));
             }
         }
         // An enum's size is known once the whole file is read: fields typed before their enum take it now.
         foreach (var own in table.Own.Values)
-            foreach (int offset in own.Keys.ToList())
-                if (own[offset] is { Kind: ClassFieldKind.Enum, TypeName: { } name } field && table.Enums.TryGetValue(name, out var e) && e.Size != field.Length)
-                    own[offset] = field with { Length = e.Size };
+            foreach (var key in own.Keys.ToList())
+                if (own[key] is { Kind: ClassFieldKind.Enum, TypeName: { } name } field && table.Enums.TryGetValue(name, out var e) && e.Size != field.Length)
+                    own[key] = field with { Length = e.Size };
     }
 
     /// <summary>A type as the file spells it. An unknown word is taken for an enum's name (four bytes until the
@@ -532,9 +612,13 @@ public static class ClassFields
             case "bool": return (ClassFieldKind.Bool, 1, null);
             case "bool32": return (ClassFieldKind.Bool, 4, null);
             case "text": return (ClassFieldKind.TextId, 4, null);
+            case "sound": return (ClassFieldKind.Sound, 4, null);
+            case "effect": return (ClassFieldKind.Effect, 4, null);
             case "ref": return (ClassFieldKind.Reference, 4, null);
         }
         if (ReferenceKinds.Contains(text)) return (ClassFieldKind.Reference, 4, text);
+        if (text.EndsWith(" list", StringComparison.Ordinal) && text[..^5].Trim() is var listed && (listed == "ref" || ReferenceKinds.Contains(listed)))
+            return (ClassFieldKind.ReferenceList, 4, listed == "ref" ? null : listed);
         if (text.StartsWith("component(", StringComparison.Ordinal) && text.EndsWith(')') && TryNumber(text[10..^1], out long size))
             return (ClassFieldKind.Component, (int)size, null);
         if (text.Length == 0 || !(char.IsLetter(text[0]) || text[0] == '_')) return null;

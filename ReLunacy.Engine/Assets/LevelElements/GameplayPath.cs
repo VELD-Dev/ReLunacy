@@ -30,6 +30,8 @@ public sealed class GameplayPath
     /// <summary>What gave the role: the instance that references the path, or null when it came from the name.</summary>
     public string? RoleSource { get; set; }
     public IReadOnlyList<GameplayPathPoint> Points { get; init; } = [];
+    /// <summary>The Areas listing this path, by their place in the region's Area table.</summary>
+    public List<int> AreaIndexes { get; } = [];
 }
 
 /// <summary>

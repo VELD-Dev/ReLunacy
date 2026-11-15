@@ -49,8 +49,14 @@ public class Volume : IVolumeData
     /// <summary>The Areas listing this volume (an Area groups paths and volumes).</summary>
     public List<string> Areas { get; } = [];
 
+    /// <summary>The same Areas by their place in the region's Area table, which is what a reference names.</summary>
+    public List<int> AreaIndexes { get; } = [];
+
     /// <summary>The Scents listing this volume's Clue (a Scent groups Clues).</summary>
     public List<string> Scents { get; } = [];
+
+    /// <summary>The same Scents by their place in the region's Scent table.</summary>
+    public List<int> ScentIndexes { get; } = [];
 
     public Volume(ulong id, Matrix4x4 transform, string? name = null, ushort group = 0, VolumeShape shape = VolumeShape.Box)
     {
@@ -86,4 +92,13 @@ public sealed record VolumeClue(uint Class, string Name, string ClassName)
 /// <param name="Kind">Moby, Path, Volume, Clue, Controller, Scent, Area or Pod.</param>
 /// <param name="Name">The instance's name, for display: several instances of a kind can share one.</param>
 /// <param name="Index">The instance's place in its kind's table, which is what tells it from its namesakes.</param>
-public sealed record ClueReference(int Offset, string Kind, string Name, int Index);
+/// <param name="Item">-1 for a reference in the struct itself; else the entry, from 0, of the list the pointer field
+/// at <paramref name="Offset"/> points to (kept outside the struct, so the word is not in the settings bytes).</param>
+public sealed record ClueReference(int Offset, string Kind, string Name, int Index, int Item = -1)
+{
+    /// <summary>The reference is an entry of a list, not a word of the struct.</summary>
+    public bool InList => Item >= 0;
+
+    /// <summary>Where it is, for display: +0x74, or +0x28[3] for a list's entry.</summary>
+    public string Location => InList ? $"+0x{Offset:X}[{Item}]" : $"+0x{Offset:X}";
+}

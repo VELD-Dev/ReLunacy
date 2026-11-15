@@ -18,8 +18,13 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// no layers: its zones hold the Ties, and the rest goes in a folder per type.
 ///
 /// Inside a layer, Mobys and Ties can be grouped by their asset, or by the asset's folder and then the asset
-/// (rock, architecture, characters/enemy...: the asset's path), volumes by Clue class and cameras by class. Pods
-/// are not folders: most Mobys are in several (crates_all and crates_start_area both hold the same crates).
+/// (rock, architecture, characters/enemy...: the asset's path), volumes by Clue class and controllers by class.
+/// A volume or a path that one instance of its layer alone names in its settings (a SoundEnvironment's volumes,
+/// an infocontroller's prompt volume, a moon's area: EntityRegion.OwnerOf) is a row under that instance.
+///
+/// "Group by" swaps the layers for the Pods (their Mobys), the Areas (their volumes and paths), the Scents (their
+/// Clues) or the types. These overlap - crates_all and crates_start_area hold the same crates - so an instance shows
+/// once per group it is in, with a last folder for those in none.
 ///
 /// The rows are drawn through a list clipper, so a zone's thousands of Ties cost only the rows on screen.
 /// </summary>
@@ -33,8 +38,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private enum Kinds
     {
         None = 0,
-        Mobys = 1, Ties = 2, UFrags = 4, Volumes = 8, Cameras = 16, Paths = 32, Navmesh = 64,
-        All = Mobys | Ties | UFrags | Volumes | Cameras | Paths | Navmesh,
+        Mobys = 1, Ties = 2, UFrags = 4, Volumes = 8, Cameras = 16, Paths = 32, Navmesh = 64, Controllers = 128,
+        All = Mobys | Ties | UFrags | Volumes | Cameras | Paths | Navmesh | Controllers,
     }
 
     private enum Grouping { None, Asset, AssetFolder }
@@ -47,6 +52,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         (Kinds.UFrags, Icons.MountainSun, "GUI_Frame_EntityExplorer_UFrags", new(0.55f, 0.85f, 0.55f, 1f)),
         (Kinds.Volumes, Icons.VectorSquare, "GUI_Frame_EntityExplorer_Volumes", new(0.95f, 0.6f, 0.6f, 1f)),
         (Kinds.Cameras, Icons.Camera, "GUI_Frame_EntityExplorer_Cameras", new(0.95f, 0.85f, 0.45f, 1f)),
+        (Kinds.Controllers, Icons.Gear, "GUI_Frame_EntityExplorer_Controllers", new(0.75f, 0.75f, 0.95f, 1f)),
         (Kinds.Paths, Icons.BezierCurve, "GUI_Frame_EntityExplorer_Paths", new(0.9f, 0.6f, 0.95f, 1f)),
         (Kinds.Navmesh, Icons.Route, "GUI_Frame_EntityExplorer_Navmesh", new(0.5f, 0.85f, 0.85f, 1f)),
     ];
@@ -71,6 +77,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         public int Order;
         /// <summary>An asset (or class) group, rather than a layer or type folder.</summary>
         public bool IsGroup;
+        /// <summary>What opens or closes it: a folder's key, or an entity row's own when instances are nested under it.</summary>
+        public string OpenKey => Entity == null ? Key : $"{Key}/@{Entity.ID}";
     }
 
     private Node _root = new() { Key = "", Label = "" };
@@ -85,13 +93,24 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private Grouping _grouping = Grouping.Asset;
     private string _search = "";
     private string _appliedSearch = "";
-    private bool _dirty;
+    private bool _dirty = true;
     private int _totalCount;
 
     private Entity? _lastSelected;
     private Entity? _scrollTo;
-    /// <summary>Where a Shift+click range starts: the last row clicked without Shift.</summary>
+    /// <summary>A folder to scroll to (the inspector's link to a Pod, an Area or a Scent).</summary>
+    private string? _scrollToKey;
+    /// <summary>Where a Shift+click range starts: the last row clicked without Shift, and its row (an instance can
+    /// have several).</summary>
     private Entity? _anchor;
+    private int _anchorRow = -1;
+
+    /// <summary>The chosen Group by, and the one the tree is built with (Layer where the level has no such groups).</summary>
+    private HierarchyGroupBy _groupBy = Program.Settings.HierarchyGroupBy;
+    private HierarchyGroupBy _builtGroupBy;
+    private int _podVersion;
+    /// <summary>A group to open once the tree is rebuilt: its region and its place in its table.</summary>
+    private (EntityRegion Region, int Index)? _reveal;
 
     public BasicEntityExplorer()
     {
@@ -101,13 +120,17 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     protected override void Render(double deltaTime)
     {
         DrawToolbar();
+        // Grouped by Pod, an edit of a Pod's members rebuilds the tree.
+        int podVersion = _builtGroupBy == HierarchyGroupBy.Pod ? EntityManager.Singleton.Regions.Sum(r => r.Pods.Sum(p => p.Version)) : 0;
+        if (podVersion != _podVersion) { _podVersion = podVersion; _dirty = true; }
         if (_dirty || _search != _appliedSearch) Rebuild();
+        if (_reveal != null) RevealGroup();
         RevealSelection();
 
         ImGui.BeginChild("hierarchy_tree", ImGui.GetContentRegionAvail());
         // Ctrl+A: everything the tree holds (what the search and the type filter leave).
         if (ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows) && !ImGui.GetIO().WantTextInput && ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.A, false))
-            SelectionManager.Singleton.Set(Entities(_root).ToList(), SelectionManager.Singleton.SelectedEntity);
+            SelectionManager.Singleton.Set(Entities(_root).Distinct().ToList(), SelectionManager.Singleton.SelectedEntity);
         if (_root.Children.Count == 0)
             ImGui.TextDisabled(LM.Get(_totalCount == 0 ? "GUI_Frame_EntityExplorer_Empty" : "GUI_Frame_EntityExplorer_NoMatches"));
         else
@@ -121,9 +144,19 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
 
     private void DrawToolbar()
     {
-        float grouping = 130f;
-        ImGui.SetNextItemWidth(MathF.Max(80f, ImGui.GetContentRegionAvail().X - grouping - ImGui.GetStyle().ItemSpacing.X));
+        float grouping = 120f, groupBy = 80f;
+        ImGui.SetNextItemWidth(MathF.Max(80f, ImGui.GetContentRegionAvail().X - grouping - groupBy - ImGui.GetStyle().ItemSpacing.X * 2f));
         ImGui.InputTextWithHint("##search", $"{Icons.Search}  {LM.Get("GUI_Frame_EntityExplorer_SearchEntities")}", ref _search, 128);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(groupBy);
+        if (ImGui.BeginCombo("##group_by", GroupByLabel(_groupBy)))
+        {
+            foreach (var mode in Enum.GetValues<HierarchyGroupBy>())
+                if (ImGui.Selectable(GroupByLabel(mode), mode == _groupBy, Available(mode) ? ImGuiSelectableFlags.None : ImGuiSelectableFlags.Disabled))
+                    SetGroupBy(mode);
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_EntityExplorer_GroupBy"));
         ImGui.SameLine();
         ImGui.SetNextItemWidth(grouping);
         string[] groupings =
@@ -166,7 +199,62 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         ImGui.SameLine();
         if (ImGui.Button(Icons.Eye + "##show_all")) ShowEverything();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_EntityExplorer_ShowAll"));
+        // The groups hold one kind each: say which.
+        string? hint = _builtGroupBy switch
+        {
+            HierarchyGroupBy.Pod => "GUI_Frame_EntityExplorer_PodHint",
+            HierarchyGroupBy.Area => "GUI_Frame_EntityExplorer_AreaHint",
+            HierarchyGroupBy.Scent => "GUI_Frame_EntityExplorer_ScentHint",
+            _ => null,
+        };
+        if (hint != null) ImGui.TextDisabled(LM.Get(hint));
         ImGui.Separator();
+    }
+
+    private static string GroupByLabel(HierarchyGroupBy mode) => LM.Get($"GUI_Frame_EntityExplorer_GroupBy{mode}");
+
+    /// <summary>Whether the level has the groups (the old engine has no Pods, Areas or Scents).</summary>
+    private static bool Available(HierarchyGroupBy mode) => mode switch
+    {
+        HierarchyGroupBy.Pod => EntityManager.Singleton.Regions.Any(r => r.Pods.Count > 0),
+        HierarchyGroupBy.Area => EntityManager.Singleton.Regions.Any(r => r.AreaNames.Count > 0),
+        HierarchyGroupBy.Scent => EntityManager.Singleton.Regions.Any(r => r.ScentNames.Count > 0),
+        _ => true,
+    };
+
+    private void SetGroupBy(HierarchyGroupBy mode)
+    {
+        if (mode == _groupBy) return;
+        _groupBy = mode;
+        _dirty = true;
+        Program.Settings.HierarchyGroupBy = mode;
+        Program.Settings.SaveSettingsToFile();
+    }
+
+    /// <summary>Shows a Pod, an Area or a Scent (<paramref name="mode"/>): the tree grouped by its kind, its folder
+    /// open and scrolled to.</summary>
+    public void RevealGroup(HierarchyGroupBy mode, EntityRegion region, int index)
+    {
+        SetGroupBy(mode);
+        _reveal = (region, index);
+        Focus();
+    }
+
+    private void RevealGroup()
+    {
+        var (region, index) = _reveal!.Value;
+        _reveal = null;
+        string prefix = EntityManager.Singleton.Regions.Count > 1 ? "/" + region.RegionName : "";
+        string id = _builtGroupBy switch
+        {
+            HierarchyGroupBy.Pod => $"pod#{index}",
+            HierarchyGroupBy.Area => $"area#{index}",
+            HierarchyGroupBy.Scent => $"scent#{index}",
+            _ => "",
+        };
+        if (!_folders.TryGetValue($"{prefix}/{id}", out var folder)) return;
+        for (var node = folder; node != null && node != _root; node = node.Parent) _open.Add(node.OpenKey);
+        _scrollToKey = folder.Key;
     }
 
     private void DrawTree()
@@ -175,16 +263,21 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         Flatten(_root, 0);
 
         float rowHeight = ImGui.GetTextLineHeightWithSpacing();
-        if (_scrollTo != null)
+        if (_scrollTo != null || _scrollToKey != null)
         {
-            int index = _rows.FindIndex(r => ReferenceEquals(r.Node.Entity, _scrollTo));
+            // An instance in several groups: its first row.
+            int index = _scrollTo != null
+                ? _rows.FindIndex(r => ReferenceEquals(r.Node.Entity, _scrollTo))
+                : _rows.FindIndex(r => r.Node.Entity == null && r.Node.Key == _scrollToKey);
             if (index >= 0)
             {
                 float top = index * rowHeight, view = ImGui.GetWindowHeight();
-                if (top < ImGui.GetScrollY() || top + rowHeight > ImGui.GetScrollY() + view)
+                if (_scrollToKey != null) ImGui.SetScrollY(top);
+                else if (top < ImGui.GetScrollY() || top + rowHeight > ImGui.GetScrollY() + view)
                     ImGui.SetScrollY(top - view * 0.5f);
             }
             _scrollTo = null;
+            _scrollToKey = null;
         }
 
         Entity? editedPath = (SelectionManager.Singleton.SelectedEntity as EntityPathPoint)?.Owner;
@@ -201,7 +294,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
                 float x = startX + depth * indent;
                 ImGui.SetCursorPosX(x);
                 if (node.Entity == null) DrawFolder(node, x);
-                else DrawEntity(node, x, node.Entity.selected || ReferenceEquals(node.Entity, editedPath));
+                else DrawEntity(node, i, x, node.Entity.selected || ReferenceEquals(node.Entity, editedPath));
             }
         }
         clipper.End();
@@ -212,7 +305,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         foreach (var child in parent.Children)
         {
             _rows.Add((child, depth));
-            if (child.Entity == null && _open.Contains(child.Key)) Flatten(child, depth + 1);
+            if (child.Children.Count > 0 && _open.Contains(child.OpenKey)) Flatten(child, depth + 1);
         }
     }
 
@@ -247,9 +340,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     {
         if (!ImGui.BeginPopupContextItem($"folder_menu_{node.Key}")) return;
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_SelectContents")))
-            SelectionManager.Singleton.Set(Entities(node).ToList());
+            SelectionManager.Singleton.Set(Entities(node).Distinct().ToList());
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_AddContents")))
-            SelectionManager.Singleton.Set([.. SelectionManager.Singleton.Selection, .. Entities(node)], SelectionManager.Singleton.SelectedEntity);
+            SelectionManager.Singleton.Set([.. SelectionManager.Singleton.Selection, .. Entities(node).Distinct()], SelectionManager.Singleton.SelectedEntity);
         ImGui.Separator();
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_ShowContents"), "", false, node.Hidden > 0)) SetVisible(Entities(node), true);
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_HideContents"), "", false, node.Hidden < node.Count)) SetVisible(Entities(node), false);
@@ -287,7 +380,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         var em = EntityManager.Singleton;
         foreach (var region in em.Regions)
         {
-            foreach (var cluster in new[] { region.MobyInstances, region.Volumes, region.Cameras, region.Paths })
+            foreach (var cluster in new[] { region.MobyInstances, region.Volumes, region.Cameras, region.ControllerInstances, region.Paths })
                 foreach (var e in cluster.Entities) e.allowRender = true;
             foreach (var zone in region.Zones)
             {
@@ -300,12 +393,14 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         Recount(_root);
     }
 
+    /// <summary>The entities below, rows nested under an instance included; an instance in several groups once per
+    /// group.</summary>
     private static IEnumerable<Entity> Entities(Node node)
     {
         foreach (var child in node.Children)
         {
             if (child.Entity != null) yield return child.Entity;
-            else foreach (var e in Entities(child)) yield return e;
+            foreach (var e in Entities(child)) yield return e;
         }
     }
 
@@ -313,7 +408,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     {
         int hidden = 0;
         foreach (var child in node.Children)
-            hidden += child.Entity != null ? (child.Entity.allowRender ? 0 : 1) : Recount(child);
+            hidden += (child.Entity is { allowRender: false } ? 1 : 0) + Recount(child);
         node.Hidden = hidden;
         return hidden;
     }
@@ -322,20 +417,39 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     {
         foreach (var child in node.Children)
         {
-            if (child.Entity != null) continue;
-            if (open) _open.Add(child.Key); else _open.Remove(child.Key);
+            if (child.Children.Count == 0) continue;
+            if (open) _open.Add(child.OpenKey); else _open.Remove(child.OpenKey);
             SetOpenBelow(child, open);
         }
     }
 
-    private void DrawEntity(Node node, float x, bool selected)
+    private void DrawEntity(Node node, int row, float x, bool selected)
     {
         var entity = node.Entity!;
-        x += ImGui.GetTreeNodeToLabelSpacing();
-        ImGui.SetCursorPosX(x);
-        if (ImGui.Selectable($"##{entity.ID}_{node.Key}", selected, ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.AllowOverlap))
+        bool clicked;
+        if (node.Children.Count > 0)
         {
-            Click(entity);
+            // An instance with instances nested under it: an arrow as a folder's, the rest of the row selects it.
+            bool open = _open.Contains(node.OpenKey);
+            ImGui.SetNextItemOpen(open, ImGuiCond.Always);
+            bool nowOpen = ImGui.TreeNodeEx($"##{entity.ID}_{node.Key}", ImGuiTreeNodeFlags.NoTreePushOnOpen | ImGuiTreeNodeFlags.SpanAvailWidth
+                | ImGuiTreeNodeFlags.OpenOnArrow | ImGuiTreeNodeFlags.AllowOverlap | (selected ? ImGuiTreeNodeFlags.Selected : ImGuiTreeNodeFlags.None));
+            if (nowOpen != open)
+            {
+                if (nowOpen) _open.Add(node.OpenKey); else _open.Remove(node.OpenKey);
+            }
+            clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left) && !ImGui.IsItemToggledOpen();
+            x += ImGui.GetTreeNodeToLabelSpacing();
+        }
+        else
+        {
+            x += ImGui.GetTreeNodeToLabelSpacing();
+            ImGui.SetCursorPosX(x);
+            clicked = ImGui.Selectable($"##{entity.ID}_{node.Key}", selected, ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.AllowOverlap);
+        }
+        if (clicked)
+        {
+            Click(entity, row);
             if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) Focus(entity);
         }
         // Dragged onto a reference field of the inspector, the instance becomes what the field names.
@@ -350,14 +464,14 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             ImGui.TextUnformatted(entity.Name);
             ImGui.EndDragDropSource();
         }
-        EntityMenu(entity);
+        EntityMenu(entity, node, row);
         ImGui.SameLine(x);
         // A volume or a path shows the colour it is drawn in (its kind's or role's, its layer's, or the single colour).
         if (entity is EntityVolume or EntityPath)
         {
             float size = ImGui.GetTextLineHeight();
             var swatch = entity is EntityVolume volume ? volume.KindColour : ((EntityPath)entity).Colour with { W = 1f };
-            ImGui.ColorButton($"##swatch_{entity.ID}", swatch,
+            ImGui.ColorButton($"##swatch_{entity.ID}_{node.Key}", swatch,
                 ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoPicker | ImGuiColorEditFlags.NoDragDrop, new Vector2(size, size));
         }
         else ImGui.TextColored(node.IconColour with { W = entity.allowRender ? 1f : 0.4f }, node.Icon);
@@ -369,10 +483,10 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             SetVisible(entity.selected ? SelectionManager.Singleton.Selection : [entity], !entity.allowRender);
     }
 
-    private void EntityMenu(Entity entity)
+    private void EntityMenu(Entity entity, Node node, int row)
     {
-        if (!ImGui.BeginPopupContextItem($"entity_menu_{entity.ID}")) return;
-        if (!entity.selected) Click(entity);
+        if (!ImGui.BeginPopupContextItem($"entity_menu_{entity.ID}_{node.Key}")) return;
+        if (!entity.selected) Click(entity, row);
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_Frame"))) Focus(entity);
         var selection = SelectionManager.Singleton.Selection;
         bool anyHidden = selection.Any(e => !e.allowRender), anyShown = selection.Any(e => e.allowRender);
@@ -389,21 +503,25 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
 
     /// <summary>A click on a row: alone; Ctrl: added or removed; Shift: the rows from the last click to this one
     /// (Ctrl+Shift: added to the selection).</summary>
-    private void Click(Entity entity)
+    private void Click(Entity entity, int row)
     {
         var io = ImGui.GetIO();
         var selection = SelectionManager.Singleton;
         _lastSelected = entity;
-        if (io.KeyShift && _anchor != null && _rows.FindIndex(r => ReferenceEquals(r.Node.Entity, _anchor)) is var from and >= 0
-            && _rows.FindIndex(r => ReferenceEquals(r.Node.Entity, entity)) is var to and >= 0)
+        // The rows as drawn, the clicked one and the anchor's (an instance in several groups has several rows).
+        int from = _anchor == null ? -1
+            : _anchorRow >= 0 && _anchorRow < _rows.Count && ReferenceEquals(_rows[_anchorRow].Node.Entity, _anchor) ? _anchorRow
+            : _rows.FindIndex(r => ReferenceEquals(r.Node.Entity, _anchor));
+        if (io.KeyShift && from >= 0 && row >= 0 && row < _rows.Count)
         {
             var range = new List<Entity>();
-            for (int i = Math.Min(from, to); i <= Math.Max(from, to); i++)
+            for (int i = Math.Min(from, row); i <= Math.Max(from, row); i++)
                 if (_rows[i].Node.Entity is { } e) range.Add(e);
-            selection.Set(io.KeyCtrl ? [.. selection.Selection, .. range] : range, entity);
+            selection.Set(io.KeyCtrl ? [.. selection.Selection, .. range.Distinct()] : [.. range.Distinct()], entity);
             return;
         }
         _anchor = entity;
+        _anchorRow = row;
         if (io.KeyCtrl) selection.Toggle(entity);
         else selection.Select(entity);
         _lastSelected = selection.SelectedEntity;
@@ -431,7 +549,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (ReferenceEquals(selected, _lastSelected)) return;
         _lastSelected = selected;
         if (selected == null || !_nodeOf.TryGetValue(selected, out var node)) return;
-        for (var parent = node.Parent; parent != null && parent != _root; parent = parent.Parent) _open.Add(parent.Key);
+        for (var parent = node.Parent; parent != null && parent != _root; parent = parent.Parent) _open.Add(parent.OpenKey);
         _scrollTo = selected;
     }
 
@@ -456,51 +574,153 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             : [];
 
         var em = EntityManager.Singleton;
+        _builtGroupBy = Available(_groupBy) ? _groupBy : HierarchyGroupBy.Layer;
         bool nameRegions = em.Regions.Count > 1;
         foreach (var region in em.Regions)
         {
             var regionNode = nameRegions
                 ? Folder(_root, region.RegionName, Icons.Map, RegionColour, 0)
                 : _root;
-            Node Layer(string? layer, Kinds kind) => layer != null
-                ? Folder(regionNode, layer, Icons.Folder, FolderColour, 0)
-                : Folder(regionNode, LM.Get(LabelOf(kind)), IconOf(kind), ColourOf(kind), 1);
-
-            // Zones first, so a layer's folder is where its zone is.
-            foreach (var zone in region.Zones)
+            switch (_builtGroupBy)
             {
-                var zoneNode = Layer(zone.ZoneName, Kinds.Ties);
-                foreach (var tie in zone.TieInstances.Entities)
-                    Add(zoneNode, tie, Kinds.Ties, terms);
-                if (zone.UFrags.Size > 0 && (_shown & Kinds.UFrags) != 0)
-                {
-                    var ufrags = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_UFrags"), Icons.MountainSun, ColourOf(Kinds.UFrags), 2);
-                    foreach (var ufrag in zone.UFrags.Entities) Add(ufrags, ufrag, Kinds.UFrags, terms, grouped: false);
-                }
-                if (zone.Navmeshes.Count > 0 && (_shown & Kinds.Navmesh) != 0)
-                {
-                    var navmesh = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Navmesh"), Icons.Route, ColourOf(Kinds.Navmesh), 2);
-                    foreach (var chunk in zone.Navmeshes) Add(navmesh, chunk, Kinds.Navmesh, terms, grouped: false);
-                }
+                case HierarchyGroupBy.Pod: BuildPods(region, regionNode, terms); break;
+                case HierarchyGroupBy.Area: BuildAreas(region, regionNode, terms); break;
+                case HierarchyGroupBy.Scent: BuildScents(region, regionNode, terms); break;
+                case HierarchyGroupBy.Type: BuildTypes(region, regionNode, terms); break;
+                default: BuildLayers(region, regionNode, terms); break;
             }
-            foreach (var entity in region.MobyInstances.Entities)
-            {
-                string? layer = entity is EntityMoby moby && moby.Group < region.Layers.Count ? region.Layers[moby.Group] : null;
-                Add(Layer(layer, Kinds.Mobys), entity, Kinds.Mobys, terms);
-            }
-            foreach (var entity in region.Volumes.Entities)
-                Add(Layer((entity as EntityVolume)?.BaseVolume.Layer, Kinds.Volumes), entity, Kinds.Volumes, terms);
-            foreach (var entity in region.Cameras.Entities)
-                Add(Layer((entity as EntityCamera)?.Controller.Layer, Kinds.Cameras), entity, Kinds.Cameras, terms);
-            foreach (var entity in region.Paths.Entities)
-                Add(Layer((entity as EntityPath)?.Path.Layer, Kinds.Paths), entity, Kinds.Paths, terms);
         }
 
         Finish(_root);
         Recount(_root);
+        // The selection follows to an instance's first row.
+        _nodeOf.Clear();
+        IndexRows(_root);
         // A search opens every folder holding a match; clearing it leaves the folders as they are.
         if (searchChanged && terms.Length > 0) SetOpenBelow(_root, true);
         OpenSingleRegion();
+    }
+
+    private void BuildLayers(EntityRegion region, Node regionNode, string[] terms)
+    {
+        Node Layer(string? layer, Kinds kind) => layer != null
+            ? Folder(regionNode, layer, Icons.Folder, FolderColour, 0)
+            : Folder(regionNode, LM.Get(LabelOf(kind)), IconOf(kind), ColourOf(kind), 1);
+
+        // Zones first, so a layer's folder is where its zone is.
+        foreach (var zone in region.Zones)
+        {
+            var zoneNode = Layer(zone.ZoneName, Kinds.Ties);
+            foreach (var tie in zone.TieInstances.Entities)
+                Add(zoneNode, tie, Kinds.Ties, terms);
+            if (zone.UFrags.Size > 0 && (_shown & Kinds.UFrags) != 0)
+            {
+                var ufrags = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_UFrags"), Icons.MountainSun, ColourOf(Kinds.UFrags), 2);
+                foreach (var ufrag in zone.UFrags.Entities) Add(ufrags, ufrag, Kinds.UFrags, terms, grouped: false);
+            }
+            if (zone.Navmeshes.Count > 0 && (_shown & Kinds.Navmesh) != 0)
+            {
+                var navmesh = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Navmesh"), Icons.Route, ColourOf(Kinds.Navmesh), 2);
+                foreach (var chunk in zone.Navmeshes) Add(navmesh, chunk, Kinds.Navmesh, terms, grouped: false);
+            }
+        }
+        foreach (var entity in region.MobyInstances.Entities)
+            Add(Layer(region.LayerOf(entity), Kinds.Mobys), entity, Kinds.Mobys, terms);
+        var owned = new List<(Entity Entity, Node Node)>();
+        foreach (var entity in region.Volumes.Entities)
+            if (Add(Layer(region.LayerOf(entity), Kinds.Volumes), entity, Kinds.Volumes, terms) is { } node) owned.Add((entity, node));
+        foreach (var entity in region.Cameras.Entities)
+            Add(Layer(region.LayerOf(entity), Kinds.Cameras), entity, Kinds.Cameras, terms);
+        foreach (var entity in region.ControllerInstances.Entities)
+            Add(Layer(region.LayerOf(entity), Kinds.Controllers), entity, Kinds.Controllers, terms);
+        foreach (var entity in region.Paths.Entities)
+            if (Add(Layer(region.LayerOf(entity), Kinds.Paths), entity, Kinds.Paths, terms) is { } node) owned.Add((entity, node));
+
+        // A volume or a path one instance of its layer alone names goes under that instance, when it is listed.
+        foreach (var (entity, node) in owned)
+        {
+            if (region.OwnerOf(entity) is not { } owner || !_nodeOf.TryGetValue(owner, out var ownerNode)) continue;
+            node.Parent!.Children.Remove(node);
+            node.Parent = ownerNode;
+            node.Key = ownerNode.OpenKey;
+            ownerNode.Children.Add(node);
+        }
+    }
+
+    /// <summary>A folder per Pod with its Mobys, then those in none.</summary>
+    private void BuildPods(EntityRegion region, Node regionNode, string[] terms)
+    {
+        var podded = new HashSet<Entity>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < region.Pods.Count; i++)
+        {
+            var folder = Folder(regionNode, region.Pods[i].Name, Icons.LayerGroup, FolderColour, 0, $"pod#{i}");
+            foreach (var moby in region.Pods[i].Members)
+            {
+                Add(folder, moby, Kinds.Mobys, terms);
+                podded.Add(moby);
+            }
+        }
+        var none = Folder(regionNode, LM.Get("GUI_Frame_EntityExplorer_NotInPod"), Icons.Folder, FolderColour, 1, "pod#none");
+        foreach (var moby in region.MobyInstances.Entities)
+            if (!podded.Contains(moby)) Add(none, moby, Kinds.Mobys, terms);
+    }
+
+    /// <summary>A folder per Area with its volumes and paths, then those in none.</summary>
+    private void BuildAreas(EntityRegion region, Node regionNode, string[] terms)
+    {
+        var none = Folder(regionNode, LM.Get("GUI_Frame_EntityExplorer_NotInArea"), Icons.Folder, FolderColour, 1, "area#none");
+        void Place(Entity entity, Kinds kind)
+        {
+            var areas = region.AreasOf(entity);
+            if (areas.Count == 0) Add(none, entity, kind, terms);
+            foreach (int area in areas)
+                Add(Folder(regionNode, area < region.AreaNames.Count ? region.AreaNames[area] : $"#{area}", Icons.LayerGroup, FolderColour, 0, $"area#{area}"),
+                    entity, kind, terms);
+        }
+        foreach (var entity in region.Volumes.Entities) Place(entity, Kinds.Volumes);
+        foreach (var entity in region.Paths.Entities) Place(entity, Kinds.Paths);
+    }
+
+    /// <summary>A folder per Scent with its Clues (their volumes), then the Clues in none.</summary>
+    private void BuildScents(EntityRegion region, Node regionNode, string[] terms)
+    {
+        var none = Folder(regionNode, LM.Get("GUI_Frame_EntityExplorer_NotInScent"), Icons.Folder, FolderColour, 1, "scent#none");
+        foreach (var entity in region.Volumes.Entities)
+        {
+            if (entity is not EntityVolume { BaseVolume.Clue: not null }) continue;
+            var scents = region.ScentsOf(entity);
+            if (scents.Count == 0) Add(none, entity, Kinds.Volumes, terms);
+            foreach (int scent in scents)
+                Add(Folder(regionNode, scent < region.ScentNames.Count ? region.ScentNames[scent] : $"#{scent}", Icons.LayerGroup, FolderColour, 0, $"scent#{scent}"),
+                    entity, Kinds.Volumes, terms);
+        }
+    }
+
+    /// <summary>A folder per type, each grouped as inside a layer.</summary>
+    private void BuildTypes(EntityRegion region, Node regionNode, string[] terms)
+    {
+        Node Type(Kinds kind) => Folder(regionNode, LM.Get(LabelOf(kind)), IconOf(kind), ColourOf(kind), Array.FindIndex(KindInfo, k => k.Kind == kind));
+        foreach (var entity in region.MobyInstances.Entities) Add(Type(Kinds.Mobys), entity, Kinds.Mobys, terms);
+        foreach (var zone in region.Zones)
+        {
+            foreach (var tie in zone.TieInstances.Entities) Add(Type(Kinds.Ties), tie, Kinds.Ties, terms);
+            foreach (var ufrag in zone.UFrags.Entities) Add(Type(Kinds.UFrags), ufrag, Kinds.UFrags, terms, grouped: false);
+            foreach (var chunk in zone.Navmeshes) Add(Type(Kinds.Navmesh), chunk, Kinds.Navmesh, terms, grouped: false);
+        }
+        foreach (var entity in region.Volumes.Entities) Add(Type(Kinds.Volumes), entity, Kinds.Volumes, terms);
+        foreach (var entity in region.Cameras.Entities) Add(Type(Kinds.Cameras), entity, Kinds.Cameras, terms);
+        foreach (var entity in region.ControllerInstances.Entities) Add(Type(Kinds.Controllers), entity, Kinds.Controllers, terms);
+        foreach (var entity in region.Paths.Entities) Add(Type(Kinds.Paths), entity, Kinds.Paths, terms);
+    }
+
+    /// <summary>Each instance's first row, in the order drawn.</summary>
+    private void IndexRows(Node node)
+    {
+        foreach (var child in node.Children)
+        {
+            if (child.Entity != null) _nodeOf.TryAdd(child.Entity, child);
+            IndexRows(child);
+        }
     }
 
     /// <summary>A level of one region shows its layers straight away.</summary>
@@ -509,9 +729,10 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (_root.Children.Count == 1 && _root.Children[0].Entity == null) _open.Add(_root.Children[0].Key);
     }
 
-    private Node Folder(Node parent, string label, string icon, Vector4 colour, int order, bool group = false)
+    /// <param name="id">What tells the folder from its siblings, when its label may not (Pods can share a name).</param>
+    private Node Folder(Node parent, string label, string icon, Vector4 colour, int order, string? id = null, bool group = false)
     {
-        string key = parent.Key + "/" + label;
+        string key = parent.Key + "/" + (id ?? label);
         if (_folders.TryGetValue(key, out var existing)) return existing;
         var node = new Node { Key = key, Label = label, Icon = icon, IconColour = colour, Parent = parent, Order = order, IsGroup = group };
         parent.Children.Add(node);
@@ -519,18 +740,19 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         return node;
     }
 
-    private void Add(Node folder, Entity entity, Kinds kind, string[] terms, bool grouped = true)
+    private Node? Add(Node folder, Entity entity, Kinds kind, string[] terms, bool grouped = true)
     {
         _totalCount++;
-        if ((_shown & kind) == 0) return;
+        if ((_shown & kind) == 0) return null;
         string name = DisplayName(entity);
-        if (terms.Length > 0 && !terms.Any(t => name.Contains(t, StringComparison.OrdinalIgnoreCase))) return;
+        if (terms.Length > 0 && !terms.Any(t => name.Contains(t, StringComparison.OrdinalIgnoreCase))) return null;
         if (grouped)
             foreach (string group in GroupPath(entity))
                 folder = Folder(folder, group, IconOf(kind), ColourOf(kind) with { W = 0.75f }, 0, group: true);
         var node = new Node { Key = folder.Key, Label = name, Icon = IconOf(kind), IconColour = ColourOf(kind), Entity = entity, Kind = kind, Parent = folder, Order = 3 };
         folder.Children.Add(node);
-        _nodeOf[entity] = node;
+        _nodeOf.TryAdd(entity, node);
+        return node;
     }
 
     /// <summary>Counts, drops what filtering emptied, lifts a group of one, and sorts: folders, then type
@@ -541,7 +763,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         for (int i = node.Children.Count - 1; i >= 0; i--)
         {
             var child = node.Children[i];
-            if (child.Entity != null) { count++; continue; }
+            if (child.Entity != null) { count += 1 + (child.Children.Count > 0 ? Finish(child) : 0); continue; }
             int below = Finish(child);
             if (below == 0) { node.Children.RemoveAt(i); continue; }
             // An asset group of one is noise: its entity takes its place.
@@ -577,8 +799,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             case EntityTie tie: return AssetGroups(tie.BaseTie.Name);
             case EntityVolume volume:
                 return [volume.BaseVolume.Clue is { } clue ? clue.ClassName : LM.Get("GUI_Frame_EntityExplorer_PlainVolumes")];
-            case EntityCamera camera:
-                return [camera.Controller.ClassName ?? $"0x{camera.Controller.Class:X}"];
+            case EntityController controller:
+                return [controller.ClassLabel(Core.LunaWindow.Instance.Level?.GameDefinition?.Id)];
             case EntityPath path:
                 return [path.Path.Role];
             default: return [];
@@ -647,6 +869,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         _totalCount = 0;
         _lastSelected = null;
         _scrollTo = null;
+        _scrollToKey = null;
         _anchor = null;
+        _anchorRow = -1;
+        _reveal = null;
     }
 }

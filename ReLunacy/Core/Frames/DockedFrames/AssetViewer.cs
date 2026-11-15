@@ -102,7 +102,7 @@ public record struct UFragAsset
     public readonly bool HasLightmap => UFrag.LightmapIndex != ReLunacy.Engine.Loading.Objects.UFragMetadata.NoLightmap;
 }
 
-public class AssetViewer : DockedFrame, ILevelListener
+public partial class AssetViewer : DockedFrame, ILevelListener
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
@@ -189,7 +189,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedMobyAsset = value;
-            if (value != null) selectedTieAsset = null;
+            if (value != null) { selectedTieAsset = null; ClearEffect(); }
             ResetAnimationPreview();
             selectedMesh = null;
             exportNameOverride = "";
@@ -205,7 +205,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedTieAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; ResetAnimationPreview(); }
+            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; ClearEffect(); ResetAnimationPreview(); }
             selectedMesh = null;
             exportNameOverride = "";
             IsDirty = true;
@@ -220,7 +220,7 @@ public class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedUFragAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; ResetAnimationPreview(); }
+            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; ClearEffect(); ResetAnimationPreview(); }
             // A UFrag is one single mesh (see ForEachPreviewMesh's pick id 0 for it) - unlike
             // Moby/Tie, which need a viewport click to pick which submesh, there's nothing to
             // disambiguate, so this jumps straight to it instead of leaving the raw-vertex panel
@@ -294,6 +294,8 @@ public class AssetViewer : DockedFrame, ILevelListener
         selectedUFragAsset = null;
         selectedMesh = null;
         _selectedUFragMesh = null;
+        ClearEffect();
+        ForgetEffects();
         RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
@@ -736,6 +738,8 @@ public class AssetViewer : DockedFrame, ILevelListener
                 SelectedMobyAsset = null;
                 SelectedTieAsset = null;
                 SelectedUFragAsset = null;
+                ClearEffect();
+                IsDirty = true;
             }
             ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
             ImGui.InputTextWithHint("##asset_viewer_search", LM.Get("GUI_Frame_AssetViewer_SearchHint", mobyAssets.Count + tieAssets.Count + ufragAssets.Count), ref assetSearch, 128);
@@ -811,6 +815,15 @@ public class AssetViewer : DockedFrame, ILevelListener
                     ImGui.EndTabItem();
                 }
 
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_EffectTab"), RevealEffectsTab()))
+                {
+                    if (ImGui.BeginChild("asset_viewer_effect_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
+                        RenderEffectList();
+                    ImGui.EndChild();
+
+                    ImGui.EndTabItem();
+                }
+
                 if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_FoliageTab")))
                 {
                     if (ImGui.BeginChild("asset_viewer_foliage_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
@@ -859,6 +872,8 @@ public class AssetViewer : DockedFrame, ILevelListener
 
                 try
                 {
+                    _vkPreview.ClearColour = Program.Settings.AssetViewerBackground;
+                    UpdateEffectPreview(deltaTime);
                     _vkPreview.SetDebugLines(_debugLines);
                     _vkPreview.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
                     _vkPreview.Frame(
@@ -885,7 +900,7 @@ public class AssetViewer : DockedFrame, ILevelListener
             // one): TryConsumeClick answers true only for a click the toolbar did not want.
             DrawPreviewOverlay();
 
-            if (_viewport.TryConsumeClick())
+            if (_viewport.TryConsumeClick() && _selectedEffect == null)
             {
                 if (vertexEditMode && selectedMesh != null)
                     PickVertexUnderCursor();
@@ -922,6 +937,11 @@ public class AssetViewer : DockedFrame, ILevelListener
         if (selectedTieAsset is { } tieAsset)
         {
             RenderTieDetailsTabs(tieAsset);
+            return;
+        }
+        if (_selectedEffect is { } effect)
+        {
+            RenderEffectDetails(effect);
             return;
         }
         if (selectedUFragAsset is { } ufragAsset)
@@ -1819,6 +1839,7 @@ public class AssetViewer : DockedFrame, ILevelListener
     }
 
     private bool showClipControls;
+    private bool showBackgroundControls;
 
     /// <summary>Toolbar drawn over the preview image. Kept to controls that describe THIS viewport -
     /// anything scene-wide belongs in the settings frame, not floating over a preview.</summary>
@@ -1837,6 +1858,24 @@ public class AssetViewer : DockedFrame, ILevelListener
                 Program.Settings.AssetViewerFarPlane = farPlane;
             if (ImGui.SmallButton(LM.Get("GUI_Common_Reset")))
                 Program.Settings.AssetViewerFarPlane = 100f;
+            overlay.EndPanel();
+        }
+
+        overlay.ToggleButton(Icons.Palette, ref showBackgroundControls, LM.Get("GUI_Frame_AssetViewer_Background"));
+        if (showBackgroundControls && overlay.BeginPanel("background", new Vector2(280f, 0f)))
+        {
+            ImGui.SetNextItemWidth(-1f);
+            var background = new Vector3(Program.Settings.AssetViewerBackground.X, Program.Settings.AssetViewerBackground.Y, Program.Settings.AssetViewerBackground.Z);
+            if (ImGui.ColorEdit3("##background", ref background))
+                Program.Settings.AssetViewerBackground = new Vector4(background, 1f);
+            // Saved once the edit ends, not on every drag step.
+            if (ImGui.IsItemDeactivatedAfterEdit())
+                Program.Settings.SaveSettingsToFile();
+            if (ImGui.SmallButton(LM.Get("GUI_Common_Reset")))
+            {
+                Program.Settings.AssetViewerBackground = EditorSettings.DefaultAssetViewerBackground;
+                Program.Settings.SaveSettingsToFile();
+            }
             overlay.EndPanel();
         }
     }
@@ -1898,15 +1937,12 @@ public class AssetViewer : DockedFrame, ILevelListener
             // standardShaders the preview never selects a retail shader (RsxShaders bails on a null table),
             // so it shaded everything generically and applied vertex alpha where the 3D view, on the retail
             // permutation, did not. oldEngineMobys defaults to true, which is wrong for a new-engine level.
+            // Its clear colour is the overlay's background setting, pushed every frame.
             _vkPreview = new Engine.Rendering.Vulkan.VulkanRenderer(
                 graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight,
                 oldEngineMobys: assetManager?.OldEngineMobys ?? true,
                 cubeResources: assetManager?.EnvironmentCubeResources,
-                standardShaders: assetManager?.StandardShaders)
-            {
-                // The preview has always had a light background; the level view keeps its dark one.
-                ClearColour = new Vector4(0.68f, 0.85f, 0.90f, 1f),
-            };
+                standardShaders: assetManager?.StandardShaders);
         }
         catch (Exception e)
         {
@@ -1919,7 +1955,13 @@ public class AssetViewer : DockedFrame, ILevelListener
     /// its pick id. One place, so rendering and picking can never disagree about what is on screen.</summary>
     private void ForEachPreviewMesh(Action<RenderMesh, Matrix4x4, uint> add)
     {
-        if (selectedMobyAsset != null)
+        if (_selectedEffect != null)
+        {
+            // The renderer is built from at least one mesh; the effect plays alone, so the cube is collapsed.
+            if (EnsurePlaceholderCube() is { } placeholder)
+                add(placeholder, Matrix4x4.CreateScale(0f), uint.MaxValue);
+        }
+        else if (selectedMobyAsset != null)
         {
             var models = selectedMobyAsset.Value.Model;
             var renderMap = selectedMobyAsset.Value.RenderModelMap;

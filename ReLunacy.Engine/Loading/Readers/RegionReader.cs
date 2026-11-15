@@ -124,7 +124,7 @@ public sealed class RegionReader
         PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers,
             newRegion.MobyInstances.OfType<PlacedInstance<IMoby>>().Where(m => m.References.Count > 0)
                 .Select(m => (m.Name, m.Asset.Name?.Split('/')[^1].Split('.')[0] ?? "Moby", m.References)));
-        Assets.LevelElements.ClueClasses.AssignVolumeRoles(newRegion.Volumes, Game);
+        Assets.LevelElements.ClueClasses.AssignVolumeRoles(newRegion.Volumes, Game, newRegion.Controllers);
         return newRegion;
     }
 

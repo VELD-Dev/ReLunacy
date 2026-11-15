@@ -176,6 +176,7 @@ public class View3D : DockedFrame
     }
 
     private bool showClipControls;
+    private bool showIconControls;
 
     /// <summary>Toolbar over the 3D viewport, same component the asset preview uses. Holds the
     /// switches flipped often enough that reopening a menu each time gets in the way: clip, the
@@ -199,12 +200,24 @@ public class View3D : DockedFrame
         overlay.ToggleButton(Icons.Filter, ref _volumePanel.Open, LM.Get("GUI_Viewport_VolumeFilters"));
         float volumeAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.Camera, ref em.renderCameras, LM.Get("GUI_Viewport_Cameras"));
+        changed |= overlay.ToggleButton(Icons.Gear, ref em.renderControllers, LM.Get("GUI_Viewport_Controllers"));
+        overlay.ToggleButton(Icons.Image, ref showIconControls, LM.Get("GUI_Viewport_IconSize"));
+        float iconAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.BezierCurve, ref em.renderPaths, LM.Get("GUI_Viewport_Paths"));
         float pathAnchor = overlay.LastButtonLeft;
         overlay.ToggleButton(Icons.Palette, ref _pathPanel.Open, LM.Get("GUI_Viewport_PathFilters"));
         float pathFilterAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
         if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
+        // Particle effects: old-engine and A Crack in Time levels, greyed out where there are none to play.
+        bool effects = !settings.HideEffects;
+        bool hasEffects = LevelEffectPlayer.HasEffects;
+        if (overlay.ToggleButton(Icons.Fire, ref effects,
+                LM.Get(hasEffects ? "GUI_Viewport_Effects" : "GUI_Viewport_NoEffects"), enabled: hasEffects))
+        {
+            settings.HideEffects = !effects;
+            settings.SaveSettingsToFile();
+        }
 
         // Shading: unlit / lit, and the RSX shaders, which only exist on the lit path - greyed out
         // while unlit, keeping its own state for when lighting comes back.
@@ -239,6 +252,15 @@ public class View3D : DockedFrame
             ImGui.SetNextItemWidth(-1f);
             if (ImGui.SliderFloat("##far", ref farPlane, 1f, 100000f, LM.Get("GUI_Frame_AssetViewer_FarClip"), ImGuiSliderFlags.Logarithmic))
                 Program.Settings.RenderDistance = farPlane;
+            overlay.EndPanel();
+        }
+
+        if (showIconControls && overlay.BeginPanel("icons", new Vector2(280f, 0f), iconAnchor))
+        {
+            ImGui.SetNextItemWidth(-1f);
+            if (ImGui.SliderFloat("##iconsize", ref settings.ControllerIconScale, 0.5f, 20f,
+                    LM.Get("GUI_Viewport_IconSizeValue"), ImGuiSliderFlags.AlwaysClamp | ImGuiSliderFlags.Logarithmic))
+                settings.SaveSettingsToFile();
             overlay.EndPanel();
         }
 
@@ -358,17 +380,19 @@ public class View3D : DockedFrame
     // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
     private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Colour, int Shape)> _vkVolumeFills = new();
     private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> _vkCameras = new();
+    /// <summary>The controllers drawn with their class's icon (filled by BuildVolumeList).</summary>
+    private readonly List<(Matrix4x4 World, int Icon, Vector4 Tint, uint PickId)> _vkControllerIcons = new();
 
     private readonly HashSet<Entity> _restored = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>The gizmo moved the selection this frame: the rest of it is pushed to the renderer next frame.</summary>
     private bool _selectionMoved;
 
-    /// <summary>Whether an entity gets the selection outline. Volumes, cameras and paths opt out: they recolour
+    /// <summary>Whether an entity gets the selection outline. Volumes, controllers and paths opt out: they recolour
     /// themselves on selection, and the mask-and-inflate technique expects one closed surface, not 12 disjoint
     /// edge boxes.</summary>
     private static bool IsOutlined(Entity? entity) =>
-        entity is not (null or EntityVolume or EntityCamera or EntityPath or EntityPathPoint);
+        entity is not (null or EntityVolume or EntityController or EntityPath or EntityPathPoint);
 
     private readonly List<object> _outlinedOthers = [];
 
@@ -498,6 +522,9 @@ public class View3D : DockedFrame
         return _vkCameras;
     }
 
+    /// <summary>The controllers' diamonds, as the hierarchy's controller icon.</summary>
+    private static readonly Vector4 ControllerColour = new(0.75f, 0.75f, 0.95f, 1f);
+
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
@@ -516,6 +543,34 @@ public class View3D : DockedFrame
                             _vkVolumes.Add((edge, color, pickId));
                         if (em.ShowRadiusPreviews) AddRadiusPreviews(v, em);
                     }
+        // The other controllers: their class's icon facing the camera, or else a small diamond, drawn and picked
+        // with the volumes' wireframe.
+        _vkControllerIcons.Clear();
+        if (em.renderControllers && !CollisionEditing)
+        {
+            var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+            Matrix4x4.Invert(Camera.GetView(), out var facing);
+            float side = 1.2f * Program.Settings.ControllerIconScale * EntityController.MarkerRadius;
+            foreach (var region in em.Regions)
+            {
+                if (!region.allowRender) continue;
+                foreach (var e in region.ControllerInstances.Entities)
+                    if (e is EntityController c && c.allowRender)
+                    {
+                        var colour = c.selected ? em.VolumeSelectedColor : ControllerColour;
+                        int icon = Engine.Rendering.ControllerIcons.IconOf(game, c.Controller.Class);
+                        if (icon >= 0)
+                        {
+                            var world = facing with { Translation = c.Transform.Translation };
+                            _vkControllerIcons.Add((Matrix4x4.CreateScale(side) * world, icon,
+                                c.selected ? em.VolumeSelectedColor with { W = 0.5f } : default(Vector4), (uint)c.ID));
+                            continue;
+                        }
+                        foreach (var edge in c.MarkerEdges())
+                            _vkVolumes.Add((edge, colour, (uint)c.ID));
+                    }
+            }
+        }
         return _vkVolumes;
     }
 
@@ -719,8 +774,12 @@ public class View3D : DockedFrame
                 var volumeList = BuildVolumeList();
                 vkStage.VolumeFills = _vkVolumeFills;
                 vkStage.CameraMarkers = BuildCameraList();
+                vkStage.ControllerIconMarkers = _vkControllerIcons;
                 _paths.Update(vkStage, SelectedEntity, CollisionEditing);
                 vkStage.AlsoSelected = OutlinedOthers();
+                // Placed effects (FxControllers) play in the renderer's depth-tested sprite pass.
+                try { LevelEffectPlayer.Update(vkStage, Camera, (float)deltaTime, graphicsDevice); }
+                catch (Exception e) { LunaLog.LogError($"[Effects] level playback failed: {e.Message}"); }
                 vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),

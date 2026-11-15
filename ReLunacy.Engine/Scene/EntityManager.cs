@@ -19,6 +19,7 @@ public class EntityManager : IDisposable
     public bool renderFoliage = true;
     public bool renderVolumes = true;
     public bool renderCameras = true;
+    public bool renderControllers = true;
     public bool renderPaths = true;
 
     /// <summary>Bumped whenever an entity's own visibility (<see cref="Entity.allowRender"/>) is changed, for the
@@ -163,6 +164,7 @@ public class EntityManager : IDisposable
             foreach (var e in region.MobyInstances.Entities) yield return e;
             foreach (var e in region.Volumes.Entities) yield return e;
             foreach (var e in region.Cameras.Entities) yield return e;
+            foreach (var e in region.ControllerInstances.Entities) yield return e;
             foreach (var e in region.Paths.Entities) yield return e;
 
             foreach (var zone in region.Zones)
@@ -215,6 +217,7 @@ public class EntityManager : IDisposable
             if (region.MobyInstances.TryGetEntity(id, out entity)) return true;
             if (region.Volumes.TryGetEntity(id, out entity)) return true;
             if (region.Cameras.TryGetEntity(id, out entity)) return true;
+            if (region.ControllerInstances.TryGetEntity(id, out entity)) return true;
             if (region.Paths.TryGetEntity(id, out entity)) return true;
 
             foreach (var zone in region.Zones)

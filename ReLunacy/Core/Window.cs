@@ -246,6 +246,9 @@ public class LunaWindow : IDisposable
         {
             LunaLog.LogWarn($"The camera model could not be loaded, so cameras are not drawn: {ex.Message}");
         }
+        // The controller icons (VulkanRenderer.ControllerIcons); a class whose icon fails keeps the diamond.
+        foreach (var failure in Engine.Rendering.ControllerIcons.Load(Path.Combine(Program.EditorPath, "Assets", "Icons")))
+            LunaLog.LogWarn($"A controller icon could not be loaded: {failure}");
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
         LM.Initialize();
@@ -260,6 +263,7 @@ public class LunaWindow : IDisposable
         em.renderFoliage = EditorSettings.RenderFoliage;
         em.renderVolumes = EditorSettings.RenderVolumes;
         em.renderCameras = !EditorSettings.HideCameras;
+        em.renderControllers = !EditorSettings.HideControllers;
         em.renderPaths = !EditorSettings.HidePaths;
         em.renderNavmesh = EditorSettings.RenderNavmesh;
         // The RSX shaders only apply while lit (see View3D, which keeps this in step afterwards); set
@@ -937,6 +941,7 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
             ViewMenuDraw.ShowPods();
+            ViewMenuDraw.ShowSoundBanks();
             ViewMenuDraw.ShowProfiler();
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();

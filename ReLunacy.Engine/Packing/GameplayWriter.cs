@@ -17,7 +17,7 @@ public sealed record LevelSaveResult(bool Succeeded, string Summary, string? Bac
 
 /// <summary>
 /// Writes the editor's changes to a new-engine level's gameplay (each region's gp_prius.dat) back into its
-/// archive: Moby placements, volume matrices, camera controller placements, path points and Clue / camera
+/// archive: Moby placements, volume matrices, controller placements, path points and Clue / controller
 /// settings.
 ///
 /// Every change is made IN PLACE, over bytes of the same size, so no offset in the file moves and nothing
@@ -30,7 +30,7 @@ public sealed record LevelSaveResult(bool Succeeded, string Summary, string? Bac
 /// Records (all big-endian): Moby 0x25048 (0x50: +0x14 position, +0x20 rotation as Euler Z-Y-X, +0x2C
 /// scale), volume 0x2505C (0x40: a row-major matrix whose last word is the shape), Clue 0x25064 (+0x04 its
 /// settings block's offset and +0x08 size), controller 0x2506C (+0x00 settings offset and size, +0x08
-/// position, +0x14 rotation), path 0x25050 (+0x00 its first point, +0x08 length, +0x0E point count; points
+/// position, +0x14 rotation, +0x20 scale), path 0x25050 (+0x00 its first point, +0x08 length, +0x0E point count; points
 /// are x, y, z and the distance along the path).
 ///
 /// The archive goes through <see cref="PsarcPatcher"/> as a script save does: every other file keeps its
@@ -279,16 +279,20 @@ public static class GameplayWriter
             }
         }
 
-        // Camera controllers: placement and settings.
+        // Controllers, cameras and the others, in table order (a TUID several share takes its records in order):
+        // placement and settings. A camera's scale is not shown, so not written.
         if (Records(prius, ControllerRecords, ControllerMeta) is { } controllers)
-            foreach (var camera in region.Cameras.Entities.OfType<EntityCamera>())
+            foreach (var controller in region.Cameras.Entities.Concat(region.ControllerInstances.Entities).OfType<EntityController>()
+                         .OrderBy(c => c.Controller.Index))
             {
-                if (!controllers.TryTake(camera.Controller.Tuid, out long record)) continue;
+                if (!controllers.TryTake(controller.Controller.Tuid, out long record)) continue;
+                string label = controller is EntityCamera ? "camera" : "controller";
                 var what = new List<string>();
-                if (Position(file, record + 0x08, camera.Transform.Translation)) what.Add("position");
-                if (Rotation(file, record + 0x14, camera.Transform.Rotation)) what.Add("rotation");
-                if (what.Count > 0) changes.Add($"camera {camera.Name}: {string.Join(", ", what)}");
-                settingsUsers.Add(($"camera {camera.Name}", Word(original, record), Word(original, record + 0x04), camera.Controller.Settings));
+                if (Position(file, record + 0x08, controller.Transform.Translation)) what.Add("position");
+                if (Rotation(file, record + 0x14, controller.Transform.Rotation)) what.Add("rotation");
+                if (controller is not EntityCamera && Position(file, record + 0x20, controller.Transform.Scale)) what.Add("scale");
+                if (what.Count > 0) changes.Add($"{label} {controller.Name}: {string.Join(", ", what)}");
+                settingsUsers.Add(($"{label} {controller.Name}", Word(original, record), Word(original, record + 0x04), controller.Controller.Settings));
             }
 
         WriteSettings(file, original, settingsUsers, changes, problems, afterSave);

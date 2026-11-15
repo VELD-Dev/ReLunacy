@@ -9,6 +9,16 @@ public enum UpdateChannel
     Nightly,
 }
 
+/// <summary>What the hierarchy's top folders are (BasicEntityExplorer).</summary>
+public enum HierarchyGroupBy
+{
+    Layer,
+    Pod,
+    Area,
+    Scent,
+    Type,
+}
+
 /// <summary>One saved dockspace layout: the raw ImGui ini blob (dock node tree + whichever windows
 /// were already open when it was saved), plus which Frame TYPES were open and which dock node each
 /// one was docked into. The ini blob alone isn't enough to restore a frame that's currently CLOSED:
@@ -55,9 +65,14 @@ public class EditorSettings
     public bool RenderUFrags;
     public bool RenderFoliage;
     public bool RenderVolumes;
-    // Inverted so a settings file from before the cameras existed shows them.
+    // Inverted so a settings file from before the cameras (and the other controllers) existed shows them.
     public bool HideCameras;
+    public bool HideControllers;
+    // The hierarchy's Group by switch.
+    public HierarchyGroupBy HierarchyGroupBy;
     public bool HidePaths;
+    // The level view's particle effects. Inverted, as the cameras' switch, so older settings files show them.
+    public bool HideEffects;
     public bool RenderNavmesh;
     public bool RenderCollision;
     // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.
@@ -102,6 +117,8 @@ public class EditorSettings
     public float VolumeWireThickness;
     // The camera controllers' model, relative to the OBJ's own size (EntityCamera.ModelScale).
     public float CameraModelScale;
+    // The controller icons' size, relative to the controller diamond.
+    public float ControllerIconScale;
     // Horizontal FOV, in degrees, of a camera looked through when its settings give none and the game's own
     // default is not known (View3D.GameDefaultFieldOfView).
     public float CameraPovFov;
@@ -164,6 +181,12 @@ public class EditorSettings
     // Adjustable from the overlay toolbar over the preview.
     public float AssetViewerFarPlane;
 
+    // Clear colour of the asset viewer's preview, set from its overlay toolbar.
+    public Vector4 AssetViewerBackground;
+
+    [JsonIgnore]
+    public static readonly Vector4 DefaultAssetViewerBackground = new(0.68f, 0.85f, 0.90f, 1f);
+
     [JsonIgnore]
     public float CamFOVRad => CamFOV * (MathF.PI / 180f);
 
@@ -224,6 +247,7 @@ public class EditorSettings
         GizmoSnapScale = 0.25f;
         VolumeWireThickness = 0.1f;
         CameraModelScale = 0.5f;
+        ControllerIconScale = 3f;
         CameraPovFov = 75.9f;
         VolumeColor = new Vector4(1f, 1f, 0f, 1f);
         // Semi-transparent blue; alpha is the overlay's opacity over the level.
@@ -236,6 +260,7 @@ public class EditorSettings
         EnableLighting = false;
         CodeEditorTheme = "dark";
         AssetViewerFarPlane = 100f;
+        AssetViewerBackground = DefaultAssetViewerBackground;
         // Bilinear by default, matching the game's own PS3 behavior; Point is selectable for raw texel data.
         TextureFiltering = ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;
 #if DEBUG

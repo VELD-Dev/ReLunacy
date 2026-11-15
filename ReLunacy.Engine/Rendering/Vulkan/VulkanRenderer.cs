@@ -903,6 +903,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         long tUpload = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateUniformBuffers();
         CreateSampler();
+        _iconTexture = CreateControllerIconTexture(graphicsDevice);
         long tSamplers = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         // A scene whose every material is untextured (e.g. a preview of editor-helper geometry) still
         // needs one image to bind; a neutral 1x1 white stands in instead of failing the whole renderer.
@@ -1454,6 +1455,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         (VolumeFillFragmentGlsl, ShaderStages.Fragment),
         (CameraMarkerVertexGlsl, ShaderStages.Vertex),
         (CameraMarkerFragmentGlsl, ShaderStages.Fragment),
+        (ControllerIconVertexGlsl, ShaderStages.Vertex),
+        (ControllerIconFragmentGlsl, ShaderStages.Fragment),
         (PathLineVertexGlsl, ShaderStages.Vertex),
         (PathLineFragmentGlsl, ShaderStages.Fragment),
     ];
@@ -1607,6 +1610,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         }
         CreateVolumeFillPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreateCameraMarkerPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateControllerIconPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreatePathLinePipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
 
         _billboardVs = Module(BillboardVertexGlsl, ShaderStages.Vertex);
@@ -1933,6 +1937,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkCmdBeginRenderPass(_cmd, &rpO2, VkSubpassContents.Inline);
         }
         DrawDepthDebugLines();
+        // Depth-tested against the level, over the finished image (VulkanRenderer.Effects.cs).
+        DrawEffectSprites();
         DrawSelectionOutline();
         DrawDebugLines();
         _api.vkCmdEndRenderPass(_cmd);
@@ -2063,6 +2069,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private void DrawVolumes()
     {
         DrawCameraMarkers();
+        DrawControllerIcons();
         DrawPathLines();
         // The faces first, so the wireframe draws over them.
         DrawVolumeFills();
@@ -2393,6 +2400,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             }
         }
         PickCameraMarkers(pc);
+        PickControllerIcons(pc);
         _api.vkCmdEndRenderPass(_pickCmd);
         var copy = new VkBufferImageCopy { bufferOffset = 0, bufferRowLength = 0, bufferImageHeight = 0, imageSubresource = new VkImageSubresourceLayers { aspectMask = VkImageAspectFlags.Color, mipLevel = 0, baseArrayLayer = 0, layerCount = 1 }, imageOffset = default, imageExtent = new VkExtent3D { width = PickTargetSize, height = PickTargetSize, depth = 1 } };
         _api.vkCmdCopyImageToBuffer(_pickCmd, _pickImage, VkImageLayout.TransferSrcOptimal, _pickReadback, 1, &copy);
@@ -2703,6 +2711,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyShaderModule(_outlineFs);
         DestroyVolumeFill();
         DestroyCameraMarkers();
+        DestroyControllerIcons();
+        DisposeEffects();
         DestroyPathLines();
         _api.vkDestroyBuffer(_edgeVertexBuffer); _api.vkFreeMemory(_edgeVbMemory);
         _api.vkDestroyBuffer(_edgeIndexBuffer); _api.vkFreeMemory(_edgeIbMemory);

@@ -52,6 +52,7 @@ public static class Icons
     public const string LayerGroup = "\uf5fd";
     public const string Route = "\uf4d7";  // navmesh
     public const string DrawPolygon = "\uf5ee";  // collision
+    public const string Fire = "\uf06d";  // effects
 
     // Lighting
     public const string Lightbulb = "\uf0eb";

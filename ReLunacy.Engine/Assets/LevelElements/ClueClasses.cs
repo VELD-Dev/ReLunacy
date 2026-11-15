@@ -111,11 +111,24 @@ public static class ClueClasses
 
     /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
     /// area. Only links that resolve count; nothing is guessed from names. Also marks where each gravity Clue acts
-    /// (<see cref="Volume.GravityRegion"/>).</summary>
-    public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game)
+    /// (<see cref="Volume.GravityRegion"/>). A controller field the table types as a volume or a volume list gives
+    /// its class as the role (SoundEnvironment, infocontroller); a Clue's wins over it.</summary>
+    public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game, IReadOnlyList<GameplayController>? controllers = null)
     {
         // By place in the table: volume names repeat, and a reference means one of the namesakes.
         var byIndex = volumes.Where(v => v.Index >= 0).ToLookup(v => v.Index);
+        foreach (var controller in controllers ?? [])
+            foreach (var reference in controller.References)
+            {
+                if (reference.Kind != "Volume" || ClassFields.At(game, controller.Class, reference.Offset) is not
+                    { Kind: ClassFieldKind.Reference or ClassFieldKind.ReferenceList, TypeName: "Volume" } field) continue;
+                string cls = controller.ClassName ?? ClassFields.ClassName(game, controller.Class) ?? $"0x{controller.Class:X}";
+                foreach (var target in byIndex[reference.Index])
+                {
+                    target.Role = cls;
+                    target.RoleSource = $"{controller.Name} ({cls} +0x{reference.Offset:X} {field.Name})";
+                }
+            }
         foreach (var volume in volumes)
             if (volume.Clue is { } clue)
             {

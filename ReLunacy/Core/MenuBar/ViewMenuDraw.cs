@@ -172,6 +172,19 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new PodsFrame());
     }
 
+    /// <summary>The level's sound banks: every sound, what plays it and what uses it, heard with a waveform.</summary>
+    internal static void ShowSoundBanks()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<SoundBanksFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_SoundBanks"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<SoundBanksFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new SoundBanksFrame());
+    }
+
     /// <summary>The game's configuration tables (/data/configs/*.csv), edited and saved into their archive.</summary>
     internal static void ShowConfigTables()
     {
