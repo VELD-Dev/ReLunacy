@@ -40,6 +40,15 @@ internal static class ToolsMenuDraw
         if (view != null) view.GizmoController.CurrentOperation = ImGuizmoOperation.Scale;
     }
 
+    internal static void LocalSpace()
+    {
+        var view = GetView3D();
+        bool isActive = Program.Settings.GizmoLocal;
+        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_LocalSpace"), "X", isActive, view != null)) return;
+
+        view?.GizmoController.ToggleLocal();
+    }
+
     internal static void DeselectObject()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_DeselectObjects"), "ESC", false, true)) return;

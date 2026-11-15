@@ -70,6 +70,41 @@ public static class GameConfigs
         return null;
     }
 
+    /// <summary>The row of a field (its name in column 1) inside a block, or -1.</summary>
+    public static int FieldRow(ConfigCsv csv, (int Start, int End) section, string field)
+    {
+        for (int r = section.Start + 1; r < section.End; r++)
+            if (csv.Get(r, 1) == field) return r;
+        return -1;
+    }
+
+    /// <summary>level.csv's level-wide value column: column 3 in level.lua's 1-based count; the segments follow.</summary>
+    public const int LevelValueColumn = 2;
+
+    /// <summary>
+    /// A space sector's play area (A Crack in Time): the level block's BoundsRadius, null when it has none.
+    /// The EBOOT binds it as a float at +0x18 of the level's config record. The Aphelion (class 0x28F) copies it
+    /// at init and, every frame, measures its distance from the world origin on the X/Z plane only - a vertical
+    /// cylinder, not a sphere: from radius - 400 it warns once and from radius - 200 turns the ship back; past
+    /// the radius it is put back on it. A radius of 0 stands for 4000. Space boss fights swap in their own
+    /// centre and radius and restore these after.
+    /// </summary>
+    public static float? BoundsRadius(ConfigCsv levelCsv, string levelName)
+    {
+        if (LevelSection(levelCsv, levelName) is not { } section) return null;
+        int row = FieldRow(levelCsv, section.Rows, "BoundsRadius");
+        if (row < 0) return null;
+        if (!float.TryParse(levelCsv.Get(row, LevelValueColumn), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float radius)) return null;
+        return radius < 0.0002f ? DefaultBoundsRadius : radius;
+    }
+
+    /// <summary>What the game uses for a BoundsRadius of (about) 0.</summary>
+    public const float DefaultBoundsRadius = 4000f;
+
+    /// <summary>Distances in from BoundsRadius where the ship's warning and turn-back begin.</summary>
+    public const float BoundsWarningInset = 400f, BoundsTurnInset = 200f;
+
     /// <summary>level.csv, if the game has one.</summary>
     public static ConfigTableRef? LevelTable(string gameFolder) =>
         List(gameFolder).FirstOrDefault(t => t.Name.Equals("level.csv", StringComparison.OrdinalIgnoreCase));

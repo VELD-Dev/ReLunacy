@@ -4,7 +4,7 @@ using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 
-public class EntityRegion : IDisposable
+public partial class EntityRegion : IDisposable
 {
     public readonly EntityCluster MobyInstances;
     public readonly EntityCluster Volumes;
@@ -15,7 +15,8 @@ public class EntityRegion : IDisposable
     /// <summary>The region's other controllers (sound environments, info prompts, FX...), drawn as small diamonds.</summary>
     public readonly EntityCluster ControllerInstances;
     /// <summary>All of the region's controllers, cameras or not, in table order.</summary>
-    public readonly IReadOnlyList<Assets.LevelElements.GameplayController> Controllers;
+    public IReadOnlyList<Assets.LevelElements.GameplayController> Controllers => _controllers;
+    private readonly List<Assets.LevelElements.GameplayController> _controllers;
     public readonly List<EntityZone> Zones = [];
 
     public int ZonesCount => Zones.Count;
@@ -25,6 +26,10 @@ public class EntityRegion : IDisposable
     public bool allowRender = true;
 
     public string RegionName;
+
+    /// <summary>Old engine regions have no gameplay instance tables to add to (see <see cref="CreateMoby"/>).</summary>
+    public readonly bool IsOldEngine;
+    private readonly AssetManager _assetManager;
 
     /// <summary>The level editor's layers (see <see cref="Region.Layers"/>).</summary>
     public readonly IReadOnlyList<string> Layers;
@@ -46,6 +51,8 @@ public class EntityRegion : IDisposable
     public EntityRegion(Region region, AssetManager assetManager, GraphicsDevice gd, bool deferZones = false)
     {
         RegionName = region.Name ?? "UnnamedRegion";
+        IsOldEngine = region.IsOldEngine;
+        _assetManager = assetManager;
         Layers = region.Layers;
         References = region.References;
 
@@ -58,10 +65,10 @@ public class EntityRegion : IDisposable
         foreach (var volume in region.Volumes)
             Volumes.Add(volume, gd);
 
-        Controllers = region.Controllers;
+        _controllers = [.. region.Controllers];
         Cameras = new EntityCluster([], assetManager);
         ControllerInstances = new EntityCluster([], assetManager);
-        foreach (var controller in region.Controllers)
+        foreach (var controller in _controllers)
             if (controller.IsCamera) Cameras.Add(new EntityCamera(controller));
             else ControllerInstances.Add(new EntityController(controller));
 

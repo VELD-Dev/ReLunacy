@@ -263,6 +263,7 @@ public partial class AssetViewer
             ImGui.Text(LM.Get("GUI_Frame_AssetViewer_EffectLength",
                 sim.Continuous ? LM.Get("GUI_Frame_AssetViewer_EffectContinuous") : $"{sim.PlayLength:0.##} s"));
             ImGui.TextDisabled(package.Summary);
+            RenderEffectControllers(package);
             ImGui.EndTabItem();
         }
 
@@ -280,6 +281,32 @@ public partial class AssetViewer
         }
 
         ImGui.EndTabBar();
+    }
+
+    /// <summary>The level's FxControllers that play the effect, each a link that selects it in the level.</summary>
+    private void RenderEffectControllers(EffectPackage package)
+    {
+        var controllers = LevelEffectPlayer.ControllersOf(package);
+        ImGui.Separator();
+        if (controllers.Count == 0)
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_EffectNoControllers"));
+            return;
+        }
+        ImGui.TextUnformatted(LM.Get("GUI_Frame_InstanceInspector_UsedBy") + $" {controllers.Count}");
+        bool several = controllers.Select(c => c.Region).Distinct().Count() > 1;
+        for (int i = 0; i < controllers.Count; i++)
+        {
+            var (region, entity, index, key) = controllers[i];
+            ImGui.PushID(i);
+            ImGui.Bullet();
+            if (entity != null) PropertyInspectorFrame.ReferenceLink(region, "Controller", entity.Name, index);
+            else ImGui.TextUnformatted($"FxController #{index}");
+            ImGui.SameLine();
+            string tag = _effectNamesListed?.GetValueOrDefault(key) ?? key.ToString();
+            ImGui.TextDisabled((several && region != null ? region.RegionName + "  " : "") + tag);
+            ImGui.PopID();
+        }
     }
 
     private void RenderEffectPieces()

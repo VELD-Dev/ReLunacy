@@ -91,6 +91,19 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>The level's Moby and Tie classes as 3D thumbnails, dragged into the 3D view to place them.</summary>
+    internal static void ShowAssetExplorer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<AssetExplorerFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_AssetExplorer"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<AssetExplorerFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new AssetExplorerFrame());
+    }
+
     internal static void ShowTextureExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<TexturesExplorer>();
@@ -286,6 +299,12 @@ internal static class ViewMenuDraw
                     assetViewer.TransmitAssets(window.AssetManager, window.Level.Mobys, window.Level.Ties);
                 window.AddFrame(assetViewer);
                 return assetViewer;
+
+            case nameof(AssetExplorerFrame):
+                if (window.IsAnyFrameOpened<AssetExplorerFrame>()) return window.GetFirstFrame<AssetExplorerFrame>();
+                var assetExplorer = new AssetExplorerFrame();
+                window.AddFrame(assetExplorer);
+                return assetExplorer;
 
             case nameof(TexturesExplorer):
                 if (window.IsAnyFrameOpened<TexturesExplorer>()) return window.GetFirstFrame<TexturesExplorer>();

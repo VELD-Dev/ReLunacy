@@ -10,6 +10,27 @@ namespace ReLunacy.Engine.Assets.LevelElements;
 /// </summary>
 public sealed class GameplayController
 {
+    public GameplayController() { }
+
+    /// <summary>A controller made in the editor, with the settings of a controller of the same class (see
+    /// NewInstance). <paramref name="index"/> is its place at the end of the region's controller table.</summary>
+    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public GameplayController(ulong tuid, string name, int index, string? layer, uint cls, string? className, byte[] settings,
+        IReadOnlyList<ClueReference> references, Vector3 position, Vector3 rotation, bool isCamera)
+    {
+        Tuid = tuid;
+        Name = name;
+        Index = index;
+        Layer = layer;
+        Class = cls;
+        ClassName = className;
+        Settings = settings;
+        References = references;
+        Position = position;
+        Rotation = rotation;
+        IsCamera = isCamera;
+    }
+
     public required ulong Tuid { get; init; }
     public required string Name { get; init; }
     /// <summary>The controller's place in the region's controller table (see <see cref="Volume.Index"/>).</summary>

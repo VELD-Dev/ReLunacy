@@ -1459,6 +1459,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         (ControllerIconFragmentGlsl, ShaderStages.Fragment),
         (PathLineVertexGlsl, ShaderStages.Vertex),
         (PathLineFragmentGlsl, ShaderStages.Fragment),
+        (BoundaryVertexGlsl, ShaderStages.Vertex),
+        (BoundaryFragmentGlsl, ShaderStages.Fragment),
     ];
 
     public static void WarmUpShaderCache()
@@ -1612,6 +1614,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreateCameraMarkerPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreateControllerIconPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreatePathLinePipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateBoundaryPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
 
         _billboardVs = Module(BillboardVertexGlsl, ShaderStages.Vertex);
         _billboardFs = Module(BillboardFragmentGlsl, ShaderStages.Fragment);
@@ -2073,6 +2076,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         DrawPathLines();
         // The faces first, so the wireframe draws over them.
         DrawVolumeFills();
+        DrawBoundary();
         if (_volumeCount == 0) return;
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _volumePipeline);
         VkDescriptorSet s0 = _descSet;
@@ -2714,6 +2718,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         DestroyControllerIcons();
         DisposeEffects();
         DestroyPathLines();
+        DestroyBoundary();
         _api.vkDestroyBuffer(_edgeVertexBuffer); _api.vkFreeMemory(_edgeVbMemory);
         _api.vkDestroyBuffer(_edgeIndexBuffer); _api.vkFreeMemory(_edgeIbMemory);
         _api.vkDestroyRenderPass(_rpOpaque);

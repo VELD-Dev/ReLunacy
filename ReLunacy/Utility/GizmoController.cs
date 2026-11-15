@@ -9,7 +9,13 @@ namespace ReLunacy.Utility;
 public class GizmoController
 {
     public ImGuizmoOperation CurrentOperation { get; set; } = ImGuizmoOperation.Translate;
-    public ImGuizmoMode CurrentMode { get; set; } = ImGuizmoMode.World;
+    public ImGuizmoMode CurrentMode => Program.Settings.GizmoLocal ? ImGuizmoMode.Local : ImGuizmoMode.World;
+
+    public void ToggleLocal()
+    {
+        Program.Settings.GizmoLocal = !Program.Settings.GizmoLocal;
+        Program.Settings.SaveSettingsToFile();
+    }
 
     public bool IsUsing => ImGuizmo.IsUsingAny();
 
@@ -99,6 +105,11 @@ public class GizmoController
               * Matrix4x4.CreateFromQuaternion(transform.Rotation)
               * Matrix4x4.CreateTranslation(transform.Translation);
 
+        // A path part's gizmo is oriented along the path in Local mode; the edit stays a pure translation.
+        var pathPart = entity as EntityPathPoint;
+        if (pathPart != null && CurrentMode == ImGuizmoMode.Local)
+            matrix = Matrix4x4.CreateFromQuaternion(pathPart.Frame()) * Matrix4x4.CreateTranslation(transform.Translation);
+
         // The same composition the drag ends in, so the delta below holds only the drag.
         var before = matrix;
         var settings = Program.Settings;
@@ -124,6 +135,8 @@ public class GizmoController
         if (!using_) EndDrag();
         if (!using_ || !Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
             return false;
+        if (pathPart != null) translation = matrix.Translation;
+        if (pathPart != null) { rotation = Quaternion.Identity; scale = Vector3.One; matrix = Matrix4x4.CreateTranslation(translation); before = Matrix4x4.CreateTranslation(transform.Translation); }
         if (entity is EntityVolume active) active.SetMatrix(matrix);
         else entity.Transform = new Transform { Translation = translation, Rotation = rotation, Scale = Uniform(entity, scale, transform.Scale) };
         if (others.Count == 0 || !Matrix4x4.Invert(before, out var inverse)) return true;

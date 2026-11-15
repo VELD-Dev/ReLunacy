@@ -1,5 +1,9 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
+using ReLunacy.Core.Collision;
+using ReLunacy.Core.Placement;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Config;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Engine.Diagnostics;
@@ -175,6 +179,36 @@ public class View3D : DockedFrame
         }
     }
 
+    // The height the sector boundary is drawn over: the middle 80 % of the level's Moby heights, per level.
+    private object? _boundaryLevel;
+    private int _boundaryMobys = -1;
+    private (float Low, float High) _boundaryHeights;
+
+    /// <summary>The space sector's play area from level.csv's BoundsRadius, read every frame from the shared
+    /// table so an edit shows at once. The game tests it on X/Z around the origin, so it is drawn as a cylinder
+    /// over the level's height (GameConfigs.BoundsRadius).</summary>
+    private Engine.Rendering.Vulkan.SectorBoundary? BuildSectorBoundary()
+    {
+        if (Program.Settings.HideSectorBounds || ConfigDocument.LevelBoundsRadius() is not { } radius) return null;
+        var level = Core.LunaWindow.Instance.Level;
+        int mobys = EntityManager.Singleton.MobysCount;
+        if (!ReferenceEquals(level, _boundaryLevel) || mobys != _boundaryMobys)
+        {
+            _boundaryLevel = level;
+            _boundaryMobys = mobys;
+            var heights = EntityManager.Singleton.Regions
+                .SelectMany(r => r.MobyInstances.Entities)
+                .Select(e => e.WorldBoundingSphere.Y)
+                .Order().ToList();
+            _boundaryHeights = heights.Count == 0 ? (0f, 0f)
+                : (heights[heights.Count / 10], heights[heights.Count * 9 / 10]);
+        }
+        var (low, high) = _boundaryHeights;
+        float halfHeight = MathF.Max((high - low) * 0.5f + 300f, radius * 0.15f);
+        return new Engine.Rendering.Vulkan.SectorBoundary(new Vector3(0f, (low + high) * 0.5f, 0f), radius, halfHeight,
+            radius - GameConfigs.BoundsWarningInset, radius - GameConfigs.BoundsTurnInset);
+    }
+
     private bool showClipControls;
     private bool showIconControls;
 
@@ -209,6 +243,16 @@ public class View3D : DockedFrame
         float pathFilterAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
         if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
+        // A space sector's play area: only where level.csv gives the level a BoundsRadius.
+        if (ConfigDocument.LevelBoundsRadius() != null)
+        {
+            bool bounds = !settings.HideSectorBounds;
+            if (overlay.ToggleButton(Icons.Globe, ref bounds, LM.Get("GUI_Viewport_SectorBounds")))
+            {
+                settings.HideSectorBounds = !bounds;
+                settings.SaveSettingsToFile();
+            }
+        }
         // Particle effects: old-engine and A Crack in Time levels, greyed out where there are none to play.
         bool effects = !settings.HideEffects;
         bool hasEffects = LevelEffectPlayer.HasEffects;
@@ -775,6 +819,7 @@ public class View3D : DockedFrame
                 vkStage.VolumeFills = _vkVolumeFills;
                 vkStage.CameraMarkers = BuildCameraList();
                 vkStage.ControllerIconMarkers = _vkControllerIcons;
+                vkStage.Boundary = BuildSectorBoundary();
                 _paths.Update(vkStage, SelectedEntity, CollisionEditing);
                 vkStage.AlsoSelected = OutlinedOthers();
                 // Placed effects (FxControllers) play in the renderer's depth-tested sprite pass.
@@ -811,11 +856,13 @@ public class View3D : DockedFrame
         // No UV flip needed: the render texture already comes out right-side up and correctly
         // oriented left/right. Before a level is captured there is nothing to show, so the panel
         // stays empty.
+        _viewport.DropType = InstancePlacer.PayloadType;
         if (vkStage != null)
             _viewport.DrawImage(Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, vkStage.ColorTexture));
         else
             _viewport.DrawEmpty();
         DrawPovFrame();
+        HandleAssetDrop();
 
         // Overlay, then gizmo, then picking. That is the priority order, and it is the call order:
         // each one gets its chance at the click before the next, and TryConsumeClick below returns
@@ -833,7 +880,7 @@ public class View3D : DockedFrame
         if (_viewport.TryConsumeClick())
         {
             if (CollisionEditing) _marqueeStart = _viewport.MousePos;
-            else
+            else if (!TryInsertPathKey())
             {
                 PickEntityUnderCursor();
                 // A press on a key, handle or point of the selected path starts dragging it.
@@ -896,6 +943,82 @@ public class View3D : DockedFrame
             CheckMovementInput(deltaTime);
         else
             HandleGizmoShortcuts();
+    }
+
+    /// <summary>A double-click on the selected path's line adds a key there; one on a key or handle is left to
+    /// the normal pick.</summary>
+    private bool TryInsertPathKey()
+    {
+        if (!ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) return false;
+        if ((SelectedEntity as EntityPath ?? (SelectedEntity as EntityPathPoint)?.Owner) is not { } path) return false;
+        var viewProjection = Camera.GetView() * Camera.GetProjection();
+        if (_paths.Pick(_viewport.MousePos, viewProjection, _viewport.Size, Camera.Position, SelectedEntity) is { Entity: EntityPathPoint })
+            return false;
+        if (PathOverlay.PickSpan(path, _viewport.MousePos, viewProjection, _viewport.Size) is not { } hit) return false;
+        _pathEditor.InsertAt(path, hit.Span, hit.T);
+        return true;
+    }
+
+    // --- Placing new instances -----------------------------------------------------------------------
+
+    /// <summary>How far along the ray a placement lands where it meets no surface.</summary>
+    private const float PlaceFallbackDistance = 15f;
+
+    private (Vector2 Mouse, Vector3 Position, Vector3 Target, Vector3 Point)? _placeCache;
+
+    /// <summary>The surface under <paramref name="mouse"/> (pixels in the image): the nearest collision, else a point at a fixed
+    /// distance along the ray. The collision is the only surface the CPU knows; it is searched again only when the mouse or
+    /// the camera moved.</summary>
+    private Vector3 PlacementPoint(Vector2 mouse)
+    {
+        if (_placeCache is { } cached && cached.Mouse == mouse && cached.Position == Camera.Position && cached.Target == Camera.Target)
+            return cached.Point;
+        Vector3 point;
+        if (SurfaceProbe.ViewRay(Camera, mouse, _viewport.Size) is { } ray)
+            point = SurfaceProbe.Cast(_collisionEditor.Scene, ray.Origin, ray.Direction)?.Point ?? ray.Origin + ray.Direction * PlaceFallbackDistance;
+        else
+            point = Camera.Position + Camera.GetForward() * PlaceFallbackDistance;
+        _placeCache = (mouse, Camera.Position, Camera.Target, point);
+        return point;
+    }
+
+    /// <summary>The surface at the middle of the image (see <see cref="PlacementPoint"/>) and the way the camera looks, where
+    /// the Create menu puts what it makes.</summary>
+    public (Vector3 Point, Vector3 Forward, Vector3 Right) CentrePlacement()
+    {
+        var right = Camera.GetRight();
+        right = new Vector3(right.X, 0f, right.Z);
+        right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : Vector3.UnitX;
+        return (PlacementPoint(_viewport.Size * 0.5f), Camera.GetForward(), right);
+    }
+
+    /// <summary>An asset dragged over the image: shown where it would land, and placed there when released.</summary>
+    private void HandleAssetDrop()
+    {
+        if (_viewport.Drop is not { } drop || drop.Data.Length < Marshal.SizeOf<AssetExplorerFrame.Payload>()) return;
+        var payload = MemoryMarshal.Read<AssetExplorerFrame.Payload>(drop.Data);
+        var asset = new DraggedAsset((PlaceableKind)payload.Kind, payload.Id);
+        var point = PlacementPoint(_viewport.MousePos);
+        if (drop.Released)
+        {
+            InstancePlacer.PlaceNew(asset, point);
+            return;
+        }
+
+        // Its thumbnail standing on the point, with a ring on the surface.
+        var clip = Vector4.Transform(new Vector4(point, 1f), Camera.GetView() * Camera.GetProjection());
+        if (clip.W <= 0f) return;
+        var size = _viewport.Size;
+        var screen = _viewport.ScreenPos + new Vector2((clip.X / clip.W * 0.5f + 0.5f) * size.X, (0.5f - clip.Y / clip.W * 0.5f) * size.Y);
+        var drawList = ImGui.GetWindowDrawList();
+        uint colour = ImGui.ColorConvertFloat4ToU32(Program.Settings.SelectionOutlineColor);
+        if (AssetThumbnails.Singleton.Get(asset.Kind == PlaceableKind.Tie, asset.Id) is { } thumbnail)
+        {
+            var half = new Vector2(40f, 0f);
+            drawList.AddImage(thumbnail, screen - half - new Vector2(0f, 80f), screen + half - new Vector2(0f, 0f));
+        }
+        drawList.AddCircle(screen, 8f, colour, 24, 2f);
+        drawList.AddCircleFilled(screen, 2.5f, colour);
     }
 
     private void PickEntityUnderCursor()
@@ -998,6 +1121,10 @@ public class View3D : DockedFrame
     public void HandleShortcuts()
     {
         _pathEditor.HandleShortcuts();
+        // Delete takes a new instance no save has written out again (an undo step); what the files hold stays.
+        if (Input.IsKeyPressed(KeyboardKey.Delete) && !ImGui.GetIO().WantTextInput && !CollisionEditing
+            && SelectionManager.Singleton.SelectedEntity is not EntityPathPoint)
+            InstancePlacer.RemoveNew(SelectionManager.Singleton.Selection);
         if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
         if (PovCamera != null) { ExitPov(restore: true); return; }
         if (CollisionEditing) _collisionEditor.ClearSelection();
@@ -1010,6 +1137,7 @@ public class View3D : DockedFrame
         if (Input.IsKeyPressed(KeyboardKey.W)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
         if (Input.IsKeyPressed(KeyboardKey.E)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
         if (Input.IsKeyPressed(KeyboardKey.R)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
+        if (Input.IsKeyPressed(KeyboardKey.X)) GizmoController.ToggleLocal();
     }
 
     private bool CheckRotationInput(bool allowGrab)

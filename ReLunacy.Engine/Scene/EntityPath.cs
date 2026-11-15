@@ -135,19 +135,23 @@ public class EntityPath : Entity
         Resample(key);
     }
 
-    /// <summary>Splits span <paramref name="span"/> (between keys span and span + 1) in two at its middle, without
-    /// changing its shape (de Casteljau); the path gains a key and 10 points.</summary>
-    public void InsertKey(int span)
+    /// <summary>Splits span <paramref name="span"/> (between keys span and span + 1) in two at parameter
+    /// <paramref name="t"/> (its middle by default), without changing its shape (de Casteljau); the path gains a
+    /// key and 10 points.</summary>
+    public void InsertKey(int span, float t = 0.5f)
     {
         if (!IsSpline || span < 0 || span >= _keys.Count - 1) return;
+        t = Math.Clamp(t, 0.01f, 0.99f);
         Vector3 p0 = _keys[span], p1 = _out[span], p2 = _in[span + 1], p3 = _keys[span + 1];
-        Vector3 a = (p0 + p1) / 2, b = (p1 + p2) / 2, c = (p2 + p3) / 2, ab = (a + b) / 2, bc = (b + c) / 2, mid = (ab + bc) / 2;
+        Vector3 a = Vector3.Lerp(p0, p1, t), b = Vector3.Lerp(p1, p2, t), c = Vector3.Lerp(p2, p3, t);
+        Vector3 ab = Vector3.Lerp(a, b, t), bc = Vector3.Lerp(b, c, t), mid = Vector3.Lerp(ab, bc, t);
         _out[span] = a;
         _in[span + 1] = c;
         _keys.Insert(span + 1, mid);
         _in.Insert(span + 1, ab);
         _out.Insert(span + 1, bc);
-        _modes.Insert(span + 1, PathHandleMode.Smooth);
+        // The two handles are collinear but only equal in length at the middle.
+        _modes.Insert(span + 1, MathF.Abs(t - 0.5f) < 1e-4f ? PathHandleMode.Smooth : PathHandleMode.Aligned);
         _local.InsertRange(SamplesPerSpan * (span + 1), new Vector3[SamplesPerSpan]);
         Resample(span);
         Resample(span + 1);
@@ -183,6 +187,16 @@ public class EntityPath : Entity
             return key + 1;
         }
         return Extend(atEnd: true);
+    }
+
+    /// <summary>Adds a key on the span after key <paramref name="span"/> at parameter <paramref name="t"/> (0 to 1)
+    /// of it, keeping the shape, and returns its index; -1 when there is no such span.</summary>
+    public int InsertAt(int span, float t)
+    {
+        if (span < 0 || span >= KeyCount - 1) return -1;
+        if (IsSpline) InsertKey(span, t);
+        else { _local.Insert(span + 1, Vector3.Lerp(_local[span], _local[span + 1], Math.Clamp(t, 0.01f, 0.99f))); Version++; }
+        return span + 1;
     }
 
     /// <summary>As <see cref="InsertAfter"/>, just before <paramref name="key"/>.</summary>
@@ -460,6 +474,27 @@ public class EntityPathPoint : Entity
         PathPart.OutHandle => Owner.OutHandleAt(Index) ?? Owner.KeyAt(Index),
         _ => Owner.PointAt(Index),
     };
+
+    /// <summary>The local frame of the part's key along the path: X is the tangent there, Y the world up made
+    /// perpendicular to it (world X when the tangent is vertical), Z their cross product.</summary>
+    public Quaternion Frame()
+    {
+        int n = Owner.KeyCount, i = Index;
+        Vector3 tangent;
+        if (Owner.IsSpline && Owner.OutHandleAt(i) is { } outHandle) tangent = outHandle - Owner.KeyAt(i);
+        else if (Owner.IsSpline && Owner.InHandleAt(i) is { } inHandle) tangent = Owner.KeyAt(i) - inHandle;
+        else tangent = Owner.KeyAt(Math.Min(i + 1, n - 1)) - Owner.KeyAt(Math.Max(i - 1, 0));
+        if (tangent.LengthSquared() < 1e-10f)
+            tangent = Owner.KeyAt(Math.Min(i + 1, n - 1)) - Owner.KeyAt(Math.Max(i - 1, 0));
+        if (tangent.LengthSquared() < 1e-10f) return Quaternion.Identity;
+        Vector3 x = Vector3.Normalize(tangent);
+        Vector3 y = Vector3.UnitY - x * x.Y;
+        y = y.LengthSquared() < 1e-6f ? Vector3.UnitX - x * x.X : y;
+        y = Vector3.Normalize(y);
+        Vector3 z = Vector3.Cross(x, y);
+        return Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(new Matrix4x4(
+            x.X, x.Y, x.Z, 0, y.X, y.Y, y.Z, 0, z.X, z.Y, z.Z, 0, 0, 0, 0, 1)));
+    }
 
     /// <summary>Writes a gizmo move back to the path; true when the part moved.</summary>
     public bool Sync()

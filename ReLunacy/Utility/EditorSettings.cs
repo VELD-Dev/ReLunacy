@@ -73,6 +73,8 @@ public class EditorSettings
     public bool HidePaths;
     // The level view's particle effects. Inverted, as the cameras' switch, so older settings files show them.
     public bool HideEffects;
+    // The space sector boundary shell. Inverted, as the effects' switch, so older settings files show it.
+    public bool HideSectorBounds;
     public bool RenderNavmesh;
     public bool RenderCollision;
     // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.
@@ -110,6 +112,7 @@ public class EditorSettings
     public Vector2 OverlayPadding;
     public int OverlayPos;
     public float ToolsGizmoSize;
+    public bool GizmoLocal;
     public bool GizmoSnapEnabled;
     public float GizmoSnapTranslation;
     public float GizmoSnapRotation;
@@ -128,6 +131,9 @@ public class EditorSettings
     public Vector4 SelectionOutlineColor;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders = [];
+    // The Asset Explorer's favourite assets per game (the game's id as the key): "M:" or "T:" and the asset's
+    // id in hex, Moby or Tie.
+    public Dictionary<string, List<string>> AssetFavourites = [];
     // Dockspace layouts saved via View > Layout > Save Current Layout As... - each value is an ImGui
     // ini-settings blob (ImGui.SaveIniSettingsToMemoryS/LoadIniSettingsFromMemory), which captures
     // every dock node split and window dock assignment in one string. ActiveLayoutName is which of
@@ -241,6 +247,7 @@ public class EditorSettings
         OverlayPadding = new Vector2(10f, 10f);
         OverlayPos = 0;
         ToolsGizmoSize = 0.06f;
+        GizmoLocal = false;
         GizmoSnapEnabled = false;
         GizmoSnapTranslation = 1.0f;
         GizmoSnapRotation = 15.0f;

@@ -18,7 +18,7 @@ public static class ControllerIcons
         (GameId.ACrackInTime, [0x171], "EnemyBattlefieldController.png"),
         (GameId.ACrackInTime, [0x173], "EnemyFirepointController.png"),
         (GameId.ACrackInTime, [0x371], "EnemyGroupController.png"),
-        (GameId.ACrackInTime, [0x3D0], "FxController.png"),
+        (GameId.ACrackInTime, [0x3D0], "EffectController.png"),
         (GameId.ACrackInTime, [0x8A9], "InfoController.png"),
         (GameId.ACrackInTime, [0x211], "MoveGameObjectController.png"),
         (GameId.ACrackInTime, [0x369], "SoundEmitter.png"),

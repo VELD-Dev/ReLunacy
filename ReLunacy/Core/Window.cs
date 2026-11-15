@@ -923,10 +923,13 @@ public class LunaWindow : IDisposable
             ToolsMenuDraw.TranslationTool();
             ToolsMenuDraw.RotationTool();
             ToolsMenuDraw.ScaleTool();
+            ToolsMenuDraw.LocalSpace();
             ImGui.Separator();
             ToolsMenuDraw.DeselectObject();
             ImGui.EndMenu();
         }
+
+        CreateMenuDraw.Menu();
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_View")))
         {
@@ -935,6 +938,7 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowLevelData();
             ViewMenuDraw.ShowView3D();
             ViewMenuDraw.ShowAssetViewer();
+            ViewMenuDraw.ShowAssetExplorer();
             ViewMenuDraw.ShowTextureExplorer();
             ViewMenuDraw.ShowCubemapViewer();
             ViewMenuDraw.ShowShaderBrowser();

@@ -17,8 +17,9 @@ namespace ReLunacy.Utility;
 /// scene's controller entities, so moving or hiding one moves or hides its effect). Each nearby controller runs its
 /// own <see cref="EffectSimulator"/> at its position and orientation (the game hands the effect the controller's
 /// matrix); the sprites go to the renderer's depth-tested effect pass (VulkanRenderer.Effects.cs). Only the
-/// <see cref="MaxInstances"/> nearest within <see cref="MaxDistance"/> play, so a level with hundreds of placed
-/// effects costs what the camera can see.
+/// <see cref="MaxInstances"/> nearest whose reach comes within <see cref="MaxDistance"/> of the camera play, so a
+/// level with hundreds of placed effects costs what the camera can see, while a nebula hundreds of units wide still
+/// shows from afar. A continuous effect starts prewarmed, as it would look after playing a while.
 ///
 /// The level's effect files are read once per level: their bytes on the main thread (the level's archives are
 /// not shared across threads), the parsing and texture decoding in the background, the upload here.
@@ -41,7 +42,8 @@ internal static class LevelEffectPlayer
 
     /// <summary>What the background load hands back: the effect data and every texture's mips, ready to upload, or
     /// why there is none.</summary>
-    private sealed record Loaded(LevelEffects? Effects, TextureLevels?[] Textures, string? Message);
+    private sealed record Loaded(LevelEffects? Effects, TextureLevels?[] Textures, string? Message,
+        Dictionary<EffectPackage, float>? Reaches = null);
 
     public static float MaxDistance = 150f;
     public static int MaxInstances = 48;
@@ -62,6 +64,8 @@ internal static class LevelEffectPlayer
 
     private static readonly Dictionary<object, Instance> Playing = new(ReferenceEqualityComparer.Instance);
     private static readonly Dictionary<EffectPackage, float> Lengths = new(ReferenceEqualityComparer.Instance);
+    // How far each effect's sprites reach from its controller, measured once per effect.
+    private static readonly Dictionary<EffectPackage, float> Reaches = new(ReferenceEqualityComparer.Instance);
     private static readonly List<Placed> Available = [];
     private static readonly List<(int Slot, float Distance)> Candidates = [];
     private static readonly HashSet<object> Keep = new(ReferenceEqualityComparer.Instance);
@@ -140,6 +144,29 @@ internal static class LevelEffectPlayer
         return resolution;
     }
 
+    /// <summary>Every FxController of the open level that plays <paramref name="package"/>, with its key: the scene's
+    /// controllers in A Crack in Time (with their region), else the gameplay.dat ones by index (no region, no entity).</summary>
+    public static List<(EntityRegion? Region, EntityController? Entity, int Index, uint Key)> ControllersOf(EffectPackage package)
+    {
+        var found = new List<(EntityRegion?, EntityController?, int, uint)>();
+        if (Current == null) return found;
+        if (!_crackInTime)
+        {
+            foreach (var (controller, resolution) in _placed)
+                if (ReferenceEquals(resolution.Package, package)) found.Add((null, null, controller.Index, controller.Key));
+            return found;
+        }
+        foreach (EntityRegion region in EntityManager.Singleton.Regions)
+            foreach (Entity entity in region.ControllerInstances.Entities)
+            {
+                if (entity is not EntityController c || c.Controller.Class != LevelEffects.CrackInTimeFxControllerClass
+                    || c.Controller.Settings.Length < KeyOffset + 4) continue;
+                uint key = BinaryPrimitives.ReadUInt32BigEndian(c.Controller.Settings.AsSpan(KeyOffset));
+                if (key != 0 && ReferenceEquals(ResolveKey(key)?.Package, package)) found.Add((region, c, c.Controller.Index, key));
+            }
+        return found;
+    }
+
     /// <summary>Steps every nearby effect and hands this frame's sprites to <paramref name="renderer"/>.</summary>
     public static void Update(VulkanRenderer renderer, EditorCamera camera, float deltaTime, GraphicsDevice device)
     {
@@ -160,7 +187,8 @@ internal static class LevelEffectPlayer
         Candidates.Clear();
         for (int i = 0; i < Available.Count; i++)
         {
-            float distance = Vector3.Distance(Available[i].Position, eye);
+            // Distance to the nearest edge of the effect, so a wide one plays while any of it can be near.
+            float distance = Vector3.Distance(Available[i].Position, eye) - Reach(effects, Available[i].Package);
             if (distance <= MaxDistance) Candidates.Add((i, distance));
         }
         Candidates.Sort((a, b) => a.Distance.CompareTo(b.Distance));
@@ -194,6 +222,8 @@ internal static class LevelEffectPlayer
                 instance.Wait = RepeatDelay(effects, placed, random);
                 // Staggered, so a row of identical controllers does not flash in step.
                 instance.SinceStart = instance.Wait * random.NextSingle();
+                // A continuous effect has been playing since the level started: show it filled up.
+                instance.Simulator.Prewarm();
                 Playing[placed.Owner] = instance;
             }
             else if (instance.Rotation != placed.Rotation)
@@ -206,6 +236,7 @@ internal static class LevelEffectPlayer
             EffectSimulator sim = instance.Simulator;
             if (Restarts.Remove(placed.Owner))
             {
+                // A restart shows the effect from its first frame, so it is not prewarmed.
                 sim.Reset();
                 instance.SinceStart = 0f;
                 instance.Wait = RepeatDelay(effects, placed, instance.Random);
@@ -313,6 +344,20 @@ internal static class LevelEffectPlayer
         return length;
     }
 
+    /// <summary>How far <paramref name="package"/>'s sprites reach from its origin, cached per package.</summary>
+    private static float Reach(LevelEffects effects, EffectPackage package)
+    {
+        if (Reaches.TryGetValue(package, out float reach)) return reach;
+        Reaches[package] = reach = MeasureReach(effects, package);
+        return reach;
+    }
+
+    private static float MeasureReach(LevelEffects effects, EffectPackage package)
+    {
+        var probe = new EffectSimulator(effects.Library, package, new EffectSimulationSettings { MaxParticles = 1500 });
+        return probe.MeasureReach(Math.Clamp(probe.PlayLength, 2f, 4f));
+    }
+
     /// <summary>Starts reading a newly opened level's effects, and takes them once read.</summary>
     private static void EnsureLevel()
     {
@@ -346,6 +391,8 @@ internal static class LevelEffectPlayer
 
         _effects = effects;
         _placed = [.. effects.Controllers.Select(c => (c, effects.Resolve(c)))];
+        if (loaded.Reaches != null)
+            foreach (var (package, reach) in loaded.Reaches) Reaches[package] = reach;
         _pendingUpload = loaded;
 
         var library = effects.Library;
@@ -392,7 +439,18 @@ internal static class LevelEffectPlayer
             }
             catch { textures[i] = null; }
         }
-        return new Loaded(effects, textures, error);
+        // Every placed effect's reach now, off the main thread, so the view does not stall measuring them.
+        var reaches = new Dictionary<EffectPackage, float>(ReferenceEqualityComparer.Instance);
+        IEnumerable<EffectPackage?> packages = crackInTime
+            ? effects.ControllerKeys().Select(k => effects.Resolve(k).Package)
+            : effects.Controllers.Select(c => effects.Resolve(c).Package);
+        foreach (EffectPackage? package in packages)
+        {
+            if (package == null || reaches.ContainsKey(package)) continue;
+            try { reaches[package] = MeasureReach(effects, package); }
+            catch { /* measured on first use instead */ }
+        }
+        return new Loaded(effects, textures, error, reaches);
     }
 
     /// <summary>Forgets the previous level's effects; its textures go once the device is idle.</summary>
@@ -412,6 +470,7 @@ internal static class LevelEffectPlayer
         Forced.Clear();
         Restarts.Clear();
         Lengths.Clear();
+        Reaches.Clear();
         Resolved.Clear();
     }
 }

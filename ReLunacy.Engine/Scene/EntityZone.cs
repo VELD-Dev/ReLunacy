@@ -1,3 +1,4 @@
+using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
 using NeoVeldrid;
@@ -38,6 +39,41 @@ public class EntityZone : IDisposable
         if (zone.Navmesh is { } navmesh)
             foreach (var chunk in navmesh.Chunks)
                 Navmeshes.Add(new EntityNavmesh(chunk, ZoneName));
+    }
+
+    private int _boundsCount = -1;
+    private (Vector3 Min, Vector3 Max)? _bounds;
+
+    /// <summary>The box round the zone's Ties and UFrags (their bounding spheres); null for a zone with none.
+    /// Kept until the number of them changes.</summary>
+    public (Vector3 Min, Vector3 Max)? Bounds
+    {
+        get
+        {
+            int count = TieInstances.Size + UFrags.Size;
+            if (count == _boundsCount) return _bounds;
+            _boundsCount = count;
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            bool any = false;
+            foreach (var e in TieInstances.Entities.Concat(UFrags.Entities))
+            {
+                var s = e.WorldBoundingSphere;
+                var c = new Vector3(s.X, s.Y, s.Z);
+                min = Vector3.Min(min, c - new Vector3(s.W));
+                max = Vector3.Max(max, c + new Vector3(s.W));
+                any = true;
+            }
+            _bounds = any ? (min, max) : null;
+            return _bounds;
+        }
+    }
+
+    /// <summary>How far <paramref name="point"/> is from the zone's box: 0 inside it, infinite for a zone without one.</summary>
+    public float DistanceTo(Vector3 point)
+    {
+        if (Bounds is not { } box) return float.MaxValue;
+        var outside = Vector3.Max(Vector3.Max(box.Min - point, point - box.Max), Vector3.Zero);
+        return outside.Length();
     }
 
     public void Dispose()

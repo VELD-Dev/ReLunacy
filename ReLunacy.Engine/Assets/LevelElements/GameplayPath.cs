@@ -16,6 +16,30 @@ public readonly record struct GameplayPathPoint(Vector3 Position, float Distance
 /// </summary>
 public sealed class GameplayPath
 {
+    public GameplayPath() { }
+
+    /// <summary>A path made in the editor: the points joined by straight segments, each carrying its distance along
+    /// the path. <paramref name="index"/> is its place at the end of the region's path table (see NewInstance).</summary>
+    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public GameplayPath(ulong tuid, string name, int index, string? layer, IReadOnlyList<Vector3> positions, bool closed = false, byte kind = 1)
+    {
+        Tuid = tuid;
+        Name = name;
+        Index = index;
+        Layer = layer;
+        Closed = closed;
+        Kind = kind;
+        var points = new List<GameplayPathPoint>(positions.Count);
+        float distance = 0f;
+        for (int i = 0; i < positions.Count; i++)
+        {
+            if (i > 0) distance += Vector3.Distance(positions[i - 1], positions[i]);
+            points.Add(new GameplayPathPoint(positions[i], distance));
+        }
+        Points = points;
+        Length = distance;
+    }
+
     public required ulong Tuid { get; init; }
     public required string Name { get; init; }
     /// <summary>The path's place in the region's path table (see <see cref="Volume.Index"/>).</summary>
