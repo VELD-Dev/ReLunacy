@@ -87,6 +87,34 @@ internal sealed class PathOverlay
         renderer.SetPathLines(_vertices, _vertices.Length / VulkanRenderer.PathVertexFloats);
     }
 
+    /// <summary>Where a click at <paramref name="mouse"/> meets <paramref name="path"/>'s line: the key span it
+    /// lands on and the parameter along that span, from the nearest sampled segment in screen space; null when
+    /// no segment is within a few pixels.</summary>
+    public static (int Span, float T)? PickSpan(EntityPath path, Vector2 mouse, Matrix4x4 viewProjection, Vector2 viewport)
+    {
+        Vector2? Screen(Vector3 world)
+        {
+            var clip = Vector4.Transform(new Vector4(world, 1f), viewProjection);
+            if (clip.W <= 1e-3f) return null;
+            return new Vector2((clip.X / clip.W + 1f) * 0.5f * viewport.X, (1f - clip.Y / clip.W) * 0.5f * viewport.Y);
+        }
+        var points = path.WorldPoints().ToArray();
+        int samples = path.IsSpline ? EntityPath.SamplesPerSpan : 1;
+        (int Span, float T)? hit = null;
+        float best = PickPixels;
+        for (int i = 0; i < points.Length - 1; i++)
+        {
+            if (Screen(points[i]) is not { } sa || Screen(points[i + 1]) is not { } sb) continue;
+            Vector2 ab = sb - sa;
+            float t = ab.LengthSquared() > 1e-6f ? Math.Clamp(Vector2.Dot(mouse - sa, ab) / ab.LengthSquared(), 0f, 1f) : 0f;
+            float pixels = Vector2.Distance(mouse, sa + ab * t);
+            if (pixels >= best) continue;
+            best = pixels;
+            hit = (i / samples, (i % samples + t) / samples);
+        }
+        return hit;
+    }
+
     /// <summary>Forces the lines to be rebuilt (after an edit the versions do not show, such as a selection change).</summary>
     public void Invalidate() => _built = default;
 

@@ -18,6 +18,7 @@ public static class Icons
     public const string Plus = "\uf067";
     public const string Minus = "\uf068";
     public const string Trash = "\uf1f8";
+    public const string Star = "\uf005";
     public const string Download = "\uf019";
     public const string Upload = "\uf093";
     public const string Refresh = "\uf021";  // arrows-rotate
@@ -53,6 +54,7 @@ public static class Icons
     public const string Route = "\uf4d7";  // navmesh
     public const string DrawPolygon = "\uf5ee";  // collision
     public const string Fire = "\uf06d";  // effects
+    public const string Globe = "\uf0ac";  // sector boundary
 
     // Lighting
     public const string Lightbulb = "\uf0eb";

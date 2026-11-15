@@ -278,6 +278,10 @@ public sealed class EffectSimulator
     public float PlayLength { get; private set; }
     public bool Continuous { get; private set; }
 
+    /// <summary>How long a continuous effect takes to fill up: the latest start of a continuous emitter plus its
+    /// longest particle life. 0 when nothing runs forever.</summary>
+    public float SteadyStateTime { get; private set; }
+
     public EffectSimulator(EffectLibrary library, EffectPackage package, EffectSimulationSettings? settings = null, int seed = 1234)
     {
         _library = library;
@@ -463,12 +467,16 @@ public sealed class EffectSimulator
 
     private void ComputePlayLength()
     {
-        float end = 0f;
+        float end = 0f, steady = 0f;
         bool forever = false;
         foreach (EmitterInstance e in _emitters)
         {
             float life = MaxOf(e.Emitter.Scalar("Spawn life"), 1f);
-            if (e.Emitter.Duration <= 1e-4f || e.CycleMax > 1e-4f) forever = true;
+            if (e.Emitter.Duration <= 1e-4f || e.CycleMax > 1e-4f)
+            {
+                forever = true;
+                steady = MathF.Max(steady, e.Delay + life);
+            }
             else end = MathF.Max(end, e.Delay + e.Emitter.Duration + life);
         }
         foreach (QuadInstance q in _quads)
@@ -478,6 +486,20 @@ public sealed class EffectSimulator
         }
         Continuous = forever;
         PlayLength = end;
+        SteadyStateTime = forever ? steady : 0f;
+    }
+
+    /// <summary>Runs a continuous effect ahead to its steady state, at most <paramref name="maxSeconds"/>, so
+    /// it shows as it would after playing a while instead of filling up from nothing.</summary>
+    public void Prewarm(float maxSeconds = 20f)
+    {
+        float left = MathF.Min(SteadyStateTime, maxSeconds);
+        while (left > 1e-4f)
+        {
+            float dt = MathF.Min(0.1f, left);
+            Step(dt);
+            left -= dt;
+        }
     }
 
     private static float MaxOf(EffectScalarTrack? track, float fallback)
@@ -812,6 +834,33 @@ public sealed class EffectSimulator
         if (reach.Count == 0) return EstimateExtent();
         reach.Sort();
         return Math.Clamp(reach[(int)(reach.Count * 0.85f)], 0.1f, 200f);
+    }
+
+    /// <summary>
+    /// Radius of the sphere around the origin that holds every sprite and light of a private play of
+    /// <paramref name="seconds"/> (from the steady state for a continuous effect), plus their half-sizes. Not
+    /// clamped: an effect with pieces offset far away reaches that far.
+    /// </summary>
+    public float MeasureReach(float seconds = 2f)
+    {
+        var probe = new EffectSimulator(_library, Package,
+            new EffectSimulationSettings { MaxParticles = 2000, SpawnFrame = Settings.SpawnFrame }, _seed);
+        probe.Prewarm();
+        var sprites = new List<EffectBillboard>();
+        var lights = new List<EffectLightMarker>();
+        float reach = 0f;
+        for (float t = 0f; t < seconds; t += 0.1f)
+        {
+            probe.Step(0.1f);
+            sprites.Clear();
+            lights.Clear();
+            probe.Collect(sprites, lights);
+            foreach (EffectBillboard s in sprites)
+                reach = MathF.Max(reach, s.Position.Length() + s.HalfSize + s.Stretch.Length());
+            foreach (EffectLightMarker l in lights)
+                reach = MathF.Max(reach, l.Position.Length() + l.Radius);
+        }
+        return reach > 0f && float.IsFinite(reach) ? reach : EstimateExtent();
     }
 
     /// <summary>

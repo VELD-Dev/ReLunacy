@@ -67,6 +67,15 @@ public class Volume : IVolumeData
         IsLoaded = true;
         this.group = group;
     }
+
+    /// <summary>A volume made in the editor: <paramref name="index"/> is its place at the end of the region's
+    /// volume table (see NewInstance), <paramref name="layer"/> the name of layer <paramref name="group"/>.</summary>
+    public Volume(ulong id, Matrix4x4 transform, string name, ushort group, VolumeShape shape, int index, string? layer)
+        : this(id, transform, name, group, shape)
+    {
+        Index = index;
+        Layer = layer;
+    }
 }
 
 /// <summary>A Clue: its own instance name and its class (gp_prius 0x25064 +0x0C), with the class's name as

@@ -1,6 +1,5 @@
 using System.Numerics;
 using ReLunacy.Engine.Config;
-using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
@@ -107,88 +106,93 @@ public class LevelDataFrame : DockedFrame
         }
     }
 
-    private string? _configFor;
-    private ConfigTableRef? _configTable;
-    private ConfigCsv? _config;
-    private (int Start, int End)? _configSection;
-    private string? _configError;
+    private ConfigDocument? _configDoc;
+    private int _configStructure = -1;
+    private ConfigLayout? _configLayout;
 
     /// <summary>
     /// The level's block of the game's level.csv (packed/game/global_cached.psarc /data/configs/level.csv, from
     /// A Crack in Time on): the settings the level folder itself does not hold - its name text, rewards, Zoni
     /// count, segments and their pods, bolt and XP pools, and in space sectors BoundsRadius, the play area's
-    /// radius around the origin. Read once per level; edited in Config Tables.
+    /// radius (GameConfigs.BoundsRadius). Edited in place in the shared <see cref="ConfigDocument"/>, so Config
+    /// Tables and the level view's boundary follow; saved into the archive from here or from Config Tables.
     /// </summary>
     private void RenderConfig()
     {
-        string source = Program.ProvidedPath;
-        if (_configFor != source)
+        var doc = ConfigDocument.LevelTable(out string? error);
+        if (error != null) { ImGui.TextWrapped(error); return; }
+        if (doc == null) { ImGui.TextDisabled(LM.Get("GUI_Frame_LevelData_ConfigNone")); return; }
+        if (!ReferenceEquals(doc, _configDoc) || doc.Structure != _configStructure || _configLayout == null)
         {
-            _configFor = source;
-            _config = null; _configTable = null; _configSection = null; _configError = null;
-            try
-            {
-                if (GameConfigs.GameFolderFor(source) is { } game && GameConfigs.LevelTable(game) is { } table)
-                {
-                    _configTable = table;
-                    _config = GameConfigs.Read(table);
-                    _configSection = GameConfigs.LevelSection(_config, GameLibraryScanner.GetLevelNameFromPath(source))?.Rows;
-                }
-            }
-            catch (Exception e) { _configError = e.Message; }
+            _configDoc = doc;
+            _configStructure = doc.Structure;
+            _configLayout = ConfigLayout.Of(doc.Table);
         }
-
-        if (_configError != null) { ImGui.TextWrapped(_configError); return; }
-        if (_config == null || _configTable == null) { ImGui.TextDisabled(LM.Get("GUI_Frame_LevelData_ConfigNone")); return; }
-        if (_configSection is not { } section)
+        var csv = doc.Table;
+        if (GameConfigs.LevelSection(csv, ConfigDocument.LevelName) is not { } found)
         {
-            ImGui.TextDisabled(LM.Get("GUI_Frame_LevelData_ConfigNoSection",
-                GameConfigs.LevelSectionName(GameLibraryScanner.GetLevelNameFromPath(source))));
+            ImGui.TextDisabled(LM.Get("GUI_Frame_LevelData_ConfigNoSection", GameConfigs.LevelSectionName(ConfigDocument.LevelName)));
             return;
         }
+        var section = found.Rows;
 
-        var csv = _config;
-        ImGui.TextDisabled($"{csv.Get(section.Start, 0)}  ({_configTable.EntryPath})");
+        doc.DrawSaveBar();
         ImGui.SameLine();
-        if (ImGui.SmallButton(LM.Get("GUI_Frame_LevelData_ConfigEdit")))
+        if (ImGui.Button(LM.Get("GUI_Frame_LevelData_ConfigEdit")))
         {
             var frame = LunaWindow.Instance.IsAnyFrameOpened<ConfigTablesFrame>()
                 ? LunaWindow.Instance.GetFirstFrame<ConfigTablesFrame>()
                 : null;
             if (frame == null) { frame = new ConfigTablesFrame(); LunaWindow.Instance.AddFrame(frame); }
-            frame.Reveal(_configTable, section.Start);
+            frame.Reveal(doc.Ref, section.Start);
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled($"{csv.Get(section.Start, 0)}  {doc.Ref.EntryPath}");
+        doc.DrawStatus();
+
+        const int level = GameConfigs.LevelValueColumn;
+        int bounds = GameConfigs.FieldRow(csv, section, "BoundsRadius");
+        if (bounds >= 0)
+        {
+            ImGui.SetNextItemWidth(160f);
+            doc.NumberDrag(LM.Get("GUI_Frame_LevelData_BoundsRadius") + "##bounds", bounds, level, 5f, 0f, 100000f);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_LevelData_BoundsRadiusTip"));
         }
 
         // Columns: the field name, the level-wide value, then one per segment - named by the block's Pod row.
         int width = 0;
         for (int r = section.Start + 1; r < section.End; r++) width = Math.Max(width, csv.Rows[r].Count);
-        int values = Math.Max(1, width - 2);
-        int pods = -1;
-        for (int r = section.Start + 1; r < section.End; r++) if (csv.Get(r, 1) == "Pod") pods = r;
+        int values = Math.Max(1, width - level);
+        int pods = GameConfigs.FieldRow(csv, section, "Pod");
 
         if (!ImGui.BeginTable("leveldata_config", values + 1,
                 ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollX))
             return;
         ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ConfigField"));
-        ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ConfigLevel"));
+        ImGui.TableSetupColumn(LM.Get("GUI_Frame_LevelData_ConfigLevel"), ImGuiTableColumnFlags.WidthFixed, 150f);
         for (int v = 1; v < values; v++)
         {
-            string pod = pods >= 0 ? csv.Get(pods, v + 2) : "";
-            ImGui.TableSetupColumn(pod.Length > 0 ? pod : LM.Get("GUI_Frame_LevelData_ConfigSegment", v));
+            string pod = pods >= 0 ? csv.Get(pods, v + level) : "";
+            ImGui.TableSetupColumn((pod.Length > 0 ? pod : LM.Get("GUI_Frame_LevelData_ConfigSegment", v)) + $"##seg{v}",
+                ImGuiTableColumnFlags.WidthFixed, 150f);
         }
         ImGui.TableHeadersRow();
         for (int r = section.Start + 1; r < section.End; r++)
         {
+            // Rows with no field name (",,Totals:") only mark where the per-segment rows begin.
             string field = csv.Get(r, 1);
-            if (field.Length == 0 || field == "Pod") continue;
+            if (field.Length == 0) continue;
+            var kind = _configLayout.FieldOf(field);
             ImGui.TableNextRow();
+            ImGui.PushID(r);
             ImGui.TableSetColumnIndex(0);
             ImGui.TextUnformatted(field);
             for (int v = 0; v < values; v++)
             {
                 ImGui.TableSetColumnIndex(v + 1);
-                ImGui.TextUnformatted(csv.Get(r, v + 2));
+                doc.CellEditor(r, v + level, kind);
             }
+            ImGui.PopID();
         }
         ImGui.EndTable();
     }

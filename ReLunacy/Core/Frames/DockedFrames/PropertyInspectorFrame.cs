@@ -129,6 +129,7 @@ public class PropertyInspectorFrame : DockedFrame
         ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice"));
         ImGui.Text(SelectedEntity.GetType().Name);
         ImGui.EndGroup();
+        if (SelectedEntity.New is { Saved: false } made) RenderNewInstance(made);
 
         if (ClueClasses.KnownBreakingEffect(Core.LunaWindow.Instance.Level?.GameDefinition?.Id, SelectedEntity.Name) is { } breaking)
             ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), LM.Get("GUI_Frame_InstanceInspector_KnownBreaking", breaking));
@@ -357,6 +358,18 @@ public class PropertyInspectorFrame : DockedFrame
         }
 
         ImGui.EndGroup();
+    }
+
+    /// <summary>The line under the name of an instance made in the editor: that it is new, where it goes, and what its
+    /// settings were copied from.</summary>
+    private static void RenderNewInstance(NewInstance made)
+    {
+        var parts = new List<string> { LM.Get("GUI_Instance_New") };
+        if (made.Zone != null) parts.Add(LM.Get("GUI_Instance_NewZone", made.Zone.ZoneName));
+        else if (made.LayerName is { } layer) parts.Add(LM.Get("GUI_Instance_NewLayer", layer));
+        if (made.Kind == NewInstanceKind.Moby)
+            parts.Add(made.SettingsTemplate != null ? LM.Get("GUI_Instance_NewSettings", made.SettingsTemplate.Name) : LM.Get("GUI_Instance_NewNoSettings"));
+        ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1f), $"{Icons.Plus} {string.Join(", ", parts)}");
     }
 
     /// <summary>With several entities selected: how many of what, and that what follows is the active one's,

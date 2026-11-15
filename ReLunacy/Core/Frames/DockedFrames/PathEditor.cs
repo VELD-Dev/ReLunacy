@@ -72,6 +72,15 @@ internal sealed class PathEditor
         return t > 0f ? origin + direction * t : null;
     }
 
+    /// <summary>Adds a key on <paramref name="path"/> at parameter <paramref name="t"/> of span <paramref name="span"/>
+    /// as one undo step, and selects it.</summary>
+    public void InsertAt(EntityPath path, int span, float t)
+    {
+        int added = -1;
+        Edit(path, "GUI_Undo_PathAdd", () => added = path.InsertAt(span, t));
+        Select(path, added);
+    }
+
     /// <summary>The Delete key on a selected key or point removes it.</summary>
     public void HandleShortcuts()
     {

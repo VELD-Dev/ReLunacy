@@ -58,6 +58,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     ];
 
     private static readonly Vector4 FolderColour = new(0.91f, 0.76f, 0.42f, 1f);
+    private static readonly Vector4 NewColour = new(0.5f, 0.9f, 0.5f, 0.9f);
     private static readonly Vector4 RegionColour = new(0.7f, 0.8f, 0.95f, 1f);
 
     private sealed class Node
@@ -109,6 +110,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private HierarchyGroupBy _groupBy = Program.Settings.HierarchyGroupBy;
     private HierarchyGroupBy _builtGroupBy;
     private int _podVersion;
+    private int _structure;
     /// <summary>A group to open once the tree is rebuilt: its region and its place in its table.</summary>
     private (EntityRegion Region, int Index)? _reveal;
 
@@ -123,6 +125,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         // Grouped by Pod, an edit of a Pod's members rebuilds the tree.
         int podVersion = _builtGroupBy == HierarchyGroupBy.Pod ? EntityManager.Singleton.Regions.Sum(r => r.Pods.Sum(p => p.Version)) : 0;
         if (podVersion != _podVersion) { _podVersion = podVersion; _dirty = true; }
+        // Instances made in the editor, added or taken out.
+        if (_structure != EntityManager.StructureVersion) { _structure = EntityManager.StructureVersion; _dirty = true; }
         if (_dirty || _search != _appliedSearch) Rebuild();
         if (_reveal != null) RevealGroup();
         RevealSelection();
@@ -478,6 +482,13 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         ImGui.SameLine();
         if (entity.allowRender) ImGui.TextUnformatted(node.Label);
         else ImGui.TextDisabled(node.Label);
+        // An instance made in the editor and not saved yet.
+        if (entity.IsNew)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(NewColour, Icons.Plus);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Instance_New"));
+        }
         if (EyeButton($"{entity.ID}_{node.Key}", entity.allowRender ? Icons.Eye : Icons.EyeSlash, entity.allowRender ? 0.35f : 0.9f))
             // On a selected row, the eye shows or hides the whole selection.
             SetVisible(entity.selected ? SelectionManager.Singleton.Selection : [entity], !entity.allowRender);

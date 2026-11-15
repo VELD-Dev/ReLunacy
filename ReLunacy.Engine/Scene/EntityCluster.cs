@@ -53,6 +53,14 @@ public class EntityCluster : IDisposable
         Entities.Add(new EntityVolume(volume));
     }
 
+    /// <summary>Takes an entity out (an instance made in the editor and then undone). Not disposed: an undo may put it back.</summary>
+    public bool Remove(Entity entity)
+    {
+        if (!Entities.Remove(entity)) return false;
+        TotalEntities--;
+        return true;
+    }
+
     public bool TryGetEntity(int id, [NotNullWhen(true)] out Entity? entity)
     {
         entity = Entities.FirstOrDefault(e => e.ID == id);

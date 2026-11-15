@@ -100,6 +100,9 @@ public class EntityManager : IDisposable
     public Vector4 NavmeshColor = new(0.2f, 0.45f, 1f, 0.35f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
 
+    /// <summary>Bumped when an instance is added to or removed from a region, for whoever caches a list of them.</summary>
+    public static int StructureVersion { get; set; }
+
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);
     public int VolumesCount => Regions.Sum(r => r.Volumes.Size);
     public int TiesCount => Regions.Sum(r => r.TiesCount);

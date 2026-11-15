@@ -40,6 +40,14 @@ public abstract class Entity : IDisposable
     }
 
     public abstract string Name { get; protected set; }
+
+    /// <summary>What a save needs to write this entity into the level, set only on an instance made in the editor
+    /// (see <see cref="NewInstance"/>); null on everything loaded from the files.</summary>
+    public NewInstance? New { get; set; }
+
+    /// <summary>The entity was made in the editor and no save has written it yet.</summary>
+    public bool IsNew => New is { Saved: false };
+
     public bool IsDirty { get; set; } = true;
 
     /// <summary>Slack on the culling radius; the assets' own fitted radii are very slightly optimistic.</summary>
