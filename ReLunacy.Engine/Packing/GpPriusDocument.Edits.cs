@@ -71,6 +71,8 @@ public sealed class GpEditResult
     public GpInstance? Created { get; internal set; }
     /// <summary>A Clue made with a volume.</summary>
     public GpInstance? CreatedClue { get; internal set; }
+    /// <summary>The layer <see cref="GpPriusDocument.AddLayer"/> made (its index, the last).</summary>
+    public int? CreatedLayer { get; internal set; }
     /// <summary>Instances whose (layer, index in layer) changed. A Crack in Time's references in the file are rewritten
     /// (<see cref="ReferencesRewritten"/>); instances.lua and the level scripts name instances the same way and are
     /// not: the caller warns.</summary>
@@ -364,6 +366,8 @@ public sealed partial class GpPriusDocument
         if (n > 0 && owner == null) return GpEditResult.Refuse($"{Name(group)}'s list has a count but no pointer");
         GpSection? pool = null;
         if (Pooled && (pool = Section(ReferencePool)) == null) return GpEditResult.Refuse("this region has no reference pool (0x25022)");
+        if (Pooled && Enumerable.Range(0, Count(member.Kind)).Count(i => Tuid(new GpInstance(member.Kind, i)) == Tuid(member)) > 1)
+            return GpEditResult.Refuse($"{Name(member)} shares its TUID with another {member.Kind}; a pool reference (by TUID) could name either");
         byte[] word = new byte[4];
         if (!Pooled)
         {

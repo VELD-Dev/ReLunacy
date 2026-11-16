@@ -7,9 +7,12 @@ using ReLunacy.Engine.Scene;
 
 namespace ReLunacy.Engine.Packing;
 
+/// <summary>What a save would write: its changes and problems, and how many instance handles a layer change renumbers.</summary>
+public sealed record SavePreview(IReadOnlyList<string> Changes, IReadOnlyList<string> Problems, int ShiftedHandles, bool Structural);
+
 /// <summary>What a level save did: what changed, where the original went, and why anything was left out.</summary>
 public sealed record LevelSaveResult(bool Succeeded, string Summary, string? BackupPath,
-    IReadOnlyList<string> Changes, IReadOnlyList<string> Problems)
+    IReadOnlyList<string> Changes, IReadOnlyList<string> Problems, bool Structural = false, int ShiftedHandles = 0)
 {
     public static LevelSaveResult Refused(string summary, IReadOnlyList<string>? problems = null) =>
         new(false, summary, null, [], problems ?? []);
@@ -37,7 +40,7 @@ public sealed record LevelSaveResult(bool Succeeded, string Summary, string? Bac
 /// shipped bytes, the rebuilt archive is read back and compared in full before it replaces anything, and the
 /// archive is copied aside before every save, under the date and time (<see cref="Backups"/>).
 /// </summary>
-public static class GameplayWriter
+public static partial class GameplayWriter
 {
     private const uint MobyRecords = 0x25048, MobyMeta = 0x2504C;
     private const uint PathRecords = 0x25050, PathMeta = 0x25054;
@@ -46,31 +49,25 @@ public static class GameplayWriter
     private const uint ControllerRecords = 0x2506C, ControllerMeta = 0x25070;
 
     /// <summary>
-    /// Saves every region's changes into the level's archive (or folder). With <paramref name="outputPath"/>,
-    /// the patched archive is written there instead and the level's own files are left alone (for checking a
-    /// save before trusting it).
+    /// Saves every region's changes through <paramref name="sink"/> (by default <see cref="Projects.GameFileSink.Current"/>):
+    /// into the open project, or into the level's archive (or folder). With <paramref name="outputPath"/>, the patched
+    /// archive is written there instead and the level's own files are left alone (for checking a save before trusting it).
     /// </summary>
     public static LevelSaveResult Save(FileManager files, IReadOnlyList<EntityRegion> regions, string? outputPath = null,
-        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null)
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null, Projects.IGameFileSink? sink = null)
     {
-        var changes = new List<string>();
-        var problems = new List<string>();
+        sink ??= Projects.GameFileSink.Current;
+        // What to do once the files are replaced (shared settings blocks brought in step in memory).
+        var afterSave = new List<Action>();
+        var plan = Build(files, regions, collisions, afterSave);
+        var changes = plan.Changes;
+        var problems = plan.Problems;
+
         // Archive path -> its entries to replace.
         var byArchive = new Dictionary<string, Dictionary<string, byte[]>>(StringComparer.Ordinal);
         var byFolderFile = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-
-        // What to write: each region's gameplay (new engine only so far), then the collision (both engines).
-        // What to do once the files are replaced (shared settings blocks brought in step in memory).
-        var afterSave = new List<Action>();
-        foreach (var (name, label, patch) in Files(files, regions, collisions, afterSave))
+        foreach (var (name, patched) in plan.Entries)
         {
-            byte[]? original = files.ReadOriginal(name);
-            if (original == null) { problems.Add($"{name}: not found"); continue; }
-            var (patched, fileChanges, fileProblems) = patch(original);
-            changes.AddRange(fileChanges.Select(c => $"{label}: {c}"));
-            problems.AddRange(fileProblems.Select(p => $"{label}: {p}"));
-            if (fileChanges.Count == 0) continue;
-
             if (files.Locate(name) is { } location)
             {
                 if (!byArchive.TryGetValue(location.ArchivePath, out var entries))
@@ -94,34 +91,33 @@ public static class GameplayWriter
         {
             foreach (var (archivePath, entries) in byArchive)
             {
-                string temporary = outputPath ?? archivePath + ".new";
-                PsarcPatcher.Patch(archivePath, temporary, entries);
-                if (Verify(archivePath, temporary, entries) is { } failure)
+                if (outputPath != null)
                 {
-                    File.Delete(temporary);
-                    return LevelSaveResult.Refused($"the rebuilt {Path.GetFileName(archivePath)} did not verify, so nothing was replaced", [failure]);
+                    string source = Projects.GameFileOverlay.BaseOf(archivePath);
+                    PsarcPatcher.Patch(source, outputPath, entries);
+                    if (Verify(source, outputPath, entries) is { } failure)
+                    {
+                        File.Delete(outputPath);
+                        return LevelSaveResult.Refused($"the rebuilt {Path.GetFileName(archivePath)} did not verify, so nothing was replaced", [failure]);
+                    }
+                    continue;
                 }
-                if (outputPath != null) continue;
 
-                files.ReleaseArchives();
-                try
-                {
-                    backup = Backups.Create(archivePath);
-                    File.Move(temporary, archivePath, overwrite: true);
-                }
-                finally { files.ReopenArchives(); }
-                problems.AddRange(RefreshArchiveSizes(archivePath));
+                var written = sink.WriteArchive(archivePath, entries, holder: files);
+                if (!written.Succeeded) return LevelSaveResult.Refused(written.Summary, [.. problems, .. written.Problems]);
+                backup = written.BackupPath ?? backup;
+                problems.AddRange(written.Problems);
             }
             foreach (var (path, bytes) in byFolderFile)
             {
-                backup = Backups.Create(path);
-                File.WriteAllBytes(path, bytes);
+                var written = sink.WriteFile(path, bytes);
+                if (!written.Succeeded) return LevelSaveResult.Refused(written.Summary, [.. problems, .. written.Problems]);
+                backup = written.BackupPath ?? backup;
             }
         }
         catch (Exception e)
         {
-            foreach (var archivePath in byArchive.Keys)
-                if (outputPath == null && File.Exists(archivePath + ".new")) File.Delete(archivePath + ".new");
+            if (outputPath != null && File.Exists(outputPath)) File.Delete(outputPath);
             return LevelSaveResult.Refused($"the save failed: {e.Message}", problems);
         }
 
@@ -142,59 +138,126 @@ public static class GameplayWriter
             }
 
         string where = outputPath ?? string.Join(", ", byArchive.Keys.Concat(byFolderFile.Keys).Select(Path.GetFileName));
-        return new LevelSaveResult(true, $"{changes.Count} change(s) written to {where}", backup, changes, problems);
+        if (outputPath == null && sink.ProjectName is { } project) where += $" in project {project}";
+        return new LevelSaveResult(true, $"{changes.Count} change(s) written to {where}", backup, changes, problems,
+            plan.Structural, plan.ShiftedHandles);
     }
 
     /// <summary>What a save would write, without writing: every file's changes and problems (the Save dialog's list).</summary>
     public static (List<string> Changes, List<string> Problems) Preview(FileManager files, IReadOnlyList<EntityRegion> regions,
         IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null)
     {
-        var changes = new List<string>();
-        var problems = new List<string>();
-        foreach (var (name, label, patch) in Files(files, regions, collisions))
-        {
-            if (files.ReadOriginal(name) is not { } original) continue;
-            var (_, fileChanges, fileProblems) = patch(original);
-            changes.AddRange(fileChanges.Select(c => $"{label}: {c}"));
-            problems.AddRange(fileProblems.Select(p => $"{label}: {p}"));
-        }
-        return (changes, problems);
+        var plan = Build(files, regions, collisions, null);
+        return (plan.Changes, plan.Problems);
     }
 
-    private static IEnumerable<(string Name, string Label, Func<byte[], (byte[], List<string>, List<string>)> Patch)> Files(
-        FileManager files, IReadOnlyList<EntityRegion> regions, IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions,
-        List<Action>? afterSave = null)
+    /// <summary>Like <see cref="Preview"/>, with how many instance handles a layer change renumbers (scripts name them).</summary>
+    public static SavePreview PreviewPlan(FileManager files, IReadOnlyList<EntityRegion> regions,
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null)
     {
-        // A region's gp_prius can grow (a Pod gaining members), and gameplay.dat records its size: the gp_prius
-        // entries run first and note their new lengths for the gameplay.dat entry after them.
-        var grown = new List<(int Old, int New)>();
+        var plan = Build(files, regions, collisions, null);
+        return new SavePreview(plan.Changes, plan.Problems, plan.ShiftedHandles, plan.Structural);
+    }
+
+    private sealed class SavePlan
+    {
+        /// <summary>File name -> its new bytes, in write order.</summary>
+        public readonly Dictionary<string, byte[]> Entries = new(StringComparer.OrdinalIgnoreCase);
+        public readonly List<string> Changes = [];
+        public readonly List<string> Problems = [];
+        public int ShiftedHandles;
+        public bool Structural;
+    }
+
+    /// <summary>
+    /// Every file the save writes, in the order that makes them agree:
+    ///  1. each region's gp_prius: the structural edits on the parsed original (<see cref="GameplayStructure"/>), then
+    ///     the in-place patch over the result for the existing instances' values (it finds records by TUID, so it does
+    ///     not matter that the structural pass moved them, and it writes a new instance's later edits too);
+    ///  2. gameplay.dat: the budgets those files need (<see cref="GameplayBudgets"/>);
+    ///  3. zones.dat and each region's collision.dat in place (<see cref="ZoneWriter"/>, <see cref="CollisionWriter"/>);
+    ///  4. new Ties on the output of 3 (<see cref="TieAppender"/>), which also rewrites the files it moves.
+    /// </summary>
+    private static SavePlan Build(FileManager files, IReadOnlyList<EntityRegion> regions,
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions, List<Action>? afterSave)
+    {
+        var plan = new SavePlan();
+        void Add(string label, string name, byte[] bytes, List<string> changes, List<string> problems)
+        {
+            plan.Changes.AddRange(changes.Select(c => $"{label}: {c}"));
+            plan.Problems.AddRange(problems.Select(p => $"{label}: {p}"));
+            if (changes.Count > 0) plan.Entries[name] = bytes;
+        }
+
         if (!files.isOld)
         {
+            var budgeted = new List<GpPriusDocument>();
             foreach (var region in regions)
-                yield return ($"{region.RegionName}/gp_prius.dat", region.RegionName, original =>
-                {
-                    var result = Patch(original, region, afterSave);
-                    if (result.Bytes.Length != original.Length) grown.Add((original.Length, result.Bytes.Length));
-                    return result;
-                });
-            yield return ("gameplay.dat", "gameplay", original =>
             {
-                if (grown.Count == 0) return (original, [], []);
-                if (grown.Count > 1) return (original, [], ["several regions' gp_prius grew; gameplay.dat holds one size and was not updated"]);
-                return PodWriter.PatchGameplay(original, grown[0].Old, grown[0].New);
-            });
+                string name = $"{region.RegionName}/gp_prius.dat";
+                if (files.ReadOriginal(name) is not { } original) { plan.Problems.Add($"{name}: not found"); continue; }
+                var structure = GameplayStructure.Apply(original, files.ReadOriginal($"{region.RegionName}/region.dat"), region);
+                byte[] basis = structure?.Bytes ?? original;
+                var (patched, changes, problems) = Patch(basis, region, afterSave, skipPods: structure != null);
+                var allChanges = new List<string>(structure?.Changes ?? []);
+                allChanges.AddRange(changes);
+                var allProblems = new List<string>(structure?.Problems ?? []);
+                allProblems.AddRange(problems);
+                if (structure?.Shifts is { Count: > 0 } shifts)
+                {
+                    plan.ShiftedHandles += shifts.Count;
+                    allChanges.AddRange(shifts.Take(20).Select(s => $"handle {s}"));
+                    if (shifts.Count > 20) allChanges.Add($"{shifts.Count - 20} more handles shifted");
+                }
+                if (structure?.Applied == true) plan.Structural = true;
+                Add(region.RegionName, name, patched, allChanges, allProblems);
+                if (allChanges.Count > 0 && (structure?.Applied == true || patched.Length != original.Length))
+                    try { budgeted.Add(GpPriusDocument.Parse(patched)); }
+                    catch (Exception e) { plan.Problems.Add($"{region.RegionName}: the new gp_prius does not parse ({e.Message})"); }
+            }
+            if (budgeted.Count > 0 && files.ReadOriginal("gameplay.dat") is { } gameplay)
+            {
+                var (bytes, changes, problems) = GameplayBudgets.Update(gameplay, budgeted);
+                Add("gameplay", "gameplay.dat", bytes, changes, problems);
+            }
         }
+
         // Ties and UFrags: every region's zones are in one file (zones.dat, or the old engine's main.dat).
-        var ties = regions.SelectMany(r => r.Zones).SelectMany(z => z.TieInstances.Entities).OfType<EntityTie>().ToList();
+        var ties = regions.SelectMany(r => r.Zones).SelectMany(z => z.TieInstances.Entities).OfType<EntityTie>().Distinct().ToList();
         var ufrags = regions.SelectMany(r => r.Zones).SelectMany(z => z.UFrags.Entities).OfType<EntityUFrag>().ToList();
-        if (ties.Count + ufrags.Count > 0)
-            yield return (ZoneWriter.FileName(files.isOld), "zones", original => ZoneWriter.Patch(original, ties, ufrags, files.isOld));
-        if (collisions == null) yield break;
-        foreach (var (region, collision) in collisions)
+        var current = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        string zonesName = ZoneWriter.FileName(files.isOld);
+        if (ties.Count + ufrags.Count > 0 && files.ReadOriginal(zonesName) is { } zones)
         {
-            string name = CollisionWriter.FileName(files, region);
-            yield return (name, files.isOld ? "collision" : $"{region} collision", original => CollisionWriter.Patch(original, collision));
+            var (bytes, changes, problems) = ZoneWriter.Patch(zones, ties, ufrags, files.isOld);
+            Add("zones", zonesName, bytes, changes, problems);
+            if (changes.Count > 0) current[zonesName] = bytes;
         }
+        if (collisions != null)
+            foreach (var (region, collision) in collisions)
+            {
+                string name = CollisionWriter.FileName(files, region);
+                if (files.ReadOriginal(name) is not { } original) continue;
+                var (bytes, changes, problems) = CollisionWriter.Patch(original, collision);
+                Add(files.isOld ? "collision" : $"{region} collision", name, bytes, changes, problems);
+                if (changes.Count > 0) current[name] = bytes;
+            }
+
+        // New Ties (new engine), on what the in-place writers made of the files.
+        var requests = new List<TieAppendRequest>();
+        foreach (var region in regions)
+            foreach (var zone in region.Zones)
+                foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>().Where(t => t.IsNew))
+                    requests.Add(new TieAppendRequest(zone.ZoneTUID, tie.New!.AssetId, tie.Transform.GetMatrix(), tie.Name, region.RegionName));
+        if (requests.Count > 0 && !files.isOld)
+        {
+            var result = TieAppender.Append(name => current.TryGetValue(name, out var held) ? held : files.ReadOriginal(name), requests);
+            plan.Changes.AddRange(result.Changes.Select(c => $"zones: {c}"));
+            plan.Problems.AddRange(result.Problems.Select(p => $"zones: {p}"));
+            plan.Problems.AddRange(result.Refused.Select(r => $"Tie {r.Request.Name}: not saved, {r.Reason}"));
+            foreach (var (name, bytes) in result.Files) plan.Entries[name] = bytes;
+        }
+        return plan;
     }
 
     /// <summary>The rebuilt archive, entry by entry: the replaced ones hold the new bytes, every other one the old.</summary>
@@ -217,28 +280,12 @@ public static class GameplayWriter
         return null;
     }
 
-    /// <summary>The game's index of archive sizes (game.toc), brought in step with the rewritten archive; the
-    /// save stands even when it cannot be.</summary>
-    private static IEnumerable<string> RefreshArchiveSizes(string archivePath)
-    {
-        try
-        {
-            if (GameArchiveSizes.FindGameArchive(archivePath) is not { } game) return [];
-            GameArchiveSizes.Refresh(game);
-            return [];
-        }
-        catch (Exception e)
-        {
-            return [$"the level is saved, but game.psarc still records the old archive size ({e.Message})"];
-        }
-    }
-
     /// <summary>One region's gp_prius with the region's changes written over a copy of <paramref name="original"/>.</summary>
     /// <summary>The game the level being saved is from (for the known-breaking instances); set by the caller.</summary>
     public static Games.GameId? Game { get; set; }
 
     public static (byte[] Bytes, List<string> Changes, List<string> Problems) Patch(byte[] original, EntityRegion region,
-        List<Action>? afterSave = null)
+        List<Action>? afterSave = null, bool skipPods = false)
     {
         byte[] file = (byte[])original.Clone();
         var changes = new List<string>();
@@ -267,11 +314,18 @@ public static class GameplayWriter
         var clues = Records(prius, ClueRecords, ClueMeta);
         foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
         {
-            if (volumes != null && volumes.TryTake(volume.BaseVolume.Id, out long record) && VolumeMatrix(file, record, volume))
+            long record = -1;
+            if (volumes != null && volumes.TryTake(volume.BaseVolume.Id, out long taken)) record = taken;
+            if (record >= 0 && VolumeMatrix(file, record, volume))
             {
                 changes.Add($"volume {volume.Name}: placement");
                 if (Assets.LevelElements.ClueClasses.KnownBreakingEffect(Game, volume.BaseVolume.Name) is { } effect)
                     problems.Add($"volume {volume.Name} is known to break the game when edited: {effect}");
+            }
+            if (record >= 0 && volume.Assigned is { ShapeChanged: true })
+            {
+                file[(int)record + 0x3C] = (byte)volume.BaseVolume.Shape;
+                changes.Add($"volume {volume.Name}: shape {volume.BaseVolume.Shape}");
             }
             if (volume.BaseVolume.Clue is { } clue && clues != null && clues.TryTake(clue.Tuid, out long clueRecord))
             {
@@ -324,8 +378,9 @@ public static class GameplayWriter
                 changes.Add($"path {path.Name}: points");
             }
 
-        // Pods: their member lists (may grow the file; see PodWriter).
-        file = PodWriter.Patch(file, region.Pods, changes, problems).Bytes;
+        // Pods: their member lists (may grow the file; see PodWriter). A save that went through the structural pass
+        // (GameplayStructure) has written them already.
+        if (!skipPods) file = PodWriter.Patch(file, region.Pods, changes, problems).Bytes;
 
         return (file, changes, problems);
     }

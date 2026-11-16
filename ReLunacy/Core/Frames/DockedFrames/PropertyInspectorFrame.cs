@@ -203,6 +203,7 @@ public class PropertyInspectorFrame : DockedFrame
         RenderReferenceIds(SelectedEntity);
 
         RenderMemberships(SelectedEntity);
+        InstanceAssignPanel.Draw(SelectedEntity);
 
         if (SelectedEntity is EntityMoby moby)
         {
@@ -648,6 +649,17 @@ public class PropertyInspectorFrame : DockedFrame
         if (registry != null && registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_ClassSizeMismatch", settings.Length, classSize));
         bool canWriteReferences = refs is { Editable: true };
+        // An edit, or its undo, moved a reference word: the instance's references follow, and the volumes' roles.
+        if (canWriteReferences && region != null)
+        {
+            if (!SyncedSettings.TryGetValue(settings, out var synced)) SyncedSettings.Add(settings, (byte[])settings.Clone());
+            else if (!synced.AsSpan().SequenceEqual(settings))
+            {
+                region.SyncReferences(settings, synced);
+                SyncedSettings.Remove(settings);
+                SyncedSettings.Add(settings, (byte[])settings.Clone());
+            }
+        }
 
         // What the settings held when first shown, so an edit stands out and can be undone.
         if (!LoadedSettings.TryGetValue(settings, out var loaded))
@@ -1494,6 +1506,7 @@ public class PropertyInspectorFrame : DockedFrame
 
     /// <summary>The undo step a field being edited is building: opened when the field is clicked into, from the
     /// state at the start of that frame, committed when it is left.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> SyncedSettings = new();
     private static Core.Undo.UndoManager.Session? _fieldEdit;
 
     private static void TrackField(Lazy<Core.Undo.UndoManager.Session> beforeThisFrame, string label)

@@ -279,7 +279,7 @@ public sealed class TextTablesFrame : DockedFrame
                     language.Loaded = language.Table.Entries.Select(e => e.Text).ToList();
                 }
                 _version++;
-                if (results.FirstOrDefault(r => r.Result.Succeeded) is { Archive: { } archive }) _cacheNotice = new GameCacheNotice(archive);
+                if (results.FirstOrDefault(r => r.Result.Succeeded && r.Result.BackupPath != null) is { Archive: { } archive }) _cacheNotice = new GameCacheNotice(archive);
             },
             e =>
             {

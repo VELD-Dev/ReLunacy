@@ -26,7 +26,7 @@ public sealed class NewInstance
 
     /// <summary>The editor layer the record goes in: an index into <see cref="EntityRegion.Layers"/> (what a Moby's
     /// group and a volume's group are). A Tie has none: it belongs to its zone.</summary>
-    public ushort Layer { get; init; }
+    public ushort Layer { get; set; }
     public string? LayerName => Layer < Region.Layers.Count ? Region.Layers[Layer] : null;
 
     /// <summary>A Moby's asset id, or a Tie's class TUID; 0 for the other kinds.</summary>

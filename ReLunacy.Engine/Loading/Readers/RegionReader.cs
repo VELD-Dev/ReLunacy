@@ -114,6 +114,7 @@ public sealed class RegionReader
             isOldEngine: false,
             name: regionName)
         {
+            Game = Game,
             Controllers = GameplayGroupReader.ReadControllers(prius, Game),
             Paths = GameplayGroupReader.ReadPaths(prius),
             Pods = GameplayGroupReader.ReadPods(prius),

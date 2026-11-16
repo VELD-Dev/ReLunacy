@@ -27,6 +27,8 @@ public sealed class TieAppendResult
     public List<string> Problems { get; } = [];
     public List<AppendedTie> Added { get; } = [];
     public List<(TieAppendRequest Request, string Reason)> Refused { get; } = [];
+    /// <summary>The zone <see cref="TieAppender.CreateZone"/> made, by TUID; null when none was.</summary>
+    public ulong? CreatedZone { get; internal set; }
 }
 
 /// <summary>
@@ -54,10 +56,14 @@ public sealed class TieAppendResult
 ///     bounds, the payload rebuilt (<see cref="CollisionBvh"/>), assetstats +0x8C (collision.dat size rounded to 0x80).
 ///   - level_cached.toc: the sizes of the files that changed.
 ///
+///   - Planet regions (collision.dat 0x8200 / 0x8300, see <see cref="AppendPlanetEntry"/>): the source placement's
+///     0x8200 record copied for the new one with the next object index and the new TUID, the object totals of both
+///     sections raised by one. Reported as untested.
+///
 /// The existing in-place writers (<see cref="ZoneWriter"/>, <see cref="CollisionWriter"/>) address records by their
 /// offsets in the files as loaded, so they run first and this on their output.
 /// </summary>
-public static class TieAppender
+public static partial class TieAppender
 {
     private const uint ClassTable = 0x7200, Placements = 0x7240, Names = 0x72C0, Cubes = 0x72C1, Clusters = 0x72D0;
     private const uint Strings = 0x11300, Shrubs = 0x7540;
@@ -93,10 +99,13 @@ public static class TieAppender
     /// zones.dat, assetlookup.dat, lighting.dat, assetstats.dat, &lt;region&gt;/collision.dat, level_cached.toc).
     /// A refused request changes nothing.
     /// </summary>
-    public static TieAppendResult Append(Func<string, byte[]?> read, IReadOnlyList<TieAppendRequest> requests)
+    public static TieAppendResult Append(Func<string, byte[]?> read, IReadOnlyList<TieAppendRequest> requests) =>
+        Run(new Level { Read = read }, requests, new TieAppendResult(), null);
+
+    /// <summary>Appends the requests to the files <paramref name="level"/> holds; <paramref name="beforeFinish"/> runs
+    /// on the files once every request is in, before level_cached.toc is rewritten.</summary>
+    private static TieAppendResult Run(Level level, IReadOnlyList<TieAppendRequest> requests, TieAppendResult result, Action<Level>? beforeFinish)
     {
-        var result = new TieAppendResult();
-        var level = new Level { Read = read };
         var added = new List<(TieAppendRequest Request, int Index, ulong Tuid, string Case, string From, int Collision)>();
         foreach (var request in requests)
         {
@@ -121,6 +130,7 @@ public static class TieAppender
         }
         if (added.Count == 0) return result;
 
+        beforeFinish?.Invoke(level);
         UpdateToc(level, result.Problems);
         foreach (string name in level.Changed) result.Files[name] = level.Files[name];
 
@@ -142,7 +152,7 @@ public static class TieAppender
 
     // ---------------------------------------------------------------------------------------------------------------
 
-    private readonly record struct Source(int Zone, int Index, int Record, bool Baked, uint Prelight, byte Cube, ulong ZoneTuid, string Name);
+    private readonly record struct Source(int Zone, int Index, int Record, bool Baked, uint Prelight, byte Cube, ulong ZoneTuid, string Name, ulong Tuid);
 
     private static (int Index, ulong Tuid, string Case, string From, int Collision) AppendOne(Level level, TieAppendRequest request, List<string> problems)
     {
@@ -150,6 +160,7 @@ public static class TieAppender
         byte[] lookup = level.Get("assetlookup.dat") ?? throw new Refusal("assetlookup.dat not found");
         byte[] name = Encoding.UTF8.GetBytes(request.Name);
         if (name.Length == 0 || Array.IndexOf(name, (byte)0) >= 0) throw new Refusal("the name is empty or holds a NUL");
+
 
         var zonePointers = Pointers(lookup, ZonePointers);
         int zi = zonePointers.FindIndex(p => p.Tuid == request.ZoneTuid);
@@ -193,7 +204,9 @@ public static class TieAppender
         // Every placement of the class in the level, and the TUIDs in use.
         var sources = new List<Source>();
         var tuids = new HashSet<ulong>();
-        int clusterTotal = 0;
+        // assetstats +0x30 is the per-region peak of Tie clusters: a region's count is that of the zones its bit is set
+        // for in 0x1DA01 (one region: every zone).
+        var regionClusters = new int[32];
         for (int z = 0; z < zonePointers.Count; z++)
         {
             var (zt, zo, zl) = zonePointers[z];
@@ -202,7 +215,9 @@ public static class TieAppender
             var zc = IghwRelayout.Find(zs, ClassTable);
             var zp = IghwRelayout.Find(zs, Placements);
             var zn = IghwRelayout.Find(zs, Names);
-            clusterTotal += IghwRelayout.Find(zs, Clusters)?.Count ?? 0;
+            int zoneClusters = IghwRelayout.Find(zs, Clusters)?.Count ?? 0;
+            uint mask = z < zoneMasks.Length ? zoneMasks[z] : 1u;
+            for (int b = 0; b < 32; b++) if ((mask >> b & 1) != 0) regionClusters[b] += zoneClusters;
             if (zn != null)
                 for (int i = 0; i < zn.Count; i++) tuids.Add(BinaryPrimitives.ReadUInt64BigEndian(zb[(zn.Offset + 16 * i)..]));
             if (zc == null || zp == null) continue;
@@ -213,7 +228,8 @@ public static class TieAppender
                 if (ci >= zc.Count || BinaryPrimitives.ReadUInt64BigEndian(zb[(zc.Offset + 8 * (int)ci)..]) != request.ClassTuid) continue;
                 string label = zn != null && i < zn.Count ? CString(zb, BinaryPrimitives.ReadInt32BigEndian(zb[(zn.Offset + 16 * i + 8)..])) : $"#{i}";
                 sources.Add(new Source(z, i, rec, BinaryPrimitives.ReadUInt16BigEndian(zb[(rec + 0x5A)..]) != 0xFFFF,
-                    BinaryPrimitives.ReadUInt32BigEndian(zb[(rec + 0x54)..]), zb[rec + 0x5D], zt, label));
+                    BinaryPrimitives.ReadUInt32BigEndian(zb[(rec + 0x54)..]), zb[rec + 0x5D], zt, label,
+                    zn != null && i < zn.Count ? BinaryPrimitives.ReadUInt64BigEndian(zb[(zn.Offset + 16 * i)..]) : 0));
             }
         }
         if (sources.Count == 0) throw new Refusal("the level has no placement of this class to copy");
@@ -287,13 +303,13 @@ public static class TieAppender
         byte[]? newSlice = null;
         if (sameZone)
             lighting = src.Baked ? "shares the source's baked lightmap pair (untested in game)" : src.Prelight != none ? "shares the source's prelight" : "no prelight, as its source";
-        else if (src.Baked || src.Prelight == none)
+        else if (src.Baked || src.Prelight == none || slice < 0)
         {
             BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(0x54), none);
             BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x5A), 0xFFFF);
             BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x64), 0);
             BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x66), 0);
-            lighting = "no prelight (the class has no unbaked placement with prelight to copy)";
+            lighting = slice < 0 ? "no prelight (the zone has no lighting slice)" : "no prelight (the class has no unbaked placement with prelight to copy)";
         }
         else
         {
@@ -326,7 +342,12 @@ public static class TieAppender
         int last = clusters.Offset + 0x20 * (clusters.Count - 1);
         var sphere = new Vector4(centre, radius);
         bool insideLast = clusters.Count > 0 && Contains(ReadSphere(blob, last), sphere);
-        bool newCluster = clusters.Count == 0 || (!insideLast && pool == clusterTotal && clusterTotal < IghwRelayout.Align(pool, 16));
+        uint targetMask = zi < zoneMasks.Length ? zoneMasks[zi] : 1u;
+        int peak = regionClusters.Max();
+        int peakWith = Enumerable.Range(0, 32).Max(b => regionClusters[b] + (int)(targetMask >> b & 1));
+        bool room = pool == peak && peakWith <= IghwRelayout.Align(pool, 16);
+        bool newCluster = clusters.Count == 0 || (!insideLast && room);
+        if (clusters.Count == 0 && !room) throw new Refusal("the level's Tie cluster pool is full");
         byte[] clusterBytes = blob.AsSpan(clusters.Offset, clusters.Size).ToArray();
         if (newCluster)
         {
@@ -345,8 +366,8 @@ public static class TieAppender
             BinaryPrimitives.WriteUInt16BigEndian(clusterBytes.AsSpan(l + 0x1C), (ushort)(count + 1));
             if (!insideLast) WriteSphere(clusterBytes, l, Enclose(ReadSphere(blob, last), sphere));
             payloads[Clusters] = clusterBytes;
-            if (!insideLast && clusterTotal >= IghwRelayout.Align(pool, 16))
-                problems.Add($"Tie {request.Name}: the level's Tie cluster pool is full, so the zone's last cluster was grown to hold it");
+            if (!insideLast && !room)
+                problems.Add($"Tie {request.Name}: the level's Tie cluster pool is full ({peak} of {IghwRelayout.Align(pool, 16)}), so the zone's last cluster was grown to hold it");
         }
 
         byte[] newBlob = IghwRelayout.Relayout(blob, payloads,
@@ -365,13 +386,14 @@ public static class TieAppender
         if (newCluster)
         {
             stats = (byte[])stats.Clone();
-            BinaryPrimitives.WriteInt32BigEndian(stats.AsSpan(statsAt + StatsTieClusters), clusterTotal + 1);
+            BinaryPrimitives.WriteInt32BigEndian(stats.AsSpan(statsAt + StatsTieClusters), peakWith);
             level.Set("assetstats.dat", stats);
         }
 
         int collision = 0;
         if (request.Collision)
             collision = AppendCollision(level, request, sources, src, held, problems);
+        AppendPlanetEntry(level, request, tuid, sources, src, problems);
         if (lighting.Contains("untested") || lighting.StartsWith("no prelight ("))
             problems.Add($"Tie {request.Name}: {lighting}");
         return (n, tuid, recipe, $"{src.Name} in zone {src.ZoneTuid:X16}, {lighting}", collision);
@@ -437,8 +459,6 @@ public static class TieAppender
         }
         if (chunks.Count == 0) { problems.Add($"Tie {request.Name}: no placement of its class has collision instances to copy, the Tie is not solid"); return 0; }
         if (instanceCount + chunks.Count > 0xFFFF) { problems.Add($"Tie {request.Name}: {fileName} has no room for more instances (u16 leaf index), the Tie is not solid"); return 0; }
-        if (secs.Exists(s => s.Id == 0x8200))
-            problems.Add($"Tie {request.Name}: {fileName} has a 0x8200 table (one record per Tie placement on planet levels) that was not extended");
 
         var m = request.Transform;
         Matrix4x4.Invert(chunkMatrix, out var chunkInverse);
@@ -513,19 +533,115 @@ public static class TieAppender
             problems.Add($"Tie {request.Name}: its collision is outside the region's collision bounds, which were grown (untested in game)");
         byte[] newPayload = CollisionBvh.BuildPayload(payload, records, root, newMin, newMax, out int treeBlock);
         if (treeBlock > CollisionBvh.MaxTreeBlock)
-        { problems.Add($"Tie {request.Name}: the collision tree would pass 64 KB, the Tie is not solid"); return 0; }
+        {
+            // The big levels' trees fill the 64 KB the game DMAs: no new node fits. Grow the leaf that ends the
+            // instance array instead (it is the one an earlier append made, or retail's last).
+            root = CollisionBvh.Parse(payload);
+            if (!CollisionBvh.ExtendLastLeaf(root, instanceCount, chunks.Count, min, max))
+            { problems.Add($"Tie {request.Name}: the collision tree is full (64 KB) and its last leaf has no room, the Tie is not solid"); return 0; }
+            newPayload = CollisionBvh.BuildPayload(payload, records, root, newMin, newMax, out treeBlock);
+            if (treeBlock > CollisionBvh.MaxTreeBlock)
+            { problems.Add($"Tie {request.Name}: the collision tree would pass 64 KB, the Tie is not solid"); return 0; }
+            problems.Add($"Tie {request.Name}: the collision tree is full (64 KB), so its last leaf was grown to hold the new collision");
+        }
         byte[] newFile = IghwRelayout.Relayout(file, new Dictionary<uint, byte[]> { [CollisionSection] = newPayload });
         level.Set(fileName, newFile);
 
+        UpdateCollisionSize(level, file.Length, newFile.Length);
+        return chunks.Count;
+    }
+
+    private static void UpdateCollisionSize(Level level, int oldLength, int newLength)
+    {
         byte[] stats = level.Files["assetstats.dat"];
         int statsAt = StatsOffset(stats);
-        if (BinaryPrimitives.ReadInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize)) == IghwRelayout.Align(file.Length, 0x80))
+        // One value per level: the collision.dat size rounded to 0x80 (the largest region's, on the levels with
+        // several, as the other counters are peaks; ASSUMED).
+        int recorded = BinaryPrimitives.ReadInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize));
+        if (recorded == IghwRelayout.Align(oldLength, 0x80) || recorded < IghwRelayout.Align(newLength, 0x80))
         {
             stats = (byte[])stats.Clone();
-            BinaryPrimitives.WriteInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize), IghwRelayout.Align(newFile.Length, 0x80));
+            BinaryPrimitives.WriteInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize), Math.Max(recorded, IghwRelayout.Align(newLength, 0x80)));
             level.Set("assetstats.dat", stats);
         }
-        return chunks.Count;
+    }
+
+    /// <summary>
+    /// Planet regions: collision.dat 0x8200 lists the region's static objects, one 16-byte record each, little-endian
+    /// apart from the TUID (krell_canyon, axiom_city, tombli, zolar_forest, luminopolis, phonica_moon, vendra_homeworld):
+    ///   header 0x30: +0x00 2, +0x04 end of table D, then {offset, count} of tables A (+0x08, at 0x30), B (+0x10),
+    ///   C (+0x18), D (+0x20), +0x28 u16 1, +0x2A u16 object total, +0x2C u16 count of table E (after D), +0x2E u16 (0 on
+    ///   ACiT, 0x57 on phonica_moon a_landing; kept);
+    ///   record: +0x00 u16 object index (0..total-1, running through A, B, C, D, E in file order), +0x02 u16 (one value
+    ///   per Tie class on every class of the levels checked), +0x04 u32 (hash-like, nearly unique), +0x08 u64 TUID,
+    ///   big-endian. Table B holds the region's Tie placements (one stale TUID on phonica_moon a_landing) (the TUID is the 0x72C0 one), in runs of one
+    ///   zone each; A, D, E are not Tie placements; C repeats a few of B (index in both u16s).
+    /// 0x8300 is a grid over these objects (not decoded); its BE u32 at +0x20 is the object total + 1.
+    /// The new placement gets a copy of a same-class B record (its source's when it has one) with index = the old
+    /// total (no existing index changes, so whatever 0x8300 holds stays valid) and the new TUID, inserted after its
+    /// zone's run; B's count, the offsets after it, the end, the total, and 0x8300's total + 1 grow by one.
+    /// </summary>
+    private static void AppendPlanetEntry(Level level, TieAppendRequest request, ulong tuid, List<Source> sources, Source src,
+        List<string> problems)
+    {
+        string fileName = $"{request.Region}/collision.dat";
+        byte[]? file = level.Get(fileName);
+        if (file == null) return;
+        var secs = IghwRelayout.Sections(file);
+        var table = IghwRelayout.Find(secs, 0x8200);
+        if (table == null) return;
+        byte[] p = file.AsSpan(table.Offset, table.Size).ToArray();
+        int W(int at) => BinaryPrimitives.ReadInt32LittleEndian(p.AsSpan(at));
+        int aOff = W(0x08), aCount = W(0x0C), bOff = W(0x10), bCount = W(0x14), cOff = W(0x18), cCount = W(0x1C);
+        int dOff = W(0x20), dCount = W(0x24), end = W(0x04), eCount = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(0x2C));
+        int total = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(0x2A));
+        if (W(0) != 2 || aOff != 0x30 || bOff != aOff + 16 * aCount || cOff != bOff + 16 * bCount || dOff != cOff + 16 * cCount
+            || end != dOff + 16 * dCount || p.Length != end + 16 * eCount || total != aCount + bCount + cCount + dCount + eCount)
+            throw new Refusal($"{fileName} 0x8200 is not laid out as known, so the new placement can not be listed in it");
+        if (total >= 0xFFFF) throw new Refusal($"{fileName} 0x8200 is full");
+
+        ulong Tuid(int k) => BinaryPrimitives.ReadUInt64BigEndian(p.AsSpan(bOff + 16 * k + 8));
+        var ofClass = sources.Select(s => s.Tuid).ToHashSet();
+        int copy = -1;
+        for (int k = 0; k < bCount && copy < 0; k++) if (Tuid(k) == src.Tuid) copy = k;
+        for (int k = 0; k < bCount && copy < 0; k++) if (ofClass.Contains(Tuid(k))) copy = k;
+        if (copy < 0) throw new Refusal($"{fileName} 0x8200 lists no placement of this class to copy");
+
+        // After the zone's run of records (its placements' TUIDs, the new one excepted).
+        var pointers = Pointers(level.Files["assetlookup.dat"], ZonePointers);
+        var (_, zo, zl) = pointers.First(x => x.Tuid == request.ZoneTuid);
+        var blob = level.Files["zones.dat"].AsSpan(zo, zl);
+        var names = IghwRelayout.Find(IghwRelayout.Sections(blob), Names)!;
+        var zoneTuids = new HashSet<ulong>();
+        for (int i = 0; i < names.Count; i++) zoneTuids.Add(BinaryPrimitives.ReadUInt64BigEndian(blob[(names.Offset + 16 * i)..]));
+        zoneTuids.Remove(tuid);
+        int at = bCount;
+        for (int k = 0; k < bCount; k++) if (zoneTuids.Contains(Tuid(k))) at = k + 1;
+
+        byte[] record = p.AsSpan(bOff + 16 * copy, 16).ToArray();
+        BinaryPrimitives.WriteUInt16LittleEndian(record, (ushort)total);
+        BinaryPrimitives.WriteUInt64BigEndian(record.AsSpan(8), tuid);
+        int insert = bOff + 16 * at;
+        byte[] q = Concat(p.AsSpan(0, insert), record, p.AsSpan(insert).ToArray());
+        void Put(int field, int value) => BinaryPrimitives.WriteInt32LittleEndian(q.AsSpan(field), value);
+        Put(0x14, bCount + 1); Put(0x18, cOff + 16); Put(0x20, dOff + 16); Put(0x04, end + 16);
+        BinaryPrimitives.WriteUInt16LittleEndian(q.AsSpan(0x2A), (ushort)(total + 1));
+        var payloads = new Dictionary<uint, byte[]> { [0x8200] = q };
+
+        if (IghwRelayout.Find(secs, 0x8300) is { } grid)
+        {
+            byte[] g = file.AsSpan(grid.Offset, grid.Size).ToArray();
+            if (g.Length >= 0x24 && BinaryPrimitives.ReadInt32BigEndian(g.AsSpan(0x20)) == total + 1)
+            {
+                BinaryPrimitives.WriteInt32BigEndian(g.AsSpan(0x20), total + 2);
+                payloads[0x8300] = g;
+            }
+            else problems.Add($"Tie {request.Name}: {fileName} 0x8300 does not hold the object total where expected; left as it was");
+        }
+        byte[] newFile = IghwRelayout.Relayout(file, payloads);
+        level.Set(fileName, newFile);
+        UpdateCollisionSize(level, file.Length, newFile.Length);
+        problems.Add($"Tie {request.Name}: planet collision table entry copied, untested");
     }
 
     private static Matrix4x4 PlacementMatrix(Level level, Source s)
@@ -584,7 +700,8 @@ public static class TieAppender
         {
             var (t, o, l) = pointers[i];
             if (i == at) pointers[i] = (t, o, blob.Length);
-            else if (o > start) pointers[i] = (t, o + delta, l);
+            // A blob that starts where this one does follows it: this one was empty (a new zone's lighting slice).
+            else if (o > start || (o == start && length == 0)) pointers[i] = (t, o + delta, l);
         }
         _ = tuid;
         return output;

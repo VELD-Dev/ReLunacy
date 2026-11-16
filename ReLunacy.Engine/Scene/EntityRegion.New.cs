@@ -36,7 +36,7 @@ public partial class EntityRegion
             case EntityTie tie:
                 (tie.New?.Zone ?? throw new InvalidOperationException("A new Tie needs its zone.")).TieInstances.Add(tie);
                 break;
-            case EntityVolume volume: Volumes.Add(volume); break;
+            case EntityVolume volume: Volumes.Add(volume); if (volume.BaseVolume.Clue != null) RefreshVolumeRoles(); break;
             case EntityPath path: Paths.Add(path); break;
             case EntityCamera camera: Cameras.Add(camera); _controllers.Add(camera.Controller); break;
             case EntityController controller: ControllerInstances.Add(controller); _controllers.Add(controller.Controller); break;
@@ -52,7 +52,7 @@ public partial class EntityRegion
         {
             case EntityMoby moby: MobyInstances.Remove(moby); break;
             case EntityTie tie: tie.New?.Zone?.TieInstances.Remove(tie); break;
-            case EntityVolume volume: Volumes.Remove(volume); break;
+            case EntityVolume volume: Volumes.Remove(volume); if (volume.BaseVolume.Clue != null) RefreshVolumeRoles(); break;
             case EntityPath path: Paths.Remove(path); break;
             case EntityCamera camera: Cameras.Remove(camera); _controllers.Remove(camera.Controller); break;
             case EntityController controller: ControllerInstances.Remove(controller); _controllers.Remove(controller.Controller); break;

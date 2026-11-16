@@ -61,7 +61,11 @@ public class EntityVolume : Entity
     public Matrix4x4 LoadedMatrix { get; private set; }
 
     /// <summary>The file now holds this volume as it is: later edits are measured from here.</summary>
-    public void MarkSaved() => LoadedMatrix = FillMatrix;
+    public void MarkSaved()
+    {
+        LoadedMatrix = FillMatrix;
+        if (Assigned != null) Assigned.LoadedShape = BaseVolume.Shape;
+    }
 
     /// <summary>
     /// Places the volume from a whole matrix (a gizmo drag): its size goes to <see cref="scale"/>, its rotation and

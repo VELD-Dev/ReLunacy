@@ -80,7 +80,8 @@ public sealed class ConfigDocument
                     : result.Summary;
                 if (!result.Succeeded) return;
                 Loaded = ConfigCsv.Parse(bytes);
-                CacheNotice = new GameCacheNotice(table.ArchivePath);
+                // Only a write into the game's archive makes its cache stale; a project's install says so then.
+                if (result.BackupPath != null) CacheNotice = new GameCacheNotice(table.ArchivePath);
             },
             e =>
             {

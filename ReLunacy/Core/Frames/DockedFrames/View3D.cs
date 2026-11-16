@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ReLunacy.Core.Collision;
+using ReLunacy.Core.Moon;
 using ReLunacy.Core.Placement;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Config;
@@ -252,6 +253,12 @@ public class View3D : DockedFrame
                 settings.HideSectorBounds = !bounds;
                 settings.SaveSettingsToFile();
             }
+            bool flyPlane = !settings.HideFlyPlane;
+            if (overlay.ToggleButton(Icons.Plane, ref flyPlane, LM.Get("GUI_Viewport_FlyPlane")))
+            {
+                settings.HideFlyPlane = !flyPlane;
+                settings.SaveSettingsToFile();
+            }
         }
         // Particle effects: old-engine and A Crack in Time levels, greyed out where there are none to play.
         bool effects = !settings.HideEffects;
@@ -311,9 +318,83 @@ public class View3D : DockedFrame
         _volumePanel.Draw(overlay, volumeAnchor);
         _pathPanel.Draw(overlay, pathFilterAnchor);
         if (em.renderPaths && !CollisionEditing) _pathEditor.DrawPanel(overlay, pathAnchor);
+        DrawMoonButton(overlay);
+        DrawTransformBar(overlay);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
         if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
+    }
+
+    /// <summary>Bottom-centre bar: gizmo operation, space and snapping.</summary>
+    private void DrawTransformBar(ViewportOverlay overlay)
+    {
+        var gizmo = GizmoController;
+        var settings = Program.Settings;
+        string[] ops = [LM.Get("GUI_Gizmo_Move"), LM.Get("GUI_Gizmo_Rotate"), LM.Get("GUI_Gizmo_Scale")];
+        string[] opTips = [LM.Get("GUI_Gizmo_MoveHelp"), LM.Get("GUI_Gizmo_RotateHelp"), LM.Get("GUI_Gizmo_ScaleHelp")];
+        string[] spaces = [LM.Get("GUI_Gizmo_World"), LM.Get("GUI_Gizmo_Local"), LM.Get("GUI_Gizmo_Moon")];
+        string snapLabel = LM.Get("GUI_Gizmo_Snap");
+        const float Step = 4f, Gap = 10f, DragWidth = 64f;
+        float width = Gap * 2f + DragWidth + Step;
+        foreach (var o in ops) width += ViewportOverlay.FitWidth(o) + Step;
+        foreach (var o in spaces) width += ViewportOverlay.FitWidth(o) + Step;
+        width += ViewportOverlay.FitWidth(snapLabel) + Step;
+        if (!overlay.BeginBottomBar(width - Step)) return;
+
+        var current = gizmo.CurrentOperation;
+        Hexa.NET.ImGuizmo.ImGuizmoOperation[] kinds = [Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate, Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate, Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale];
+        for (int i = 0; i < 3; i++)
+        {
+            bool on = current == kinds[i];
+            if (overlay.ToggleButton(ops[i], ref on, opTips[i], true, ViewportOverlay.FitWidth(ops[i])) && on)
+                gizmo.CurrentOperation = kinds[i];
+        }
+
+        overlay.Gap();
+        var space = gizmo.Space;
+        for (int i = 0; i < 3; i++)
+        {
+            bool on = (int)space == i;
+            bool enabled = i != 2 || MoonMode.Active;
+            string tip = LM.Get(i == 2 && !MoonMode.Active ? "GUI_Gizmo_MoonOff" : "GUI_Gizmo_SpaceHelp");
+            if (overlay.ToggleButton(spaces[i], ref on, tip, enabled, ViewportOverlay.FitWidth(spaces[i])) && on)
+                gizmo.SetSpace((GizmoSpace)i);
+        }
+
+        overlay.Gap();
+        if (overlay.ToggleButton(snapLabel, ref settings.GizmoSnapEnabled, LM.Get("GUI_Gizmo_SnapHelp"), true, ViewportOverlay.FitWidth(snapLabel)))
+            settings.SaveSettingsToFile();
+        _ = current switch
+        {
+            Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate => overlay.DragValue("##snap", ref settings.GizmoSnapRotation, 0.5f, 0.1f, 180f, "%.1f deg", DragWidth, LM.Get("GUI_Gizmo_SnapStep")),
+            Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale => overlay.DragValue("##snap", ref settings.GizmoSnapScale, 0.01f, 0.01f, 10f, "%.2f", DragWidth, LM.Get("GUI_Gizmo_SnapStep")),
+            _ => overlay.DragValue("##snap", ref settings.GizmoSnapTranslation, 0.05f, 0.001f, 1000f, "%.2f m", DragWidth, LM.Get("GUI_Gizmo_SnapStep")),
+        };
+        if (ImGui.IsItemDeactivatedAfterEdit()) settings.SaveSettingsToFile();
+    }
+
+    private readonly MoonOrbit _moonOrbit = new();
+
+    /// <summary>The corner button: starts moon edit mode on the selected SpaceMoon Clue, or leaves it.</summary>
+    private void DrawMoonButton(ViewportOverlay overlay)
+    {
+        if (MoonMode.Active)
+        {
+            if (overlay.CornerButton(LM.Get("GUI_Moon_Exit"), LM.Get("GUI_Moon_ExitHelp"))) ExitMoonMode();
+        }
+        else if (!CollisionEditing && MoonMode.MoonClue(SelectedEntity) is { } clue
+                 && overlay.CornerButton(LM.Get("GUI_Moon_Enter"), LM.Get("GUI_Moon_EnterHelp")))
+        {
+            if (PovCamera != null) ExitPov(restore: true);
+            if (MoonMode.Enter(clue)) _moonOrbit.Enter(Camera);
+        }
+    }
+
+    private void ExitMoonMode()
+    {
+        if (!MoonMode.Active) return;
+        _moonOrbit.Exit(Camera);
+        MoonMode.Exit();
     }
 
     /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
@@ -820,6 +901,8 @@ public class View3D : DockedFrame
                 vkStage.CameraMarkers = BuildCameraList();
                 vkStage.ControllerIconMarkers = _vkControllerIcons;
                 vkStage.Boundary = BuildSectorBoundary();
+                vkStage.FlyPlane = !Program.Settings.HideFlyPlane && ConfigDocument.LevelBoundsRadius() is { } flyRadius
+                    ? (GameConfigs.AphelionFlyHeight, flyRadius) : null;
                 _paths.Update(vkStage, SelectedEntity, CollisionEditing);
                 vkStage.AlsoSelected = OutlinedOthers();
                 // Placed effects (FxControllers) play in the renderer's depth-tested sprite pass.
@@ -932,6 +1015,12 @@ public class View3D : DockedFrame
         // Left click is not read here any more: the viewport latched it in Begin and hands it over at
         // TryConsumeClick, after the overlay and the gizmo have had their turn. A rotate-drag claims
         // the mouse (see CheckRotationInput), which is what stops a click from also picking.
+        if (MoonMode.Active)
+        {
+            if (!EntityManager.Singleton.Regions.Contains(MoonMode.Region!)) ExitMoonMode();
+            else if (_viewport.AllowCameraInput && Input.IsMouseScrolling(out var wheel) && wheel.Y != 0f)
+                _moonOrbit.Zoom(Camera, wheel.Y);
+        }
         bool isRotating = CheckRotationInput(_viewport.AllowCameraInput);
 
         if (!isRotating && !_viewport.IsHovered)
@@ -975,7 +1064,9 @@ public class View3D : DockedFrame
             return cached.Point;
         Vector3 point;
         if (SurfaceProbe.ViewRay(Camera, mouse, _viewport.Size) is { } ray)
-            point = SurfaceProbe.Cast(_collisionEditor.Scene, ray.Origin, ray.Direction)?.Point ?? ray.Origin + ray.Direction * PlaceFallbackDistance;
+            point = SurfaceProbe.Cast(_collisionEditor.Scene, ray.Origin, ray.Direction)?.Point
+                ?? (MoonMode.Active ? MoonMode.RaySurface(ray.Origin, ray.Direction) : null)
+                ?? ray.Origin + ray.Direction * PlaceFallbackDistance;
         else
             point = Camera.Position + Camera.GetForward() * PlaceFallbackDistance;
         _placeCache = (mouse, Camera.Position, Camera.Target, point);
@@ -992,6 +1083,10 @@ public class View3D : DockedFrame
         return (PlacementPoint(_viewport.Size * 0.5f), Camera.GetForward(), right);
     }
 
+    /// <summary>In moon mode, the rotation that stands an object on the surface at <paramref name="point"/>, facing the way the
+    /// view does; null otherwise.</summary>
+    public Quaternion? MoonRotation(Vector3 point) => MoonMode.Active ? MoonMode.UpRotation(point, Camera.GetForward()) : null;
+
     /// <summary>An asset dragged over the image: shown where it would land, and placed there when released.</summary>
     private void HandleAssetDrop()
     {
@@ -1001,7 +1096,7 @@ public class View3D : DockedFrame
         var point = PlacementPoint(_viewport.MousePos);
         if (drop.Released)
         {
-            InstancePlacer.PlaceNew(asset, point);
+            InstancePlacer.PlaceNew(asset, point, MoonRotation(point));
             return;
         }
 
@@ -1127,6 +1222,7 @@ public class View3D : DockedFrame
             InstancePlacer.RemoveNew(SelectionManager.Singleton.Selection);
         if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
         if (PovCamera != null) { ExitPov(restore: true); return; }
+        if (MoonMode.Active) { ExitMoonMode(); return; }
         if (CollisionEditing) _collisionEditor.ClearSelection();
         else SelectedEntity = null;
     }
@@ -1137,7 +1233,7 @@ public class View3D : DockedFrame
         if (Input.IsKeyPressed(KeyboardKey.W)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
         if (Input.IsKeyPressed(KeyboardKey.E)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
         if (Input.IsKeyPressed(KeyboardKey.R)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
-        if (Input.IsKeyPressed(KeyboardKey.X)) GizmoController.ToggleLocal();
+        if (Input.IsKeyPressed(KeyboardKey.X)) GizmoController.CycleSpace();
     }
 
     private bool CheckRotationInput(bool allowGrab)
@@ -1156,6 +1252,11 @@ public class View3D : DockedFrame
         Vector2 rot = Input.GetMouseDelta();
         rot *= Program.Settings.CamSensivity;
 
+        if (MoonMode.Active)
+        {
+            _moonOrbit.Look(Camera, rot);
+            return true;
+        }
         Camera.SetPitch(Camera.GetPitch() - rot.Y, false);
         Camera.SetYaw(Camera.GetYaw() - rot.X, false);
         return true;
@@ -1164,6 +1265,13 @@ public class View3D : DockedFrame
     private void CheckMovementInput(double deltaTime)
     {
         float moveSpeed = Input.IsKeyDown(KeyboardKey.ShiftLeft) ? Program.Settings.CamMaxSpeed : Program.Settings.CamMoveSpeed;
+        if (MoonMode.Active)
+        {
+            float ahead = (Input.IsKeyDown(KeyboardKey.W) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.S) ? 1f : 0f);
+            float side = (Input.IsKeyDown(KeyboardKey.D) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.A) ? 1f : 0f);
+            _moonOrbit.Move(Camera, ahead, side, moveSpeed, (float)deltaTime);
+            return;
+        }
         Vector3 deltaPosition = GetInputAxes();
         if (deltaPosition.LengthSquared() > 0)
         {

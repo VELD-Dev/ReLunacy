@@ -75,6 +75,8 @@ public class EditorSettings
     public bool HideEffects;
     // The space sector boundary shell. Inverted, as the effects' switch, so older settings files show it.
     public bool HideSectorBounds;
+    // The Aphelion's flight height plane. Inverted like the boundary's switch.
+    public bool HideFlyPlane;
     public bool RenderNavmesh;
     public bool RenderCollision;
     // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.
@@ -158,6 +160,10 @@ public class EditorSettings
     // See GameBrowserFrame's constructor, which auto re-scans this path (if set) as soon as the
     // frame is opened, instead of making the user re-Browse/Paste/Scan it by hand every session.
     public string GameBrowserRootPath = string.Empty;
+    // File > Recent Projects: .lunaproj paths, newest first (ProjectSession.Remember).
+    public List<string> RecentProjects = [];
+    // Where File > New Project suggests putting a project; the last location used.
+    public string ProjectsFolder = string.Empty;
     // Opt-in only: the outline's history documents that both winding-based and
     // normal-based backface techniques were tried for the selection outline and both broke -
     // triangle winding in these source assets isn't reliably consistent (sometimes not even within

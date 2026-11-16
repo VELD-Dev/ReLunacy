@@ -22,7 +22,7 @@ public class Volume : IVolumeData
     public Matrix4x4 transform;
     public bool IsLoaded { get; set; }
     public ushort group { get; set; }
-    public VolumeShape Shape { get; init; }
+    public VolumeShape Shape { get; set; }
 
     /// <summary>The volume's place in the region's volume table, which is what a reference names it by (names
     /// repeat: axiom_city has six "volume30"); -1 on the old engine.</summary>
@@ -94,7 +94,7 @@ public sealed record VolumeClue(uint Class, string Name, string ClassName)
 
     /// <summary>The fields of <see cref="Settings"/> that name another instance (a rail's path, a camera's
     /// controller, a respawn's Area).</summary>
-    public IReadOnlyList<ClueReference> References { get; init; } = [];
+    public IReadOnlyList<ClueReference> References { get; set; } = [];
 }
 
 /// <summary>A field of a Clue's settings, at <paramref name="Offset"/>, naming an instance.</summary>

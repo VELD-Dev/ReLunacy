@@ -29,6 +29,9 @@ public partial class EntityRegion : IDisposable
 
     /// <summary>Old engine regions have no gameplay instance tables to add to (see <see cref="CreateMoby"/>).</summary>
     public readonly bool IsOldEngine;
+
+    /// <summary>The game the region is of; null when unknown.</summary>
+    public readonly Games.GameId? Game;
     private readonly AssetManager _assetManager;
 
     /// <summary>The level editor's layers (see <see cref="Region.Layers"/>).</summary>
@@ -52,6 +55,7 @@ public partial class EntityRegion : IDisposable
     {
         RegionName = region.Name ?? "UnnamedRegion";
         IsOldEngine = region.IsOldEngine;
+        Game = region.Game;
         _assetManager = assetManager;
         Layers = region.Layers;
         References = region.References;

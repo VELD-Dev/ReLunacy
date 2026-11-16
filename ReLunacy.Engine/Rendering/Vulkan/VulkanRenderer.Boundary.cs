@@ -23,6 +23,18 @@ layout(push_constant) uniform PC { vec4 uCentre; vec4 uParams; vec4 uColour; vec
 layout(location = 0) in vec3 inPos;
 layout(location = 0) out vec3 fWorld;
 void main() {
+    if (uParams.y > 1.5) {
+        // Fly plane: a disc fanned from the centre, generated from the vertex index.
+        int tri = gl_VertexIndex / 3, k = gl_VertexIndex % 3;
+        float a = float(tri + (k == 2 ? 1 : 0)) * 6.2831853 / uParams.w;
+        vec2 xz = k == 0 ? vec2(0.0) : vec2(cos(a), sin(a)) * uCentre.w;
+        vec3 w = vec3(uCentre.x + xz.x, uCentre.y, uCentre.z + xz.y);
+        fWorld = w;
+        vec4 p = uMvp * vec4(w, 1.0);
+        p.z = max(p.z, 0.0);
+        gl_Position = p;
+        return;
+    }
     float radius = uParams.y > 0.5 ? uParams.z : uCentre.w;
     vec3 w = uCentre.xyz + vec3(inPos.x * radius, inPos.y * uParams.x, inPos.z * radius);
     fWorld = w;
@@ -32,7 +44,7 @@ void main() {
     gl_Position = p;
 }";
 
-    // uParams: x half height, y mode (0 shell, 1 ring), z ring radius, w meridian count.
+    // uParams: x half height, y mode (0 shell, 1 ring, 2 fly plane), z ring radius, w meridian count.
     private const string BoundaryFragmentGlsl = @"#version 450
 layout(push_constant) uniform PC { vec4 uCentre; vec4 uParams; vec4 uColour; vec4 uCamera; };
 layout(location = 0) in vec3 fWorld;
@@ -43,6 +55,19 @@ float gridLine(float coord, float width) {
 }
 void main() {
     vec3 d = fWorld - uCentre.xyz;
+    if (uParams.y > 1.5) {
+        // Fly plane: a faint film, a grid every 100 units and a bright ring at the edge.
+        vec2 g = fWorld.xz / 100.0;
+        vec2 fw = max(fwidth(g), vec2(1e-6));
+        float lineX = gridLine(g.x, fw.x), lineZ = gridLine(g.y, fw.y);
+        float density = clamp(1.0 - (max(fw.x, fw.y) - 0.15) / 0.25, 0.0, 1.0);
+        float grid = max(lineX, lineZ) * density;
+        float r = length(d.xz);
+        float ring = 1.0 - smoothstep(0.0, 2.5 * fwidth(r), abs(r - uCentre.w));
+        float a = (0.05 + 0.25 * grid + 0.6 * ring) * uColour.a;
+        o = vec4(uColour.rgb, a);
+        return;
+    }
     float turns = atan(d.z, d.x) / 6.2831853;
     // atan jumps at -x; its twin jumps at +x, so one of the two always has a usable derivative.
     float turns2 = atan(-d.z, -d.x) / 6.2831853;
@@ -74,6 +99,11 @@ void main() {
 
     /// <summary>The boundary to draw this frame, or null. Set by the view before <see cref="Frame"/>.</summary>
     public SectorBoundary? Boundary { get; set; }
+
+    /// <summary>The Aphelion's flight plane to draw this frame: its world Y and the radius to clip it to, or null.</summary>
+    public (float Height, float Radius)? FlyPlane { get; set; }
+
+    public Vector3 FlyPlaneColour { get; set; } = new(0.4f, 1f, 0.6f);
 
     public Vector3 BoundaryColour { get; set; } = new(0.45f, 0.8f, 1f);
 
@@ -174,6 +204,21 @@ void main() {
         if (b.WarningRadius > 0f) DrawBoundaryPass(pc, b.HalfHeight, 1f, b.WarningRadius, new Vector4(1f, 0.8f, 0.35f, 0.45f));
         if (b.TurnRadius > 0f) DrawBoundaryPass(pc, b.HalfHeight, 1f, b.TurnRadius, new Vector4(1f, 0.5f, 0.3f, 0.5f));
         DrawBoundaryPass(pc, b.HalfHeight, 0f, 0f, new Vector4(BoundaryColour, 1f));
+    }
+
+    private void DrawFlyPlane()
+    {
+        if (FlyPlane is not { } f || f.Radius <= 0f) return;
+        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _boundaryPipeline);
+        VkDescriptorSet s0 = _descSet;
+        _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _boundaryLayout, 0, 1, &s0, 0, null);
+        Vector4* pc = stackalloc Vector4[4];
+        pc[0] = new Vector4(0f, f.Height, 0f, f.Radius);
+        pc[1] = new Vector4(0f, 2f, 0f, BoundarySegments);
+        pc[2] = new Vector4(FlyPlaneColour, 1f);
+        pc[3] = new Vector4(_cameraPosition, 0f);
+        _api.vkCmdPushConstants(_cmd, _boundaryLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 64, pc);
+        _api.vkCmdDraw(_cmd, BoundarySegments * 3, 1, 0, 0);
     }
 
     private void DrawBoundaryPass(Vector4* pc, float halfHeight, float mode, float ring, Vector4 colour)

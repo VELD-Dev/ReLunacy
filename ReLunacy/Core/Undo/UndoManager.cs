@@ -30,6 +30,9 @@ public sealed class UndoManager
     /// instance matrices, a Tie's collision) refreshes it.</summary>
     public event Action<Entity>? EntityRestored;
 
+    /// <summary>Counts every step pushed, undone or redone: the project's dirty marker compares it with the last save's.</summary>
+    public int Revision { get; private set; }
+
     public string? UndoLabel => _undo.Count > 0 ? _undo[^1].Label : null;
     public string? RedoLabel => _redo.Count > 0 ? _redo[^1].Label : null;
 
@@ -41,6 +44,7 @@ public sealed class UndoManager
         _undo.Add(new Step(label, undo, redo));
         if (_undo.Count > Limit) _undo.RemoveAt(0);
         _redo.Clear();
+        Revision++;
     }
 
     public void Undo()
@@ -50,6 +54,7 @@ public sealed class UndoManager
         _undo.RemoveAt(_undo.Count - 1);
         step.Undo();
         _redo.Add(step);
+        Revision++;
     }
 
     public void Redo()
@@ -59,6 +64,7 @@ public sealed class UndoManager
         _redo.RemoveAt(_redo.Count - 1);
         step.Redo();
         _undo.Add(step);
+        Revision++;
     }
 
     public void Clear()

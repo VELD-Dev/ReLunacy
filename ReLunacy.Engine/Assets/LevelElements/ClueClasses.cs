@@ -109,6 +109,10 @@ public static class ClueClasses
     /// <summary>The role of a plain volume a gravity Clue acts in instead of its own (ClueGravity +0x14, +0x18).</summary>
     public const string GravityRegionRole = "Gravity region";
 
+    /// <summary>The class has a field with a known meaning at the offset (see <see cref="KnownFields"/>).</summary>
+    public static bool IsKnownField(Games.GameId? game, uint cls, int offset) =>
+        game is { } g && KnownFields.ContainsKey((g, cls, offset));
+
     /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
     /// area. Only links that resolve count; nothing is guessed from names. Also marks where each gravity Clue acts
     /// (<see cref="Volume.GravityRegion"/>). A controller field the table types as a volume or a volume list gives

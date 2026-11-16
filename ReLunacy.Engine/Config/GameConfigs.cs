@@ -52,9 +52,10 @@ public static class GameConfigs
 
     public static ConfigCsv Read(ConfigTableRef table)
     {
-        using var psarc = new PSARC(File.OpenRead(table.ArchivePath));
-        using var buffer = psarc.OpenFile(table.EntryPath);
-        return ConfigCsv.Parse(buffer.Data);
+        // Through the open project, which may hold an edited table.
+        byte[] bytes = Projects.GameFileOverlay.ReadEntry(table.ArchivePath, table.EntryPath)
+                       ?? throw new FileNotFoundException(table.EntryPath);
+        return ConfigCsv.Parse(bytes);
     }
 
     /// <summary>The section name level.csv gives a level: LEVEL_ and its folder name in capitals
@@ -101,6 +102,10 @@ public static class GameConfigs
 
     /// <summary>What the game uses for a BoundsRadius of (about) 0.</summary>
     public const float DefaultBoundsRadius = 4000f;
+
+    /// <summary>World Y the Aphelion flies at in every space sector; an EBOOT constant, see
+    /// docs/reverse/acit_aphelion_fly_height.md.</summary>
+    public const float AphelionFlyHeight = 780f;
 
     /// <summary>Distances in from BoundsRadius where the ship's warning and turn-back begin.</summary>
     public const float BoundsWarningInset = 400f, BoundsTurnInset = 200f;

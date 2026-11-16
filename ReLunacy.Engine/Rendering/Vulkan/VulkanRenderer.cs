@@ -2077,6 +2077,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         // The faces first, so the wireframe draws over them.
         DrawVolumeFills();
         DrawBoundary();
+        DrawFlyPlane();
         if (_volumeCount == 0) return;
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _volumePipeline);
         VkDescriptorSet s0 = _descSet;

@@ -44,7 +44,7 @@ public sealed class GameplayPath
     public required string Name { get; init; }
     /// <summary>The path's place in the region's path table (see <see cref="Volume.Index"/>).</summary>
     public int Index { get; init; } = -1;
-    public string? Layer { get; init; }
+    public string? Layer { get; set; }
     public float Length { get; init; }
     public bool Closed { get; init; }
     public byte Kind { get; init; }
@@ -68,7 +68,7 @@ public sealed class GameplayGroup
 {
     public required ulong Tuid { get; init; }
     public required string Name { get; init; }
-    public string? Layer { get; init; }
+    public string? Layer { get; set; }
     /// <summary>The members' names, where they resolve (Pods); empty for Squadrons, whose members are Tie placements.</summary>
     public IReadOnlyList<string> MemberNames { get; init; } = [];
     public IReadOnlyList<ulong> MemberTuids { get; init; } = [];

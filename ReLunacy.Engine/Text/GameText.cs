@@ -40,9 +40,8 @@ public static class GameText
 
     public static byte[] ReadBytes(TextTableRef table)
     {
-        using var psarc = new PSARC(File.OpenRead(table.ArchivePath));
-        using var buffer = psarc.OpenFile(table.EntryPath);
-        return buffer.Data.ToArray();
+        // Through the open project, which may hold an edited table.
+        return Projects.GameFileOverlay.ReadEntry(table.ArchivePath, table.EntryPath) ?? throw new FileNotFoundException(table.EntryPath);
     }
 
     public static TextTable Read(TextTableRef table) => TextTable.Parse(ReadBytes(table));

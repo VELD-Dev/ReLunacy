@@ -168,6 +168,8 @@ public class LunaWindow : IDisposable
         });
 
         Time.Init();
+        // No project yet: saves are refused until one is opened, so nothing reaches the game unasked.
+        Project.ProjectSession.Init();
         SetTargetFPS(EditorSettings.TargetFPS);
 
         CommandList = graphicsDevice.ResourceFactory.CreateCommandList();
@@ -367,6 +369,7 @@ public class LunaWindow : IDisposable
                     if (resolvedDebugDat != null)
                         fileManager.LoadExternalDebugDat(resolvedDebugDat);
                 }
+                Project.ProjectSession.OnLevelOpened(path, fileManager.ArchivePaths);
                 progress.CompletePhase();
 
                 var levelReader = new LevelReader(fileManager);
@@ -898,13 +901,17 @@ public class LunaWindow : IDisposable
     {
         FileMenuDraw.SaveLevelShortcut();
         EditMenuDraw.UndoRedoShortcuts();
+        Project.ProjectSession.UpdateTitle();
         if (!ImGui.BeginMainMenuBar()) return;
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
         {
+            FileMenuDraw.ProjectMenuItems();
+            ImGui.Separator();
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.OpenGameBrowserMenuItem();
             FileMenuDraw.SaveLevelMenuItem();
+            FileMenuDraw.InstallMenuItem();
             FileMenuDraw.BackupsMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
             FileMenuDraw.CloseLevelMenuItem();
@@ -924,6 +931,7 @@ public class LunaWindow : IDisposable
             ToolsMenuDraw.RotationTool();
             ToolsMenuDraw.ScaleTool();
             ToolsMenuDraw.LocalSpace();
+ToolsMenuDraw.MoonSpace();
             ImGui.Separator();
             ToolsMenuDraw.DeselectObject();
             ImGui.EndMenu();

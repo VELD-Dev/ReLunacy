@@ -6,10 +6,11 @@ using ReLunacy.Utility.Localization;
 namespace ReLunacy.Core.Frames.Modals;
 
 /// <summary>
-/// File > Save Level: lists what the editor changed in the level's gameplay (Moby, volume, camera and path
-/// placements, Clue and camera settings) before anything is written, then writes it into the level's archive
-/// (GameplayWriter) off the main thread and says what happened: the changes, what could not be written, and where
-/// the original was kept.
+/// File > Save: lists what the editor changed in the level (placements, settings, new instances, layer, Area,
+/// Scent and Pod changes, new Ties) and what cannot be written, then saves it into the open project
+/// (GameplayWriter through the project's sink) off the main thread and says what happened; File > Install to Game puts
+/// it into the game. A save that changed the files' structure reloads the level through the project, so every index,
+/// offset and TUID comes from the saved files again.
 /// </summary>
 public sealed class SaveLevelModal : Modal
 {
@@ -20,7 +21,8 @@ public sealed class SaveLevelModal : Modal
     private string? _error;
     private Task<LevelSaveResult>? _saving;
     private LevelSaveResult? _result;
-    private Utility.GameCacheNotice? _cacheNotice;
+    private int _shifted;
+    private bool _reloaded;
 
     public SaveLevelModal()
     {
@@ -36,7 +38,8 @@ public sealed class SaveLevelModal : Modal
         try
         {
             GameplayWriter.Game = LunaWindow.Instance.Level?.GameDefinition?.Id;
-            (_preview, _previewProblems) = GameplayWriter.Preview(files, EntityManager.Singleton.Regions.ToList(), Collisions());
+            var plan = GameplayWriter.PreviewPlan(files, EntityManager.Singleton.Regions.ToList(), Collisions());
+            (_preview, _previewProblems, _shifted) = ([.. plan.Changes], [.. plan.Problems], plan.ShiftedHandles);
         }
         catch (Exception e) { _error = e.Message; }
     }
@@ -54,25 +57,31 @@ public sealed class SaveLevelModal : Modal
         if (_saving != null)
         {
             if (_saving.IsCompleted)
+            {
                 _result = _saving.IsCompletedSuccessfully ? _saving.Result : LevelSaveResult.Refused(_saving.Exception?.GetBaseException().Message ?? "?");
+                if (_result.Succeeded) Project.ProjectSession.MarkSaved();
+            }
             ImGui.TextUnformatted(LM.Get("GUI_SaveLevel_Saving"));
             return;
         }
 
         var preview = _preview ?? [];
+        if (Project.ProjectSession.Current is { } project) ImGui.TextDisabled(LM.Get("GUI_SaveLevel_IntoProject", project.Name));
         ImGui.TextWrapped(preview.Count == 0 ? LM.Get("GUI_SaveLevel_NothingChanged") : LM.Get("GUI_SaveLevel_Changes", preview.Count));
         List(preview, new Vector4(0.6f, 0.9f, 0.6f, 1f));
         List(_previewProblems, new Vector4(1f, 0.7f, 0.3f, 1f));
+        if (_shifted > 0) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_SaveLevel_Shifted", _shifted));
         ImGui.TextDisabled(LM.Get("GUI_SaveLevel_Hint"));
         ImGui.Spacing();
 
-        ImGui.BeginDisabled(preview.Count == 0);
+        ImGui.BeginDisabled(preview.Count == 0 || Project.ProjectSession.Current == null);
         if (ImGui.Button(LM.Get("GUI_SaveLevel_Save")))
         {
             var files = LunaWindow.Instance.fileManager!;
             var regions = EntityManager.Singleton.Regions.ToList();
             var collisions = Collisions();
-            _saving = Task.Run(() => GameplayWriter.Save(files, regions, collisions: collisions));
+            var sink = Project.ProjectSession.Current!.Sink;
+            _saving = Task.Run(() => GameplayWriter.Save(files, regions, collisions: collisions, sink: sink));
         }
         ImGui.EndDisabled();
         ImGui.SameLine();
@@ -89,10 +98,27 @@ public sealed class SaveLevelModal : Modal
         ImGui.TextColored(result.Succeeded ? new Vector4(0.6f, 0.9f, 0.6f, 1f) : new Vector4(1f, 0.45f, 0.4f, 1f), result.Summary);
         List(result.Changes, new Vector4(0.8f, 0.8f, 0.8f, 1f));
         List(result.Problems, new Vector4(1f, 0.7f, 0.3f, 1f));
+        if (result.ShiftedHandles > 0) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_SaveLevel_Shifted", result.ShiftedHandles));
         if (result.BackupPath != null) ImGui.TextWrapped(LM.Get("GUI_SaveLevel_Backup", result.BackupPath));
-        if (result.Succeeded && result.Changes.Count > 0 && LunaWindow.Instance.fileManager?.ArchivePaths.FirstOrDefault() is { } archive)
-            (_cacheNotice ??= new Utility.GameCacheNotice(archive)).Draw();
+        if (result.Succeeded && result.Structural)
+        {
+            // Every index, offset and TUID of the new files is read again. With something left unsaved the editor's
+            // state would be thrown away, so the user reloads once they have looked.
+            if (result.Problems.Count == 0 && !_reloaded) Reload();
+            else if (!_reloaded)
+            {
+                ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_SaveLevel_ReloadNeeded"));
+                if (ImGui.Button(LM.Get("GUI_SaveLevel_Reload"))) Reload();
+                ImGui.SameLine();
+            }
+        }
         if (ImGui.Button(LM.Get("GUI_Common_CloseWord"))) isOpen = false;
+    }
+
+    private void Reload()
+    {
+        _reloaded = true;
+        Project.ProjectSession.Reload();
     }
 
     private static void List(IReadOnlyList<string> lines, Vector4 colour)

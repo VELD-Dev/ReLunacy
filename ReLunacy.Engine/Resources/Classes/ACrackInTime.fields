@@ -137,7 +137,9 @@ class 0xD2 CamArgFollowPath : 0xD1
 
 class 0xD7 PickupBase : 0x47
 {
+    [0x60, float] = "";
     [0x64, float] = "Used by the script function reset_flares.";
+    [0x68, u32] = "";
     [0x6C, float] = "Used by the script function reset_flares.";
     [0x70, float] = "Used by the script function reset_flares.";
     [0x74, u32] = "Used by the script function reset_flares.";
@@ -875,6 +877,9 @@ class 0x3A7 PromptTeleporter : 0x47
     [0x116, u8, runtime] Prompt showing = "";
     [0x117, u8, runtime] Prompt button state = "";
     [0x138, bool] = "Used by the script function has_teleported.";
+    [0x139, bool] = "";
+    [0x13A, bool] = "";
+    [0x13B, bool] = "";
 }
 
 class 0x3B0 PadFling : 0x2B6
@@ -1194,7 +1199,11 @@ class 0x54A DoorAnimated : 0x548
 
 class 0x54D PlatformRotating : 0x201
 {
-    [0x124, u32] Rotation Direction? = "(4 bytes)";
+    [0x120, bool32] Unk = "";
+    [0x124, bool] b1 Rotation Direction? = "(4 bytes)";
+    [0x125, bool] b2 Rotation Direction? = "";
+    [0x126, bool] b3 Rotation Direction? = "";
+    [0x127, bool] b4 Rotation Direction? = "";
 }
 
 class 0x54E battery bot : 0x181
@@ -1494,6 +1503,10 @@ class 0x622 DamageDistributerVolleyInfo : 0x11D
 
 class 0x623 DamageDistributer : 0x47
 {
+    [0x60, bool] = "";
+    [0x61, bool] = "";
+    [0x62, bool] = "";
+    [0x63, bool] = "";
 }
 
 class 0x626 HazardSwampGasJet : 0xCF
@@ -1590,6 +1603,16 @@ class 0x669 qwark_door : 0x47
 
 class 0x66A blob : 0x181
 {
+    [0x920, u32] 322 = "";
+    [0xB74, float] = "";
+    [0xB78, float] = "";
+    [0xB7C, float] = "";
+    [0xB80, float] = "";
+    [0xB84, float] = "";
+    [0xB88, float] = "";
+    [0xB8C, float] = "";
+    [0xB94, float] = "";
+    [0xB98, float] = "";
     [0xC10, float] = "Used by the script function blob_scripted_combine.";
     [0xC14, float] = "Used by the script function blob_scripted_combine.";
     [0xC18, float] = "Used by the script function blob_scripted_combine.";
@@ -1854,6 +1877,13 @@ class 0x739 occular_scanner : 0x47
 
 class 0x73B electric_arc_master : 0xCF
 {
+    [0x14, float] = "";
+    [0x18, float] = "";
+    [0x1C, float] = "";
+    [0x20, float] = "";
+    [0x24, float] = "";
+    [0x3C, float] = "";
+    [0x40, float] = "";
 }
 
 class 0x73D water_tower_a : 0x56A

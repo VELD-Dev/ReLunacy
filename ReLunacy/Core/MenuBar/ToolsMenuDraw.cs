@@ -49,6 +49,15 @@ internal static class ToolsMenuDraw
         view?.GizmoController.ToggleLocal();
     }
 
+    internal static void MoonSpace()
+    {
+        var view = GetView3D();
+        bool active = view?.GizmoController.InMoonSpace == true;
+        if (!ImGui.MenuItem(LM.Get("GUI_TransformTools_MoonSpace"), "X", active, view != null && Core.Moon.MoonMode.Active)) return;
+
+        view!.GizmoController.SetMoonSpace(!active);
+    }
+
     internal static void DeselectObject()
     {
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_DeselectObjects"), "ESC", false, true)) return;

@@ -28,6 +28,9 @@ public sealed class Region : IRegion
     public Loading.Readers.GameplayReferences References { get; init; } = Loading.Readers.GameplayReferences.None;
     public bool IsOldEngine { get; init; }
 
+    /// <summary>The game the region is of; null when unknown.</summary>
+    public Games.GameId? Game { get; init; }
+
     public Region(
         ulong id,
         IReadOnlyList<IPlacedInstance<IMoby>> mobyInstances,

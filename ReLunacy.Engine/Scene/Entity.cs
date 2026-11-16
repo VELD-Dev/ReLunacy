@@ -48,6 +48,10 @@ public abstract class Entity : IDisposable
     /// <summary>The entity was made in the editor and no save has written it yet.</summary>
     public bool IsNew => New is { Saved: false };
 
+    /// <summary>What was assigned to the instance in the editor (layer, Areas, Scents, class) against what the files
+    /// held; set when the first assignment is made, null while it is as loaded (see <see cref="InstanceAssignment"/>).</summary>
+    public InstanceAssignment? Assigned { get; set; }
+
     public bool IsDirty { get; set; } = true;
 
     /// <summary>Slack on the culling radius; the assets' own fitted radii are very slightly optimistic.</summary>

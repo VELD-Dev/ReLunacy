@@ -211,6 +211,36 @@ public static class CollisionBvh
         return true;
     }
 
+    /// <summary>
+    /// For a tree with no room for another node: grows the leaf whose instances end the array (first + count =
+    /// <paramref name="first"/>) by <paramref name="count"/> instances appended after it, and its box and its
+    /// ancestors' to hold them. The tree keeps its node count; the leaf's box gets larger, so queries near it test
+    /// more instances. False when no leaf ends the array or it would pass 255.
+    /// </summary>
+    public static bool ExtendLastLeaf(Node root, int first, int count, Vector3 min, Vector3 max)
+    {
+        List<Node>? path = null;
+        void Search(Node n, List<Node> trail)
+        {
+            trail.Add(n);
+            foreach (var l in n.Leaves)
+                if (l.First + l.Count == first && l.Count + count <= 255) { path = [.. trail, l]; }
+            foreach (var k in n.Kids) Search(k, trail);
+            trail.RemoveAt(trail.Count - 1);
+        }
+        Search(root, []);
+        if (path == null) return false;
+        path[^1].Count += count;
+        foreach (var n in path)
+        {
+            if (Inside(min, n.Min, n.Max) && Inside(max, n.Min, n.Max)) continue;
+            n.Min = Vector3.Min(n.Min, min);
+            n.Max = Vector3.Max(n.Max, max);
+            n.Box = BoxBytes(n.Min, n.Max);
+        }
+        return true;
+    }
+
     private static bool Inside(Vector3 p, Vector3 min, Vector3 max) =>
         p.X >= min.X && p.Y >= min.Y && p.Z >= min.Z && p.X <= max.X && p.Y <= max.Y && p.Z <= max.Z;
 

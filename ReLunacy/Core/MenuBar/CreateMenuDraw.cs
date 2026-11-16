@@ -24,7 +24,10 @@ internal static class CreateMenuDraw
         {
             foreach (var shape in new[] { VolumeShape.Box, VolumeShape.Sphere, VolumeShape.Cylinder, VolumeShape.Capsule })
                 if (ImGui.MenuItem(LM.Get($"GUI_Create_Shape{shape}")))
-                    InstancePlacer.CreateVolume(shape, view!.CentrePlacement().Point);
+                {
+                    var point = view!.CentrePlacement().Point;
+                    InstancePlacer.CreateVolume(shape, point, view.MoonRotation(point));
+                }
             ImGui.EndMenu();
         }
 
@@ -51,7 +54,7 @@ internal static class CreateMenuDraw
                 // A camera looks the way the view does: its local +Z is where it looks.
                 Quaternion? rotation = isCamera
                     ? Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(Vector3.Zero, -place.Forward, Vector3.UnitY))
-                    : null;
+                    : view.MoonRotation(place.Point);
                 InstancePlacer.CreateController(template, place.Point, rotation);
             }
             ImGui.EndMenu();

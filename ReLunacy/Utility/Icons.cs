@@ -55,6 +55,7 @@ public static class Icons
     public const string DrawPolygon = "\uf5ee";  // collision
     public const string Fire = "\uf06d";  // effects
     public const string Globe = "\uf0ac";  // sector boundary
+    public const string Plane = "\uf072";  // fly height
 
     // Lighting
     public const string Lightbulb = "\uf0eb";
