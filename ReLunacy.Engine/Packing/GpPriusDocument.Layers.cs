@@ -253,6 +253,30 @@ public sealed class Ighw02
 
     public Pointer? PointerAt(Chunk chunk, int at) => _pointers.Find(p => p.Field == chunk && p.At == at);
 
+    public IReadOnlyList<Pointer> Pointers => _pointers;
+
+    /// <summary>Replaces <paramref name="oldLength"/> bytes at <paramref name="at"/> of a chunk with <paramref name="bytes"/>.
+    /// Pointer fields inside the replaced bytes are dropped; fields and targets after it move by the size change, and a
+    /// target at exactly <paramref name="at"/> stays (see <see cref="GpPriusDocument.Splice"/>). A target inside the cut throws.</summary>
+    public void Splice(Chunk chunk, int at, int oldLength, ReadOnlySpan<byte> bytes)
+    {
+        int end = at + oldLength, delta = bytes.Length - oldLength;
+        foreach (var p in _pointers)
+            if (p.Target == chunk && p.TargetAt > at && p.TargetAt < end && !(p.Field == chunk && p.At >= at && p.At < end))
+                throw new InvalidOperationException($"0x{p.TargetAt:X} of chunk 0x{chunk.Id:X} would be cut");
+        _pointers.RemoveAll(p => p.Field == chunk && p.At >= at && p.At < end && oldLength > 0);
+        foreach (var p in _pointers)
+        {
+            if (p.Field == chunk && p.At >= end) p.At += delta;
+            if (p.Target == chunk && p.TargetAt >= end && !(oldLength > 0 && p.TargetAt == at)) p.TargetAt += delta;
+        }
+        var data = new byte[chunk.Data.Length + delta];
+        chunk.Data.AsSpan(0, at).CopyTo(data);
+        bytes.CopyTo(data.AsSpan(at));
+        chunk.Data.AsSpan(end).CopyTo(data.AsSpan(at + bytes.Length));
+        chunk.Data = data;
+    }
+
     public string String(Pointer? p)
     {
         if (p == null) return string.Empty;

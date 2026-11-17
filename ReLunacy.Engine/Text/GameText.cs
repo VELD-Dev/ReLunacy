@@ -53,13 +53,32 @@ public static class GameText
 
     /// <summary>The tag a text id has (SS1_TXT_SPACE_MN1MC): from the game's code where the EBOOT's text enum gave
     /// it, or written by hand in Resources/Classes/&lt;Game&gt;.textids. Null when the table has none.</summary>
-    public static string? TagName(GameId? game, int id) => game is { } g ? TagTable(g).Name(id) : null;
+    public static string? TagName(GameId? game, int id) =>
+        Projects.GameFileOverlay.Current is Projects.LunaProject project && project.TextTag(id) is { } own ? own
+        : game is { } g ? TagTable(g).Name(id) : null;
 
-    /// <summary>Names a text id and writes the table (see <see cref="Assets.LevelElements.ClassDataFiles"/>).</summary>
-    public static void SetTagName(GameId game, int id, string name) => TagTable(game).Set(id, name);
+    /// <summary>Names a text id: in the open project, which keeps the name with its text, else in the table file (see
+    /// <see cref="Assets.LevelElements.ClassDataFiles"/>).</summary>
+    public static void SetTagName(GameId game, int id, string name)
+    {
+        if (Projects.GameFileOverlay.Current is Projects.LunaProject project) project.SetTextTag(id, name.Trim());
+        else TagTable(game).Set(id, name);
+    }
+
+    /// <summary>The id that has a tag, or -1.</summary>
+    public static int IdOfTag(GameId? game, string tag, int count)
+    {
+        for (int id = 0; id < count; id++)
+            if (string.Equals(TagName(game, id), tag, StringComparison.OrdinalIgnoreCase)) return id;
+        return -1;
+    }
+
+    /// <summary>Changes whenever what the open project holds does, so a cached read of its text is taken again.</summary>
+    private static (object?, int) ProjectStamp() =>
+        Projects.GameFileOverlay.Current is Projects.LunaProject project ? (project, project.Revision) : (null, 0);
 
     private static readonly object CacheLock = new();
-    private static (string Folder, string? Archive, DateTime Stamp, long CheckedAt, TextTable? Table)? _first;
+    private static (string Folder, string? Archive, DateTime Stamp, long CheckedAt, TextTable? Table, (object?, int) Project)? _first;
 
     /// <summary>The game's first language (us) for showing what a text id says next to the number. Read once per
     /// game folder and again after its archive changes, which is looked at no more than every two seconds: this is
@@ -69,7 +88,7 @@ public static class GameText
         lock (CacheLock)
         {
             long now = Environment.TickCount64;
-            if (_first is { } cached && cached.Folder == gameFolder)
+            if (_first is { } cached && cached.Folder == gameFolder && cached.Project == ProjectStamp())
             {
                 if (now - cached.CheckedAt < 2000) return cached.Table;
                 try
@@ -84,15 +103,16 @@ public static class GameText
             }
             try
             {
+                var stamp = ProjectStamp();
                 var reference = List(gameFolder).OrderBy(t => t.Language == "us" ? 0 : 1).FirstOrDefault();
-                if (reference == null) { _first = (gameFolder, null, default, now, null); return null; }
+                if (reference == null) { _first = (gameFolder, null, default, now, null, ProjectStamp()); return null; }
                 var table = Read(reference);
-                _first = (gameFolder, reference.ArchivePath, File.GetLastWriteTimeUtc(reference.ArchivePath), now, table);
+                _first = (gameFolder, reference.ArchivePath, File.GetLastWriteTimeUtc(reference.ArchivePath), now, table, stamp);
                 return table;
             }
             catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
             {
-                _first = (gameFolder, null, default, now, null);
+                _first = (gameFolder, null, default, now, null, ProjectStamp());
                 return null;
             }
         }

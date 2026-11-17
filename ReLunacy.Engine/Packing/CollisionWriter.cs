@@ -48,6 +48,16 @@ public static class CollisionWriter
             payloadSize = checked((int)(section.count * section.length));
         }
 
+        // The collision's offsets are those of the data it was read from. A file that has grown since (a save that added
+        // Ties, with no reload) holds its shapes elsewhere, and writing at the old offsets would put one shape's material
+        // bytes and triangle flags into another's.
+        if (BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(baseOffset + 0x04)) != collision.HeaderInstanceCount
+            || BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(baseOffset + 0x08)) != collision.HeaderShapeBase)
+        {
+            problems.Add("collision.dat changed since the editor read it (a save added Ties): reload the level, its collision edits are not written");
+            return (file, changes, problems);
+        }
+
         int faces = 0, meshes = 0;
         foreach (var mesh in collision.Shapes.OfType<CollisionMesh>())
         {
@@ -94,6 +104,9 @@ public static class CollisionWriter
             for (int r = 0; r < 4; r++)
                 for (int c = 0; c < 4; c++)
                     Put(file, record + matrixAt + (r * 4 + c) * 4, m[r, c]);
+            // A primitive set keeps its uniform scale in the matrix's w (+0x6C) instead of 1.
+            if (collision.IsNewEngine && file[record + 0x26] == 4)
+                Put(file, record + matrixAt + 0x3C, new System.Numerics.Vector3(m.M11, m.M12, m.M13).Length());
             Put3(file, record + minAt, instance.BoundsMin);
             Put3(file, record + maxAt, instance.BoundsMax);
             Put3(file, record + sphereAt, new System.Numerics.Vector3(instance.BoundingSphere.X, instance.BoundingSphere.Y, instance.BoundingSphere.Z));

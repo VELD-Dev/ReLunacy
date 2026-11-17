@@ -94,7 +94,7 @@ public static class GameplayGroupReader
             var clueMeta = index.Instances[ClueKind];
             var clueVolumes = new Volume?[clueMeta.Count];
             var clueClasses = new uint[clueMeta.Count];
-            var clueSettings = new (byte[] Struct, List<ClueReference> References)[clueMeta.Count];
+            var clueSettings = new (byte[] Struct, List<ClueReference> References, bool Shared)[clueMeta.Count];
             var clues = prius.QuerySection(ClueSection);
             if (clues.id == ClueSection && clues.length >= 0x10)
                 for (int i = 0; i < clueMeta.Count && i < clues.count; i++)
@@ -116,6 +116,7 @@ public static class GameplayGroupReader
                         Index = i,
                         Settings = clueSettings[i].Struct ?? [],
                         References = clueSettings[i].References ?? [],
+                        SharedSettings = clueSettings[i].Shared,
                     };
 
             // Areas: their volumes list.
@@ -218,7 +219,26 @@ public static class GameplayGroupReader
         return -1;
     }
 
-    private static (byte[] Struct, List<ClueReference> References) ReadSettings(IGFile prius, Index index, uint offset, uint size)
+    /// <summary>The section of class-default settings blocks: one per (kind, class), shared by every instance that
+    /// was not edited away from it. The other settings blocks (0x25020) are private to one instance.</summary>
+    private const uint SharedSettingsSection = 0x25030;
+
+    /// <summary>Whether a settings block at <paramref name="offset"/> lies in the class-default section.</summary>
+    private static bool InSharedSection(IGFile prius, uint offset)
+    {
+        var section = prius.QuerySection(SharedSettingsSection);
+        if (section.id != SharedSettingsSection || offset == 0) return false;
+        long end = section.offset + (long)section.length * Math.Max(section.count, 1u);
+        return offset >= section.offset && offset < end;
+    }
+
+    private static (byte[] Struct, List<ClueReference> References, bool Shared) ReadSettings(IGFile prius, Index index, uint offset, uint size)
+    {
+        var (body, references) = ReadSettingsBlock(prius, index, offset, size);
+        return (body, references, InSharedSection(prius, offset));
+    }
+
+    private static (byte[] Struct, List<ClueReference> References) ReadSettingsBlock(IGFile prius, Index index, uint offset, uint size)
     {
         var references = new List<ClueReference>();
         if (offset == 0 || size < 4 || offset + (long)size > prius.sh.BaseStream.Length) return ([], references);
@@ -336,7 +356,7 @@ public static class GameplayGroupReader
             var section = prius.QuerySection(ControllerSection);
             if (section.id != ControllerSection || section.length < 0x2C) return controllers;
             var classes = new uint[meta.Count];
-            var settingsOf = new (byte[] Struct, List<ClueReference> References)[meta.Count];
+            var settingsOf = new (byte[] Struct, List<ClueReference> References, bool Shared)[meta.Count];
             var records = new (System.Numerics.Vector3 Position, System.Numerics.Vector3 Rotation, System.Numerics.Vector3 Scale)[meta.Count];
             for (int i = 0; i < meta.Count && i < section.count; i++)
             {
@@ -370,6 +390,7 @@ public static class GameplayGroupReader
                     ClassName = GameClassNames.Name(game, classes[i]),
                     Settings = settingsOf[i].Struct ?? [],
                     References = settingsOf[i].References ?? [],
+                    SharedSettings = settingsOf[i].Shared,
                     Position = records[i].Position,
                     Rotation = records[i].Rotation,
                     Scale = records[i].Scale,
@@ -546,9 +567,9 @@ public static class GameplayGroupReader
     /// fields that name another instance, in record order. Identical blocks are stored once and shared (moon1a's and
     /// moon1c's landing pad beams). Empty for an instance without one.
     /// </summary>
-    public static List<(byte[] Struct, List<ClueReference> References)> ReadMobySettings(IGFile prius)
+    public static List<(byte[] Struct, List<ClueReference> References, bool Shared)> ReadMobySettings(IGFile prius)
     {
-        var list = new List<(byte[], List<ClueReference>)>();
+        var list = new List<(byte[], List<ClueReference>, bool)>();
         try
         {
             var index = BuildIndex(prius);

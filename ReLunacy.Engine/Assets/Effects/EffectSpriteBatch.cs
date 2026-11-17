@@ -18,7 +18,8 @@ public sealed class EffectSpriteBatch
     public const int FloatsPerVertex = 9;
 
     private float[] _vertices = new float[FloatsPerVertex * 6 * 256];
-    private readonly List<(float Depth, int Index)> _order = [];
+    private float[] _depth = new float[256];
+    private int[] _order = new int[256];
 
     public ReadOnlySpan<float> Vertices => _vertices.AsSpan(0, VertexCount * FloatsPerVertex);
     public int VertexCount { get; private set; }
@@ -39,14 +40,22 @@ public sealed class EffectSpriteBatch
         Vector3 up = Vector3.Normalize(new Vector3(camera.M21, camera.M22, camera.M23));
         Vector3 eye = camera.Translation;
 
-        _order.Clear();
-        for (int i = 0; i < sprites.Count; i++)
-            _order.Add((Vector3.DistanceSquared(sprites[i].Position, eye), i));
-        _order.Sort((a, b) => b.Depth.CompareTo(a.Depth));
-
-        foreach (var (_, i) in _order)
+        // Back to front: keys sorted ascending by distance, walked from the far end.
+        ReadOnlySpan<EffectBillboard> list = sprites is List<EffectBillboard> concrete
+            ? System.Runtime.InteropServices.CollectionsMarshal.AsSpan(concrete) : sprites.ToArray();
+        int count = list.Length;
+        if (_depth.Length < count) { _depth = new float[count * 2]; _order = new int[count * 2]; }
+        for (int i = 0; i < count; i++)
         {
-            EffectBillboard s = sprites[i];
+            _depth[i] = Vector3.DistanceSquared(list[i].Position, eye);
+            _order[i] = i;
+        }
+        Array.Sort(_depth, _order, 0, count);
+
+        for (int k = count - 1; k >= 0; k--)
+        {
+            int i = _order[k];
+            ref readonly EffectBillboard s = ref list[i];
             Orient(s, right, up, eye, out Vector3 centre, out Vector3 ax, out Vector3 ay);
             Vector4 color = s.Color;
             EffectSpriteBlend blend = s.Blend;

@@ -369,7 +369,8 @@ public class PropertyInspectorFrame : DockedFrame
         if (made.Zone != null) parts.Add(LM.Get("GUI_Instance_NewZone", made.Zone.ZoneName));
         else if (made.LayerName is { } layer) parts.Add(LM.Get("GUI_Instance_NewLayer", layer));
         if (made.Kind == NewInstanceKind.Moby)
-            parts.Add(made.SettingsTemplate != null ? LM.Get("GUI_Instance_NewSettings", made.SettingsTemplate.Name) : LM.Get("GUI_Instance_NewNoSettings"));
+            parts.Add(made.ClassDefault ? LM.Get("GUI_Instance_NewDefaultSettings")
+                : made.SettingsTemplate != null ? LM.Get("GUI_Instance_NewSettings", made.SettingsTemplate.Name) : LM.Get("GUI_Instance_NewNoSettings"));
         ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1f), $"{Icons.Plus} {string.Join(", ", parts)}");
     }
 
@@ -640,10 +641,14 @@ public class PropertyInspectorFrame : DockedFrame
     /// button to each row to name it, type it and describe it (kept in ClassFields' user file), and "Enums" manages
     /// the lists a field can be typed with.
     /// </summary>
+    private static bool _readOnlySettings;
+
     private static void RenderSettings(byte[] settings, IReadOnlyList<Engine.Assets.LevelElements.ClueReference> fieldReferences, uint cls,
         bool moby = false, EntityRegion? region = null)
     {
         var refs = region?.References;
+        // The old engine's class data is shown but not editable: nothing writes it back.
+        _readOnlySettings = region?.IsOldEngine == true;
         var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
         var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
         if (registry != null && registry.Sizes.TryGetValue(cls, out int classSize) && classSize != settings.Length)
@@ -833,10 +838,8 @@ public class PropertyInspectorFrame : DockedFrame
                     int shown = 0;
                     foreach (string kind in wanted != null ? [wanted] : Engine.Assets.LevelElements.ClassFields.ReferenceKinds)
                     {
-                        int instance = -1;
-                        foreach (string name in refs!.Names(kind))
+                        foreach (var (instance, name) in refs!.Entries(kind))
                         {
-                            instance++;
                             if (name.Length == 0 || (_referenceFilter.Length > 0 && !name.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase))) continue;
                             if (++shown > 300) break;
                             bool current = named is { } n && n.Kind == kind && n.Index == instance;
@@ -1065,7 +1068,7 @@ public class PropertyInspectorFrame : DockedFrame
                     ImGui.PopID();
                     return;
                 }
-                ImGui.BeginDisabled(field.RunTime);
+                ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                 ImGui.SetNextItemWidth(-1f);
                 bool tracked = true;
                 switch (field.Kind)
@@ -1144,7 +1147,7 @@ public class PropertyInspectorFrame : DockedFrame
                         tracked = false;
                         ImGui.EndDisabled();
                         SoundEditor(row.Offset, v, field.RunTime);
-                        ImGui.BeginDisabled(field.RunTime);
+                        ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                         break;
                     }
                     case Engine.Assets.LevelElements.ClassFieldKind.Effect:
@@ -1156,7 +1159,7 @@ public class PropertyInspectorFrame : DockedFrame
                         tracked = false;
                         ImGui.EndDisabled();
                         EffectEditor(row.Offset, (uint)v, field.RunTime);
-                        ImGui.BeginDisabled(field.RunTime);
+                        ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                         break;
                     }
                     case Engine.Assets.LevelElements.ClassFieldKind.TextId:
@@ -1185,7 +1188,7 @@ public class PropertyInspectorFrame : DockedFrame
                                 if (ImGui.IsItemHovered())
                                     ImGui.SetTooltip((Engine.Text.GameText.TagName(game, v) is { } tag ? tag + "\n" : "") + Engine.Text.TextTable.Escape(said) + "\n" + LM.Get("GUI_Frame_InstanceInspector_FieldTextOpen"));
                             }
-                            ImGui.BeginDisabled(field.RunTime);
+                            ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                         }
                         break;
                     }
@@ -1233,6 +1236,7 @@ public class PropertyInspectorFrame : DockedFrame
                 Tooltip(row, type.ToString());
                 RowMenu(row, edited);
                 ImGui.TableNextColumn();
+                ImGui.BeginDisabled(_readOnlySettings);
                 uint value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes);
                 switch (type)
                 {
@@ -1279,6 +1283,7 @@ public class PropertyInspectorFrame : DockedFrame
                         break;
                     }
                 }
+                ImGui.EndDisabled();
             }
             ImGui.PopID();
         }

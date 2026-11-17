@@ -61,6 +61,13 @@ public class EntityCluster : IDisposable
         return true;
     }
 
+    /// <summary>Puts an entity back where it was (an undone deletion), so the cluster keeps the file's order.</summary>
+    public void Insert(int index, Entity entity)
+    {
+        TotalEntities++;
+        Entities.Insert(Math.Clamp(index, 0, Entities.Count), entity);
+    }
+
     public bool TryGetEntity(int id, [NotNullWhen(true)] out Entity? entity)
     {
         entity = Entities.FirstOrDefault(e => e.ID == id);

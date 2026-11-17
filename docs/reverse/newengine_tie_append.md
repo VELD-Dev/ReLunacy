@@ -3,6 +3,22 @@
 Status 2026-11-16: done. Planet levels get a copied 0x8200 entry, untested in game. TieAppender, IghwRelayout and CollisionBvh are written. CollisionWriter refits the BVH,
 and ZoneWriter grows cluster spheres. The probe passes on 16 levels of three games. Nothing has been tested in game.
 
+Collision bug report 2026-11-17 ("a new Tie's collision is broken: some vertices and indices right, the mesh wrong"):
+- `AppendCollision` is correct. The probe (`dev/tools/tieappendprobe`, `STRESS=1` adds 60 classes under translation, rotation,
+  uniform scale 0.4 / 3, mirror and non-uniform scale) compares every new instance's world triangles with the source's moved
+  by srcInverse * newMatrix: 79172 triangles on space_sector_1, worst error 0.001 (limit 1/512); krell_canyon 12135, 0.0002.
+  Every leaf holds its instances, every instance is in one leaf, pre-existing instances read identically.
+- Cause: a save that only adds Ties was not "structural", so the editor did not reload. Its `LevelCollision` kept the
+  shape offsets of the file before the append (the shape blob moved by 0x80 x instances added), and the next save's
+  `CollisionWriter.Patch` wrote material bytes and triangle flag bits (the top 5 bits of each word, indices untouched)
+  at those offsets, i.e. into other shapes: 46428 faces in 824 shapes changed on space_sector_1, 114312 on axiom_city.
+  The editor also still held the Ties as new, so the next save appended them again.
+- Fix: `GameplayWriter.Build` marks a save that appended Ties structural (the level is read again);
+  `CollisionWriter.Patch` refuses to write when the file's header +0x04 / +0x08 differ from the `LevelCollision`'s
+  (`HeaderInstanceCount`, `HeaderShapeBase`); a moved primitive-set instance keeps its uniform scale in w (+0x6C).
+- Not verified: in game; a save that appended Ties and has problems shows a Reload button instead of reloading, and saving
+  again before reloading would append the same Ties again (`NewInstance.Saved` is never set).
+
 Spec: `acit_zones_coverage.md` section 6 (zones) and `acit_collision_format.md` section 7 (collision).
 
 ## API (`ReLunacy.Engine/Packing`)
@@ -193,7 +209,7 @@ and ITN.
 - **Not handled:**
   - a zone with no Tie tables (refused);
   - a zone with no lighting slice (the copy gets no prelight);
-  - a new 0x1DB00 entry;
+  - a new 0x1DB00 entry (except for a zone `CreateZone` makes; see `newengine_new_layers_zones.md`);
   - classes not in the level (refused: they would need ties.dat, 0x1D300 and region lists);
   - foliage, Shrubs and UFrags.
 - **Building the probe.** It needs the engine to build. While other edits were in progress it was built against HEAD

@@ -197,6 +197,45 @@ does detect a wrong rewrite.
 - **instances.lua / .lc, .trimmed and level scripts are not rewritten.** The caller gets `Shifts`.
 - **A4O / ITN TUID references.** A moved instance keeps its TUID, so its references stay valid. ITN's repeated TUIDs
   were already ambiguous in shipped files. Adding such an instance to a list is refused.
-- **Not supported:** new layers (gameplay.dat name / mask, metadata.dat), Squadron edits, deleting instances,
-  creating a missing section. gameplay.dat +0x48 is not updated.
+- **Not supported:** Squadron edits, deleting Pods / Areas / Scents / Ties,
+  creating a missing section. gameplay.dat +0x48 is not updated. New layers: see `newengine_new_layers_zones.md`.
 - **RegionReader drops Mobys whose class asset is not loaded.** The probe compares those by name only.
+
+## 7. Deleting instances (`GpPriusDocument.Delete`, `ReferencesTo`; `EntityRegion.Delete`)
+
+Kinds: Moby, volume (its Clue goes with it: a Clue's +0 is its volume), path, controller / camera, Clue. Pods, Areas,
+Scents, Squadrons and Ties are refused (Ties: zones.dat + collision + assetlookup, not attempted).
+All or nothing; the document is unchanged on a refusal. Order inside `Delete`:
+
+1. **Pod / Area / Scent list entries** naming a deleted instance are removed (`RemoveMember`: a list that empties loses
+   its pointer; A4O / ITN also drop the pool entry).
+2. **List elements in settings extra data** (SoundEnvironment +0x28 volumes, +0x2C 16-byte entries, SoundEmitter +0x18,
+   dropship +0x1218 actions): an element goes whole when any of its words names a deleted instance. The inner block is an
+   IGHW 0.2 that round-trips through `Ighw02` on all 29,882 inner blocks of ACiT; it is laid out again with the element
+   cut, the list's count word (the word before the list) is decremented, and the size word of every record using the block
+   (Moby +0x10, Clue +0x08, controller +0x04) follows. A list may end up empty (count 0, pointer kept).
+3. **Settings words** (struct fields) naming a deleted instance are set to 0, the "no reference" every unset field holds.
+4. **Handle rewrite** (ACiT, inline form): every reference word (Clue +0, list entries, settings words) naming an instance
+   behind a deleted one in its layer is rewritten (index in layer minus the deleted ones before it). All 4 One / Into the
+   Nexus references are TUIDs: nothing moves; a TUID that repeats within the deleted kind is refused.
+5. **Records**: record, metadata, layer count / pointers (`AdjustLayerCount`), and what only the record owned: a private
+   settings block (0x25020, 4-aligned length), a Moby's matrices (0x25049), a path's points, a Clue's pool entry. Shared
+   targets stay. Names stay in 0x11300; gameplay.dat budgets are maxima and are left alone.
+
+A4O / ITN: a pool entry in a settings block that no struct word uses belongs to a list, which is not read in that form, so
+deleting an instance named there is refused (all 81 A4O controllers: SoundEnvironment lists).
+
+**Editor.** `EntityRegion.Delete` moves entities to `Deleted`, removes them from Pods, and the live layout
+(`GameplayReferences.SetDeletedSource`) drops them so `SyncHandles` clears the words naming them (and drops the
+`ClueReference`) and renumbers the rest, which keeps the settings arrays `GameplayWriter.Patch` writes equal to what the
+structural pass wrote. `GameplayStructure.Apply` tracks them like other existing instances and deletes last; `Patch`
+counts the records of deleted instances still in the file (refused deletions) so TUID-in-order matching holds.
+instances.lua / scripts name instances by handle and are not rewritten (a note is added to the Save dialog).
+
+**Verification.** `dev/tools/delprobe` (document level, 6 scenarios + 20 mixed per region): validate, re-serialize, no
+word naming a handle that does not resolve, the multiset of (holder, field, target by kind/TUID/name) equals the old one
+minus the deleted, reader snapshot loses only what names the deleted, every reference encodes back to its word.
+ACiT 22 levels: all scenarios pass (volume in a list 16/16); A4O 81 regions and ITN 32 pass, with controllers and list
+users refused as above. Mutation check: with the handle rewrite disabled the probe fails. `dev/tools/delsaveprobe`:
+editor delete of a referenced Moby, a Clue volume, a path and a controller on space_sector_1 and krell_canyon, undo leaves
+nothing to save, Save to a copy, re-read: counts -1 each, surviving relations identical by TUID. Not tested in game.

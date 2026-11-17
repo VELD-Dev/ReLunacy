@@ -44,6 +44,8 @@ public sealed class GameplayController
     public byte[] Settings { get; set; } = [];
     /// <summary>The fields of <see cref="Settings"/> naming another instance.</summary>
     public IReadOnlyList<ClueReference> References { get; set; } = [];
+    /// <summary>The controller's settings block is its class's default one (gp_prius 0x25030, shared), as the file holds it.</summary>
+    public bool SharedSettings { get; init; }
     public Vector3 Position { get; init; }
     public Vector3 Rotation { get; init; }
     public Vector3 Scale { get; init; } = Vector3.One;

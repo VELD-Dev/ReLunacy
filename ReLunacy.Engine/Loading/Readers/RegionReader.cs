@@ -35,8 +35,11 @@ public sealed class RegionReader
         IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
 
         progress?.SetTotal(1);
-        var mobyInstances = ReadMobyInstancesOld(gameplayFile);
+        var gameplay = new OldGameplayReader(gameplayFile, _debugReader, Game);
+        var mobyInstances = ReadMobyInstancesOld(gameplayFile, gameplay);
         var volumes = ReadVolumesOld(gameplayFile, _debugReader);
+        // Clues, Areas and Scents go onto the volumes; paths, controllers and Pods are the region's.
+        var old = gameplay.Read(volumes);
 
         progress?.Advance();
         return new Assets.Levels.Region(
@@ -45,7 +48,14 @@ public sealed class RegionReader
             volumes: volumes,
             zones: null, // Old engine has no zones in regions
             isOldEngine: true,
-            name: "OldRegion");
+            name: "OldRegion")
+        {
+            Game = Game,
+            Controllers = old.Controllers,
+            Paths = old.Paths,
+            Pods = old.Pods,
+            References = old.References,
+        };
     }
 
     /// <summary>Every region of the level, in the order gameplay.dat's name table lists them. New-engine
@@ -183,7 +193,7 @@ public sealed class RegionReader
         return zoneList;
     }
 
-    private List<IPlacedInstance<IMoby>> ReadMobyInstancesOld(IGFile gameplayFile)
+    private List<IPlacedInstance<IMoby>> ReadMobyInstancesOld(IGFile gameplayFile, OldGameplayReader gameplay)
     {
         var mobyInstances = new List<IPlacedInstance<IMoby>>();
         var mobyInstanceSection = gameplayFile.QuerySection(MobyInstanceOld.ID);
@@ -191,9 +201,10 @@ public sealed class RegionReader
         if (mobyInstanceSection.count == 0)
             return mobyInstances;
 
-        gameplayFile.sh.Seek(mobyInstanceSection.offset);
         for (int i = 0; i < mobyInstanceSection.count; i++)
         {
+            long record = mobyInstanceSection.offset + (long)i * mobyInstanceSection.length;
+            gameplayFile.sh.Seek(record);
             var legacyInstance = MobyInstanceOld.Read(gameplayFile.sh);
 
             if (_mobys.Get(legacyInstance.mobyIndex) is { } moby)
@@ -205,7 +216,14 @@ public sealed class RegionReader
                 // ever need to check "< 0 = unlimited".
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
                 float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance, updateDistance));
+                // The class struct and the instances it names, read only: no old-engine save writes them.
+                var (settings, references) = gameplay.ReadMobySettings(record);
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance, updateDistance)
+                {
+                    Settings = settings,
+                    References = references,
+                    GameplayIndex = i,
+                });
             }
         }
 
@@ -279,6 +297,7 @@ public sealed class RegionReader
                 {
                     Settings = i < settings.Count ? settings[i].Struct : [],
                     References = i < settings.Count ? settings[i].References : [],
+                    SharedSettings = i < settings.Count && settings[i].Shared,
                     GameplayIndex = i,
                 });
             }
@@ -304,7 +323,15 @@ public sealed class RegionReader
             // not 0x40, or entries decode starting inside the previous entry's trailing bytes.
             gameplayFile.sh.Seek(volumeSection.offset + i * 0x90);
             string name = debugReader.GetVolumeName(i) ?? $"Volume_{i}";
-            volumes[i] = new Volume((ulong)i, ReadMatrix4x4(gameplayFile.sh), name);
+            var matrix = ReadMatrix4x4(gameplayFile.sh);
+            // Primitive selector at +0x80 (0 box, 1 cylinder, 2 sphere, 3 capsule): the byte the
+            // retail containment routine 0x00676468 switches on; present on all 6,807 ToD volumes.
+            gameplayFile.sh.Seek(volumeSection.offset + i * 0x90 + 0x80);
+            byte raw = gameplayFile.sh.ReadByte();
+            var shape = raw <= (byte)VolumeShape.Capsule ? (VolumeShape)raw : VolumeShape.Box;
+            // Index is the table position, which handles and instances.lua number by. Only the new engine's gp_prius writers
+            // treat it as a slot of their table, and a save never runs them on an old level (GameplayWriter.Build).
+            volumes[i] = new Volume((ulong)i, matrix, name, 0, shape) { Index = i };
         }
         return [.. volumes];
     }

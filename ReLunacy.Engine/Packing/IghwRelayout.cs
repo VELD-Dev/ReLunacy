@@ -162,6 +162,60 @@ public static class IghwRelayout
         return output;
     }
 
+    /// <summary>The container without the sections <paramref name="ids"/>, which must be empty and pointed at by
+    /// nothing (a new zone's unused lightmap tables); the rest laid out again as <see cref="Relayout"/> does.</summary>
+    public static byte[] WithoutSections(byte[] blob, IReadOnlySet<uint> ids)
+    {
+        var secs = Sections(blob);
+        if (secs.Any(s => ids.Contains(s.Id) && s.Size != 0)) throw new InvalidDataException("only empty sections can be removed");
+        int fileLength = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(0x10));
+        int fixCount = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(0x14));
+        var kept = secs.Where(s => !ids.Contains(s.Id)).ToList();
+        int header = 0x20 + 16 * kept.Count;
+        var offsets = new Dictionary<uint, int>();
+        int pos = header;
+        foreach (var s in kept) { offsets[s.Id] = Align(pos, 0x80); pos = offsets[s.Id] + s.Size; }
+        int trailing = blob.Length - (fileLength + 4 * fixCount);
+        var output = new byte[pos + 4 * fixCount + trailing];
+        blob.AsSpan(0, 0x20).CopyTo(output);
+        BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(8), kept.Count);
+        BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(0x0C), header);
+        BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(0x10), pos);
+        int end = header;
+        for (int i = 0; i < kept.Count; i++)
+        {
+            var s = kept[i];
+            int e = 0x20 + 16 * i;
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(e), s.Id);
+            BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(e + 4), offsets[s.Id]);
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(e + 8), s.CountWord);
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(e + 12), s.LengthWord);
+            Pad(output.AsSpan(end, offsets[s.Id] - end));
+            blob.AsSpan(s.Offset, s.Size).CopyTo(output.AsSpan(offsets[s.Id]));
+            end = offsets[s.Id] + s.Size;
+        }
+        int Remap(int offset)
+        {
+            foreach (var s in kept)
+                if (offset >= s.Offset && offset < s.End) return offsets[s.Id] + (offset - s.Offset);
+            foreach (var s in kept)
+                if (offset == s.End) return offsets[s.Id] + s.Size;
+            throw new InvalidDataException($"pointer 0x{offset:X} is in no kept section");
+        }
+        var fix = new List<int>();
+        for (int i = 0; i < fixCount; i++)
+        {
+            int f = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(fileLength + 4 * i));
+            int field = Remap(f);
+            BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(field), Remap(BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(f))));
+            fix.Add(field);
+        }
+        fix.Sort();
+        for (int i = 0; i < fix.Count; i++) BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(pos + 4 * i), fix[i]);
+        blob.AsSpan(blob.Length - trailing, trailing).CopyTo(output.AsSpan(pos + 4 * fixCount));
+        return output;
+    }
+
     /// <summary>The builder's gap filler: "PAD" and a hex digit, restarting at 0 in every gap.</summary>
     public static void Pad(Span<byte> gap)
     {

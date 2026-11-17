@@ -81,10 +81,14 @@ void main() {
     private VkDescriptorSet _fxGlowSet;
     private VkImageView _fxGlowView;
     private Texture? _fxGlow;
-    private VkBuffer _fxBuffer; private VkDeviceMemory _fxMemory; private void* _fxMapped;
-    private int _fxCapacityFloats;
-    private int _fxVertexCount;
-    private EffectSpriteDraw[] _fxDraws = [];
+    // One vertex buffer per frame slot: the frame the GPU may still be drawing reads its own, so filling this
+    // slot's never waits on it (the writes of Frame's uniforms follow the same rule).
+    private readonly VkBuffer[] _fxBuffer = new VkBuffer[Frames];
+    private readonly VkDeviceMemory[] _fxMemory = new VkDeviceMemory[Frames];
+    private readonly void*[] _fxMapped = new void*[Frames];
+    private readonly int[] _fxCapacityFloats = new int[Frames];
+    private readonly int[] _fxVertexCount = new int[Frames];
+    private readonly List<EffectSpriteDraw>[] _fxDraws = [[], []];
     private object? _fxTextureOwner;
 
     /// <summary>The object whose textures are bound (the caller's VFX set) - lets a caller that outlives
@@ -122,37 +126,40 @@ void main() {
     /// <summary>This frame's sprites (world space). An empty batch draws nothing.</summary>
     public void SetEffectSprites(EffectSpriteBatch batch)
     {
-        WaitForPendingFrames();
-        _fxVertexCount = 0;
-        if (!_fxReady || batch.VertexCount == 0) { _fxDraws = []; return; }
+        int slot = _slot;
+        _fxVertexCount[slot] = 0;
+        _fxDraws[slot].Clear();
+        if (!_fxReady || batch.VertexCount == 0) return;
 
         int floats = batch.VertexCount * EffectSpriteBatch.FloatsPerVertex;
-        if (floats > _fxCapacityFloats)
+        if (floats > _fxCapacityFloats[slot])
         {
-            if (_fxBuffer.Handle != 0)
+            if (_fxBuffer[slot].Handle != 0)
             {
-                _api.vkDeviceWaitIdle();
-                _api.vkDestroyBuffer(_fxBuffer);
-                _api.vkFreeMemory(_fxMemory);
+                WaitForPendingFrames();
+                _api.vkDestroyBuffer(_fxBuffer[slot]);
+                _api.vkFreeMemory(_fxMemory[slot]);
             }
-            _fxCapacityFloats = Math.Max(floats, 64 * 1024);
-            ulong bytes = (ulong)(_fxCapacityFloats * sizeof(float));
-            (_fxBuffer, _fxMemory) = CreateBuffer(bytes, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
-            void* p; Check(_api.vkMapMemory(_fxMemory, 0, bytes, 0, &p), "vkMapMemory(fx)"); _fxMapped = p;
+            _fxCapacityFloats[slot] = Math.Max(floats, 64 * 1024);
+            ulong bytes = (ulong)(_fxCapacityFloats[slot] * sizeof(float));
+            (_fxBuffer[slot], _fxMemory[slot]) = CreateBuffer(bytes, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+            void* p; Check(_api.vkMapMemory(_fxMemory[slot], 0, bytes, 0, &p), "vkMapMemory(fx)"); _fxMapped[slot] = p;
         }
-        batch.Vertices.CopyTo(new Span<float>(_fxMapped, floats));
-        _fxVertexCount = batch.VertexCount;
-        _fxDraws = [.. batch.Draws];
+        batch.Vertices.CopyTo(new Span<float>(_fxMapped[slot], floats));
+        _fxVertexCount[slot] = batch.VertexCount;
+        _fxDraws[slot].AddRange(batch.Draws);
     }
 
     private void DrawEffectSprites()
     {
-        if (!_fxReady || _fxVertexCount == 0 || _fxDraws.Length == 0) return;
+        int slot = _slot;
+        var draws = _fxDraws[slot];
+        if (!_fxReady || _fxVertexCount[slot] == 0 || draws.Count == 0) return;
         VkDescriptorSet s0 = _descSet;
-        VkBuffer vb = _fxBuffer; ulong offset = 0;
+        VkBuffer vb = _fxBuffer[slot]; ulong offset = 0;
         _api.vkCmdBindVertexBuffers(_cmd, 0, 1, &vb, &offset);
         EffectSpriteBlend? bound = null;
-        foreach (EffectSpriteDraw draw in _fxDraws)
+        foreach (EffectSpriteDraw draw in draws)
         {
             if (bound != draw.Blend)
             {
@@ -280,7 +287,8 @@ void main() {
     private void DisposeEffects()
     {
         if (!_fxReady) return;
-        if (_fxBuffer.Handle != 0) { _api.vkDestroyBuffer(_fxBuffer); _api.vkFreeMemory(_fxMemory); }
+        for (int i = 0; i < Frames; i++)
+            if (_fxBuffer[i].Handle != 0) { _api.vkDestroyBuffer(_fxBuffer[i]); _api.vkFreeMemory(_fxMemory[i]); _fxBuffer[i] = default; _fxCapacityFloats[i] = 0; }
         if (_fxPool.Handle != 0) _api.vkDestroyDescriptorPool(_fxPool);
         foreach (VkImageView view in _fxViews) if (view.Handle != 0) _api.vkDestroyImageView(view);
         if (_fxGlowView.Handle != 0) _api.vkDestroyImageView(_fxGlowView);

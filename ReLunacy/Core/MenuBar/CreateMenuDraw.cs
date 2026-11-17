@@ -1,6 +1,7 @@
 using System.Numerics;
 using ReLunacy.Core;
 using ReLunacy.Core.Frames.DockedFrames;
+using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Placement;
 using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Utility;
@@ -59,6 +60,8 @@ internal static class CreateMenuDraw
             }
             ImGui.EndMenu();
         }
+        if (ImGui.MenuItem($"{Icons.Globe}  {LM.Get("GUI_Create_Moon")}", "", false, enabled && CreateMoonModal.Available))
+            CreateMoonModal.Open();
         ImGui.EndMenu();
     }
 }

@@ -130,6 +130,7 @@ public static partial class GameplayWriter
             {
                 foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>()) volume.MarkSaved();
                 foreach (var pod in region.Pods) pod.MarkSaved();
+                foreach (var area in region.NewAreas) area.MarkWritten();
                 foreach (var zone in region.Zones)
                 {
                     foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>()) tie.MarkSaved();
@@ -192,13 +193,19 @@ public static partial class GameplayWriter
         if (!files.isOld)
         {
             var budgeted = new List<GpPriusDocument>();
+            byte[]? gameplayNow = null;
             foreach (var region in regions)
             {
                 string name = $"{region.RegionName}/gp_prius.dat";
                 if (files.ReadOriginal(name) is not { } original) { plan.Problems.Add($"{name}: not found"); continue; }
-                var structure = GameplayStructure.Apply(original, files.ReadOriginal($"{region.RegionName}/region.dat"), region);
+                var structure = GameplayStructure.Apply(original, files.ReadOriginal($"{region.RegionName}/region.dat"), region,
+                    files.ReadOriginal($"{region.RegionName}/metadata.dat"), gameplayNow ?? files.ReadOriginal("gameplay.dat"));
+                if (structure?.Metadata is { } metadata) plan.Entries[$"{region.RegionName}/metadata.dat"] = metadata;
+                if (structure?.Gameplay is { } gameplayLayers) gameplayNow = gameplayLayers;
                 byte[] basis = structure?.Bytes ?? original;
-                var (patched, changes, problems) = Patch(basis, region, afterSave, skipPods: structure != null);
+                // Deleted instances the structural pass did not take out are still in the file: the patch counts their records.
+                IReadOnlyCollection<Entity>? undeleted = region.Deleted.Count == 0 ? null : structure?.Applied == true ? structure.NotDeleted : region.Deleted;
+                var (patched, changes, problems) = Patch(basis, region, afterSave, skipPods: structure != null, undeleted: undeleted);
                 var allChanges = new List<string>(structure?.Changes ?? []);
                 allChanges.AddRange(changes);
                 var allProblems = new List<string>(structure?.Problems ?? []);
@@ -215,11 +222,20 @@ public static partial class GameplayWriter
                     try { budgeted.Add(GpPriusDocument.Parse(patched)); }
                     catch (Exception e) { plan.Problems.Add($"{region.RegionName}: the new gp_prius does not parse ({e.Message})"); }
             }
-            if (budgeted.Count > 0 && files.ReadOriginal("gameplay.dat") is { } gameplay)
+            if (gameplayNow != null) plan.Entries["gameplay.dat"] = gameplayNow;
+            if ((budgeted.Count > 0 || gameplayNow != null) && (gameplayNow ?? files.ReadOriginal("gameplay.dat")) is { } gameplay)
             {
                 var (bytes, changes, problems) = GameplayBudgets.Update(gameplay, budgeted);
                 Add("gameplay", "gameplay.dat", bytes, changes, problems);
             }
+        }
+
+        else
+        {
+            // The old engine's gameplay.dat is not written: its volumes, paths, controllers and Clues are read only (a
+            // volume edit would also have to rewrite its +0x40 inverse and +0x70 Euler cache). Say so rather than drop it.
+            var edited = regions.SelectMany(r => r.Volumes.Entities.OfType<EntityVolume>()).Count(v => v.FillMatrix != v.LoadedMatrix);
+            if (edited > 0) plan.Problems.Add($"gameplay: {edited} volume(s) moved or resized, not saved (the old engine's gameplay.dat is read only)");
         }
 
         // Ties and UFrags: every region's zones are in one file (zones.dat, or the old engine's main.dat).
@@ -243,19 +259,36 @@ public static partial class GameplayWriter
                 if (changes.Count > 0) current[name] = bytes;
             }
 
-        // New Ties (new engine), on what the in-place writers made of the files.
-        var requests = new List<TieAppendRequest>();
-        foreach (var region in regions)
-            foreach (var zone in region.Zones)
-                foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>().Where(t => t.IsNew))
-                    requests.Add(new TieAppendRequest(zone.ZoneTUID, tie.New!.AssetId, tie.Transform.GetMatrix(), tie.Name, region.RegionName));
-        if (requests.Count > 0 && !files.isOld)
+        // New Ties (new engine), on what the in-place writers made of the files. A new zone is made with its first Tie
+        // (TieAppender.CreateZone), then the Ties of the zones the file has go in.
+        if (!files.isOld)
         {
-            var result = TieAppender.Append(name => current.TryGetValue(name, out var held) ? held : files.ReadOriginal(name), requests);
-            plan.Changes.AddRange(result.Changes.Select(c => $"zones: {c}"));
-            plan.Problems.AddRange(result.Problems.Select(p => $"zones: {p}"));
-            plan.Problems.AddRange(result.Refused.Select(r => $"Tie {r.Request.Name}: not saved, {r.Reason}"));
-            foreach (var (name, bytes) in result.Files) plan.Entries[name] = bytes;
+            var requests = new List<TieAppendRequest>();
+            var madeZones = new List<(EntityRegion Region, EntityZone Zone, List<TieAppendRequest> Ties)>();
+            foreach (var region in regions)
+                foreach (var zone in region.Zones)
+                {
+                    var added = zone.TieInstances.Entities.OfType<EntityTie>().Where(t => t.IsNew)
+                        .Select(t => new TieAppendRequest(zone.ZoneTUID, t.New!.AssetId, t.Transform.GetMatrix(), t.Name, region.RegionName)).ToList();
+                    if (zone.IsNew && added.Count > 0) madeZones.Add((region, zone, added));
+                    else if (zone.IsNew) plan.Problems.Add($"zone {zone.ZoneName}: not saved, it has no Tie");
+                    else requests.AddRange(added);
+                }
+            byte[]? Read(string name) => current.TryGetValue(name, out var held) ? held
+                : plan.Entries.TryGetValue(name, out var planned) ? planned : files.ReadOriginal(name);
+            void Take(TieAppendResult result, string label)
+            {
+                plan.Changes.AddRange(result.Changes.Select(c => $"zones: {c}"));
+                plan.Problems.AddRange(result.Problems.Select(p => $"zones: {p}"));
+                plan.Problems.AddRange(result.Refused.Select(r => $"{label} {r.Request.Name}: not saved, {r.Reason}"));
+                foreach (var (name, bytes) in result.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
+                // The zones, the collision and every offset into them moved: the editor's copies (a LevelCollision's shape
+                // offsets, the placements' record offsets) are stale until the level is read again.
+                if (result.Added.Count > 0) plan.Structural = true;
+            }
+            foreach (var (region, zone, ties2) in madeZones)
+                Take(TieAppender.CreateZone(Read, new ZoneCreateRequest(zone.ZoneName, region.RegionName), ties2), "Tie");
+            if (requests.Count > 0) Take(TieAppender.Append(Read, requests), "Tie");
         }
         return plan;
     }
@@ -285,8 +318,12 @@ public static partial class GameplayWriter
     public static Games.GameId? Game { get; set; }
 
     public static (byte[] Bytes, List<string> Changes, List<string> Problems) Patch(byte[] original, EntityRegion region,
-        List<Action>? afterSave = null, bool skipPods = false)
+        List<Action>? afterSave = null, bool skipPods = false, IReadOnlyCollection<Entity>? undeleted = null)
     {
+        // Records are found by TUID in order, so a deleted instance whose record is still there takes its place in the order and is not written.
+        IEnumerable<T> Counted<T>(IEnumerable<T> live, Func<T, int> index) where T : Entity =>
+            undeleted is { Count: > 0 } ? live.Concat(undeleted.OfType<T>()).OrderBy(index) : live;
+        bool Gone(Entity e) => undeleted?.Contains(e) == true;
         byte[] file = (byte[])original.Clone();
         var changes = new List<string>();
         var problems = new List<string>();
@@ -296,9 +333,9 @@ public static partial class GameplayWriter
         // others below.
         var settingsUsers = new List<(string Label, uint Offset, uint Size, byte[] Settings)>();
         if (Records(prius, MobyRecords, MobyMeta) is { } mobys)
-            foreach (var moby in region.MobyInstances.Entities.OfType<EntityMoby>())
+            foreach (var moby in Counted(region.MobyInstances.Entities.OfType<EntityMoby>(), m => m.GameplayIndex))
             {
-                if (!mobys.TryTake(moby.Tuid, out long record)) continue;
+                if (!mobys.TryTake(moby.Tuid, out long record) || Gone(moby)) continue;
                 var t = moby.Transform;
                 var what = new List<string>();
                 if (Position(file, record + 0x14, t.Translation)) what.Add("position");
@@ -312,10 +349,15 @@ public static partial class GameplayWriter
         // Volumes and their Clues' settings.
         var volumes = Records(prius, VolumeRecords, VolumeMeta);
         var clues = Records(prius, ClueRecords, ClueMeta);
-        foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>())
+        foreach (var volume in Counted(region.Volumes.Entities.OfType<EntityVolume>(), v => v.BaseVolume.Index))
         {
             long record = -1;
             if (volumes != null && volumes.TryTake(volume.BaseVolume.Id, out long taken)) record = taken;
+            if (Gone(volume))
+            {
+                if (volume.BaseVolume.Clue is { } gone) clues?.TryTake(gone.Tuid, out _);
+                continue;
+            }
             if (record >= 0 && VolumeMatrix(file, record, volume))
             {
                 changes.Add($"volume {volume.Name}: placement");
@@ -336,10 +378,10 @@ public static partial class GameplayWriter
         // Controllers, cameras and the others, in table order (a TUID several share takes its records in order):
         // placement and settings. A camera's scale is not shown, so not written.
         if (Records(prius, ControllerRecords, ControllerMeta) is { } controllers)
-            foreach (var controller in region.Cameras.Entities.Concat(region.ControllerInstances.Entities).OfType<EntityController>()
+            foreach (var controller in Counted(region.Cameras.Entities.Concat(region.ControllerInstances.Entities).OfType<EntityController>(), c => c.Controller.Index)
                          .OrderBy(c => c.Controller.Index))
             {
-                if (!controllers.TryTake(controller.Controller.Tuid, out long record)) continue;
+                if (!controllers.TryTake(controller.Controller.Tuid, out long record) || Gone(controller)) continue;
                 string label = controller is EntityCamera ? "camera" : "controller";
                 var what = new List<string>();
                 if (Position(file, record + 0x08, controller.Transform.Translation)) what.Add("position");
@@ -353,9 +395,9 @@ public static partial class GameplayWriter
 
         // Paths: their points, where the count is the file's.
         if (Records(prius, PathRecords, PathMeta) is { } paths)
-            foreach (var path in region.Paths.Entities.OfType<EntityPath>())
+            foreach (var path in Counted(region.Paths.Entities.OfType<EntityPath>(), p => p.Path.Index))
             {
-                if (!paths.TryTake(path.Path.Tuid, out long record)) continue;
+                if (!paths.TryTake(path.Path.Tuid, out long record) || Gone(path)) continue;
                 uint first = Word(original, record);
                 int count = BinaryPrimitives.ReadUInt16BigEndian(original.AsSpan((int)record + 0x0E));
                 if (first == 0) continue;

@@ -83,6 +83,9 @@ public sealed class LunaProject : IGameFileOverlay
 
     private readonly object _lock = new();
 
+    /// <summary>Counts what the project holds changing (entries stored, a base replaced, a text tag named), for readers that cache.</summary>
+    public int Revision { get; private set; }
+
     public string ManifestPath { get; }
     public ProjectManifest Manifest { get; }
     public string DataFolder => ManifestPath + ".d";
@@ -248,6 +251,28 @@ public sealed class LunaProject : IGameFileOverlay
         record.BaseWriteTime = info.LastWriteTimeUtc;
     }
 
+    // ----- Text tags -----
+
+    /// <summary>The name the project gives a text id (editor data "textTags", by id), or null.</summary>
+    public string? TextTag(int id)
+    {
+        lock (_lock)
+            return Manifest.Editor["textTags"] is JsonObject tags && tags[id.ToString()] is { } name ? (string?)name : null;
+    }
+
+    /// <summary>Names a text id in the project (an empty name removes it) and writes the manifest.</summary>
+    public void SetTextTag(int id, string name)
+    {
+        lock (_lock)
+        {
+            var tags = Manifest.Editor["textTags"] as JsonObject;
+            if (name.Length == 0) tags?.Remove(id.ToString());
+            else (tags ?? (JsonObject)(Manifest.Editor["textTags"] = new JsonObject()))[id.ToString()] = name;
+            Revision++;
+            Save();
+        }
+    }
+
     // ----- Storing -----
 
     /// <summary>Keeps an archive's new entries in the project. See <see cref="ProjectSink"/>.</summary>
@@ -302,6 +327,7 @@ public sealed class LunaProject : IGameFileOverlay
             foreach (var (path, bytes) in additions ?? new Dictionary<string, byte[]>()) Keep(path, bytes, true);
 
             if (created) Manifest.Archives.Add(record);
+            Revision++;
             Save();
             CollectObjects();
             string summary = $"saved {kept} file(s) of {Path.GetFileName(archivePath)} into project {Name}";
@@ -332,6 +358,7 @@ public sealed class LunaProject : IGameFileOverlay
             entry.Sha256 = sha;
             entry.Size = bytes.Length;
             entry.Saved = DateTime.Now;
+            Revision++;
             Save();
             CollectObjects();
             return new GameFileWriteResult(true, $"saved {name} into project {Name}", null, []);
@@ -414,6 +441,7 @@ public sealed class LunaProject : IGameFileOverlay
                     if (now != entry.BaseSha256) conflicts.Add(entry.Path);
                     entry.BaseSha256 = now;
                 }
+                Revision++;
                 Save();
                 return conflicts;
             }
@@ -437,6 +465,7 @@ public sealed class LunaProject : IGameFileOverlay
                 entry.Added = !inBase;
                 entry.BaseSha256 = now;
             }
+            Revision++;
             Save();
             return conflicts;
         }

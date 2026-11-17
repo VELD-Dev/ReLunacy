@@ -620,6 +620,7 @@ public sealed class EffectSimulator
         bool beam = emitter.EmitterClass == 2;
         float follow = beam ? MathF.Exp(-emitter.BeamFollow * dt) : 1f;
         float beamMin = emitter.BeamMinLength, beamMax = emitter.BeamMaxLength;
+        EffectScalarTrack? spinTrack = emitter.Scalar("Particle spin");
         for (int i = e.Particles.Count - 1; i >= 0; i--)
         {
             Particle p = e.Particles[i];
@@ -644,7 +645,7 @@ public sealed class EffectSimulator
                 float length = MathF.Max(MathF.Min(d2 > 0f ? MathF.Sqrt(d2) : 0f, beamMax), beamMin);
                 p.Beam = (d2 > 9.97e-8f ? d / MathF.Sqrt(d2) : Vector3.UnitX) * length;
             }
-            float spin = emitter.Scalar("Particle spin")?.Evaluate(p.Age / p.Life, p.R4) ?? 0f;
+            float spin = spinTrack?.Evaluate(p.Age / p.Life, p.R4) ?? 0f;
             p.Rotation += spin * MathF.PI / 180f * dt;
         }
 

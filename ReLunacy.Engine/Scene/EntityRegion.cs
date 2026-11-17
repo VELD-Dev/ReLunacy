@@ -34,11 +34,18 @@ public partial class EntityRegion : IDisposable
     public readonly Games.GameId? Game;
     private readonly AssetManager _assetManager;
 
-    /// <summary>The level editor's layers (see <see cref="Region.Layers"/>).</summary>
-    public readonly IReadOnlyList<string> Layers;
+    /// <summary>The level editor's layers (see <see cref="Region.Layers"/>), then the ones made in the editor
+    /// (<see cref="NewLayers"/>), which a save adds.</summary>
+    public IReadOnlyList<string> Layers => _layers;
+    private readonly List<string> _layers;
+    private readonly int _fileLayers;
 
     /// <summary>The region's instances as references name them (see <see cref="Region.References"/>).</summary>
     public readonly Loading.Readers.GameplayReferences References;
+
+    /// <summary>The class-default settings the file holds (gp_prius 0x25030), read at load: what a new Clue, controller
+    /// or Moby starts from (see <see cref="ClassDefaults"/>).</summary>
+    public readonly ClassDefaults ClassDefaults;
 
     /// <summary>The region's Pods, their members resolved to this region's Mobys (see <see cref="EntityPod"/>).</summary>
     public readonly List<EntityPod> Pods = [];
@@ -57,8 +64,10 @@ public partial class EntityRegion : IDisposable
         IsOldEngine = region.IsOldEngine;
         Game = region.Game;
         _assetManager = assetManager;
-        Layers = region.Layers;
+        _layers = [.. region.Layers];
+        _fileLayers = _layers.Count;
         References = region.References;
+        ClassDefaults = ClassDefaults.From(region);
 
         MobyInstances = new EntityCluster([], assetManager);
         foreach (var minst in region.MobyInstances)
@@ -90,6 +99,9 @@ public partial class EntityRegion : IDisposable
         foreach (var pod in region.Pods) Pods.Add(new EntityPod(pod, mobysByTuid));
 
         _sourceZones = region.Zones;
+        // New instances and moved ones, so a reference word names an instance as the save will place it.
+        References.SetLiveSource(LayoutChanges);
+        References.SetDeletedSource(DeletedHandles);
         if (!deferZones)
             while (BuildNextZone(gd, assetManager)) { }
     }

@@ -1,4 +1,5 @@
 using ReLunacy.Core.Frames;
+using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Undo;
 using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Projects;
@@ -20,8 +21,26 @@ internal static class ProjectSession
     private static int _savedRevision;
     private static string? _title;
 
-    /// <summary>Changes made since the last save into the project.</summary>
-    public static bool Dirty => Current != null && LunaWindow.Instance.Level != null && UndoManager.Singleton.Revision != _savedRevision;
+    /// <summary>Changes made since the level was opened or last saved, with or without a project.</summary>
+    public static bool HasUnsavedEdits => LunaWindow.Instance.Level != null && UndoManager.Singleton.Revision != _savedRevision;
+
+    /// <summary>Changes the open project does not hold yet (the title's star).</summary>
+    public static bool Dirty => Current != null && (HasUnsavedEdits || PendingTextEdits);
+
+    /// <summary>The Text Tables frame holds strings the project does not.</summary>
+    public static bool PendingTextEdits { get; set; }
+
+    /// <summary>
+    /// Runs <paramref name="proceed"/> - something that throws the open level's edits away (opening or closing a project,
+    /// loading a level, switching region) - at once when there are none, else after the user chose to save or discard
+    /// them (<see cref="UnsavedChangesModal"/>).
+    /// </summary>
+    public static void Guard(Action proceed)
+    {
+        if (!HasUnsavedEdits) { proceed(); return; }
+        if (!LunaWindow.Instance.IsAnyFrameOpened<UnsavedChangesModal>())
+            LunaWindow.Instance.AddFrame(new UnsavedChangesModal(proceed));
+    }
 
     /// <summary>Set once at startup: no project, so no save reaches the game.</summary>
     public static void Init() => Use(null);
@@ -30,6 +49,13 @@ internal static class ProjectSession
     {
         string level = Program.ProvidedPath;
         bool keepLevel = level.Length > 0 && project.Covers(level);
+        // The level stays as it is only when it is kept and not read again.
+        if (!keepLevel || project.EntryCount > 0) Guard(() => OpenNow(project, level, keepLevel));
+        else OpenNow(project, level, keepLevel);
+    }
+
+    private static void OpenNow(LunaProject project, string level, bool keepLevel)
+    {
         if (!keepLevel) LunaWindow.Instance.TryWipeLevel();
         Use(project);
         Remember(project.ManifestPath);
@@ -60,8 +86,11 @@ internal static class ProjectSession
     public static void Close()
     {
         if (Current == null) return;
-        LunaWindow.Instance.TryWipeLevel();
-        Use(null);
+        Guard(() =>
+        {
+            LunaWindow.Instance.TryWipeLevel();
+            Use(null);
+        });
     }
 
     private static void Use(LunaProject? project)
@@ -69,7 +98,6 @@ internal static class ProjectSession
         Current = project;
         GameFileOverlay.Current = project;
         GameFileSink.Current = project?.Sink ?? (IGameFileSink)NoProjectSink.Instance;
-        _savedRevision = UndoManager.Singleton.Revision;
     }
 
     /// <summary>The editor's state is what the project holds.</summary>
@@ -104,12 +132,13 @@ internal static class ProjectSession
         LunaWindow.Instance.LoadLevelDataAsync(path, loadingFrame);
     }
 
-    public static void LoadLevel(string path)
+    /// <summary>Loads a level, asking first about the open level's unsaved edits.</summary>
+    public static void LoadLevel(string path, string? debugDatPath = null) => Guard(() =>
     {
         var loadingFrame = new LoadingFrame(LM.Get("GUI_LoadLevelModal_Title"), 1);
         LunaWindow.Instance.AddFrame(loadingFrame);
-        LunaWindow.Instance.LoadLevelDataAsync(path, loadingFrame);
-    }
+        LunaWindow.Instance.LoadLevelDataAsync(path, loadingFrame, debugDatPath);
+    });
 
     /// <summary>Puts a project first in File > Recent Projects.</summary>
     private static void Remember(string path)

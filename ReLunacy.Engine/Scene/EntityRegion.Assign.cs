@@ -57,6 +57,7 @@ public partial class EntityRegion
         }
         if (entity.New is { } made) made.Layer = (ushort)layer;
         InvalidateLookups();
+        SyncHandles();
     }
 
     /// <summary>Puts a volume or a path in exactly these Areas (indexes in the Area table).</summary>
@@ -118,22 +119,23 @@ public partial class EntityRegion
             .Select(g => g.FirstOrDefault(v => v.BaseVolume.Clue!.Settings.Length > 4) ?? g.First())
             .Select(v => new ClassOption(v.BaseVolume.Clue!.Class, v.BaseVolume.Clue.ClassName, false, v))];
 
-    /// <summary>Gives a volume a Clue of the class (settings cloned from the template's), or clears its Clue (null).
-    /// The Clue is new: its own TUID and place in the Clue table; its Scents go with a cleared one.</summary>
+    /// <summary>Gives a volume a Clue of the class, or clears its Clue (null). Its settings are the class default when the
+    /// region has one, else the template's with its references cleared (see <see cref="StartingSettings"/>). The Clue is new: its own TUID and place in the Clue table; its Scents go with a cleared one.</summary>
     public void SetClueClass(EntityVolume entity, ClassOption? option)
     {
         var volume = entity.BaseVolume;
         BeginAssignment(entity);
         if (option?.Template is EntityVolume { BaseVolume.Clue: { } source })
         {
-            int index = Volumes.Entities.OfType<EntityVolume>().Select(v => v.BaseVolume.Clue?.Index ?? -1).DefaultIfEmpty(-1).Max() + 1;
+            int index = Math.Max(Volumes.Entities.OfType<EntityVolume>().Select(v => v.BaseVolume.Clue?.Index ?? -1).DefaultIfEmpty(-1).Max(),
+                References.LoadedCount("Clue") - 1) + 1;
+            var (settings, references) = StartingSettings(ClassDefaults.Clue(source.Class), source.Settings, source.References);
             volume.Clue = new VolumeClue(source.Class, volume.Name ?? entity.Name, source.ClassName)
             {
                 Tuid = NewTuid(),
                 Index = index,
-                Settings = (byte[])source.Settings.Clone(),
-                // A new moon must not claim another moon's objects (its beam, its area).
-                References = [.. source.References.Where(r => !r.InList && !ClueClasses.IsKnownField(Game, source.Class, r.Offset))],
+                Settings = settings,
+                References = references,
             };
             entity.Assigned!.SettingsTemplate = option.Template;
         }
@@ -225,7 +227,8 @@ public partial class EntityRegion
             .Select(g => g.FirstOrDefault(e => e.Controller.Settings.Length > 4) ?? g.First())
             .Select(e => new ClassOption(e.Controller.Class, e.Controller.ClassName, e.Controller.IsCamera, e))];
 
-    /// <summary>Gives a controller the class (settings cloned from the template's). Returns the entity that now stands
+    /// <summary>Gives a controller the class: the class default settings when the region has them, else the template's with
+    /// its references cleared. Returns the entity that now stands
     /// for it: another one when the change crossed between camera and not (see <see cref="SwapController"/>).</summary>
     public EntityController SetControllerClass(EntityController entity, ClassOption option)
     {
@@ -234,8 +237,8 @@ public partial class EntityRegion
         BeginAssignment(entity);
         controller.Class = option.Class;
         controller.ClassName = option.ClassName;
-        controller.Settings = (byte[])template.Controller.Settings.Clone();
-        controller.References = [.. template.Controller.References.Where(r => !r.InList)];
+        (controller.Settings, controller.References) = StartingSettings(ClassDefaults.Controller(option.Class),
+            template.Controller.Settings, template.Controller.References);
         entity.Assigned!.SettingsTemplate = template;
         if (controller.IsCamera == option.IsCamera) { InvalidateLookups(); return entity; }
         controller.IsCamera = option.IsCamera;

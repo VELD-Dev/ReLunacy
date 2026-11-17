@@ -23,9 +23,12 @@ public sealed class SaveLevelModal : Modal
     private LevelSaveResult? _result;
     private int _shifted;
     private bool _reloaded;
+    // What the unsaved-changes prompt was about to do; run when the dialog closes after a successful save.
+    private readonly Action? _afterSave;
 
-    public SaveLevelModal()
+    public SaveLevelModal(Action? afterSave = null)
     {
+        _afterSave = afterSave;
         FrameName = LM.Get("GUI_SaveLevel_Title");
         Preview();
     }
@@ -100,7 +103,7 @@ public sealed class SaveLevelModal : Modal
         List(result.Problems, new Vector4(1f, 0.7f, 0.3f, 1f));
         if (result.ShiftedHandles > 0) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_SaveLevel_Shifted", result.ShiftedHandles));
         if (result.BackupPath != null) ImGui.TextWrapped(LM.Get("GUI_SaveLevel_Backup", result.BackupPath));
-        if (result.Succeeded && result.Structural)
+        if (result.Succeeded && result.Structural && _afterSave == null)
         {
             // Every index, offset and TUID of the new files is read again. With something left unsaved the editor's
             // state would be thrown away, so the user reloads once they have looked.
@@ -112,7 +115,13 @@ public sealed class SaveLevelModal : Modal
                 ImGui.SameLine();
             }
         }
-        if (ImGui.Button(LM.Get("GUI_Common_CloseWord"))) isOpen = false;
+        if (ImGui.Button(LM.Get("GUI_Common_CloseWord")))
+        {
+            isOpen = false;
+            // The editor's offsets and new instances are stale after a structural save: saving again would append twice.
+            if (result.Succeeded && result.Structural && _afterSave == null && !_reloaded) Reload();
+            if (result.Succeeded) _afterSave?.Invoke();
+        }
     }
 
     private void Reload()

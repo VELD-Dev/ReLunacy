@@ -25,7 +25,8 @@ public static partial class TieAppender
     /// slice, if any, in 0x1DB00 (an entry of length 0 is skipped). So the new zone:
     ///   - zones.dat: a blob with the sections of a retail Tie-only zone (0x7200, 0x7240, 0x72C0, 0x72C1, 0x11300, 0x72D0,
     ///     0x6000 / 0x6100 / 0x7815 / 0x8D00 empty, 0x8120 512 x 0x00FFFFFF and 0x8110 {0x02000001, pointer to 0x8120} as
-    ///     in every space-sector zone), inserted in TUID order (retail keeps 0x1DA00 sorted by TUID with ascending
+    ///     in every space-sector zone; 0x5400 / 0x5410 for the copied lightmap pairs of baked sources, dropped again when
+    ///     no Tie has one), inserted in TUID order (retail keeps 0x1DA00 sorted by TUID with ascending
     ///     offsets), later blobs moved;
     ///   - assetlookup 0x1DA00 {TUID, offset, length} and 0x1DA01 (the region's bit, in gameplay.dat's region order)
     ///     inserted in TUID order; with lighting.dat, a 0x1DB00 / 0x1DB01 entry of length 0 that the first Tie's copied
@@ -159,6 +160,22 @@ public static partial class TieAppender
     /// skipped by the game, but retail ships none).</summary>
     private static Action<Level> DropEmptySlice(ulong tuid) => level =>
     {
+        // Lightmap tables no Tie used go (no retail zone has an empty array section).
+        {
+            var zonePointers = Pointers(level.Files["assetlookup.dat"], ZonePointers);
+            int z = zonePointers.FindIndex(p => p.Tuid == tuid);
+            var (_, offset, length) = zonePointers[z];
+            byte[] blob = level.Files["zones.dat"].AsSpan(offset, length).ToArray();
+            var secs = IghwRelayout.Sections(blob);
+            if (IghwRelayout.Find(secs, Lightmaps) is { Count: 0 })
+            {
+                byte[] smaller = IghwRelayout.WithoutSections(blob, new HashSet<uint> { Lightmaps, Directions });
+                level.Set("zones.dat", Splice(level.Files["zones.dat"], zonePointers, z, smaller));
+                var lk = (byte[])level.Files["assetlookup.dat"].Clone();
+                Rewrite(lk, ZonePointers, zonePointers);
+                level.Set("assetlookup.dat", lk);
+            }
+        }
         var lookup = level.Files["assetlookup.dat"];
         var pointers = Pointers(lookup, LightingPointers);
         int i = pointers.FindIndex(p => p.Tuid == tuid);
@@ -244,6 +261,7 @@ public static partial class TieAppender
             (Strings, 1, 0, []), (Clusters, array, 0x20, []),
             (0x6000, 1, 0, []), (0x6100, 1, 0, []), (0x7815, 1, 0, []), (0x8D00, 1, 0, []),
             (0x8120, 1, 0x800, grid), (0x8110, 1, 0x30, lightGrid),
+            (Lightmaps, array, 0x20, []), (Directions, array, 0x20, []),
         ];
         int header = 0x20 + 16 * sections.Length;
         var offsets = new int[sections.Length];
@@ -271,8 +289,8 @@ public static partial class TieAppender
             data.CopyTo(blob, offsets[i]);
             end = offsets[i] + data.Length;
         }
-        int pointer = offsets[^1] + 4;
-        BinaryPrimitives.WriteInt32BigEndian(blob.AsSpan(pointer), offsets[^2]);
+        int pointer = offsets[^3] + 4;
+        BinaryPrimitives.WriteInt32BigEndian(blob.AsSpan(pointer), offsets[^4]);
         BinaryPrimitives.WriteInt32BigEndian(blob.AsSpan(fileLength), pointer);
         return blob;
     }

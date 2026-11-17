@@ -57,7 +57,7 @@ internal static class RenderMenuDraw
         {
             string name = level.RegionNames[r];
             if (ImGui.MenuItem($"{name}###region_pick_{r}", "", level.Region?.Name == name))
-                window.SwitchRegion(name);
+                Core.Project.ProjectSession.Guard(() => window.SwitchRegion(name));
         }
         if (loading) ImGui.EndDisabled();
 

@@ -25,7 +25,7 @@ public class Volume : IVolumeData
     public VolumeShape Shape { get; set; }
 
     /// <summary>The volume's place in the region's volume table, which is what a reference names it by (names
-    /// repeat: axiom_city has six "volume30"); -1 on the old engine.</summary>
+    /// repeat: axiom_city has six "volume30"). On the old engine it is its gameplay.dat position too, read only: no old-engine save writes it.</summary>
     public int Index { get; init; } = -1;
 
     /// <summary>The editor layer the volume was placed in (gp_prius 0x25008, indexed by <see cref="group"/>),
@@ -91,6 +91,9 @@ public sealed record VolumeClue(uint Class, string Name, string ClassName)
     /// <summary>The class's struct as the level stores it, big-endian, starting with the class number. Its
     /// fields are not named yet beyond <see cref="References"/>.</summary>
     public byte[] Settings { get; init; } = [];
+
+    /// <summary>The Clue's settings block is its class's default one (gp_prius 0x25030, shared), as the file holds it.</summary>
+    public bool SharedSettings { get; init; }
 
     /// <summary>The fields of <see cref="Settings"/> that name another instance (a rail's path, a camera's
     /// controller, a respawn's Area).</summary>

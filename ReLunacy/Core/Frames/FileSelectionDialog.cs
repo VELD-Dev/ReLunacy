@@ -51,10 +51,7 @@ internal class FileSelectionDialog : Frame
             }
             else
             {
-                Program.ProvidedPath = levelPath;
-                var lm = new LoadingFrame(LM.Get("GUI_LoadLevelModal_Title"), 1);
-                Core.LunaWindow.Instance.AddFrame(lm);
-                Core.LunaWindow.Instance.LoadLevelDataAsync(levelPath, lm);
+                Project.ProjectSession.LoadLevel(levelPath);
                 isOpen = false;
             }
         }

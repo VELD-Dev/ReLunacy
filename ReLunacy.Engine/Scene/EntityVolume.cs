@@ -111,8 +111,21 @@ public class EntityVolume : Entity
     {
         // _edgeTransforms are already world transforms; composing again here would double-apply the
         // volume's placement.
-        foreach (var e in _edgeTransforms)
-            yield return e.GetMatrix();
+        foreach (var m in _edgeMatrices)
+            yield return m;
+    }
+
+    private Matrix4x4[] _edgeMatrices = [];
+
+    /// <summary>The same matrices as <see cref="GetWorldEdgeTransforms"/>, cached when the edges are rebuilt: the
+    /// per-frame wireframe list copies them without composing or allocating.</summary>
+    public ReadOnlySpan<Matrix4x4> WorldEdgeMatrices
+    {
+        get
+        {
+            EnsureRenderables();
+            return _edgeMatrices;
+        }
     }
 
     /// <summary>The volume's matrix as the file holds it: its unit shape scaled, turned and placed (the gizmo works on it
@@ -207,6 +220,8 @@ public class EntityVolume : Entity
                 break;
         }
         _edgeTransforms = [.. edges];
+        _edgeMatrices = new Matrix4x4[_edgeTransforms.Length];
+        for (int i = 0; i < _edgeMatrices.Length; i++) _edgeMatrices[i] = _edgeTransforms[i].GetMatrix();
     }
 
     private static readonly float[] Signs = [-1f, 1f];

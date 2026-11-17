@@ -24,6 +24,9 @@ public partial class EntityRegion
         _byReference = null;
         _users = null;
         _owners = null;
+        _areaNames = null;
+        _scentNames = null;
+        References.Invalidate();
         EntityManager.StructureVersion++;
     }
 
@@ -59,6 +62,8 @@ public partial class EntityRegion
             default: return;
         }
         InvalidateLookups();
+        // A new instance leaving shifts the later ones of its layer.
+        if (entity.New != null) SyncHandles();
     }
 
     /// <summary>The region holds the instance (a new Tie: in its zone).</summary>
@@ -72,6 +77,57 @@ public partial class EntityRegion
         EntityController controller => ControllerInstances.Entities.Contains(controller),
         _ => false,
     };
+
+    // --- New layers and zones -------------------------------------------------------------------------
+
+    /// <summary>The layers made in the editor, in the order a save adds them (their indexes follow the file's).</summary>
+    public IEnumerable<string> NewLayers => _layers.Skip(_fileLayers);
+
+    /// <summary>The zones made in the editor that no save has written.</summary>
+    public IEnumerable<EntityZone> NewZones => Zones.Where(z => z.IsNew);
+
+    /// <summary>Why a layer or a zone named <paramref name="name"/> cannot be made, or null. Layers are refused on a
+    /// region of a level with several regions (see docs/reverse/newengine_new_layers_zones.md).</summary>
+    public string? NameProblem(string name)
+    {
+        if (IsOldEngine) return "old engine";
+        if (Packing.GpPriusDocument.LayerNameProblem(name) is { } bad) return bad;
+        if (_layers.Contains(name)) return $"layer {name} exists";
+        if (Zones.Any(z => z.ZoneName == name)) return $"zone {name} exists";
+        if (_layers.Count >= 64) return "64 layers";
+        if (Zones.Count >= 64) return "64 zones";
+        return null;
+    }
+
+    /// <summary>Appends a layer a save will add; its index is returned.</summary>
+    public int AddNewLayer(string name)
+    {
+        _layers.Add(name);
+        InvalidateLookups();
+        return _layers.Count - 1;
+    }
+
+    /// <summary>Takes the last new layer out again (an undo); nothing may be in it.</summary>
+    public void RemoveNewLayer(string name)
+    {
+        if (_layers.Count > _fileLayers && _layers[^1] == name) _layers.RemoveAt(_layers.Count - 1);
+        InvalidateLookups();
+    }
+
+    /// <summary>An empty zone a save makes with the first Tie put in it. Added to <see cref="Zones"/>.</summary>
+    public EntityZone CreateNewZone(string name)
+    {
+        var zone = new EntityZone(name, NewTuid(), _assetManager);
+        Zones.Add(zone);
+        InvalidateLookups();
+        return zone;
+    }
+
+    /// <summary>Takes a new zone out (an undo).</summary>
+    public void RemoveNewZone(EntityZone zone)
+    {
+        if (Zones.Remove(zone)) InvalidateLookups();
+    }
 
     // --- Identity -----------------------------------------------------------------------------------
 
@@ -100,6 +156,7 @@ public partial class EntityRegion
         foreach (var c in _controllers) used.Add(c.Tuid);
         foreach (var e in Paths.Entities.OfType<EntityPath>()) used.Add(e.Path.Tuid);
         foreach (var pod in Pods) used.Add(pod.Tuid);
+        foreach (var area in _newAreas) used.Add(area.Tuid);
         foreach (var zone in Zones) used.Add(zone.ZoneTUID);
         ulong tuid;
         do tuid = (ulong)Random.Shared.NextInt64(1, long.MaxValue);
@@ -127,10 +184,11 @@ public partial class EntityRegion
     private static string ShortName(string? name, string fallback) =>
         !string.IsNullOrEmpty(name) ? name.Split('/')[^1] : fallback;
 
-    /// <summary>The next place in a family's table (see <see cref="NewInstance"/>): after the last one, new ones included.</summary>
+    /// <summary>The handle for the next instance of a family (see <see cref="NewInstance"/>): past every loaded one and every
+    /// new one so far. It is not a place in the file: a save puts the instance at the end of its layer.</summary>
     public int NextIndex(NewInstanceKind kind)
     {
-        int count = kind switch
+        int last = kind switch
         {
             NewInstanceKind.Moby => MobyInstances.Entities.OfType<EntityMoby>().Select(m => m.GameplayIndex).DefaultIfEmpty(-1).Max(),
             NewInstanceKind.Volume => Volumes.Entities.OfType<EntityVolume>().Select(v => v.BaseVolume.Index).DefaultIfEmpty(-1).Max(),
@@ -138,7 +196,87 @@ public partial class EntityRegion
             NewInstanceKind.Controller => _controllers.Select(c => c.Index).DefaultIfEmpty(-1).Max(),
             _ => -1,
         };
-        return count + 1;
+        // The file's table can hold instances the editor did not load (a Moby of a class it has no asset for).
+        return Math.Max(last, References.LoadedCount(KindName(kind)) - 1) + 1;
+    }
+
+    private static string KindName(NewInstanceKind kind) => kind switch
+    {
+        NewInstanceKind.Moby => "Moby",
+        NewInstanceKind.Volume => "Volume",
+        NewInstanceKind.Path => "Path",
+        NewInstanceKind.Controller => "Controller",
+        _ => "",
+    };
+
+    /// <summary>What the save does to the instances' layers: the new ones, and the loaded ones in another layer than the file
+    /// has them (<see cref="Loading.Readers.GameplayReferences"/> works the handles out from these).</summary>
+    private IEnumerable<Loading.Readers.GameplayReferences.Change> LayoutChanges()
+    {
+        foreach (var change in GroupChanges()) yield return change;
+        foreach (var moby in MobyInstances.Entities.OfType<EntityMoby>())
+        {
+            if (moby.New is { Saved: false } made) yield return new("Moby", moby.GameplayIndex, moby.Name, made.Layer, true);
+            else if (moby.Assigned?.LayerChanged(this) == true) yield return new("Moby", moby.GameplayIndex, moby.Name, moby.Group, false);
+        }
+        foreach (var volume in Volumes.Entities.OfType<EntityVolume>())
+        {
+            var clue = volume.BaseVolume.Clue;
+            if (volume.New is { Saved: false } made)
+            {
+                yield return new("Volume", volume.BaseVolume.Index, volume.Name, made.Layer, true);
+                if (clue != null) yield return new("Clue", clue.Index, clue.Name, made.Layer, true);
+            }
+            else if (volume.Assigned?.LayerChanged(this) == true && LayerIndexOf(volume, strict: true) is >= 0 and var layer)
+            {
+                yield return new("Volume", volume.BaseVolume.Index, volume.Name, (ushort)layer, false);
+                if (clue != null && volume.Assigned is { ClueChanged: false }) yield return new("Clue", clue.Index, clue.Name, (ushort)layer, false);
+            }
+        }
+        foreach (var path in Paths.Entities.OfType<EntityPath>())
+        {
+            if (path.New is { Saved: false } made) yield return new("Path", path.Path.Index, path.Name, made.Layer, true);
+            else if (path.Assigned?.LayerChanged(this) == true && LayerIndexOf(path, strict: true) is >= 0 and var layer)
+                yield return new("Path", path.Path.Index, path.Name, (ushort)layer, false);
+        }
+        foreach (var controller in Cameras.Entities.Concat(ControllerInstances.Entities).OfType<EntityController>())
+        {
+            if (controller.New is { Saved: false } made) yield return new("Controller", controller.Controller.Index, controller.Name, made.Layer, true);
+            else if (controller.Assigned?.LayerChanged(this) == true && LayerIndexOf(controller, strict: true) is >= 0 and var layer)
+                yield return new("Controller", controller.Controller.Index, controller.Name, (ushort)layer, false);
+        }
+    }
+
+    /// <summary>Writes the reference words of every Clue, controller and Moby again where the handle they name has moved
+    /// (a layer change, an instance leaving, a deletion): the words hold the place in the layer, which the move changes.
+    /// A reference to a deleted instance is set to 0, "none", and dropped from the holder's references.</summary>
+    public void SyncHandles()
+    {
+        // The references the holder keeps, or null when none was dropped.
+        IReadOnlyList<Assets.LevelElements.ClueReference>? Write(byte[] settings, IReadOnlyList<Assets.LevelElements.ClueReference> references)
+        {
+            bool dropped = false;
+            foreach (var r in references)
+            {
+                if (References.IsDeleted(r.Kind, r.Index))
+                {
+                    dropped = true;
+                    if (References.Editable && !r.InList && r.Offset + 4 <= settings.Length) Array.Clear(settings, r.Offset, 4);
+                    continue;
+                }
+                if (!References.Editable || r.InList || r.Offset + 4 > settings.Length || References.Encode(r.Kind, r.Index) is not { } word) continue;
+                if (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(r.Offset)) == word) continue;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(settings.AsSpan(r.Offset), word);
+            }
+            return dropped ? [.. references.Where(r => !References.IsDeleted(r.Kind, r.Index))] : null;
+        }
+        if (!References.Editable && _deleted.Count == 0) return;
+        foreach (var volume in Volumes.Entities.OfType<EntityVolume>())
+            if (volume.BaseVolume.Clue is { } clue && Write(clue.Settings, clue.References) is { } kept) clue.References = kept;
+        foreach (var controller in _controllers)
+            if (Write(controller.Settings, controller.References) is { } kept) controller.References = kept;
+        foreach (var moby in MobyInstances.Entities.OfType<EntityMoby>())
+            if (Write(moby.Settings, moby.References) is { } kept) moby.SetReferences(kept);
     }
 
     /// <summary>The zone whose box holds <paramref name="point"/> (the smallest, where several do), else the nearest; null
@@ -151,6 +289,22 @@ public partial class EntityRegion
 
     // --- Creating -----------------------------------------------------------------------------------
 
+    /// <summary>The settings a new Clue, controller or Moby starts with: the class default when the region has one (a copy),
+    /// else a copy of <paramref name="source"/> with every reference word cleared (zero is "none"), so the new instance
+    /// names nothing of another's. Where references cannot be written (pooled games) the copy keeps its words. A list's
+    /// entries live outside the struct and stay in the saved block.</summary>
+    internal (byte[] Settings, IReadOnlyList<Assets.LevelElements.ClueReference> References) StartingSettings(
+        ClassDefaults.Default? classDefault, byte[]? source, IReadOnlyList<Assets.LevelElements.ClueReference>? references)
+    {
+        if (classDefault != null) return (classDefault.CloneSettings(), classDefault.References);
+        var copy = (byte[]?)source?.Clone() ?? [];
+        var kept = (references ?? []).Where(r => !r.InList).ToList();
+        if (!References.Editable) return (copy, kept);
+        foreach (var r in kept)
+            if (r.Offset + 4 <= copy.Length) Array.Clear(copy, r.Offset, 4);
+        return (copy, []);
+    }
+
     private static void Orient(Entity entity, Quaternion? rotation)
     {
         if (rotation is not { } q) return;
@@ -159,25 +313,28 @@ public partial class EntityRegion
         entity.Transform = t;
     }
 
-    /// <summary>A Moby of <paramref name="asset"/> at <paramref name="position"/>, its settings copied from a Moby of the
-    /// same asset in the region when there is one (recorded as <see cref="NewInstance.SettingsTemplate"/>). Not added.
-    /// Null on the old engine, which has no gameplay table to add it to.</summary>
-    public EntityMoby? CreateMoby(IMoby asset, Vector3 position, Quaternion? rotation = null, ushort? layer = null)
+    /// <summary>A Moby of <paramref name="asset"/> at <paramref name="position"/>. Its settings are the class default
+    /// (<see cref="ClassDefaults"/>) when the region has one for the asset (<see cref="NewInstance.ClassDefault"/>); else a
+    /// copy of a Moby of the same asset in the region with its references cleared (recorded as
+    /// <see cref="NewInstance.SettingsTemplate"/>); else empty. Not added. Null on the old engine, which has no gameplay
+    /// table to add it to.</summary>
+    public EntityMoby? CreateMoby(IMoby asset, Vector3 position, Quaternion? rotation = null, ushort? layer = null, string? name = null)
     {
         if (IsOldEngine) return null;
         var mobys = MobyInstances.Entities.OfType<EntityMoby>().Where(m => m.BaseMoby.Id == asset.Id).ToList();
+        var classDefault = ClassDefaults.Moby(asset.Id);
         var template = mobys.FirstOrDefault(m => m.Settings.Length > 0) ?? mobys.FirstOrDefault();
+        var (settings, references) = StartingSettings(classDefault, template?.Settings, template?.References);
         ushort group = layer ?? template?.Group ?? 0;
         ulong tuid = NewTuid();
         int index = NextIndex(NewInstanceKind.Moby);
         var placed = new PlacedInstance<IMoby>(asset, position, Vector3.Zero, 1f, tuid, group,
-            UniqueName(ShortName(asset.Name, $"Moby_{asset.Id:X}")))
+            name ?? UniqueName(ShortName(asset.Name, $"Moby_{asset.Id:X}")))
         {
             DisplayDistance = template?.DisplayDistance ?? -1f,
             UpdateDistance = template?.UpdateDistance ?? -1f,
-            Settings = (byte[]?)template?.Settings.Clone() ?? [],
-            // The words naming a list's entries point outside the struct, so they are not carried over.
-            References = template?.References.Where(r => !r.InList).ToList() ?? [],
+            Settings = settings,
+            References = references,
             GameplayIndex = index,
         };
         var moby = new EntityMoby(placed, _assetManager);
@@ -185,21 +342,22 @@ public partial class EntityRegion
         moby.New = new NewInstance
         {
             Kind = NewInstanceKind.Moby, Region = this, Layer = group, AssetId = asset.Id, Tuid = tuid,
-            GameplayIndex = index, SettingsTemplate = template?.Settings.Length > 0 ? template : null,
+            GameplayIndex = index, ClassDefault = classDefault != null,
+            SettingsTemplate = classDefault == null && template?.Settings.Length > 0 ? template : null,
         };
         return moby;
     }
 
     /// <summary>A Tie of class <paramref name="asset"/> at <paramref name="position"/>, in <paramref name="zone"/> (else the zone
     /// holding the point, else the nearest). Not added. Null when the region has no zone to put it in or on the old engine.</summary>
-    public EntityTie? CreateTie(ITie asset, Vector3 position, Quaternion? rotation = null, EntityZone? zone = null)
+    public EntityTie? CreateTie(ITie asset, Vector3 position, Quaternion? rotation = null, EntityZone? zone = null, string? name = null)
     {
         if (IsOldEngine) return null;
         zone ??= FindZone(position);
         if (zone == null) return null;
         ulong tuid = NewTuid();
         var matrix = Matrix4x4.CreateFromQuaternion(rotation ?? Quaternion.Identity) * Matrix4x4.CreateTranslation(position);
-        var placed = new PlacedInstance<ITie>(asset, matrix, tuid, 0, UniqueName(ShortName(asset.Name, $"Tie_{asset.Id:X}"), zone));
+        var placed = new PlacedInstance<ITie>(asset, matrix, tuid, 0, name ?? UniqueName(ShortName(asset.Name, $"Tie_{asset.Id:X}"), zone));
         var tie = new EntityTie(placed, _assetManager);
         tie.New = new NewInstance { Kind = NewInstanceKind.Tie, Region = this, AssetId = asset.Id, Tuid = tuid, Zone = zone };
         return tie;
@@ -207,14 +365,14 @@ public partial class EntityRegion
 
     /// <summary>A volume of <paramref name="shape"/>; <paramref name="size"/> is its matrix scale, which on the new engine is
     /// the shape's radius or half-size (see <see cref="EntityVolume.ShapeScale"/>). Not added.</summary>
-    public EntityVolume CreateVolume(VolumeShape shape, Vector3 position, Quaternion? rotation = null, ushort? layer = null, float size = 2f)
+    public EntityVolume CreateVolume(VolumeShape shape, Vector3 position, Quaternion? rotation = null, ushort? layer = null, float size = 2f, string? name = null)
     {
         ushort group = layer ?? 0;
         ulong tuid = NewTuid();
         int index = NextIndex(NewInstanceKind.Volume);
         var matrix = Matrix4x4.CreateScale(size) * Matrix4x4.CreateFromQuaternion(rotation ?? Quaternion.Identity)
             * Matrix4x4.CreateTranslation(position);
-        var volume = new Volume(tuid, matrix, UniqueName("volume"), group, shape, index, LayerName(group));
+        var volume = new Volume(tuid, matrix, name ?? UniqueName("volume"), group, shape, index, LayerName(group));
         EntityVolume.NextShapeScale = IsOldEngine ? 1f : 2f;
         var entity = new EntityVolume(volume);
         entity.New = new NewInstance { Kind = NewInstanceKind.Volume, Region = this, Layer = group, Tuid = tuid, GameplayIndex = index };
@@ -236,16 +394,17 @@ public partial class EntityRegion
         return entity;
     }
 
-    /// <summary>A controller of the class <paramref name="template"/> has, with its settings; a camera class gives an
+    /// <summary>A controller of the class <paramref name="template"/> has, with the class default settings when the region
+    /// has them (else a copy of the template's with its references cleared); a camera class gives an
     /// <see cref="EntityCamera"/>. Not added.</summary>
     public EntityController CreateController(GameplayController template, Vector3 position, Quaternion? rotation = null, ushort? layer = null)
     {
         ushort group = layer ?? 0;
         ulong tuid = NewTuid();
         int index = NextIndex(NewInstanceKind.Controller);
+        var (settings, references) = StartingSettings(ClassDefaults.Controller(template.Class), template.Settings, template.References);
         var controller = new GameplayController(tuid, UniqueName(template.ClassName ?? $"controller_{template.Class:X}"), index,
-            LayerName(group), template.Class, template.ClassName, (byte[])template.Settings.Clone(),
-            template.References.Where(r => !r.InList).ToList(), position, Vector3.Zero, template.IsCamera);
+            LayerName(group), template.Class, template.ClassName, settings, references, position, Vector3.Zero, template.IsCamera);
         EntityController entity = template.IsCamera ? new EntityCamera(controller) : new EntityController(controller);
         Orient(entity, rotation);
         entity.New = new NewInstance { Kind = NewInstanceKind.Controller, Region = this, Layer = group, Tuid = tuid, GameplayIndex = index };

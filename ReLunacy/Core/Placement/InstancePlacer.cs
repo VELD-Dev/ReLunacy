@@ -1,4 +1,6 @@
 using System.Numerics;
+using ReLunacy.Core.Frames.DockedFrames;
+using ReLunacy.Core.Moon;
 using ReLunacy.Core.Selection;
 using ReLunacy.Core.Undo;
 using ReLunacy.Engine.Assets.LevelElements;
@@ -86,6 +88,33 @@ public static class InstancePlacer
         return entity;
     }
 
+    /// <summary>Makes a moon (see <see cref="MoonCreator"/>) as one undo step, selects its Clue and enters moon edit mode on it.
+    /// Null, with <paramref name="problem"/>, when it could not be made.</summary>
+    public static MoonCreated? CreateMoon(MoonRequest request, out string? problem)
+    {
+        var created = MoonCreator.Create(request, out problem);
+        if (created == null) return null;
+        AfterChange(created.Entities);
+        UndoManager.Singleton.Push(LM.Get("GUI_Undo_CreateMoon"),
+            () =>
+            {
+                if (MoonMode.Active && ReferenceEquals(MoonMode.Clue, created.Clue) && LunaWindow.Instance.IsAnyFrameOpened<View3D>())
+                    LunaWindow.Instance.GetFirstFrame<View3D>().ExitMoonMode();
+                created.Undo();
+                AfterChange(created.Entities);
+                SelectionManager.Singleton.Deselect();
+            },
+            () =>
+            {
+                created.Redo();
+                AfterChange(created.Entities);
+                SelectionManager.Singleton.Select(created.Clue);
+            });
+        SelectionManager.Singleton.Select(created.Clue);
+        if (LunaWindow.Instance.IsAnyFrameOpened<View3D>()) LunaWindow.Instance.GetFirstFrame<View3D>().EnterMoonMode(created.Clue);
+        return created;
+    }
+
     /// <summary>The controller classes the region has, each with the controller its settings are copied from, cameras
     /// together with the class they are of.</summary>
     public static IReadOnlyList<(GameplayController Template, string Label, bool IsCamera)> ControllerClasses(EntityRegion region)
@@ -96,6 +125,56 @@ public static class InstancePlacer
             .GroupBy(c => c.Class)
             .Select(g => (Template: g.First(), Label: g.First().ClassName ?? ClassFields.ClassName(game, g.Key) ?? $"0x{g.Key:X}", IsCamera: g.First().IsCamera))
             .OrderBy(c => !c.IsCamera).ThenBy(c => c.Label, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>The region holding an instance of the files (a path's key counts as its path).</summary>
+    private static EntityRegion? RegionOf(Entity entity)
+    {
+        if (entity is EntityPathPoint part) entity = part.Owner;
+        return EntityManager.Singleton.Regions.FirstOrDefault(r => r.Contains(entity));
+    }
+
+    /// <summary>Delete: new instances go at once; instances of the files, after the confirmation that lists who names them
+    /// (<see cref="Frames.Modals.DeleteInstancesModal"/>); anything else (Ties) is refused there.</summary>
+    public static void DeleteSelection()
+    {
+        var selection = SelectionManager.Singleton.Selection.Select(e => e is EntityPathPoint p ? p.Owner : e).Distinct().ToList();
+        if (selection.Count == 0) return;
+        var retail = selection.Where(e => !e.IsNew).ToList();
+        if (retail.Count == 0) { RemoveNew(selection); return; }
+        var groups = retail.Where(e => RegionOf(e)?.CanDelete(e) == true).GroupBy(e => RegionOf(e)!).ToList();
+        var refused = retail.Count - groups.Sum(g => g.Count());
+        if (LunaWindow.Instance.IsAnyFrameOpened<Frames.Modals.DeleteInstancesModal>()) return;
+        LunaWindow.Instance.AddFrame(new Frames.Modals.DeleteInstancesModal(
+            [.. groups.Select(g => (g.Key, (IReadOnlyList<Entity>)g.ToList()))], selection.Where(e => e.IsNew).ToList(), refused));
+    }
+
+    /// <summary>Deletes instances of the files as one undo step (the confirmation was given). New ones among
+    /// <paramref name="fresh"/> are removed with them.</summary>
+    public static void DeleteRetail(IReadOnlyList<(EntityRegion Region, IReadOnlyList<Entity> Entities)> groups, IReadOnlyList<Entity> fresh)
+    {
+        var states = new List<(EntityRegion Region, DeletionState State)>();
+        foreach (var (region, entities) in groups) states.Add((region, region.Delete([.. entities])));
+        var removed = fresh.Where(e => e.New != null).ToList();
+        foreach (var entity in removed) entity.New!.Region.Remove(entity);
+        var all = states.SelectMany(s => s.State.Entities).Concat(removed).ToList();
+        AfterChange(all);
+        SelectionManager.Singleton.Deselect();
+        UndoManager.Singleton.Push(LM.Get("GUI_Undo_Delete"),
+            () =>
+            {
+                for (int i = states.Count - 1; i >= 0; i--) states[i].Region.Undelete(states[i].State);
+                foreach (var entity in removed) entity.New!.Region.Add(entity);
+                AfterChange(all);
+                SelectionManager.Singleton.Set(all);
+            },
+            () =>
+            {
+                for (int i = 0; i < states.Count; i++) states[i] = (states[i].Region, states[i].Region.Redelete(states[i].State));
+                foreach (var entity in removed) entity.New!.Region.Remove(entity);
+                AfterChange(all);
+                SelectionManager.Singleton.Deselect();
+            });
     }
 
     /// <summary>Takes the new, unsaved instances among <paramref name="entities"/> out of their regions, as one undo step.

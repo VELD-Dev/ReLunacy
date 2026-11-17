@@ -356,12 +356,14 @@ public sealed class TieReader
                         legacyMesh.fadeNormalDistance,
                         legacyMesh.fadeReflectionDistance,
                         legacyMesh.fadeDetailDistance),
-                    // A Crack in Time's primitive has no mask: +0x20 is 0 on all 1,317 krell_canyon
-                    // primitives and nothing in +0x20..+0x2F holds mask-like values (A4O: 0x1D/0x19/0x14 at
-                    // +0x20). Reading it stripped specular, normal map, detail and parallax from every Tie.
-                    CrackInTimeLayout ? (byte)0x1F : legacyMesh.newEngineFeatureMask),
+                    // A Crack in Time keeps the mask at +0x24 (+0x20 is 0 on all 1,317 krell_canyon primitives;
+                    // reading it stripped specular, normal map, detail and parallax from every Tie). Only the
+                    // five feature bits are valid (0 does occur, on 118 of 36,622), so a value outside them falls back to all on.
+                    CrackInTimeLayout ? PlausibleCrackInTimeMask(legacyMesh.crackInTimeFeatureMask) : legacyMesh.newEngineFeatureMask),
         };
     }
+
+    private static byte PlausibleCrackInTimeMask(byte mask) => (mask & ~0x1F) == 0 ? mask : (byte)0x1F;
 
     /// <summary>Copies out one mesh's window of the tie-wide candidate lightmap UV array, or null if
     /// this mesh has no usable window. This is only the cheap first gate; ClassifyUnwrap then decides,

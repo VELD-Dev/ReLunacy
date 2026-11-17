@@ -329,3 +329,49 @@ public sealed class InstallProjectModal : Modal
         base.RenderAsWindow(deltaTime);
     }
 }
+
+/// <summary>
+/// Asked before something throws the open level's edits away (<see cref="ProjectSession.Guard"/>): save them into the
+/// project and go on, discard them and go on, or stay. Save is offered only with a project open.
+/// </summary>
+public sealed class UnsavedChangesModal : Modal
+{
+    protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
+
+    private readonly Action _proceed;
+
+    public UnsavedChangesModal(Action proceed)
+    {
+        FrameName = LM.Get("GUI_Unsaved_Title");
+        _proceed = proceed;
+    }
+
+    protected override void Render(double deltaTime)
+    {
+        ImGui.TextUnformatted(LM.Get("GUI_Unsaved_Message"));
+        ImGui.Spacing();
+        if (ProjectSession.Current != null)
+        {
+            if (ImGui.Button(LM.Get("GUI_Unsaved_Save")))
+            {
+                isOpen = false;
+                LunaWindow.Instance.AddFrame(new SaveLevelModal(_proceed));
+            }
+            ImGui.SameLine();
+        }
+        if (ImGui.Button(LM.Get("GUI_Unsaved_Discard")))
+        {
+            isOpen = false;
+            ProjectSession.MarkSaved();
+            _proceed();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Common_CancelWord"))) isOpen = false;
+    }
+
+    public override void RenderAsWindow(double deltaTime)
+    {
+        Pick.Centre();
+        base.RenderAsWindow(deltaTime);
+    }
+}

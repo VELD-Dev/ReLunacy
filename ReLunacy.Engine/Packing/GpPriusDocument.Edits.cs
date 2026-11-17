@@ -12,6 +12,9 @@ public enum GpSettingsSource
     Template,
     /// <summary>The class default block (0x25030) another instance of the same class already shares.</summary>
     ClassDefault,
+    /// <summary>A private copy (0x25020) of that class default block: for an instance whose settings are edited away from the
+    /// default, which would otherwise write through the shared block.</summary>
+    ClassDefaultCopy,
     /// <summary>No settings (offset 0, size 0); Mobys only.</summary>
     None,
 }
@@ -78,6 +81,8 @@ public sealed class GpEditResult
     /// not: the caller warns.</summary>
     public List<GpIndexShift> Shifts { get; } = [];
     public int ReferencesRewritten { get; internal set; }
+    /// <summary>Reference words set to "none" because the instance they named was deleted.</summary>
+    public int ReferencesCleared { get; internal set; }
 
     internal static GpEditResult Refuse(string problem)
     {
@@ -562,12 +567,15 @@ public sealed partial class GpPriusDocument
             case GpSettingsSource.None:
                 return template.Kind == GpKind.Moby ? new(null, null, 0, false) : new($"a {template.Kind} needs settings", null, 0, false);
             case GpSettingsSource.ClassDefault:
+            case GpSettingsSource.ClassDefaultCopy:
                 for (int i = 0; i < Count(template.Kind); i++)
                 {
                     var other = new GpInstance(template.Kind, i);
                     if (!sameClass(other)) continue;
                     var (b, s) = SettingsOf(other);
-                    if (b is { Target: { Id: SharedSettings, IsTail: false } }) return new(null, b, s, false);
+                    if (b is not { Target: { Id: SharedSettings, IsTail: false } }) continue;
+                    if (source == GpSettingsSource.ClassDefault) return new(null, b, s, false);
+                    return Section(PrivateSettings) == null ? new("no private settings section", null, 0, false) : new(null, b, s, true);
                 }
                 return new($"no instance of {what} in this region shares a class-default settings block (0x25030); use a template's", null, 0, false);
             default:

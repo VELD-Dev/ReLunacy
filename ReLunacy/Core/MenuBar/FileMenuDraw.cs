@@ -117,6 +117,6 @@ internal static class FileMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_CloseLevel"), "CTRL+P", false, Program.ProvidedPath != string.Empty))
             return;
 
-        LunaWindow.Instance.TryWipeLevel();
+        ProjectSession.Guard(() => LunaWindow.Instance.TryWipeLevel());
     }
 }

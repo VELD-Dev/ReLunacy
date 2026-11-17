@@ -43,7 +43,18 @@ public sealed class EntityPod
         SavedMembers = [.. Members];
     }
 
-    public bool Changed => !Members.SequenceEqual(SavedMembers);
+    /// <summary>Made in the editor and not written yet: a save adds its record (GameplayStructure) at the end of the Pod table.</summary>
+    public bool IsNew { get; private set; }
+
+    /// <summary>A Pod made in the editor, empty, in the layer (<see cref="Layer"/> is its name).</summary>
+    public EntityPod(string name, ulong tuid, string layer)
+    {
+        Source = new GameplayGroup { Tuid = tuid, Name = name, Layer = layer };
+        SavedMembers = [];
+        IsNew = true;
+    }
+
+    public bool Changed => IsNew || !Members.SequenceEqual(SavedMembers);
 
     public bool Contains(EntityMoby moby) => Members.Contains(moby);
 
@@ -71,5 +82,9 @@ public sealed class EntityPod
     }
 
     /// <summary>The file now holds the members as they are (after a save).</summary>
-    public void MarkSaved() => SavedMembers = [.. Members];
+    public void MarkSaved()
+    {
+        SavedMembers = [.. Members];
+        IsNew = false;
+    }
 }

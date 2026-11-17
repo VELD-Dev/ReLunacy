@@ -25,6 +25,9 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
 - [x] Gizmo "Moon" space (besides World / Local): moves in spherical coordinates around the moon centre
       (latitude / longitude / altitude), keeping the object's up axis radial.
 - [x] Wire the writers into File > Save (Save dialog lists additions; refusals as problems; backups). GameplayStructure -> GameplayWriter.Patch -> GameplayBudgets -> ZoneWriter + CollisionWriter -> TieAppender; reloads the level after a structural save. Probe: dev/tools/structprobe.
+- [x] Delete instances the files hold (Mobys, volumes with their Clue, paths, controllers, cameras): Delete key / Edit > Delete,
+      confirm modal listing who names them, undoable, clears or remaps every reference in gp_prius at Save (not tested in game).
+      Ties are refused. Spec: docs/reverse/newengine_gp_prius_writer.md section 7. Probes: dev/tools/delprobe, delsaveprobe.
 - [ ] Test in game: add a Moby, a Tie with collision, a volume, a path, a controller on a copy.
 
 ## Moon creation tooling (requested 2026-11-16)
@@ -34,10 +37,13 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
 - [x] Project system (.lunaproj): edits saved to the project, not to the game; Install to game builds from the
       pristine files. Bake point lights and other editor-only data live in the project (docs/project_format.md;
       the manifest's `editor` section is reserved for them, nothing reads it yet).
-- [ ] New layers (art_<id>, gameplay_<id>) and a new art_ zone: gp_prius / metadata / gameplay.dat and zones /
+- [x] New layers (art_<id>, gameplay_<id>) and a new art_ zone (pending in the editor, saved by File > Save; not tested in game): gp_prius / metadata / gameplay.dat and zones /
       region / lighting / collision / assetlookup writers.
-- [ ] Create moon: moon id, surface (known moon surface Ties), radius (scales the surface Tie and SpaceMoon +0xE0),
+- [x] Create moon (dev/tools/moonmakeprobe; not tested in game): moon id, surface (known moon surface Ties), radius (scales the surface Tie and SpaceMoon +0xE0),
       other settings; places the SpaceMoon Clue, area volume, landing beam and the layers + zone.
-- [ ] Evaluate a "curve to moon" tool: copy a Tie bent to the sphere (vertices shifted along the radius, no scaling).
+- [x] Evaluate a "curve to moon" tool (docs/reverse/newengine_tie_asset_writing.md: in place feasible now, bent copy ~1 week, copy collision class not written)
+- [ ] Build "curve to moon" (bent copy under a new class TUID + collision.dat class entry)
+- [ ] Fix Tie normals on stretched classes (reader divides normals by the quantisation scale)
+- [ ] Decode the ACiT prelight word (needed for baking)
 - [ ] Tie import: split meshes by material (one material per mesh), existing shaders/materials only.
 - [ ] Bake prelight / baked lighting for new Ties: game's directional lights + placeable bake point lights.

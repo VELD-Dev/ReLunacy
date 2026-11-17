@@ -382,15 +382,23 @@ public class View3D : DockedFrame
         {
             if (overlay.CornerButton(LM.Get("GUI_Moon_Exit"), LM.Get("GUI_Moon_ExitHelp"))) ExitMoonMode();
         }
-        else if (!CollisionEditing && MoonMode.MoonClue(SelectedEntity) is { } clue
-                 && overlay.CornerButton(LM.Get("GUI_Moon_Enter"), LM.Get("GUI_Moon_EnterHelp")))
+        else if (!CollisionEditing && MoonMode.MoonClue(SelectedEntity) is { } clue)
         {
-            if (PovCamera != null) ExitPov(restore: true);
-            if (MoonMode.Enter(clue)) _moonOrbit.Enter(Camera);
+            if (overlay.CornerButton(LM.Get("GUI_Moon_Enter"), LM.Get("GUI_Moon_EnterHelp"))) EnterMoonMode(clue);
         }
+        else if (!CollisionEditing && Modals.CreateMoonModal.Available
+                 && overlay.CornerButton(LM.Get("GUI_Moon_Create"), LM.Get("GUI_Moon_CreateHelp")))
+            Modals.CreateMoonModal.Open();
     }
 
-    private void ExitMoonMode()
+    /// <summary>Starts moon edit mode on a SpaceMoon Clue's volume.</summary>
+    public void EnterMoonMode(EntityVolume clue)
+    {
+        if (PovCamera != null) ExitPov(restore: true);
+        if (MoonMode.Enter(clue)) _moonOrbit.Enter(Camera);
+    }
+
+    public void ExitMoonMode()
     {
         if (!MoonMode.Active) return;
         _moonOrbit.Exit(Camera);
@@ -664,7 +672,7 @@ public class View3D : DockedFrame
                         uint pickId = (uint)v.ID;
                         if (em.IsVolumeFilled(v.BaseVolume))
                             _vkVolumeFills.Add((v.ShapeMatrix, v.KindColour with { W = em.VolumeFillOpacity }, (int)v.BaseVolume.Shape));
-                        foreach (var edge in v.GetWorldEdgeTransforms())
+                        foreach (var edge in v.WorldEdgeMatrices)
                             _vkVolumes.Add((edge, color, pickId));
                         if (em.ShowRadiusPreviews) AddRadiusPreviews(v, em);
                     }
@@ -1216,10 +1224,10 @@ public class View3D : DockedFrame
     public void HandleShortcuts()
     {
         _pathEditor.HandleShortcuts();
-        // Delete takes a new instance no save has written out again (an undo step); what the files hold stays.
+        // Delete takes new instances out at once and asks before deleting what the files hold (an undo step).
         if (Input.IsKeyPressed(KeyboardKey.Delete) && !ImGui.GetIO().WantTextInput && !CollisionEditing
             && SelectionManager.Singleton.SelectedEntity is not EntityPathPoint)
-            InstancePlacer.RemoveNew(SelectionManager.Singleton.Selection);
+            InstancePlacer.DeleteSelection();
         if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
         if (PovCamera != null) { ExitPov(restore: true); return; }
         if (MoonMode.Active) { ExitMoonMode(); return; }

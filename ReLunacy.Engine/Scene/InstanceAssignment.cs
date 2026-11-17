@@ -34,8 +34,10 @@ public sealed class InstanceAssignment
     public bool LoadedIsCamera { get; init; }
     public byte[]? LoadedSettings { get; init; }
 
-    /// <summary>The instance the current Clue's or controller's settings block was copied from: its class's first in
-    /// the region. Null while the class is as loaded.</summary>
+    /// <summary>The instance of the current class a save copies the new record from (a Clue's template, a controller's
+    /// record): its class's first in the region. Its settings are the new instance's only where the region has no class
+    /// default (<see cref="EntityRegion.ClassDefaults"/>); with one, the instance starts from that. Null while the class
+    /// is as loaded.</summary>
     public Entity? SettingsTemplate { get; set; }
 
     public bool LayerChanged(EntityRegion region) => region.LayerIndexOf(Entity, strict: true) != LoadedLayer;

@@ -314,8 +314,8 @@ public sealed class EffectEmitter : EffectPiece
     /// class 3 FxEmtStreakControl +0x1F8). STRONG.</summary>
     public bool IsStretched => EmitterClass is 2 or 3;
 
-    public EffectScalarTrack? Scalar(string name) => ScalarTracks.FirstOrDefault(t => t.Name == name);
-    public EffectColorTrack? Color(string name) => ColorTracks.FirstOrDefault(t => t.Name == name);
+    public EffectScalarTrack? Scalar(string name) => EffectTracks.Find(ScalarTracks, name);
+    public EffectColorTrack? Color(string name) => EffectTracks.Find(ColorTracks, name);
 
     public EffectTexture? PrimaryTexture => Textures.Count > 0 ? Textures[0] : null;
 
@@ -355,8 +355,8 @@ public sealed class EffectQuad : EffectPiece
     public int Facing { get; init; }
     public bool IsFrameOriented => Facing != 0;
 
-    public EffectScalarTrack? Scalar(string name) => ScalarTracks.FirstOrDefault(t => t.Name == name);
-    public EffectColorTrack? Color(string name) => ColorTracks.FirstOrDefault(t => t.Name == name);
+    public EffectScalarTrack? Scalar(string name) => EffectTracks.Find(ScalarTracks, name);
+    public EffectColorTrack? Color(string name) => EffectTracks.Find(ColorTracks, name);
     public EffectTexture? PrimaryTexture => Textures.Count > 0 ? Textures[0] : null;
 }
 
@@ -373,8 +373,8 @@ public sealed class EffectLight : EffectPiece
     /// <see cref="ColorTracks"/>). 1 elsewhere.</summary>
     public float Intensity { get; init; } = 1f;
 
-    public EffectScalarTrack? Scalar(string name) => ScalarTracks.FirstOrDefault(t => t.Name == name);
-    public EffectColorTrack? Color(string name) => ColorTracks.FirstOrDefault(t => t.Name == name);
+    public EffectScalarTrack? Scalar(string name) => EffectTracks.Find(ScalarTracks, name);
+    public EffectColorTrack? Color(string name) => EffectTracks.Find(ColorTracks, name);
 }
 
 /// <summary>
@@ -463,8 +463,8 @@ public sealed class EffectPackage : EffectPiece
     /// <summary>Game-wide effect ids (0x500 table) that resolve to this package. Usually exactly one.</summary>
     public List<int> GlobalIds { get; } = [];
 
-    public EffectScalarTrack? Scalar(string name) => ScalarTracks.FirstOrDefault(t => t.Name == name);
-    public EffectColorTrack? Color(string name) => ColorTracks.FirstOrDefault(t => t.Name == name);
+    public EffectScalarTrack? Scalar(string name) => EffectTracks.Find(ScalarTracks, name);
+    public EffectColorTrack? Color(string name) => EffectTracks.Find(ColorTracks, name);
 
     public string DisplayName => GlobalIds.Count > 0 ? $"FX {GlobalIds[0]:D4}" : $"FX pkg {Index}";
 
@@ -483,5 +483,23 @@ public sealed class EffectPackage : EffectPiece
             if (p > 0) parts.Add($"{p} sub-effect{(p > 1 ? "s" : "")}");
             return parts.Count == 0 ? "empty" : string.Join(", ", parts);
         }
+    }
+}
+
+/// <summary>Track lookup by name without LINQ's per-call closure and enumerator: the simulator asks per particle.</summary>
+internal static class EffectTracks
+{
+    public static EffectScalarTrack? Find(IReadOnlyList<EffectScalarTrack> tracks, string name)
+    {
+        for (int i = 0; i < tracks.Count; i++)
+            if (tracks[i].Name == name) return tracks[i];
+        return null;
+    }
+
+    public static EffectColorTrack? Find(IReadOnlyList<EffectColorTrack> tracks, string name)
+    {
+        for (int i = 0; i < tracks.Count; i++)
+            if (tracks[i].Name == name) return tracks[i];
+        return null;
     }
 }

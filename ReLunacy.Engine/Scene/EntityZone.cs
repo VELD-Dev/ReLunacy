@@ -23,6 +23,20 @@ public class EntityZone : IDisposable
     public string ZoneName;
     public ulong ZoneTUID;
 
+    /// <summary>Made in the editor and not saved yet: the file has no such zone, and a save makes it with its first new
+    /// Tie. <see cref="ZoneTUID"/> is a placeholder until then.</summary>
+    public bool IsNew { get; internal set; }
+
+    /// <summary>An empty zone for the editor to put new Ties in (see <see cref="EntityRegion.CreateNewZone"/>).</summary>
+    internal EntityZone(string name, ulong tuid, AssetManager assetManager)
+    {
+        ZoneName = name;
+        ZoneTUID = tuid;
+        IsNew = true;
+        TieInstances = new EntityCluster([], assetManager);
+        UFrags = new EntityCluster([], assetManager);
+    }
+
     public EntityZone(IZone zone, GraphicsDevice gd, AssetManager assetManager)
     {
         ZoneName = zone.Name ?? "UnnamedZone";

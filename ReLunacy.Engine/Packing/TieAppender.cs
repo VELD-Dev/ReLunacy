@@ -66,11 +66,11 @@ public sealed class TieAppendResult
 public static partial class TieAppender
 {
     private const uint ClassTable = 0x7200, Placements = 0x7240, Names = 0x72C0, Cubes = 0x72C1, Clusters = 0x72D0;
-    private const uint Strings = 0x11300, Shrubs = 0x7540;
+    private const uint Strings = 0x11300, Shrubs = 0x7540, Lightmaps = 0x5400, Directions = 0x5410, HighMips = 0x5460;
     private const uint ZonePointers = 0x1DA00, ZoneMasks = 0x1DA01, LightingPointers = 0x1DB00;
     private const uint TiePointers = 0x1D300, TieMasks = 0x1D301;
     private const uint Stats = 0x9800, CollisionSection = 0x2900;
-    private const int StatsTieClusters = 0x30, StatsCollisionSize = 0x0C;
+    private const int StatsTieClusters = 0x30, StatsCollisionSize = 0x0C, StatsLightmaps = 0x14, StatsResident = 0x00;
 
     private sealed class Level
     {
@@ -131,6 +131,7 @@ public static partial class TieAppender
         if (added.Count == 0) return result;
 
         beforeFinish?.Invoke(level);
+        RaiseResidentSize(level, result.Problems);
         UpdateToc(level, result.Problems);
         foreach (string name in level.Changed) result.Files[name] = level.Files[name];
 
@@ -238,10 +239,13 @@ public static partial class TieAppender
         int slice = lightingPointers.FindIndex(p => p.Tuid == request.ZoneTuid);
         Source? Pick(Func<Source, bool> f) => sources.Where(f).Cast<Source?>().FirstOrDefault();
         const uint none = 0xFFFFFFFF;
+        // A baked source's lightmap pair can be copied when this zone has a slice and lightmap tables to take it.
+        bool canBake = slice >= 0 && IghwRelayout.Find(secs, Lightmaps) != null && IghwRelayout.Find(secs, Directions) != null;
         var source = Pick(s => s.Zone == zi && !s.Baked && s.Prelight != none)
                      ?? (slice >= 0 ? Pick(s => s.Zone != zi && !s.Baked && s.Prelight != none) : null)
                      ?? Pick(s => s.Zone == zi && !s.Baked)
                      ?? Pick(s => s.Zone == zi)
+                     ?? (canBake ? Pick(s => s.Baked) : null)
                      ?? Pick(s => !s.Baked)
                      ?? sources[0];
         var src = source;
@@ -301,7 +305,12 @@ public static partial class TieAppender
         // Lighting.
         string lighting;
         byte[]? newSlice = null;
-        if (sameZone)
+        if (src.Baked && canBake && BakedLighting(level, lightingPointers, slice, src, srcBlob, blob, record, payloads) is { } baked)
+        {
+            newSlice = baked.Slice;
+            lighting = baked.Note;
+        }
+        else if (sameZone)
             lighting = src.Baked ? "shares the source's baked lightmap pair (untested in game)" : src.Prelight != none ? "shares the source's prelight" : "no prelight, as its source";
         else if (src.Baked || src.Prelight == none || slice < 0)
         {
@@ -309,7 +318,9 @@ public static partial class TieAppender
             BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x5A), 0xFFFF);
             BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x64), 0);
             BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x66), 0);
-            lighting = slice < 0 ? "no prelight (the zone has no lighting slice)" : "no prelight (the class has no unbaked placement with prelight to copy)";
+            lighting = slice < 0 ? "no prelight (the zone has no lighting slice)"
+                : src.Baked ? "no prelight (the source is baked and its lightmaps could not be copied)"
+                : "no prelight (the class has no unbaked placement with prelight to copy)";
         }
         else
         {

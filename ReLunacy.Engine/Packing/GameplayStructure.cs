@@ -11,6 +11,12 @@ public sealed class StructureResult
     public List<string> Changes { get; } = [];
     public List<string> Problems { get; } = [];
     public List<GpIndexShift> Shifts { get; } = [];
+    /// <summary>The region's metadata.dat and the level's gameplay.dat with the new layers listed; null when no layer was added.</summary>
+    public byte[]? Metadata { get; set; }
+    public byte[]? Gameplay { get; set; }
+    /// <summary>The instances the editor deleted that the result still holds (the deletion was refused or not applied): their
+    /// records are in the file, so the in-place patch has to count them.</summary>
+    public List<Entity> NotDeleted { get; } = [];
     /// <summary>The edits were applied and the result validates.</summary>
     public bool Applied => Bytes != null;
 }
@@ -23,6 +29,9 @@ public sealed class StructureResult
 /// indices, so each instance is tracked by (kind, TUID, layer, which of those) and looked up again before every
 /// operation. Order: appends, path point counts, layer changes, then membership (Areas, Scents, Pods), so a
 /// membership edit can name an instance made or moved in the same save.
+///
+/// Deleted instances go last (the document's Delete takes them, and what named them, out of the file), tracked like the
+/// others so the earlier steps may move them.
 ///
 /// What the document has no operation for is reported and left as the file holds it: a Clue given to or taken from an
 /// existing volume, a controller's class changed.
@@ -78,7 +87,7 @@ public static class GameplayStructure
 
     /// <summary>Whether anything in the region may need the structural pass (cheap; no parsing).</summary>
     public static bool Candidate(EntityRegion region) =>
-        region.Pods.Any(p => p.Changed)
+        region.Pods.Any(p => p.Changed) || region.NewAreas.Any(a => !a.Written) || region.NewLayers.Any() || region.Deleted.Count > 0
         || Entities(region).Any(e => e.IsNew || e.Assigned?.Dirty(region) == true || e is EntityPath { Version: > 0 });
 
     private static IEnumerable<Entity> Entities(EntityRegion region) =>
@@ -115,7 +124,8 @@ public static class GameplayStructure
     /// <summary>Applies the region's structural edits to <paramref name="original"/> (its gp_prius.dat as the files hold
     /// it). Null when nothing structural is pending. <paramref name="regionDat"/> is the region's region.dat (a new
     /// Moby's class must be in it).</summary>
-    public static StructureResult? Apply(byte[] original, byte[]? regionDat, EntityRegion region)
+    public static StructureResult? Apply(byte[] original, byte[]? regionDat, EntityRegion region,
+        byte[]? metadataDat = null, byte[]? gameplayDat = null)
     {
         if (!Candidate(region)) return null;
         var result = new StructureResult();
@@ -130,9 +140,41 @@ public static class GameplayStructure
         var problems = result.Problems;
         var changes = result.Changes;
 
+        // 0. New layers, before anything is put in them (an editor layer's index is its place in the file's list).
+        var newLayers = region.NewLayers.ToList();
+        if (newLayers.Count > 0)
+        {
+            if (metadataDat == null || gameplayDat == null)
+            {
+                problems.Add("new layers not saved: metadata.dat or gameplay.dat was not found");
+                return result;
+            }
+            if (doc.LayerCount != region.Layers.Count - newLayers.Count)
+            {
+                problems.Add("new layers not saved: the file's layers are not the ones the editor loaded");
+                return result;
+            }
+            byte[] meta = metadataDat, gameplay = gameplayDat;
+            foreach (string layer in newLayers)
+            {
+                var added = GpLayers.Add(doc, meta, gameplay, layer);
+                if (!added.Applied || added.Metadata == null || added.Gameplay == null)
+                {
+                    foreach (var p in added.Problems) problems.Add($"layer {layer} not saved: {p}");
+                    return result;
+                }
+                meta = added.Metadata;
+                gameplay = added.Gameplay;
+                changes.Add($"layer {layer} added");
+            }
+            result.Metadata = meta;
+            result.Gameplay = gameplay;
+        }
+
         void Note(GpEditResult r, string label)
         {
-            foreach (var p in r.Problems) problems.Add(p.StartsWith(label) ? p : $"{label}: {p}");
+            // A new instance's copied reference words are written over from the editor's settings by the patch that follows.
+            foreach (var p in r.Problems.Where(p => !p.Contains("its copied settings name"))) problems.Add(p.StartsWith(label) ? p : $"{label}: {p}");
             result.Shifts.AddRange(r.Shifts);
         }
 
@@ -151,6 +193,49 @@ public static class GameplayStructure
             if (e is EntityVolume { BaseVolume.Clue: { } clue } && e.Assigned is not { ClueChanged: true } && clue.Index >= 0 && clue.Index < doc.Count(GpKind.Clue)
                 && doc.Tuid(new GpInstance(GpKind.Clue, clue.Index)) == clue.Tuid)
                 handles.Track(clue, new GpInstance(GpKind.Clue, clue.Index));
+        }
+
+        // The instances deleted in the editor, found like the others.
+        var deleted = new List<Entity>();
+        foreach (var e in region.Deleted)
+        {
+            if (Own(region, e) is not { } at || at.Index < 0 || at.Index >= doc.Count(at.Kind) || doc.Tuid(at) != TuidOf(e))
+            {
+                problems.Add($"{Label(e)}: its place in the file is not where the editor loaded it, not deleted");
+                result.NotDeleted.Add(e);
+                continue;
+            }
+            handles.Track(e, at);
+            deleted.Add(e);
+        }
+
+        // 1b. New Pods and Areas, at the end of their tables in the order the editor made them (so the numbers the editor
+        // gave them are their places in the file); their members go in below, with the others'.
+        foreach (var (isArea, name, tuid, layer, expected) in region.Pods.Select((p, i) => (false, p.Name, p.Tuid, p.Layer, i)).Where((_, i) => region.Pods[i].IsNew)
+                     .Concat(region.NewAreas.Where(a => !a.Written).Select(a => (true, a.Name, a.Tuid, region.Layers[a.Layer], a.Handle))))
+        {
+            var kind = isArea ? GpKind.Area : GpKind.Pod;
+            int layerIndex = region.LayerByName(layer);
+            ulong? given = doc.AllTuids().Contains(tuid) ? null : tuid;
+            var r = layerIndex < 0 || layerIndex >= doc.LayerCount ? GpEditResult.Refuse("its layer is not one of the file's")
+                : doc.AppendGroup(kind, (ushort)layerIndex, name, given, Random.Shared);
+            if (r.Applied && r.Created!.Value.Index != expected)
+            {
+                // The editor's numbers would name the wrong group: nothing structural is written.
+                problems.Add($"{kind} {name}: landed at {r.Created.Value.Index}, not where the editor numbered it ({expected}); structural edits not saved");
+                changes.Clear();
+                result.Shifts.Clear();
+                result.NotDeleted.Clear();
+                result.NotDeleted.AddRange(region.Deleted);
+                return result;
+            }
+            if (!r.Applied)
+            {
+                foreach (var p in r.Problems) problems.Add($"{kind} {name}: not saved, {p}");
+                continue;
+            }
+            Note(r, $"{kind} {name}");
+            changes.Add($"{kind} {name}: added to {doc.LayerName(layerIndex)}");
         }
 
         // 2. Appends, in the order the editor made them.
@@ -172,7 +257,8 @@ public static class GameplayStructure
                         Template = template,
                         DisplayDistance = moby.DisplayDistance >= 0 ? moby.DisplayDistance : null,
                         UpdateDistance = moby.UpdateDistance >= 0 ? moby.UpdateDistance : null,
-                        Settings = made.SettingsTemplate != null ? GpSettingsSource.Template : GpSettingsSource.None,
+                        Settings = region.ClassDefaults.Moby(made.AssetId) is { } classDefault ? FromDefault(classDefault, moby.Settings)
+                            : made.SettingsTemplate != null ? GpSettingsSource.Template : GpSettingsSource.None,
                         Tuid = given,
                     };
                     r = doc.AppendMoby(spec, regionDat ?? [], Random.Shared);
@@ -185,7 +271,8 @@ public static class GameplayStructure
                     if (volume.BaseVolume.Clue is { } c)
                     {
                         int? template = volume.Assigned?.SettingsTemplate is EntityVolume { BaseVolume.Clue: { } tc } && handles.Find(tc) is { } ti ? ti.Index : null;
-                        clue = new GpClueSpec(c.Name, c.Class) { Template = template, Tuid = c.Tuid != 0 && !doc.AllTuids().Contains(c.Tuid) ? c.Tuid : null };
+                        var source = region.ClassDefaults.Clue(c.Class) is { } classDefault ? FromDefault(classDefault, c.Settings) : GpSettingsSource.Template;
+                        clue = new GpClueSpec(c.Name, c.Class) { Template = template, Settings = source, Tuid = c.Tuid != 0 && !doc.AllTuids().Contains(c.Tuid) ? c.Tuid : null };
                     }
                     r = doc.AppendVolume(spec, clue, Random.Shared);
                     if (r.Applied && r.CreatedClue is { } createdClue && volume.BaseVolume.Clue is { } cl) handles.Track(cl, createdClue);
@@ -208,7 +295,12 @@ public static class GameplayStructure
                     }
                     var scale = controller is EntityCamera ? Vector3.One : controller.Transform.Scale;
                     r = doc.AppendController(new GpControllerSpec(made.Layer, controller.Name, ti.Index, controller.Transform.Translation,
-                        GameplayWriter.ToEuler(controller.Transform.Rotation), scale) { Tuid = given }, Random.Shared);
+                        GameplayWriter.ToEuler(controller.Transform.Rotation), scale)
+                    {
+                        Settings = region.ClassDefaults.Controller(controller.Controller.Class) is { } classDefault
+                            ? FromDefault(classDefault, controller.Controller.Settings) : GpSettingsSource.Template,
+                        Tuid = given,
+                    }, Random.Shared);
                     break;
                 }
                 default: continue;
@@ -293,6 +385,31 @@ public static class GameplayStructure
                 problems.Add($"{Label(e)}: class change not saved");
         }
 
+        // 8. Deletions: the records and everything that named them.
+        if (deleted.Count > 0)
+        {
+            var targets = new List<GpInstance>();
+            var found = new List<Entity>();
+            foreach (var e in deleted)
+                if (handles.Find(e) is { } at) { targets.Add(at); found.Add(e); }
+                else { problems.Add($"{Label(e)}: not found in the file, not deleted"); result.NotDeleted.Add(e); }
+            var r = targets.Count > 0 ? doc.Delete(targets) : null;
+            if (r != null && !r.Applied)
+            {
+                foreach (var p in r.Problems) problems.Add($"deletion not saved, {p}");
+                result.NotDeleted.AddRange(found);
+            }
+            else if (r != null)
+            {
+                foreach (var e in found) changes.Add($"{Label(e)}: deleted");
+                var details = r.Changes.Where(c => !c.EndsWith("deleted") && !c.Contains("renumbered in their layer")).ToList();
+                changes.AddRange(details.Take(30));
+                if (details.Count > 30) changes.Add($"{details.Count - 30} more references changed");
+                result.Shifts.AddRange(r.Shifts);
+                problems.Add($"deleted instances may be named in instances.lua and the level scripts, which are not updated");
+            }
+        }
+
         if (changes.Count == 0) return result;
         byte[] bytes = doc.Serialize();
         var invalid = doc.Validate();
@@ -301,11 +418,19 @@ public static class GameplayStructure
             problems.Add("structural edits not saved, the rebuilt gp_prius does not validate: " + string.Join("; ", invalid.Take(3)));
             changes.Clear();
             result.Shifts.Clear();
+            result.NotDeleted.Clear();
+            result.NotDeleted.AddRange(region.Deleted);
             return result;
         }
         result.Bytes = bytes;
         return result;
     }
+
+    /// <summary>Where a new instance's settings go when its class has a default (0x25030): as retail does for an instance
+    /// left alone, the shared block; once edited, a private copy of it (a write to the shared one would change every
+    /// instance of the class).</summary>
+    private static GpSettingsSource FromDefault(ClassDefaults.Default classDefault, byte[] settings) =>
+        settings.AsSpan().SequenceEqual(classDefault.Settings) ? GpSettingsSource.ClassDefault : GpSettingsSource.ClassDefaultCopy;
 
     /// <summary>Brings a group's member list (an Area's or a Scent's) from the loaded members to the current ones.</summary>
     private static void Membership(GpPriusDocument doc, IReadOnlyList<int> now, IReadOnlyList<int> loaded, GpKind group, GpInstance member,
