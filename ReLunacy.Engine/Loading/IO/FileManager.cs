@@ -172,6 +172,9 @@ public class FileManager : IDisposable
         return copy.ToArray();
     }
 
+    /// <summary>The entry paths of the level's archives (empty for a folder), for finding the scripts.</summary>
+    public IEnumerable<string> EntryPaths() => _archives.SelectMany(a => a.Paths);
+
     /// <summary>Closes the archive files, so a save can replace them (Windows will not replace an open file).
     /// Nothing may be read from them until <see cref="ReopenArchives"/>.</summary>
     public void ReleaseArchives()

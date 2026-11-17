@@ -108,13 +108,14 @@ public partial class EntityRegion
             .Concat(Zones.SelectMany(z => z.TieInstances.Entities));
 
     /// <summary>Something the files hold was renamed and no save has written it.</summary>
-    public bool HasRenames => NamedEntities().Any(e => e.IsRenamed) || Pods.Any(p => p.IsRenamed) || _areaRenames.Values.Any(r => r.Old != r.New);
+    public bool HasRenames => NamedEntities().Any(e => e.IsRenamed) || Pods.Any(p => p.IsRenamed) || _areaRenames.Values.Any(r => r.Old != r.New) || HasContainerRenames;
 
     /// <summary>What a save wrote: the files hold the names now.</summary>
     public void MarkNamesSaved()
     {
         foreach (var entity in NamedEntities()) entity.MarkNameSaved();
         foreach (int key in _areaRenames.Keys.ToList()) _areaRenames[key] = (_areaRenames[key].New, _areaRenames[key].New);
+        MarkContainerNamesSaved();
     }
 
     /// <summary>What the reference table names differently from the file: the loaded instances renamed in the editor.</summary>
@@ -132,5 +133,7 @@ public partial class EntityRegion
         for (int i = 0; i < Pods.Count && i < loadedPods; i++)
             if (Pods[i].LoadedName != null) yield return ("Pod", i, Pods[i].Name);
         foreach (var (handle, rename) in _areaRenames) yield return ("Area", handle, rename.New);
+        foreach (var (handle, rename) in _scentRenames) yield return ("Scent", handle, rename.New);
+        foreach (var (handle, rename) in _clueRenames) yield return ("Clue", handle, rename.New);
     }
 }

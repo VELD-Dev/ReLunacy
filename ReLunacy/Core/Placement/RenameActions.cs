@@ -53,4 +53,53 @@ public static class RenameActions
         UndoManager.Singleton.Push(LM.Get("GUI_Undo_Rename"), () => region.SetAreaName(handle, old), () => region.SetAreaName(handle, name));
         return true;
     }
+
+    // --- Layers, zones, Clues, Scents ------------------------------------------------------------------
+
+    /// <summary>Why the folder of a layer and/or a zone of that name can not be given <paramref name="name"/>, or null. Both are renamed together.</summary>
+    public static string? FolderProblem(EntityRegion region, string? layer, EntityZone? zone, string name)
+    {
+        if (layer != null && region.RenameLayerProblem(layer, name) is { } l) return l;
+        if (zone != null)
+            foreach (var r in ZoneRegions(zone))
+                if (r.RenameZoneProblem(r.Zones.First(z => z.ZoneTUID == zone.ZoneTUID), name) is { } z) return z;
+        return layer == null && zone == null ? "not renamable" : null;
+    }
+
+    private static IEnumerable<EntityRegion> ZoneRegions(EntityZone zone) =>
+        zone.IsNew ? EntityManager.Singleton.Regions.Where(r => r.Zones.Contains(zone))
+            : EntityManager.Singleton.Regions.Where(r => r.Zones.Any(z => z.ZoneTUID == zone.ZoneTUID));
+
+    /// <summary>Renames a layer and the zone of the same name (either may be null) as one undo step; a zone a few regions list follows in each.</summary>
+    public static bool RenameFolder(EntityRegion region, string? layer, EntityZone? zone, string name)
+    {
+        if (FolderProblem(region, layer, zone, name) != null) return false;
+        string? oldLayer = layer, oldZone = zone?.ZoneName;
+        if (oldLayer == name || oldZone == name) return false;
+        var zones = zone == null ? [] : ZoneRegions(zone).Select(r => (r, z: r.Zones.First(x => zone.IsNew ? ReferenceEquals(x, zone) : x.ZoneTUID == zone.ZoneTUID))).ToList();
+        if (layer != null) region.SetLayerName(layer, name);
+        foreach (var (r, z) in zones) r.SetZoneName(z, name);
+        UndoManager.Singleton.Push(LM.Get("GUI_Undo_Rename"),
+            () => { if (layer != null) region.SetLayerName(name, oldLayer!); foreach (var (r, z) in zones) r.SetZoneName(z, oldZone!); },
+            () => { if (layer != null) region.SetLayerName(oldLayer!, name); foreach (var (r, z) in zones) r.SetZoneName(z, name); });
+        return true;
+    }
+
+    public static bool RenameClue(EntityRegion region, EntityVolume volume, string name)
+    {
+        if (volume.BaseVolume.Clue is not { } clue || clue.Name == name || region.ClueRenameProblem(volume, name) != null) return false;
+        string old = clue.Name;
+        region.SetClueName(volume, name);
+        UndoManager.Singleton.Push(LM.Get("GUI_Undo_Rename"), () => region.SetClueName(volume, old), () => region.SetClueName(volume, name));
+        return true;
+    }
+
+    public static bool RenameScent(EntityRegion region, int handle, string name)
+    {
+        if (handle < 0 || handle >= region.ScentNames.Count || region.ScentNames[handle] == name || region.ScentRenameProblem(handle, name) != null) return false;
+        string old = region.ScentNames[handle];
+        region.SetScentName(handle, name);
+        UndoManager.Singleton.Push(LM.Get("GUI_Undo_Rename"), () => region.SetScentName(handle, old), () => region.SetScentName(handle, name));
+        return true;
+    }
 }

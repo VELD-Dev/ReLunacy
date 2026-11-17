@@ -90,7 +90,7 @@ public static class GameplayStructure
     /// <summary>Whether anything in the region may need the structural pass (cheap; no parsing).</summary>
     public static bool Candidate(EntityRegion region) =>
         region.Pods.Any(p => p.Changed || p.IsRenamed) || region.NewAreas.Any(a => !a.Written) || region.NewScents.Any(a => !a.Written) || region.DeletedGroups.Count > 0 || region.NewLayers.Any() || region.Deleted.Count > 0
-        || region.AreaRenames.Values.Any(r => r.Old != r.New) || Entities(region).Any(e => e.IsNew || e.IsRenamed || e.Assigned?.Dirty(region) == true || e is EntityPath { Version: > 0 });
+        || region.AreaRenames.Values.Any(r => r.Old != r.New) || region.ScentRenames.Values.Any(r => r.Old != r.New) || region.ClueRenames.Values.Any(r => r.Old != r.New) || Entities(region).Any(e => e.IsNew || e.IsRenamed || e.Assigned?.Dirty(region) == true || e is EntityPath { Version: > 0 });
 
     private static IEnumerable<Entity> Entities(EntityRegion region) =>
         region.MobyInstances.Entities.OfType<Entity>().Concat(region.Volumes.Entities).Concat(region.Paths.Entities)
@@ -431,6 +431,23 @@ public static class GameplayStructure
             if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"Area {oldName}: rename not saved, {p}"); continue; }
             changes.Add($"Area {oldName}: renamed {newName}");
         }
+        foreach (var (handle, (oldName, newName)) in region.ScentRenames.Where(r => r.Value.Old != r.Value.New && !region.IsGroupDeleted("Scent", r.Key)))
+        {
+            int scentAt = GroupAt(GpKind.Scent, handle);
+            if (scentAt < 0 || scentAt >= doc.Count(GpKind.Scent)) { problems.Add($"Scent {oldName}: rename not saved, it is not in the file"); continue; }
+            var r = doc.Rename(new GpInstance(GpKind.Scent, scentAt), newName);
+            if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"Scent {oldName}: rename not saved, {p}"); continue; }
+            changes.Add($"Scent {oldName}: renamed {newName}");
+        }
+        foreach (var (index, (oldName, newName)) in region.ClueRenames.Where(r => r.Value.Old != r.Value.New))
+        {
+            var owner = region.Volumes.Entities.OfType<EntityVolume>().FirstOrDefault(v => v.BaseVolume.Clue?.Index == index);
+            if (owner == null || region.IsDeleted(owner)) continue;
+            if (handles.Find(owner.BaseVolume.Clue!) is not { } clueAt) { problems.Add($"Clue {oldName}: rename not saved, it is not in the file"); continue; }
+            var r = doc.Rename(clueAt, newName);
+            if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"Clue {oldName}: rename not saved, {p}"); continue; }
+            changes.Add($"Clue {oldName}: renamed {newName}");
+        }
 
         // 8. Deletions: the records and everything that named them. Groups are the file's own (a new one deleted before a save was
         // not written above); a group's place is the one the editor loaded it at, which the appends above did not move.
@@ -472,8 +489,6 @@ public static class GameplayStructure
                 changes.AddRange(details.Take(30));
                 if (details.Count > 30) changes.Add($"{details.Count - 30} more references changed");
                 result.Shifts.AddRange(r.Shifts);
-                if (found.Count > 0) problems.Add($"deleted instances may be named in instances.lua and the level scripts, which are not updated");
-                if (groupNames.Count > 0) problems.Add($"deleted groups may be named in the level scripts, which are not updated");
             }
         }
 

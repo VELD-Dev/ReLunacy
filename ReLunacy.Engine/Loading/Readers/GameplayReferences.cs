@@ -146,6 +146,14 @@ public sealed class GameplayReferences
         return k < 0 || _entries[k].Count == 0 ? -1 : _entries[k].Values.Max(e => e.Layer);
     }
 
+    /// <summary>The layer an instance is in as the editor has it (a moved or new one in its new layer); -1 when there is none.</summary>
+    public int LayerOf(string kind, int instance)
+    {
+        Fresh();
+        int k = _kinds.FindIndex(x => x.Kind == kind);
+        return k < 0 || !_entries[k].TryGetValue(instance, out var entry) ? -1 : entry.Layer;
+    }
+
     /// <summary>How many instances of the kind the file has; the handle of the first one made in the editor.</summary>
     public int LoadedCount(string kind)
     {

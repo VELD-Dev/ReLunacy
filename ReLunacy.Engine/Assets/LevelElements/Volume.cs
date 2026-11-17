@@ -82,6 +82,9 @@ public class Volume : IVolumeData
 /// <see cref="ClueClasses"/> gives it, and its settings.</summary>
 public sealed record VolumeClue(uint Class, string Name, string ClassName)
 {
+    /// <summary>The Clue instance's name; a rename changes it in place (the Clue object is compared by identity for changes).</summary>
+    public string Name { get; set; } = Name;
+
     /// <summary>The Clue instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
     public ulong Tuid { get; init; }
 

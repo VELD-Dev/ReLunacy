@@ -207,18 +207,25 @@ public static partial class GameplayWriter
             {
                 string name = $"{region.RegionName}/gp_prius.dat";
                 if (files.ReadOriginal(name) is not { } original) { plan.Problems.Add($"{name}: not found"); continue; }
+                // Renamed layers first: everything below finds layers by the names the editor holds.
+                var layerChanges = new List<string>();
+                var layerProblems = new List<string>();
+                original = RenameLayers(files, region, original, plan, ref gameplayNow, layerChanges, layerProblems);
                 var structure = GameplayStructure.Apply(original, files.ReadOriginal($"{region.RegionName}/region.dat"), region,
-                    files.ReadOriginal($"{region.RegionName}/metadata.dat"), gameplayNow ?? files.ReadOriginal("gameplay.dat"));
+                    plan.Entries.TryGetValue($"{region.RegionName}/metadata.dat", out var renamedMeta) ? renamedMeta : files.ReadOriginal($"{region.RegionName}/metadata.dat"), gameplayNow ?? files.ReadOriginal("gameplay.dat"));
                 if (structure?.Metadata is { } metadata) plan.Entries[$"{region.RegionName}/metadata.dat"] = metadata;
                 if (structure?.Gameplay is { } gameplayLayers) gameplayNow = gameplayLayers;
                 byte[] basis = structure?.Bytes ?? original;
                 // Deleted instances the structural pass did not take out are still in the file: the patch counts their records.
                 IReadOnlyCollection<Entity>? undeleted = region.Deleted.Count == 0 ? null : structure?.Applied == true ? structure.NotDeleted : region.Deleted;
                 var (patched, changes, problems) = Patch(basis, region, afterSave, skipPods: structure != null, undeleted: undeleted);
-                var allChanges = new List<string>(structure?.Changes ?? []);
+                var allChanges = new List<string>(layerChanges);
+                allChanges.AddRange(structure?.Changes ?? []);
                 allChanges.AddRange(changes);
-                var allProblems = new List<string>(structure?.Problems ?? []);
+                var allProblems = new List<string>(layerProblems);
+                allProblems.AddRange(structure?.Problems ?? []);
                 allProblems.AddRange(problems);
+                patched = RemoveDeletedLayers(files, region, patched, plan, ref gameplayNow, allChanges, allProblems);
                 if (structure?.Shifts is { Count: > 0 } shifts)
                 {
                     plan.ShiftedHandles += shifts.Count;
@@ -226,8 +233,8 @@ public static partial class GameplayWriter
                     if (shifts.Count > 20) allChanges.Add($"{shifts.Count - 20} more handles shifted");
                 }
                 if (structure?.Applied == true) { plan.Structural = true; goneFromFiles.AddRange(structure.DeletedPods); }
-                if (ScriptNames(files, region) is { } scripted) allProblems.Add(scripted);
                 Add(region.RegionName, name, patched, allChanges, allProblems);
+                if (allChanges.Count > 0 && !patched.AsSpan().SequenceEqual(original)) AddInstancesLua(files, region, original, patched, plan);
                 if (allChanges.Count > 0 && (structure?.Applied == true || patched.Length != original.Length))
                     try { budgeted.Add(GpPriusDocument.Parse(patched)); }
                     catch (Exception e) { plan.Problems.Add($"{region.RegionName}: the new gp_prius does not parse ({e.Message})"); }
@@ -347,8 +354,9 @@ public static partial class GameplayWriter
             var imported = RegisterPendingClasses(regions, Read, plan, current, afterSave);
             // Deleted Ties go first: the appends below find their sources in what is left.
             var deletes = new List<TieDeleteRequest>();
+            var zoneDeletes = ZoneDeletes(regions, plan);
             foreach (var region in regions)
-                foreach (var (tie, zone) in region.DeletedTies)
+                foreach (var (tie, zone) in region.DeletedTies.Where(t => !zoneDeletes.Zones.Contains(t.Zone.ZoneTUID)))
                 {
                     var moved = tie.PlacementMatrix * (Matrix4x4.Invert(tie.SavedMatrix, out var savedInverse) ? savedInverse : Matrix4x4.Identity) * tie.Transform.GetMatrix();
                     var names = regions.Where(r => r.Zones.Any(z => z.ZoneTUID == zone.ZoneTUID)).Select(r => r.RegionName).ToList();
@@ -360,6 +368,15 @@ public static partial class GameplayWriter
                 plan.Changes.AddRange(gone.Changes.Select(c => $"zones: {c}"));
                 plan.Problems.AddRange(gone.Problems.Select(p => $"zones: {p}"));
                 plan.Problems.AddRange(gone.Refused.Select(r => $"Tie {r.Request.Name}: not deleted, {r.Reason}"));
+                foreach (var (name, bytes) in gone.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
+                if (gone.Deleted.Count > 0) plan.Structural = true;
+            }
+            if (zoneDeletes.Requests.Count > 0)
+            {
+                var gone = TieAppender.DeleteZones(Read, zoneDeletes.Requests);
+                plan.Changes.AddRange(gone.Changes.Select(c => $"zones: {c}"));
+                plan.Problems.AddRange(gone.Problems.Select(p => $"zones: {p}"));
+                plan.Problems.AddRange(gone.Refused.Select(r => $"zone {r.Request.Name}: not deleted, {r.Reason}"));
                 foreach (var (name, bytes) in gone.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
                 if (gone.Deleted.Count > 0) plan.Structural = true;
             }
@@ -387,6 +404,22 @@ public static partial class GameplayWriter
                 plan.Problems.AddRange(named.Refused.Select(r => $"Tie {r.Request.OldName}: rename not saved, {r.Reason}"));
                 foreach (var (name, bytes) in named.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
                 if (named.Changes.Count > 0) plan.Structural = true;
+            }
+
+            // Renamed zones (region.dat), after the Ties: a new zone is already in region.dat under its name.
+            var zoneRenames = new List<ZoneRenameRequest>();
+            foreach (var region in regions)
+                foreach (var zone in region.Zones.Where(z => z.IsRenamed))
+                    if (zoneRenames.All(r => r.ZoneTuid != zone.ZoneTUID))
+                        zoneRenames.Add(new ZoneRenameRequest(zone.ZoneTUID, zone.LoadedName!, zone.ZoneName,
+                            regions.Where(r => r.Zones.Any(z => z.ZoneTUID == zone.ZoneTUID)).Select(r => r.RegionName).ToList()));
+            if (zoneRenames.Count > 0)
+            {
+                var named = TieAppender.RenameZones(Read, zoneRenames);
+                plan.Changes.AddRange(named.Changes.Select(c => $"zones: {c}"));
+                plan.Problems.AddRange(named.Problems.Select(p => $"zones: {p}"));
+                plan.Problems.AddRange(named.Refused.Select(r => $"zone {r.Request.OldName}: rename not saved, {r.Reason}"));
+                foreach (var (name, bytes) in named.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
             }
         }
         return plan;

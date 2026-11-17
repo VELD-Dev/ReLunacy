@@ -183,13 +183,14 @@ public static class InstancePlacer
         }));
     }
 
-    /// <summary>Delete on a zone made in the editor and not saved: its new Ties go with it. The files' zones are refused.</summary>
+    /// <summary>Delete on a zone: its Ties go with it. One a save wrote (or the level's own) leaves the files at the next save.</summary>
     public static void DeleteZone(EntityRegion region, EntityZone zone)
     {
         if (LunaWindow.Instance.IsAnyFrameOpened<Frames.Modals.ConfirmDeleteModal>()) return;
         var problem = region.DeleteZoneProblem(zone);
         var also = region.ZoneContents(zone).Select(t => $"Tie {t.Name}").ToList();
-        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(LM.Get("GUI_DeleteContainer_Zone", zone.ZoneName), [], also, [], () =>
+        var warnings = zone.IsNew ? [] : new List<string> { LM.Get("GUI_DeleteContainer_SavedZone") };
+        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(LM.Get("GUI_DeleteContainer_Zone", zone.ZoneName), [], also, warnings, () =>
         {
             var state = region.DeleteZone(zone);
             AfterChange(state.Entities);
@@ -200,15 +201,20 @@ public static class InstancePlacer
         }, problem));
     }
 
-    /// <summary>Delete on a layer made in the editor and not saved (the last one): the new instances and groups in it go with it.</summary>
+    /// <summary>Delete on a layer: its instances and groups go with it. One a save wrote (or the level's own) leaves the files at the next save.</summary>
     public static void DeleteLayer(EntityRegion region, string layer)
     {
         if (LunaWindow.Instance.IsAnyFrameOpened<Frames.Modals.ConfirmDeleteModal>()) return;
         var problem = region.DeleteLayerProblem(layer);
-        var (instances, groups) = region.LayerContents(layer);
+        var (instances, groups) = problem == null ? region.LayerContents(layer) : ([], []);
         var also = instances.Select(e => $"{e.GetType().Name.Replace("Entity", "")} {e.Name}")
             .Concat(groups.Select(g => $"{g.Kind} {region.GroupName(g.Kind, g.Handle)}")).ToList();
-        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(LM.Get("GUI_DeleteContainer_Layer", layer), [], also, [], () =>
+        var references = problem != null ? [] : region.PlanDelete(instances.Where(e => !e.IsNew).ToList()).References
+            .Concat(region.PlanDeleteGroups(groups).References).Distinct().ToList();
+        var warnings = new List<string>();
+        if (region.IsLayerSaved(layer)) warnings.Add(LM.Get("GUI_DeleteContainer_SavedLayer"));
+        if (groups.Any(g => !region.IsGroupNew(g.Kind, g.Handle))) warnings.Add(LM.Get("GUI_DeleteGroup_Scripts"));
+        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(LM.Get("GUI_DeleteContainer_Layer", layer), references, also, warnings, () =>
         {
             var state = region.DeleteLayer(layer);
             AfterChange(state.Entities);

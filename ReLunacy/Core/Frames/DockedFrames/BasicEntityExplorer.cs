@@ -81,7 +81,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         public bool IsGroup;
         /// <summary>A Pod's or an Area's folder (grouped by Pod or Area): its region and its place in its table, which a rename needs.</summary>
         public EntityRegion? GroupRegion;
-        public int PodIndex = -1, AreaIndex = -1;
+        public int PodIndex = -1, AreaIndex = -1, ScentIndex = -1;
         /// <summary>A Pod's, Area's or Scent's folder: what Delete takes out. A zone's or a layer's folder: its region and the zone or the layer's name.</summary>
         public GroupRef? Group;
         public EntityRegion? ContainerRegion;
@@ -354,12 +354,12 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         string icon = node.Icon == Icons.Folder && nowOpen ? Icons.FolderOpen : node.Icon;
         ImGui.TextColored(node.IconColour, icon);
         ImGui.SameLine();
-        if (_renaming == node.Key && node.GroupRegion != null) DrawRenameBox(node.Key, node.GroupRegion, node);
+        if (_renaming == node.Key && FolderRegion(node) is { } renameRegion) DrawRenameBox(node.Key, renameRegion, node);
         else
         {
             ImGui.TextUnformatted(node.Label);
             // A Pod's or an Area's name, by a double-click on it.
-            if (node.GroupRegion != null && ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) BeginRename(node);
+            if (FolderRegion(node) != null && ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) BeginRename(node);
         }
         ImGui.SameLine();
         ImGui.TextDisabled(node.Count.ToString("N0"));
@@ -372,9 +372,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private void FolderMenu(Node node)
     {
         if (!ImGui.BeginPopupContextItem($"folder_menu_{node.Key}")) return;
-        if (node.GroupRegion != null)
+        if (FolderRegion(node) is { } menuRegion)
         {
-            bool readOnly = node.GroupRegion.IsOldEngine;
+            bool readOnly = menuRegion.IsOldEngine;
             if (ImGui.MenuItem(LM.Get("GUI_Rename"), "F2", false, !readOnly)) BeginRename(node);
             if (readOnly && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
             ImGui.Separator();
@@ -399,14 +399,16 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         bool group = node.Group is { } g && node.ContainerRegion != null && node.ContainerRegion.CanDeleteGroup(g.Kind, g.Handle);
         bool container = node.Group == null && node.ContainerRegion != null && (node.Zone != null || node.LayerName != null);
         if (!group && !container) return;
-        if (ImGui.MenuItem(LM.Get("GUI_Delete_Menu"), "Del")) DeleteNode(node);
+        bool both = container && node.Zone != null && node.LayerName != null;
+        if (ImGui.MenuItem(LM.Get(both ? "GUI_Delete_MenuZone" : "GUI_Delete_Menu"), "Del")) DeleteNode(node);
+        if (both && ImGui.MenuItem(LM.Get("GUI_Delete_MenuLayer"))) DeleteNode(node, layer: true);
         ImGui.Separator();
     }
 
-    private static void DeleteNode(Node node)
+    private static void DeleteNode(Node node, bool layer = false)
     {
         if (node.Group is { } g && node.ContainerRegion != null) InstancePlacer.DeleteGroups(node.ContainerRegion, [g]);
-        else if (node.ContainerRegion is { } region && node.Zone != null) InstancePlacer.DeleteZone(region, node.Zone);
+        else if (!layer && node.ContainerRegion is { } region && node.Zone != null) InstancePlacer.DeleteZone(region, node.Zone);
         else if (node.ContainerRegion is { } layerRegion && node.LayerName != null) InstancePlacer.DeleteLayer(layerRegion, node.LayerName);
     }
 
@@ -557,6 +559,15 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             SetVisible(entity.selected ? SelectionManager.Singleton.Selection : [entity], !entity.allowRender);
     }
 
+    /// <summary>The region a folder can be renamed in: a Pod's, Area's or Scent's, a layer's or a zone's.</summary>
+    private static EntityRegion? FolderRegion(Node node) => node.GroupRegion ?? (node.Zone != null || node.LayerName != null ? node.ContainerRegion : null);
+
+    private static string FolderName(Node node, EntityRegion region) =>
+        node.PodIndex >= 0 ? region.Pods[node.PodIndex].Name
+        : node.ScentIndex >= 0 ? (node.ScentIndex < region.ScentNames.Count ? region.ScentNames[node.ScentIndex] : "")
+        : node.AreaIndex >= 0 ? region.AreaNames[node.AreaIndex]
+        : node.Zone?.ZoneName ?? node.LayerName ?? "";
+
     /// <summary>Starts renaming an instance (its first row in the tree) or a Pod's or Area's folder, if it can be renamed.</summary>
     private void BeginRename(object target)
     {
@@ -567,9 +578,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
                 _renameText = entity.Name;
                 _scrollTo = entity;
                 break;
-            case Node { GroupRegion: { IsOldEngine: false } region } folder:
+            case Node folder when FolderRegion(folder) is { IsOldEngine: false } region:
                 _renaming = folder.Key;
-                _renameText = folder.PodIndex >= 0 ? region.Pods[folder.PodIndex].Name : region.AreaNames[folder.AreaIndex];
+                _renameText = FolderName(folder, region);
                 break;
             default: return;
         }
@@ -587,14 +598,15 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         {
             Entity entity => RenameActions.Problem(entity, _renameText),
             Node { PodIndex: >= 0 } pod => region?.PodRenameProblem(region.Pods[pod.PodIndex], _renameText),
-            Node area => region?.AreaRenameProblem(area.AreaIndex, _renameText),
+            Node { ScentIndex: >= 0 } scent => region?.ScentRenameProblem(scent.ScentIndex, _renameText),
+            Node { AreaIndex: >= 0 } area => region?.AreaRenameProblem(area.AreaIndex, _renameText),
+            Node folder when region != null => RenameActions.FolderProblem(region, folder.LayerName, folder.Zone, _renameText),
             _ => "not renamable",
         };
         bool same = target switch
         {
             Entity entity => entity.Name == _renameText,
-            Node { PodIndex: >= 0 } pod => region!.Pods[pod.PodIndex].Name == _renameText,
-            Node area => region!.AreaNames[area.AreaIndex] == _renameText,
+            Node folder => FolderName(folder, region!) == _renameText,
             _ => true,
         };
         if (ImGui.IsItemActive() && !same)
@@ -610,7 +622,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
                 {
                     case Entity entity: RenameActions.Rename(entity, _renameText); break;
                     case Node { PodIndex: >= 0 } pod: RenameActions.RenamePod(region!, region!.Pods[pod.PodIndex], _renameText); break;
-                    case Node area: RenameActions.RenameArea(region!, area.AreaIndex, _renameText); break;
+                    case Node { ScentIndex: >= 0 } scent: RenameActions.RenameScent(region!, scent.ScentIndex, _renameText); break;
+                    case Node { AreaIndex: >= 0 } area: RenameActions.RenameArea(region!, area.AreaIndex, _renameText); break;
+                    case Node folder: RenameActions.RenameFolder(region!, folder.LayerName, folder.Zone, _renameText); break;
                 }
             _renaming = null;
             _dirty = true;
@@ -746,11 +760,11 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             if (layer == null) return Folder(regionNode, LM.Get(LabelOf(kind)), IconOf(kind), ColourOf(kind), 1);
             var folder = Folder(regionNode, layer, Icons.Folder, FolderColour, 0);
             // A layer made in the editor can be deleted; the folder of a zone of the same name is the zone's.
-            if (folder.Zone == null && region.NewLayers.Contains(layer)) { folder.ContainerRegion = region; folder.LayerName = layer; folder.Keep = true; }
+            if (folder.Zone == null && !region.IsOldEngine && region.Layers.Contains(layer)) { folder.ContainerRegion = region; folder.LayerName = layer; folder.Keep = true; }
             return folder;
         }
 
-        foreach (string layer in region.NewLayers) Layer(layer, Kinds.Mobys);
+        foreach (string layer in region.LiveLayers) Layer(layer, Kinds.Mobys);
         // Zones first, so a layer's folder is where its zone is.
         foreach (var zone in region.Zones)
         {
@@ -858,6 +872,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             {
                 var folder = Folder(regionNode, scent < region.ScentNames.Count ? region.ScentNames[scent] : $"#{scent}", Icons.LayerGroup, FolderColour, 0, $"scent#{scent}");
                 folder.Group = new GroupRef("Scent", scent);
+                folder.GroupRegion = region;
+                folder.ScentIndex = scent;
                 folder.ContainerRegion = region;
                 Add(folder, entity, Kinds.Volumes, terms);
             }
@@ -865,7 +881,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         foreach (var made in region.NewScents.Where(a => !region.IsGroupDeleted("Scent", a.Handle)))
         {
             var folder = Folder(regionNode, made.Name, Icons.LayerGroup, FolderColour, 0, $"scent#{made.Handle}");
-            (folder.ContainerRegion, folder.Group, folder.Keep) = (region, new GroupRef("Scent", made.Handle), true);
+            (folder.GroupRegion, folder.ScentIndex, folder.ContainerRegion, folder.Group, folder.Keep) = (region, made.Handle, region, new GroupRef("Scent", made.Handle), true);
         }
     }
 

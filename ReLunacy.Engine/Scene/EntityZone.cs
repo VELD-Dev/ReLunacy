@@ -21,6 +21,21 @@ public class EntityZone : IDisposable
     public bool allowRender = true;
 
     public string ZoneName;
+
+    /// <summary>The name the file holds, set by the first <see cref="Rename"/>; null while as loaded.</summary>
+    public string? LoadedName { get; private set; }
+
+    /// <summary>The name of a zone the files hold was changed and no save has written it.</summary>
+    public bool IsRenamed => !IsNew && LoadedName != null && LoadedName != ZoneName;
+
+    public void Rename(string name)
+    {
+        LoadedName ??= ZoneName;
+        ZoneName = name;
+        foreach (var chunk in Navmeshes) chunk.ZoneName = name;
+    }
+
+    public void MarkNameSaved() { if (LoadedName != null) LoadedName = ZoneName; }
     public ulong ZoneTUID;
 
     /// <summary>Made in the editor and not saved yet: the file has no such zone, and a save makes it with its first new

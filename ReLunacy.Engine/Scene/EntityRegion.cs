@@ -39,6 +39,8 @@ public partial class EntityRegion : IDisposable
     public IReadOnlyList<string> Layers => _layers;
     private readonly List<string> _layers;
     private readonly int _fileLayers;
+    /// <summary>The names of the layers the files hold, as the last load or save left them.</summary>
+    private readonly List<string> _savedLayers;
 
     /// <summary>The region's instances as references name them (see <see cref="Region.References"/>).</summary>
     public readonly Loading.Readers.GameplayReferences References;
@@ -66,6 +68,7 @@ public partial class EntityRegion : IDisposable
         _assetManager = assetManager;
         _layers = [.. region.Layers];
         _fileLayers = _layers.Count;
+        _savedLayers = [.. _layers];
         References = region.References;
         ClassDefaults = ClassDefaults.From(region);
 

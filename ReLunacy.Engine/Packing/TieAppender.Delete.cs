@@ -61,7 +61,7 @@ public static partial class TieAppender
         return result;
     }
 
-    private static void DeleteAll(Level level, IReadOnlyList<TieDeleteRequest> requests, TieDeleteResult result)
+    private static void DeleteAll(Level level, IReadOnlyList<TieDeleteRequest> requests, TieDeleteResult result, bool finish = true)
     {
         byte[] zones = level.Get("zones.dat") ?? throw new Refusal("zones.dat not found");
         byte[] lookup = level.Get("assetlookup.dat") ?? throw new Refusal("assetlookup.dat not found");
@@ -138,8 +138,11 @@ public static partial class TieAppender
         foreach (var name in planetFiles)
             result.Problems.Add($"{name}: planet collision table (0x8200) keeps the deleted Ties' records, untested in game");
 
-        UpdateToc(level, result.Problems);
-        foreach (string name in level.Changed) result.Files[name] = level.Files[name];
+        if (finish)
+        {
+            UpdateToc(level, result.Problems);
+            foreach (string name in level.Changed) result.Files[name] = level.Files[name];
+        }
         foreach (var d in doomed)
         {
             int n = removedBy.GetValueOrDefault(d);

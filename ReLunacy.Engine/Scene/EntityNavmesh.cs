@@ -28,7 +28,7 @@ public sealed class EntityNavmesh : Entity
     public NavmeshChunk Chunk { get; }
 
     /// <summary>The zone this chunk belongs to, for the hierarchy's grouping and the inspector.</summary>
-    public string ZoneName { get; }
+    public string ZoneName { get; internal set; }
 
     /// <summary>Its index in the zone's chunk table, which is what the edges' neighbour fields name.</summary>
     public int ChunkIndex { get; }

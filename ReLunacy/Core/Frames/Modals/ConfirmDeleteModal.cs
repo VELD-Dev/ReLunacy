@@ -29,7 +29,6 @@ public sealed class ConfirmDeleteModal : Modal
         if (_problem != null)
         {
             ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), LM.Get("GUI_DeleteContainer_Refused", _problem));
-            ImGui.TextDisabled(LM.Get("GUI_DeleteContainer_SavedHint"));
             if (ImGui.Button(LM.Get("GUI_Common_CloseWord"))) isOpen = false;
             return;
         }

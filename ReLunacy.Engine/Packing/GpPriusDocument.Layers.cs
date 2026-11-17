@@ -97,7 +97,7 @@ public sealed class GpLayerAddResult
 /// order with every bit set (every A Crack in Time level, three Into the Nexus levels). Levels with several regions
 /// share layers between regions by name and are refused.
 /// </summary>
-public static class GpLayers
+public static partial class GpLayers
 {
     public static GpLayerAddResult Add(GpPriusDocument doc, byte[] metadataDat, byte[] gameplayDat, string name)
     {
