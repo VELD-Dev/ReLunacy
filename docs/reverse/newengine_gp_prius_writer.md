@@ -239,3 +239,15 @@ ACiT 22 levels: all scenarios pass (volume in a list 16/16); A4O 81 regions and 
 users refused as above. Mutation check: with the handle rewrite disabled the probe fails. `dev/tools/delsaveprobe`:
 editor delete of a referenced Moby, a Clue volume, a path and a controller on space_sector_1 and krell_canyon, undo leaves
 nothing to save, Save to a copy, re-read: counts -1 each, surviving relations identical by TUID. Not tested in game.
+
+
+## New Pods and Areas
+
+`GpPriusDocument.AppendGroup(kind, layer, name)` appends an empty Pod or Area (record 0x10 zero bytes, null list pointers,
+metadata with TUID, name and layer) at the end of the layer's run. Pods and Areas are numbered by table position (Clue
+references name them by (layer, index in layer); volumes' and paths' Area membership and the editor by table index), so the
+layer must be at or after the last layer holding the kind (`GroupLayerProblem`); an earlier one would renumber later groups.
+Members are added with `AddMember` afterwards; gameplay.dat's Pod / Area budgets are raised by `GameplayBudgets`.
+Retail moons: layer `gameplay_<id>` holds `SEGMENT_SS<sector>_<ID>` (crates, enemies, breakables, Zoni; moon1x's also the landing
+beam) plus `<id>_enemies`, `<id>_antennae`... Pods and `<id>_apNN_homearea` / `_firepoints` Areas of volumes. A segment is live
+only through level.csv's `Pod` row (name match, `Type` SEG_MOON, pools), which is outside the level folder.

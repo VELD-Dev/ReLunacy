@@ -115,6 +115,37 @@ public static class InstancePlacer
         return created;
     }
 
+    /// <summary>Makes a Pod (<paramref name="area"/> false) or an Area in the layer, with the selected instances in it (Mobys in a Pod,
+    /// volumes and paths in an Area), as one undo step. Null, with <paramref name="problem"/>, when it cannot be made.</summary>
+    public static bool CreateGroup(bool area, string name, int layer, out string? problem)
+    {
+        problem = null;
+        if (!Available || TargetRegion() is not { } region) { problem = "no region"; return false; }
+        var members = SelectionManager.Singleton.Selection
+            .Where(e => area ? e is EntityVolume or EntityPath : e is EntityMoby).Where(region.Contains).ToList();
+        var before = region.Snapshot(members);
+        EntityPod? pod = null;
+        NewArea? made = null;
+        if (area) { made = region.CreateArea(name, layer, out problem); if (made == null) return false; region.AddArea(made); }
+        else { pod = region.CreatePod(name, layer, out problem); if (pod == null) return false; region.AddPod(pod); }
+        foreach (var member in members)
+            if (pod != null) pod.Add((EntityMoby)member);
+            else region.SetAreas(member, region.AreasOf(member).Append(made!.Handle));
+        var after = region.Snapshot(members);
+        UndoManager.Singleton.Push(LM.Get("GUI_Undo_CreateGroup"),
+            () =>
+            {
+                before.Restore();
+                if (pod != null) region.RemovePod(pod); else region.RemoveArea(made!);
+            },
+            () =>
+            {
+                if (pod != null) region.AddPod(pod); else region.AddArea(made!);
+                after.Restore();
+            });
+        return true;
+    }
+
     /// <summary>The controller classes the region has, each with the controller its settings are copied from, cameras
     /// together with the class they are of.</summary>
     public static IReadOnlyList<(GameplayController Template, string Label, bool IsCamera)> ControllerClasses(EntityRegion region)
@@ -135,7 +166,7 @@ public static class InstancePlacer
     }
 
     /// <summary>Delete: new instances go at once; instances of the files, after the confirmation that lists who names them
-    /// (<see cref="Frames.Modals.DeleteInstancesModal"/>); anything else (Ties) is refused there.</summary>
+    /// (<see cref="Frames.Modals.DeleteInstancesModal"/>); anything else is refused there.</summary>
     public static void DeleteSelection()
     {
         var selection = SelectionManager.Singleton.Selection.Select(e => e is EntityPathPoint p ? p.Owner : e).Distinct().ToList();

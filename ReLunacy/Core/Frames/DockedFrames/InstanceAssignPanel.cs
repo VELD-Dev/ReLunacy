@@ -22,7 +22,8 @@ public static class InstanceAssignPanel
     public static void Draw(Entity active)
     {
         var region = EntityManager.Singleton.Regions.FirstOrDefault(r => r.Contains(active));
-        if (region == null) return;
+        // The old engine's instances are read only: nothing writes an assignment back.
+        if (region == null || region.IsOldEngine) return;
 
         // Only the active instance's region: a Pod or Area lists its own region's instances.
         var picked = SelectionManager.Singleton.Count is > 1 and <= SelectionScanLimit

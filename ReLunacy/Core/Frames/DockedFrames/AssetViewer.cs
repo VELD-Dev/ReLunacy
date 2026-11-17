@@ -299,6 +299,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         RebuildSelectedAssetMaterials();
         mobyAssets.Clear();
         tieAssets.Clear();
+        _tieCollisions.Clear();
+        _collisionMaterialText = null;
         // UFragAsset holds an IUFrag owned by the level being torn down, and the preview borrows the
         // scene entity's mesh - both die with the level, so the list must not outlive it.
         ufragAssets.Clear();
@@ -875,6 +877,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                     _vkPreview.ClearColour = Program.Settings.AssetViewerBackground;
                     UpdateEffectPreview(deltaTime);
                     _vkPreview.SetDebugLines(_debugLines);
+                    ApplyPreviewCollisionSettings();
                     _vkPreview.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
                     _vkPreview.Frame(
                         Camera.GetView(), Camera.GetProjection(),
@@ -1861,6 +1864,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             overlay.EndPanel();
         }
 
+        DrawCollisionControls(overlay);
+
         overlay.ToggleButton(Icons.Palette, ref showBackgroundControls, LM.Get("GUI_Frame_AssetViewer_Background"));
         if (showBackgroundControls && overlay.BeginPanel("background", new Vector2(280f, 0f)))
         {
@@ -1949,6 +1954,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             LunaLog.LogError($"[AssetViewer] preview init failed: {e.Message}");
             _vkPreview = null;
         }
+        UploadPreviewCollision();
     }
 
     /// <summary>Walks the selected asset's drawable meshes, handing each one its world transform and
@@ -1977,7 +1983,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         {
             var meshes = selectedTieAsset.Value.Model.Meshes;
             for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
-                add(meshes[meshIndex], Matrix4x4.Identity, (uint)meshIndex);
+                add(meshes[meshIndex], HidePreviewMesh ? Matrix4x4.CreateScale(0f) : Matrix4x4.Identity, (uint)meshIndex);
         }
         else if (selectedUFragAsset == null)
         {

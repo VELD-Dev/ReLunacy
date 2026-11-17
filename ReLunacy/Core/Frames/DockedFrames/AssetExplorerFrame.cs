@@ -119,8 +119,23 @@ public sealed class AssetExplorerFrame : DockedFrame
     {
         var shown = items.Where(i => (_search.Length == 0 || i.Name.Contains(_search, StringComparison.OrdinalIgnoreCase))
                                      && (!_favouritesOnly || IsFavourite(kind, i.Id))).ToList();
+        
+        // Fast sorting
+        var sorted = shown.Where(i => IsFavourite(kind, i.Id)).Concat(shown.Where(i => !IsFavourite(kind, i.Id))).ToList();
+        
+        // Favorites sorted first
+        // Slow sorting
+        /*
+        shown.Sort((a, b) =>
+            IsFavourite(kind, a.Id) && !IsFavourite(kind, b.Id)
+            ? 1
+            : !IsFavourite(kind, a.Id) && IsFavourite(kind, b.Id)
+            ? -1
+            : 0
+        );*/
+        
         if (!ImGui.BeginChild($"##grid_{kind}", ImGui.GetContentRegionAvail(), ImGuiChildFlags.None)) { ImGui.EndChild(); return; }
-        if (shown.Count == 0)
+        if (sorted.Count == 0)
         {
             ImGui.TextDisabled(LM.Get("GUI_AssetExplorer_None"));
             ImGui.EndChild();
@@ -131,16 +146,16 @@ public sealed class AssetExplorerFrame : DockedFrame
         float tileWidth = ThumbSize + Pad * 2f;
         float tileHeight = ThumbSize + Pad * 2f + ImGui.GetTextLineHeight();
         int columns = Math.Max(1, (int)((ImGui.GetContentRegionAvail().X + spacing.X) / (tileWidth + spacing.X)));
-        int rows = (shown.Count + columns - 1) / columns;
+        int rows = (sorted.Count + columns - 1) / columns;
         // Only the rows on screen are drawn, so only their thumbnails are asked for.
         var clipper = new ImGuiListClipper();
         clipper.Begin(rows, tileHeight + spacing.Y);
         while (clipper.Step())
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
-                for (int column = 0; column < columns && row * columns + column < shown.Count; column++)
+                for (int column = 0; column < columns && row * columns + column < sorted.Count; column++)
                 {
                     if (column > 0) ImGui.SameLine();
-                    DrawTile(kind, shown[row * columns + column], new Vector2(tileWidth, tileHeight), placeable);
+                    DrawTile(kind, sorted[row * columns + column], new Vector2(tileWidth, tileHeight), placeable);
                 }
         clipper.End();
         ImGui.EndChild();

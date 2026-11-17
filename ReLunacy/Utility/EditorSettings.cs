@@ -193,6 +193,11 @@ public class EditorSettings
     // Adjustable from the overlay toolbar over the preview.
     public float AssetViewerFarPlane;
 
+    // The asset viewer's Tie collision overlay: shown, shown without the render mesh, coloured by material.
+    public bool AssetViewerCollision;
+    public bool AssetViewerCollisionOnly;
+    public bool AssetViewerCollisionByMaterial;
+
     // Clear colour of the asset viewer's preview, set from its overlay toolbar.
     public Vector4 AssetViewerBackground;
 

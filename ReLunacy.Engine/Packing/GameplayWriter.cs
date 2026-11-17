@@ -80,6 +80,10 @@ public static partial class GameplayWriter
                 problems.Add($"{name}: the level's archive has no path to write to");
         }
 
+        if (outputPath == null)
+            foreach (var (archive, entries) in plan.External)
+                byArchive[archive] = entries;
+
         if (changes.Count == 0)
             return new LevelSaveResult(problems.Count == 0, "nothing to save: the gameplay files already hold what the editor shows",
                 null, [], problems);
@@ -168,6 +172,8 @@ public static partial class GameplayWriter
         public readonly List<string> Problems = [];
         public int ShiftedHandles;
         public bool Structural;
+        /// <summary>Archive path -> entries outside the level (level.csv of global_cached), written with the level's.</summary>
+        public readonly Dictionary<string, Dictionary<string, byte[]>> External = new(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -238,6 +244,34 @@ public static partial class GameplayWriter
             if (edited > 0) plan.Problems.Add($"gameplay: {edited} volume(s) moved or resized, not saved (the old engine's gameplay.dat is read only)");
         }
 
+        // New segments: their columns of level.csv, in the game's archive, read through the project's overlay.
+        if (!files.isOld && Config.SegmentRegistry.Pending.Count > 0)
+        {
+            var pending = Config.SegmentRegistry.Pending.ToList();
+            string? levelFile = files.ArchivePaths.FirstOrDefault();
+            string? gameFolder = levelFile == null ? null : Config.GameConfigs.GameFolderFor(levelFile);
+            var table = gameFolder == null ? null : Config.GameConfigs.LevelTable(gameFolder);
+            if (table == null) plan.Problems.Add("level.csv: not found, the new segment is not registered (the game ignores a Pod without its entry)");
+            else
+            {
+                string levelName = Path.GetFileName(Path.GetDirectoryName(levelFile)!);
+                var csv = Config.GameConfigs.Read(table);
+                string before = csv.ToText();
+                var done = new List<string>();
+                foreach (var registration in pending)
+                {
+                    if (Config.SegmentRegistry.Apply(csv, levelName, registration, out var why)) done.Add(registration.NewPod);
+                    else plan.Problems.Add($"level.csv: segment {registration.NewPod} not registered, {why}");
+                }
+                if (csv.ToText() != before)
+                {
+                    plan.External[table.ArchivePath] = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase) { [table.EntryPath] = csv.ToBytes() };
+                    plan.Changes.AddRange(done.Select(n => $"level.csv: segment {n} added to {levelName}'s block"));
+                }
+                if (done.Count == pending.Count) afterSave?.Add(() => { foreach (var registration in pending) Config.SegmentRegistry.Remove(registration); });
+            }
+        }
+
         // Ties and UFrags: every region's zones are in one file (zones.dat, or the old engine's main.dat).
         var ties = regions.SelectMany(r => r.Zones).SelectMany(z => z.TieInstances.Entities).OfType<EntityTie>().Distinct().ToList();
         var ufrags = regions.SelectMany(r => r.Zones).SelectMany(z => z.UFrags.Entities).OfType<EntityUFrag>().ToList();
@@ -285,6 +319,24 @@ public static partial class GameplayWriter
                 // The zones, the collision and every offset into them moved: the editor's copies (a LevelCollision's shape
                 // offsets, the placements' record offsets) are stale until the level is read again.
                 if (result.Added.Count > 0) plan.Structural = true;
+            }
+            // Deleted Ties go first: the appends below find their sources in what is left.
+            var deletes = new List<TieDeleteRequest>();
+            foreach (var region in regions)
+                foreach (var (tie, zone) in region.DeletedTies)
+                {
+                    var moved = tie.PlacementMatrix * (Matrix4x4.Invert(tie.SavedMatrix, out var savedInverse) ? savedInverse : Matrix4x4.Identity) * tie.Transform.GetMatrix();
+                    var names = regions.Where(r => r.Zones.Any(z => z.ZoneTUID == zone.ZoneTUID)).Select(r => r.RegionName).ToList();
+                    deletes.Add(new TieDeleteRequest(zone.ZoneTUID, tie.SourceOffset, tie.BaseTie.Id, tie.PlacementMatrix, moved, tie.Name, names));
+                }
+            if (deletes.Count > 0)
+            {
+                var gone = TieAppender.Delete(Read, deletes);
+                plan.Changes.AddRange(gone.Changes.Select(c => $"zones: {c}"));
+                plan.Problems.AddRange(gone.Problems.Select(p => $"zones: {p}"));
+                plan.Problems.AddRange(gone.Refused.Select(r => $"Tie {r.Request.Name}: not deleted, {r.Reason}"));
+                foreach (var (name, bytes) in gone.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
+                if (gone.Deleted.Count > 0) plan.Structural = true;
             }
             foreach (var (region, zone, ties2) in madeZones)
                 Take(TieAppender.CreateZone(Read, new ZoneCreateRequest(zone.ZoneName, region.RegionName), ties2), "Tie");

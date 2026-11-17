@@ -62,6 +62,7 @@ public sealed class SaveLevelModal : Modal
             if (_saving.IsCompleted)
             {
                 _result = _saving.IsCompletedSuccessfully ? _saving.Result : LevelSaveResult.Refused(_saving.Exception?.GetBaseException().Message ?? "?");
+                if (_result.Succeeded) ReLunacy.Utility.ConfigDocument.ReloadClean();
                 if (_result.Succeeded) Project.ProjectSession.MarkSaved();
             }
             ImGui.TextUnformatted(LM.Get("GUI_SaveLevel_Saving"));

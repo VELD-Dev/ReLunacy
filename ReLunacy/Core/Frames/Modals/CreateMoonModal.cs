@@ -54,6 +54,12 @@ public sealed class CreateMoonModal : Modal
     private int _segment = -1;
     private string? _error;
 
+    // Layers (-1: a new one, named by the text, empty = the default), zone, segment (0 none, 1 existing, 2 new) and the extras.
+    private bool _register = true;
+    private int _artIndex = -1, _gameplayIndex = -1, _zoneIndex = -1, _segmentMode;
+    private string _artName = "", _gameplayName = "", _zoneName = "", _segmentName = "";
+    private readonly List<(string Suffix, bool With)> _pods = [], _areas = [];
+
     private CreateMoonModal(List<MoonSurface> surfaces, Vector2 centre)
     {
         FrameName = LM.Get("GUI_CreateMoon_Title");
@@ -77,8 +83,6 @@ public sealed class CreateMoonModal : Modal
         ImGui.SetNextItemWidth(200f);
         ImGui.InputText(LM.Get("GUI_CreateMoon_Id"), ref _id, 31);
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_CreateMoon_IdTip"));
-        string? idProblem = MoonCreator.IdProblem(region, _id);
-        if (idProblem != null) ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), idProblem);
 
         ImGui.TextUnformatted(LM.Get("GUI_CreateMoon_Surface"));
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_CreateMoon_SurfaceTip"));
@@ -99,24 +103,17 @@ public sealed class CreateMoonModal : Modal
         if (ConfigDocument.LevelBoundsRadius() is { } limit && _centre.Length() + _radius > limit - 400f)
             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_CreateMoon_OutOfBounds"));
 
-        var pods = region.Pods.Select((pod, i) => (pod, i)).Where(p => p.pod.Name.StartsWith("SEGMENT", StringComparison.OrdinalIgnoreCase)).ToList();
-        if (pods.Count > 0)
-        {
-            ImGui.SetNextItemWidth(200f);
-            string preview = _segment >= 0 && _segment < region.Pods.Count ? region.Pods[_segment].Name : LM.Get("GUI_CreateMoon_NoSegment");
-            if (ImGui.BeginCombo(LM.Get("GUI_CreateMoon_Segment"), preview))
-            {
-                if (ImGui.Selectable(LM.Get("GUI_CreateMoon_NoSegment"), _segment < 0)) _segment = -1;
-                foreach (var (pod, i) in pods)
-                    if (ImGui.Selectable($"{pod.Name}##seg{i}", _segment == i)) _segment = i;
-                ImGui.EndCombo();
-            }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_CreateMoon_SegmentTip"));
-        }
+        var request = BuildRequest();
+        string? problem = MoonCreator.Problem(request);
+        DrawLayers(region);
+        DrawSegment(region);
+        DrawGroups(_pods, "Pod", "GUI_CreateMoon_Pods", "GUI_CreateMoon_PodsTip");
+        DrawGroups(_areas, "Area", "GUI_CreateMoon_Areas", "GUI_CreateMoon_AreasTip");
+        if (problem != null) ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), problem);
 
         if (_error != null) ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), _error);
         ImGui.Spacing();
-        ImGui.BeginDisabled(idProblem != null);
+        ImGui.BeginDisabled(problem != null);
         if (ImGui.Button(LM.Get("GUI_CreateMoon_Create"))) Create();
         ImGui.EndDisabled();
         ImGui.SameLine();
@@ -144,9 +141,116 @@ public sealed class CreateMoonModal : Modal
 
     private void Create()
     {
-        var made = InstancePlacer.CreateMoon(new MoonRequest(_id, _surface, _radius, _centre, _segment), out var problem);
+        var made = InstancePlacer.CreateMoon(BuildRequest(), out var problem);
         if (made == null) { _error = problem; return; }
         isOpen = false;
+    }
+
+    private MoonRequest BuildRequest()
+    {
+        var region = _surface.Region;
+        string? Layer(int index, string name) => index >= 0 && index < region.Layers.Count ? region.Layers[index] : name.Length > 0 ? name : null;
+        var segmentRequest = _segmentMode == 2 ? (_segmentName.Length > 0 ? _segmentName : MoonCreator.SegmentName(region, _id)) : null;
+        return new MoonRequest(_id, _surface, _radius, _centre, _segmentMode == 1 ? _segment : -1)
+        {
+            NewSegment = segmentRequest,
+            RegisterSegment = _register,
+            ArtLayer = Layer(_artIndex, _artName),
+            GameplayLayer = Layer(_gameplayIndex, _gameplayName),
+            Zone = _zoneIndex >= 0 && _zoneIndex < region.Zones.Count ? region.Zones[_zoneIndex] : null,
+            ZoneName = _zoneName.Length > 0 ? _zoneName : null,
+            Pods = [.. _pods.Select(p => new MoonGroup($"{_id}_{p.Suffix}", p.With))],
+            Areas = [.. _areas.Select(a => new MoonGroup($"{_id}_{a.Suffix}", a.With))],
+        };
+    }
+
+    private void DrawLayers(EntityRegion region)
+    {
+        if (!ImGui.CollapsingHeader(LM.Get("GUI_CreateMoon_Layers"))) return;
+        LayerChoice(region, "GUI_CreateMoon_ArtLayer", ref _artIndex, ref _artName, $"art_{_id}");
+        LayerChoice(region, "GUI_CreateMoon_GameplayLayer", ref _gameplayIndex, ref _gameplayName, $"gameplay_{_id}");
+        ImGui.SetNextItemWidth(200f);
+        string preview = _zoneIndex >= 0 && _zoneIndex < region.Zones.Count ? region.Zones[_zoneIndex].ZoneName : LM.Get("GUI_CreateMoon_New");
+        if (ImGui.BeginCombo(LM.Get("GUI_CreateMoon_Zone"), preview))
+        {
+            if (ImGui.Selectable(LM.Get("GUI_CreateMoon_New"), _zoneIndex < 0)) _zoneIndex = -1;
+            for (int i = 0; i < region.Zones.Count; i++)
+                if (ImGui.Selectable($"{region.Zones[i].ZoneName}##zone{i}", _zoneIndex == i)) _zoneIndex = i;
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_CreateMoon_ZoneTip"));
+        if (_zoneIndex < 0)
+        {
+            ImGui.SetNextItemWidth(200f);
+            ImGui.InputTextWithHint(LM.Get("GUI_CreateMoon_ZoneName"), $"art_{_id}", ref _zoneName, 63);
+        }
+    }
+
+    private void LayerChoice(EntityRegion region, string label, ref int index, ref string name, string hint)
+    {
+        ImGui.SetNextItemWidth(200f);
+        string preview = index >= 0 && index < region.Layers.Count ? region.Layers[index] : LM.Get("GUI_CreateMoon_New");
+        if (ImGui.BeginCombo(LM.Get(label), preview))
+        {
+            if (ImGui.Selectable($"{LM.Get("GUI_CreateMoon_New")}##{label}", index < 0)) index = -1;
+            for (int i = 0; i < region.Layers.Count; i++)
+                if (ImGui.Selectable($"{region.Layers[i]}##{label}{i}", index == i)) index = i;
+            ImGui.EndCombo();
+        }
+        if (index < 0)
+        {
+            ImGui.SetNextItemWidth(200f);
+            ImGui.InputTextWithHint($"##{label}Name", hint, ref name, 63);
+        }
+    }
+
+    private void DrawSegment(EntityRegion region)
+    {
+        ImGui.SetNextItemWidth(200f);
+        string preview = _segmentMode switch
+        {
+            1 when _segment >= 0 && _segment < region.Pods.Count => region.Pods[_segment].Name,
+            2 => LM.Get("GUI_CreateMoon_New"),
+            _ => LM.Get("GUI_CreateMoon_NoSegment"),
+        };
+        if (ImGui.BeginCombo(LM.Get("GUI_CreateMoon_Segment"), preview))
+        {
+            if (ImGui.Selectable(LM.Get("GUI_CreateMoon_NoSegment"), _segmentMode == 0)) _segmentMode = 0;
+            if (ImGui.Selectable(LM.Get("GUI_CreateMoon_New"), _segmentMode == 2)) _segmentMode = 2;
+            for (int i = 0; i < region.Pods.Count; i++)
+                if (region.Pods[i].Name.StartsWith("SEGMENT", StringComparison.OrdinalIgnoreCase)
+                    && ImGui.Selectable($"{region.Pods[i].Name}##seg{i}", _segmentMode == 1 && _segment == i)) { _segmentMode = 1; _segment = i; }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_CreateMoon_SegmentTip"));
+        if (_segmentMode == 2)
+        {
+            ImGui.SetNextItemWidth(200f);
+            ImGui.InputTextWithHint(LM.Get("GUI_CreateMoon_SegmentName"), MoonCreator.SegmentName(region, _id), ref _segmentName, 100);
+            ImGui.Checkbox(LM.Get("GUI_CreateMoon_Register"), ref _register);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_CreateMoon_RegisterTip"));
+        }
+    }
+
+    private void DrawGroups(List<(string Suffix, bool With)> list, string id, string header, string tip)
+    {
+        if (!ImGui.CollapsingHeader($"{LM.Get(header)} ({list.Count})##{id}")) return;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(tip));
+        for (int i = 0; i < list.Count; i++)
+        {
+            var (suffix, with) = list[i];
+            ImGui.TextUnformatted($"{_id}_");
+            ImGui.SameLine(0f, 0f);
+            ImGui.SetNextItemWidth(150f);
+            ImGui.InputText($"##{id}s{i}", ref suffix, 80);
+            ImGui.SameLine();
+            ImGui.Checkbox($"{LM.Get("GUI_CreateMoon_WithObjects")}##{id}w{i}", ref with);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(id == "Pod" ? "GUI_CreateMoon_PodObjectsTip" : "GUI_CreateMoon_AreaObjectsTip"));
+            ImGui.SameLine();
+            if (ImGui.Button($"{LM.Get("GUI_CreateMoon_Remove")}##{id}r{i}")) { list.RemoveAt(i); break; }
+            list[i] = (suffix, with);
+        }
+        if (ImGui.Button($"{LM.Get("GUI_CreateMoon_Add")}##{id}add")) list.Add((id == "Pod" ? $"pod{list.Count + 1}" : $"area{list.Count + 1}", false));
     }
 
     public override void RenderAsWindow(double deltaTime)

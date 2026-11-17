@@ -241,6 +241,67 @@ public static class CollisionBvh
         return true;
     }
 
+    /// <summary>
+    /// Takes instances out of the tree: <paramref name="removed"/> are indices of the instance array, which the caller
+    /// then closes up. Every leaf's range is renumbered, a leaf left with no instance goes (and an internal node left with
+    /// no child), and the boxes of the nodes that lost instances, and of their ancestors, are made the union of what
+    /// they hold again (the others keep their bytes). <paramref name="boxes"/> gives an instance's box by its index
+    /// before the removal. False when the root would be left empty.
+    /// </summary>
+    public static bool RemoveInstances(Node root, IReadOnlySet<int> removed, Func<int, (Vector3 Min, Vector3 Max)> boxes)
+    {
+        var sorted = removed.Order().ToArray();
+        int BeforeFast(int i)
+        {
+            int lo = 0, hi = sorted.Length;
+            while (lo < hi) { int mid = (lo + hi) / 2; if (sorted[mid] < i) lo = mid + 1; else hi = mid; }
+            return lo;
+        }
+        // Returns whether the node changed; sets empty when nothing is left in it.
+        bool Walk(Node n, out bool empty)
+        {
+            bool changed = false;
+            if (n.Leaf)
+            {
+                int lost = BeforeFast(n.First + n.Count) - BeforeFast(n.First);
+                var (lo, hi) = (new Vector3(float.MaxValue), new Vector3(float.MinValue));
+                int first = n.First - BeforeFast(n.First);
+                if (lost > 0)
+                {
+                    for (int i = n.First; i < n.First + n.Count; i++)
+                        if (!removed.Contains(i))
+                        {
+                            var (a, b) = boxes(i);
+                            lo = Vector3.Min(lo, a); hi = Vector3.Max(hi, b);
+                        }
+                    n.Count -= lost;
+                    n.Min = lo; n.Max = hi;
+                    if (n.Count > 0) n.Box = BoxBytes(lo, hi);
+                    changed = true;
+                }
+                n.First = first;
+                empty = n.Count == 0;
+                return changed;
+            }
+            foreach (var list in new[] { n.Kids, n.Leaves })
+                for (int k = list.Count - 1; k >= 0; k--)
+                {
+                    changed |= Walk(list[k], out bool childEmpty);
+                    if (childEmpty) { list.RemoveAt(k); changed = true; }
+                }
+            empty = n.Kids.Count + n.Leaves.Count == 0;
+            if (changed && !empty)
+            {
+                var (lo, hi) = (new Vector3(float.MaxValue), new Vector3(float.MinValue));
+                foreach (var c in n.Kids.Concat(n.Leaves)) { lo = Vector3.Min(lo, c.Min); hi = Vector3.Max(hi, c.Max); }
+                n.Min = lo; n.Max = hi; n.Box = BoxBytes(lo, hi);
+            }
+            return changed;
+        }
+        Walk(root, out bool rootEmpty);
+        return !rootEmpty;
+    }
+
     private static bool Inside(Vector3 p, Vector3 min, Vector3 max) =>
         p.X >= min.X && p.Y >= min.Y && p.Z >= min.Z && p.X <= max.X && p.Y <= max.Y && p.Z <= max.Z;
 

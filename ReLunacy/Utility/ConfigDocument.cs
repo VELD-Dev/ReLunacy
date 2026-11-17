@@ -214,6 +214,13 @@ public sealed class ConfigDocument
         return document;
     }
 
+    /// <summary>Reads the open tables again after something else (a level save) wrote one; tables with unsaved edits stay.</summary>
+    public static void ReloadClean()
+    {
+        foreach (var document in Open_.Values)
+            if (!document.Dirty && !document.Saving) document.Revert();
+    }
+
     private static string? _levelFor;
     private static ConfigTableRef? _levelTable;
     private static string? _levelError;

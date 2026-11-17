@@ -34,6 +34,8 @@ public sealed record MoonRequest(string Id, MoonSurface Source, float Radius, Ve
     public string? ZoneName { get; init; }
     public IReadOnlyList<MoonGroup> Pods { get; init; } = [];
     public IReadOnlyList<MoonGroup> Areas { get; init; } = [];
+    /// <summary>With a new segment: enter it in level.csv (a segment is live in game only there). See <see cref="Config.SegmentRegistry"/>.</summary>
+    public bool RegisterSegment { get; init; } = true;
 }
 
 /// <summary>A moon made in the editor: what was added, and the undo and redo of the whole step.</summary>
@@ -58,6 +60,8 @@ public sealed class MoonCreated
     public EntityPod? NewSegment => NewPods.FirstOrDefault();
     /// <summary>The Areas this step added.</summary>
     public IReadOnlyList<NewArea> NewAreas { get; init; } = [];
+    /// <summary>The level.csv entry this step made pending, if any.</summary>
+    public Config.SegmentRegistration? Registration { get; init; }
 
     /// <summary>Everything the step added to the region, in the order it was added.</summary>
     public IEnumerable<Entity> Entities => [Tie, Area, Beam, Clue];
@@ -70,6 +74,7 @@ public sealed class MoonCreated
         Region.Remove(Beam);
         Region.Remove(Area);
         Region.Remove(Tie);
+        if (Registration != null) Config.SegmentRegistry.Remove(Registration);
         foreach (var pod in NewPods.Reverse()) Region.RemovePod(pod);
         foreach (var area in NewAreas.Reverse()) Region.RemoveArea(area);
         if (ZoneIsNew) Region.RemoveNewZone(Zone);
@@ -84,6 +89,7 @@ public sealed class MoonCreated
         foreach (string layer in NewLayers) Region.AddNewLayer(layer);
         if (ZoneIsNew) Region.Zones.Add(Zone);
         foreach (var area in NewAreas) Region.AddArea(area);
+        if (Registration != null) Config.SegmentRegistry.Add(Registration);
         foreach (var pod in NewPods) Region.AddPod(pod);
         foreach (var entity in Entities) Region.Add(entity);
         if (SegmentPod >= 0 && SegmentPod < Region.Pods.Count) Region.Pods[SegmentPod].Add(Beam);
@@ -335,6 +341,15 @@ public static class MoonCreator
         }
         if (areaHandles.Count > 0) region.SetAreas(area, areaHandles);
 
+        Config.SegmentRegistration? registration = null;
+        if (request.NewSegment is { } newSegment && request.RegisterSegment)
+        {
+            string modelSegment = region.Pods.Select(p => p.Name).FirstOrDefault(n =>
+                n.StartsWith("SEGMENT", StringComparison.OrdinalIgnoreCase) && n.EndsWith("_" + source.Name, StringComparison.OrdinalIgnoreCase)) ?? "";
+            registration = new Config.SegmentRegistration(newSegment, modelSegment.Length > 0 ? modelSegment : null);
+            Config.SegmentRegistry.Add(registration);
+        }
+
         region.InvalidateLookups();
         region.SyncHandles();
         region.RefreshVolumeRoles();
@@ -343,7 +358,7 @@ public static class MoonCreator
         {
             Region = region, ArtLayer = artLayer, GameplayLayer = gameplayLayer, Zone = zone, Tie = tie, Area = area, Beam = beam,
             Clue = clueVolume, SegmentPod = request.NewSegment == null ? request.SegmentPod : -1,
-            NewLayers = newLayers, ZoneIsNew = zoneIsNew, NewPods = pods, NewAreas = areas,
+            NewLayers = newLayers, ZoneIsNew = zoneIsNew, NewPods = pods, NewAreas = areas, Registration = registration,
         };
     }
 }

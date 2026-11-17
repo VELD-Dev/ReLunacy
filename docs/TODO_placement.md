@@ -27,7 +27,10 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
 - [x] Wire the writers into File > Save (Save dialog lists additions; refusals as problems; backups). GameplayStructure -> GameplayWriter.Patch -> GameplayBudgets -> ZoneWriter + CollisionWriter -> TieAppender; reloads the level after a structural save. Probe: dev/tools/structprobe.
 - [x] Delete instances the files hold (Mobys, volumes with their Clue, paths, controllers, cameras): Delete key / Edit > Delete,
       confirm modal listing who names them, undoable, clears or remaps every reference in gp_prius at Save (not tested in game).
-      Ties are refused. Spec: docs/reverse/newengine_gp_prius_writer.md section 7. Probes: dev/tools/delprobe, delsaveprobe.
+      Spec: docs/reverse/newengine_gp_prius_writer.md section 7. Probes: dev/tools/delprobe, delsaveprobe.
+- [x] Delete retail Ties (2026-11-17): TieAppender.Delete (zones.dat rows, clusters, names, collision instances and BVH leaves), run before
+      the appends in the save chain, structural (level reloads). New unsaved Ties are just removed. Probe: dev/tools/tiedeleteprobe
+      (space_sector_1, krell_canyon). Planet 0x8200 records are kept (stale TUID), lighting.dat is kept. Not tested in game.
 - [ ] Test in game: add a Moby, a Tie with collision, a volume, a path, a controller on a copy.
 
 ## Moon creation tooling (requested 2026-11-16)
@@ -41,6 +44,16 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
       region / lighting / collision / assetlookup writers.
 - [x] Create moon (dev/tools/moonmakeprobe; not tested in game): moon id, surface (known moon surface Ties), radius (scales the surface Tie and SpaceMoon +0xE0),
       other settings; places the SpaceMoon Clue, area volume, landing beam and the layers + zone.
+- [x] Create moon options (not tested in game; probe dev/tools/moonmakeprobe): segment none / existing SEGMENT Pod / new Pod
+      named like retail (SEGMENT_SS<sector>_<ID>, holds the landing beam); art and gameplay layer new (default art_<id> /
+      gameplay_<id>, custom name) or existing; zone new or existing; extra Pods and Areas in the gameplay layer, optionally
+      holding the beam / the moon volume. One undo step. A new segment is only live in game once level.csv
+      (global_cached /data/configs/level.csv, View > Config Tables) has a column for its Pod name (Pod, Type SEG_MOON, pools);
+      the moon creator registers it (SegmentRegistry: a last column copied from the model moon's, Pod name set, counts empty, pool totals raised), written
+      with File > Save into global_cached through the project; undo covers it. Probe: dev/tools/segcsvprobe.
+- [x] New Pods and Areas (Create > Pod / Area, and in the moon modal): pending in the region, written by GameplayStructure
+      (GpPriusDocument.AppendGroup) at the END of their table, so only layers from the last one holding one of the kind
+      (every new layer qualifies); members through the usual assignment. Undoable, removable before save.
 - [x] Evaluate a "curve to moon" tool (docs/reverse/newengine_tie_asset_writing.md: in place feasible now, bent copy ~1 week, copy collision class not written)
 - [ ] Build "curve to moon" (bent copy under a new class TUID + collision.dat class entry)
 - [ ] Fix Tie normals on stretched classes (reader divides normals by the quantisation scale)

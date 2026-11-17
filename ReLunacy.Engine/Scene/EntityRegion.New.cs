@@ -54,7 +54,7 @@ public partial class EntityRegion
         switch (entity)
         {
             case EntityMoby moby: MobyInstances.Remove(moby); break;
-            case EntityTie tie: tie.New?.Zone?.TieInstances.Remove(tie); break;
+            case EntityTie tie: (tie.New?.Zone ?? Zones.FirstOrDefault(z => z.TieInstances.Entities.Contains(tie)))?.TieInstances.Remove(tie); break;
             case EntityVolume volume: Volumes.Remove(volume); if (volume.BaseVolume.Clue != null) RefreshVolumeRoles(); break;
             case EntityPath path: Paths.Remove(path); break;
             case EntityCamera camera: Cameras.Remove(camera); _controllers.Remove(camera.Controller); break;

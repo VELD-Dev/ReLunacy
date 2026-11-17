@@ -214,3 +214,25 @@ and ITN.
   - foliage, Shrubs and UFrags.
 - **Building the probe.** It needs the engine to build. While other edits were in progress it was built against HEAD
   with these files copied in, in a temporary tree under `work/` that was then deleted.
+
+## Deleting a Tie (2026-11-17)
+
+`TieAppender.Delete(read, IReadOnlyList<TieDeleteRequest>)` is the mirror of Append, run before it in the save chain and on the
+output of ZoneWriter / CollisionWriter. A request names the zone, the record's `SourceOffset`, the class (checked), the file matrix, the
+matrix the collision carries when the editor moved the Tie (fallback), and the regions that load the zone. A refused request changes nothing.
+
+- **Zone blob**: the rows leave 0x7240 and 0x72C0 (with the name pointer's fix-up); the name leaves 0x11300 when no other
+  pointer reaches it; cluster ranges close up (+0x10 / +0x14 first, +0x1C count) and an emptied cluster goes, with assetstats
+  0x9800 +0x30 following when it was the per-region peak. `IghwRelayout.Relayout` takes `offsetMaps` for this. Checked on
+  data: no other zone section is indexed by placement and no fix-up points into 0x7240 / 0x72C0 / 0x72D0 (ss1, krell).
+- **Kept**: lighting.dat (the prelight block and lightmap pair stay unused: blocks are shared, pairs indexed by number), the
+  collision shape blob (shapes can be shared), assetstats +0x8C (not lowered).
+- **Collision**: the Tie instances of the class's owner with the placement's matrix go; leaves are renumbered
+  (`CollisionBvh.RemoveInstances`), an empty leaf or node goes, touched boxes are recomputed, header bounds are the exact union.
+  Placements sharing a matrix take chunks out in proportion; if that does not divide, the request is refused.
+- **Planet regions**: every placement is in the 0x8200 table B (krell: 9312 of 9312) and the numbering is also used by the undecoded 0x8300
+  grid, so the records are kept (a stale TUID, as retail has on phonica_moon a_landing). Reported as a problem; untested in game.
+- **Probe** `dev/tools/tiedeleteprobe` (3 Ties, with and without collision, in one call): ss1 26 checks and krell 23, no failure:
+  Tie count -3, remaining records identical, other zones byte-identical, collision instances -43 (ss1) / -2 (krell) with the rest
+  identical in order, BVH valid, bounds exact. Append then Delete: zones.dat, lighting.dat identical; collision differs in 3 (ss1) / 6
+  (krell) tree bytes (box float rounding); assetstats differs in the collision-size and peak bytes Append raised.

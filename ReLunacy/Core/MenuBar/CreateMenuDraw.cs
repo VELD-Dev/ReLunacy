@@ -60,6 +60,10 @@ internal static class CreateMenuDraw
             }
             ImGui.EndMenu();
         }
+        if (ImGui.MenuItem($"{Icons.Gear}  {LM.Get("GUI_Create_Pod")}", "", false, enabled && InstancePlacer.TargetRegion()?.GroupLayers(false).Any() == true))
+            CreateGroupModal.Open(false);
+        if (ImGui.MenuItem($"{Icons.Gear}  {LM.Get("GUI_Create_Area")}", "", false, enabled && InstancePlacer.TargetRegion()?.GroupLayers(true).Any() == true))
+            CreateGroupModal.Open(true);
         if (ImGui.MenuItem($"{Icons.Globe}  {LM.Get("GUI_Create_Moon")}", "", false, enabled && CreateMoonModal.Available))
             CreateMoonModal.Open();
         ImGui.EndMenu();

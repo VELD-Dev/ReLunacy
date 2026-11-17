@@ -61,8 +61,12 @@ public static class IghwRelayout
 
     /// <summary>The container with <paramref name="payloads"/> in place of those sections' payloads, every offset
     /// re-derived, and <paramref name="pointers"/> written and listed as fix-ups. An existing pointer into a section
-    /// keeps its offset inside it, so a new payload that pointers reach must start with the old one.</summary>
-    public static byte[] Relayout(byte[] blob, IReadOnlyDictionary<uint, byte[]> payloads, IReadOnlyList<NewPointer>? pointers = null)
+    /// keeps its offset inside it, so a new payload that pointers reach must start with the old one, unless
+    /// <paramref name="offsetMaps"/> gives the section's offset map (old offset inside the section -> new offset inside it, null
+    /// for a removed byte, defined at the old size too): a pointer field in removed bytes is dropped, and a pointer into
+    /// them is an error. That is how records are taken out.</summary>
+    public static byte[] Relayout(byte[] blob, IReadOnlyDictionary<uint, byte[]> payloads, IReadOnlyList<NewPointer>? pointers = null,
+        IReadOnlyDictionary<uint, Func<int, int?>>? offsetMaps = null)
     {
         var secs = Sections(blob);
         int headerLength = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(0x0C));
@@ -103,7 +107,22 @@ public static class IghwRelayout
             pos += size;
         }
         int newFileLength = pos;
-        int newFixCount = fix.Count + (pointers?.Count ?? 0);
+        int? TryRemap(int offset)
+        {
+            foreach (var s in secs)
+                if (offset >= s.Offset && offset < s.End)
+                    return offsetMaps != null && offsetMaps.TryGetValue(s.Id, out var map)
+                        ? map(offset - s.Offset) is { } inside ? newOffset[s.Id] + inside : null
+                        : newOffset[s.Id] + (offset - s.Offset);
+            foreach (var s in secs)
+                if (offset == s.End)
+                    return offsetMaps != null && offsetMaps.TryGetValue(s.Id, out var map)
+                        ? newOffset[s.Id] + (map(s.Size) ?? newSize[s.Id])
+                        : newOffset[s.Id] + Math.Min(s.Size, newSize[s.Id]);
+            throw new InvalidDataException($"pointer 0x{offset:X} is in no section");
+        }
+        var keptFix = fix.Where(f => TryRemap(f) != null).ToList();
+        int newFixCount = keptFix.Count + (pointers?.Count ?? 0);
         int trailing = blob.Length - (fileLength + 4 * fixCount);
         if (trailing < 0) throw new InvalidDataException("IGHW fix-up table runs past the end");
 
@@ -129,21 +148,12 @@ public static class IghwRelayout
                 BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(o + 12), newSize[s.Id]);
         }
 
-        int Remap(int offset)
-        {
-            foreach (var s in secs)
-                if (offset >= s.Offset && offset < s.End) return newOffset[s.Id] + (offset - s.Offset);
-            foreach (var s in secs)
-                if (offset == s.End) return newOffset[s.Id] + Math.Min(s.Size, newSize[s.Id]);
-            throw new InvalidDataException($"pointer 0x{offset:X} is in no section");
-        }
-
         var newFix = new List<int>(newFixCount);
-        foreach (int f in fix)
+        foreach (int f in keptFix)
         {
-            int field = Remap(f);
+            int field = TryRemap(f)!.Value;
             int target = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(f));
-            BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(field), Remap(target));
+            BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(field), TryRemap(target) ?? throw new InvalidDataException($"pointer 0x{f:X} points into removed bytes"));
             newFix.Add(field);
         }
         if (pointers != null)
