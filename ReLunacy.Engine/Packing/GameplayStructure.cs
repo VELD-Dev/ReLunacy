@@ -17,6 +17,8 @@ public sealed class StructureResult
     /// <summary>The instances the editor deleted that the result still holds (the deletion was refused or not applied): their
     /// records are in the file, so the in-place patch has to count them.</summary>
     public List<Entity> NotDeleted { get; } = [];
+    /// <summary>The level.csv names of the Pods the result deletes: a segment's column goes only with a Pod that is really gone from the file.</summary>
+    public List<string> DeletedPods { get; } = [];
     /// <summary>The edits were applied and the result validates.</summary>
     public bool Applied => Bytes != null;
 }
@@ -87,8 +89,8 @@ public static class GameplayStructure
 
     /// <summary>Whether anything in the region may need the structural pass (cheap; no parsing).</summary>
     public static bool Candidate(EntityRegion region) =>
-        region.Pods.Any(p => p.Changed) || region.NewAreas.Any(a => !a.Written) || region.NewLayers.Any() || region.Deleted.Count > 0
-        || Entities(region).Any(e => e.IsNew || e.Assigned?.Dirty(region) == true || e is EntityPath { Version: > 0 });
+        region.Pods.Any(p => p.Changed || p.IsRenamed) || region.NewAreas.Any(a => !a.Written) || region.NewScents.Any(a => !a.Written) || region.DeletedGroups.Count > 0 || region.NewLayers.Any() || region.Deleted.Count > 0
+        || region.AreaRenames.Values.Any(r => r.Old != r.New) || Entities(region).Any(e => e.IsNew || e.IsRenamed || e.Assigned?.Dirty(region) == true || e is EntityPath { Version: > 0 });
 
     private static IEnumerable<Entity> Entities(EntityRegion region) =>
         region.MobyInstances.Entities.OfType<Entity>().Concat(region.Volumes.Entities).Concat(region.Paths.Entities)
@@ -112,14 +114,14 @@ public static class GameplayStructure
         _ => 0,
     };
 
-    private static string Label(Entity e) => e switch
+    private static string Label(Entity e, string? name = null) => (e switch
     {
-        EntityMoby => $"Moby {e.Name}",
-        EntityVolume => $"volume {e.Name}",
-        EntityPath => $"path {e.Name}",
-        EntityCamera => $"camera {e.Name}",
-        _ => $"controller {e.Name}",
-    };
+        EntityMoby => "Moby",
+        EntityVolume => "volume",
+        EntityPath => "path",
+        EntityCamera => "camera",
+        _ => "controller",
+    }) + " " + (name ?? e.Name);
 
     /// <summary>Applies the region's structural edits to <paramref name="original"/> (its gp_prius.dat as the files hold
     /// it). Null when nothing structural is pending. <paramref name="regionDat"/> is the region's region.dat (a new
@@ -209,34 +211,50 @@ public static class GameplayStructure
             deleted.Add(e);
         }
 
-        // 1b. New Pods and Areas, at the end of their tables in the order the editor made them (so the numbers the editor
-        // gave them are their places in the file); their members go in below, with the others'.
-        foreach (var (isArea, name, tuid, layer, expected) in region.Pods.Select((p, i) => (false, p.Name, p.Tuid, p.Layer, i)).Where((_, i) => region.Pods[i].IsNew)
-                     .Concat(region.NewAreas.Where(a => !a.Written).Select(a => (true, a.Name, a.Tuid, region.Layers[a.Layer], a.Handle))))
+        // 1b. New Pods, Areas and Scents, at the end of their tables in the order the editor made them (so the numbers the editor
+        // gave them are their places in the file, less the new ones that were deleted and are not written); their members go in
+        // below, with the others'.
+        var groupAt = new Dictionary<(GpKind, int), int>();
+        var newGroups = new List<(GpKind Kind, string Name, ulong Tuid, string? Layer, int Handle)>();
+        for (int i = 0; i < region.Pods.Count; i++)
+            if (region.Pods[i].IsNew) newGroups.Add((GpKind.Pod, region.Pods[i].Name, region.Pods[i].Tuid, region.Pods[i].Layer, i));
+        foreach (var a in region.NewAreas.Where(a => !a.Written)) newGroups.Add((GpKind.Area, a.Name, a.Tuid, a.Layer < region.Layers.Count ? region.Layers[a.Layer] : null, a.Handle));
+        foreach (var a in region.NewScents.Where(a => !a.Written)) newGroups.Add((GpKind.Scent, a.Name, a.Tuid, a.Layer < region.Layers.Count ? region.Layers[a.Layer] : null, a.Handle));
+        foreach (var kindGroup in newGroups.GroupBy(g => g.Kind))
         {
-            var kind = isArea ? GpKind.Area : GpKind.Pod;
-            int layerIndex = region.LayerByName(layer);
-            ulong? given = doc.AllTuids().Contains(tuid) ? null : tuid;
-            var r = layerIndex < 0 || layerIndex >= doc.LayerCount ? GpEditResult.Refuse("its layer is not one of the file's")
-                : doc.AppendGroup(kind, (ushort)layerIndex, name, given, Random.Shared);
-            if (r.Applied && r.Created!.Value.Index != expected)
+            int dropped = 0;
+            foreach (var (kind, name, tuid, layer, handle) in kindGroup.OrderBy(g => g.Handle))
             {
-                // The editor's numbers would name the wrong group: nothing structural is written.
-                problems.Add($"{kind} {name}: landed at {r.Created.Value.Index}, not where the editor numbered it ({expected}); structural edits not saved");
-                changes.Clear();
-                result.Shifts.Clear();
-                result.NotDeleted.Clear();
-                result.NotDeleted.AddRange(region.Deleted);
-                return result;
+                if (region.IsGroupDeleted(kind.ToString(), handle)) { dropped++; continue; }
+                int expected = handle - dropped;
+                int layerIndex = region.LayerByName(layer);
+                ulong? given = doc.AllTuids().Contains(tuid) ? null : tuid;
+                var r = layerIndex < 0 || layerIndex >= doc.LayerCount ? GpEditResult.Refuse("its layer is not one of the file's")
+                    : doc.AppendGroup(kind, (ushort)layerIndex, name, given, Random.Shared);
+                if (r.Applied && r.Created!.Value.Index != expected)
+                {
+                    // The editor's numbers would name the wrong group: nothing structural is written.
+                    problems.Add($"{kind} {name}: landed at {r.Created.Value.Index}, not where the editor numbered it ({expected}); structural edits not saved");
+                    changes.Clear();
+                    result.Shifts.Clear();
+                    result.NotDeleted.Clear();
+                    result.NotDeleted.AddRange(region.Deleted);
+                    return result;
+                }
+                if (!r.Applied)
+                {
+                    foreach (var p in r.Problems) problems.Add($"{kind} {name}: not saved, {p}");
+                    continue;
+                }
+                groupAt[(kind, handle)] = r.Created!.Value.Index;
+                Note(r, $"{kind} {name}");
+                changes.Add($"{kind} {name}: added to {doc.LayerName(layerIndex)}");
             }
-            if (!r.Applied)
-            {
-                foreach (var p in r.Problems) problems.Add($"{kind} {name}: not saved, {p}");
-                continue;
-            }
-            Note(r, $"{kind} {name}");
-            changes.Add($"{kind} {name}: added to {doc.LayerName(layerIndex)}");
         }
+        // A group's place in the file: the loaded ones are where the editor loaded them, a new one where it landed.
+        int GroupAt(GpKind kind, int handle) =>
+            groupAt.TryGetValue((kind, handle), out int at) ? at : handle < GroupsLoaded(kind) ? handle : -1;
+        int GroupsLoaded(GpKind kind) => region.References.LoadedCount(kind.ToString());
 
         // 2. Appends, in the order the editor made them.
         foreach (var e in all.Where(e => e.IsNew && e.New!.Kind != NewInstanceKind.Tie).OrderBy(e => e.New!.GameplayIndex))
@@ -351,9 +369,9 @@ public static class GameplayStructure
             bool isNew = e.IsNew;
             if (handles.Find(e) is not { } at) continue;
             var loaded = isNew ? [] : e.Assigned?.LoadedAreas ?? region.AreasOf(e);
-            Membership(doc, region.AreasOf(e), loaded, GpKind.Area, at, Label(e), "Area", changes, problems, result);
+            Membership(doc, region, GroupAt, region.AreasOf(e), loaded, GpKind.Area, at, Label(e), "Area", changes, problems, result);
             if (e is EntityVolume { BaseVolume.Clue: { } clue } && handles.Find(clue) is { } clueAt)
-                Membership(doc, region.ScentsOf(e), isNew ? [] : e.Assigned?.LoadedScents ?? region.ScentsOf(e), GpKind.Scent, clueAt, $"Clue {clue.Name}", "Scent", changes, problems, result);
+                Membership(doc, region, GroupAt, region.ScentsOf(e), isNew ? [] : e.Assigned?.LoadedScents ?? region.ScentsOf(e), GpKind.Scent, clueAt, $"Clue {clue.Name}", "Scent", changes, problems, result);
             else if (e is EntityVolume && !isNew && e.Assigned?.ScentsChanged(region) == true)
                 problems.Add($"{Label(e)}: Scents not saved, it has no Clue in the file");
         }
@@ -362,9 +380,9 @@ public static class GameplayStructure
         for (int i = 0; i < region.Pods.Count; i++)
         {
             var pod = region.Pods[i];
-            if (!pod.Changed) continue;
-            var group = new GpInstance(GpKind.Pod, i);
-            if (i >= doc.Count(GpKind.Pod) || doc.Tuid(group) != pod.Tuid) { problems.Add($"Pod {pod.Name}: not where the editor loaded it, not saved"); continue; }
+            if (!pod.Changed || region.IsGroupDeleted("Pod", i)) continue;
+            var group = new GpInstance(GpKind.Pod, GroupAt(GpKind.Pod, i));
+            if (group.Index < 0 || group.Index >= doc.Count(GpKind.Pod) || doc.Tuid(group) != pod.Tuid) { problems.Add($"Pod {pod.Name}: not where the editor loaded it, not saved"); continue; }
             foreach (var (moby, add) in pod.SavedMembers.Where(m => !pod.Members.Contains(m)).Select(m => (m, false))
                          .Concat(pod.Members.Where(m => !pod.SavedMembers.Contains(m)).Select(m => (m, true))))
             {
@@ -385,14 +403,60 @@ public static class GameplayStructure
                 problems.Add($"{Label(e)}: class change not saved");
         }
 
-        // 8. Deletions: the records and everything that named them.
-        if (deleted.Count > 0)
+        // 7b. Names the files hold, rewritten (the new ones went in with their records). Mobys, volumes, paths and controllers by their
+        // place (tracked above), Pods and Areas by their number, which the appends at the end of the tables did not move.
+        foreach (var e in existing.Where(e => e.IsRenamed && !region.IsDeleted(e)))
+        {
+            if (handles.Find(e) is not { } at) { problems.Add($"{Label(e)}: rename not saved, it is not in the file"); continue; }
+            string old = doc.Name(at);
+            var r = doc.Rename(at, e.Name);
+            if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"{Label(e)}: rename not saved, {p}"); continue; }
+            changes.Add($"{Label(e, e.LoadedName ?? old)}: renamed {e.Name}");
+        }
+        for (int i = 0; i < region.Pods.Count; i++)
+        {
+            var pod = region.Pods[i];
+            if (!pod.IsRenamed || region.IsGroupDeleted("Pod", i)) continue;
+            var group = new GpInstance(GpKind.Pod, i);
+            if (i >= doc.Count(GpKind.Pod) || doc.Tuid(group) != pod.Tuid) { problems.Add($"Pod {pod.LoadedName}: rename not saved, it is not where the editor loaded it"); continue; }
+            var r = doc.Rename(group, pod.Name);
+            if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"Pod {pod.LoadedName}: rename not saved, {p}"); continue; }
+            changes.Add($"Pod {pod.LoadedName}: renamed {pod.Name}");
+        }
+        foreach (var (handle, (oldName, newName)) in region.AreaRenames.Where(r => r.Value.Old != r.Value.New && !region.IsGroupDeleted("Area", r.Key)))
+        {
+            int areaAt = GroupAt(GpKind.Area, handle);
+            if (areaAt < 0 || areaAt >= doc.Count(GpKind.Area)) { problems.Add($"Area {oldName}: rename not saved, it is not in the file"); continue; }
+            var r = doc.Rename(new GpInstance(GpKind.Area, areaAt), newName);
+            if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"Area {oldName}: rename not saved, {p}"); continue; }
+            changes.Add($"Area {oldName}: renamed {newName}");
+        }
+
+        // 8. Deletions: the records and everything that named them. Groups are the file's own (a new one deleted before a save was
+        // not written above); a group's place is the one the editor loaded it at, which the appends above did not move.
+        var groupTargets = new List<GpInstance>();
+        foreach (var (kindName, handle) in region.DeletedGroups.OrderBy(g => g.Kind).ThenBy(g => g.Index))
+        {
+            var kind = Enum.Parse<GpKind>(kindName);
+            if (region.IsGroupNew(kindName, handle)) continue;
+            var at = new GpInstance(kind, handle);
+            if (handle >= region.References.LoadedCount(kindName) || handle >= doc.Count(kind)
+                || (kind == GpKind.Pod && (handle >= region.Pods.Count || doc.Tuid(at) != region.Pods[handle].Tuid)))
+            {
+                problems.Add($"{kind} {region.GroupName(kindName, handle)}: not where the editor loaded it, not deleted");
+                continue;
+            }
+            groupTargets.Add(at);
+        }
+        if (deleted.Count > 0 || groupTargets.Count > 0)
         {
             var targets = new List<GpInstance>();
             var found = new List<Entity>();
             foreach (var e in deleted)
                 if (handles.Find(e) is { } at) { targets.Add(at); found.Add(e); }
                 else { problems.Add($"{Label(e)}: not found in the file, not deleted"); result.NotDeleted.Add(e); }
+            var groupNames = groupTargets.Select(g => $"{g.Kind} {doc.Name(g)}").ToList();
+            targets.AddRange(groupTargets);
             var r = targets.Count > 0 ? doc.Delete(targets) : null;
             if (r != null && !r.Applied)
             {
@@ -402,11 +466,14 @@ public static class GameplayStructure
             else if (r != null)
             {
                 foreach (var e in found) changes.Add($"{Label(e)}: deleted");
+                foreach (string g in groupNames) changes.Add($"{g}: deleted");
+                foreach (var g in groupTargets.Where(g => g.Kind == GpKind.Pod)) result.DeletedPods.Add(region.Pods[g.Index].LoadedName ?? region.Pods[g.Index].Name);
                 var details = r.Changes.Where(c => !c.EndsWith("deleted") && !c.Contains("renumbered in their layer")).ToList();
                 changes.AddRange(details.Take(30));
                 if (details.Count > 30) changes.Add($"{details.Count - 30} more references changed");
                 result.Shifts.AddRange(r.Shifts);
-                problems.Add($"deleted instances may be named in instances.lua and the level scripts, which are not updated");
+                if (found.Count > 0) problems.Add($"deleted instances may be named in instances.lua and the level scripts, which are not updated");
+                if (groupNames.Count > 0) problems.Add($"deleted groups may be named in the level scripts, which are not updated");
             }
         }
 
@@ -417,6 +484,7 @@ public static class GameplayStructure
         {
             problems.Add("structural edits not saved, the rebuilt gp_prius does not validate: " + string.Join("; ", invalid.Take(3)));
             changes.Clear();
+            result.DeletedPods.Clear();
             result.Shifts.Clear();
             result.NotDeleted.Clear();
             result.NotDeleted.AddRange(region.Deleted);
@@ -433,14 +501,17 @@ public static class GameplayStructure
         settings.AsSpan().SequenceEqual(classDefault.Settings) ? GpSettingsSource.ClassDefault : GpSettingsSource.ClassDefaultCopy;
 
     /// <summary>Brings a group's member list (an Area's or a Scent's) from the loaded members to the current ones.</summary>
-    private static void Membership(GpPriusDocument doc, IReadOnlyList<int> now, IReadOnlyList<int> loaded, GpKind group, GpInstance member,
+    private static void Membership(GpPriusDocument doc, EntityRegion region, Func<GpKind, int, int> groupAt, IReadOnlyList<int> now, IReadOnlyList<int> loaded, GpKind group, GpInstance member,
         string label, string noun, List<string> changes, List<string> problems, StructureResult result)
     {
         foreach (int g in loaded.Except(now).Concat(now.Except(loaded)))
         {
+            // A deleted group takes its members with it (the deletion below).
+            if (region.IsGroupDeleted(group.ToString(), g)) continue;
             bool add = now.Contains(g);
-            if (g < 0 || g >= doc.Count(group)) { problems.Add($"{label}: {noun} {g} is not in the file, not saved"); continue; }
-            var at = new GpInstance(group, g);
+            int index = groupAt(group, g);
+            if (index < 0 || index >= doc.Count(group)) { problems.Add($"{label}: {noun} {g} is not in the file, not saved"); continue; }
+            var at = new GpInstance(group, index);
             var r = add ? doc.AddMember(at, member) : doc.RemoveMember(at, member);
             if (!r.Applied) { foreach (var p in r.Problems) problems.Add($"{label}: {p}"); continue; }
             result.Shifts.AddRange(r.Shifts);

@@ -6,7 +6,7 @@ namespace ReLunacy.Engine.Scene;
 /// in their Area indexes (<see cref="EntityRegion.SetAreas"/>), and a save writes the lists from those.</summary>
 public sealed class NewArea
 {
-    public required string Name { get; init; }
+    public required string Name { get; set; }
     public required ulong Tuid { get; init; }
     /// <summary>Its layer, an index into the region's layers.</summary>
     public required ushort Layer { get; init; }
@@ -19,8 +19,21 @@ public sealed class NewArea
     public void MarkWritten() => Written = true;
 }
 
+/// <summary>A Scent made in the editor. Its members are the Clues whose volumes name it by its handle in their Scent indexes
+/// (<see cref="EntityRegion.SetScents"/>); a save writes the list from those.</summary>
+public sealed class NewScent
+{
+    public required string Name { get; set; }
+    public required ulong Tuid { get; init; }
+    public required ushort Layer { get; init; }
+    /// <summary>Its place in the Scent table: past every loaded Scent and every earlier new one.</summary>
+    public int Handle { get; internal set; } = -1;
+    public bool Written { get; private set; }
+    public void MarkWritten() => Written = true;
+}
+
 /// <summary>
-/// Pods and Areas made in the editor. Both are named groups (gp_prius 0x25074 / 0x25080), one record each, in tables
+/// Pods, Areas and Scents made in the editor. Both are named groups (gp_prius 0x25074 / 0x25080), one record each, in tables
 /// grouped by layer. A new one goes at the END of the table, so no existing Pod or Area changes its number (Clue
 /// references and volumes' Area indexes name them by it): it can only be in a layer from the last one that holds one of
 /// its kind on (<see cref="GroupLayerProblem"/>), which every new layer is. Pods are <see cref="Pods"/> entries with
@@ -30,29 +43,40 @@ public sealed class NewArea
 public partial class EntityRegion
 {
     private readonly List<NewArea> _newAreas = [];
+    private readonly List<NewScent> _newScents = [];
+
+    /// <summary>The Scents made in the editor, in the order they were made.</summary>
+    public IReadOnlyList<NewScent> NewScents => _newScents;
 
     /// <summary>The Areas made in the editor, in the order they were made.</summary>
     public IReadOnlyList<NewArea> NewAreas => _newAreas;
 
     /// <summary>Why a Pod or an Area (<paramref name="area"/>) cannot go in the layer, or null.</summary>
-    public string? GroupLayerProblem(bool area, int layer)
+    public string? GroupLayerProblem(bool area, int layer) => GroupLayerProblem(area ? "Area" : "Pod", layer);
+
+    /// <summary>Why a Pod, Area or Scent (<paramref name="kind"/>) cannot go in the layer, or null.</summary>
+    public string? GroupLayerProblem(string kind, int layer)
     {
         if (IsOldEngine || !References.Editable) return "references not editable";
         if (layer < 0 || layer >= Layers.Count) return "no such layer";
-        int last = References.LastLayer(area ? "Area" : "Pod");
+        int last = References.LastLayer(kind);
         return layer >= last ? null : $"layer after {Layers[last]}";
     }
 
     /// <summary>The layers a new Pod or Area may go in (see <see cref="GroupLayerProblem"/>).</summary>
-    public IEnumerable<int> GroupLayers(bool area) => Enumerable.Range(0, Layers.Count).Where(l => GroupLayerProblem(area, l) == null);
+    public IEnumerable<int> GroupLayers(bool area) => GroupLayers(area ? "Area" : "Pod");
+
+    public IEnumerable<int> GroupLayers(string kind) => Enumerable.Range(0, Layers.Count).Where(l => GroupLayerProblem(kind, l) == null);
 
     /// <summary>Why <paramref name="name"/> cannot name a new Pod or Area, or null. Names are unique among their kind, as the
     /// level's segment table (level.csv) names a Pod by it.</summary>
-    public string? GroupNameProblem(bool area, string name)
+    public string? GroupNameProblem(bool area, string name) => GroupNameProblem(area ? "Area" : "Pod", name);
+
+    public string? GroupNameProblem(string kind, string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return "empty";
         if (name.Length > 120 || name.Any(c => c is '\0' or > 'ÿ')) return "Latin-1, up to 120";
-        bool taken = area ? AreaNames.Contains(name) : Pods.Any(p => p.Name == name);
+        bool taken = kind switch { "Area" => AreaNames.Contains(name), "Scent" => ScentNames.Contains(name), _ => Pods.Any(p => p.Name == name) };
         return taken ? "taken" : null;
     }
 
@@ -100,6 +124,28 @@ public partial class EntityRegion
         InvalidateLookups();
     }
 
+    /// <summary>A Scent to add with <see cref="AddScent"/>. Null with <paramref name="problem"/> when it cannot be made.</summary>
+    public NewScent? CreateScent(string name, int layer, out string? problem)
+    {
+        problem = GroupLayerProblem("Scent", layer) ?? GroupNameProblem("Scent", name);
+        return problem == null ? new NewScent { Name = name, Tuid = NewTuid(), Layer = (ushort)layer } : null;
+    }
+
+    /// <summary>Puts a made Scent at the end of the Scent table; its <see cref="NewScent.Handle"/> is what <see cref="SetScents"/> takes.</summary>
+    public void AddScent(NewScent scent)
+    {
+        scent.Handle = References.LoadedCount("Scent") + _newScents.Count;
+        _newScents.Add(scent);
+        InvalidateLookups();
+    }
+
+    /// <summary>Takes the last Scent out again (an undo). Whoever listed it stops first.</summary>
+    public void RemoveScent(NewScent scent)
+    {
+        if (_newScents.Count > 0 && ReferenceEquals(_newScents[^1], scent)) _newScents.RemoveAt(_newScents.Count - 1);
+        InvalidateLookups();
+    }
+
     /// <summary>The volumes and paths that list the Area.</summary>
     public IEnumerable<Entity> AreaUsers(int handle) =>
         Volumes.Entities.OfType<EntityVolume>().Where(v => v.BaseVolume.AreaIndexes.Contains(handle)).Cast<Entity>()
@@ -122,5 +168,6 @@ public partial class EntityRegion
         for (int i = References.LoadedCount("Pod"); i < Pods.Count; i++)
             yield return new("Pod", i, Pods[i].Name, (ushort)Math.Max(0, _layers.IndexOf(Pods[i].Layer ?? "")), true);
         foreach (var area in _newAreas) yield return new("Area", area.Handle, area.Name, area.Layer, true);
+        foreach (var scent in _newScents) yield return new("Scent", scent.Handle, scent.Name, scent.Layer, true);
     }
 }

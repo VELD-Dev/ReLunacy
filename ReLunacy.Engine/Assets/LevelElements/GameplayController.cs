@@ -32,7 +32,7 @@ public sealed class GameplayController
     }
 
     public required ulong Tuid { get; init; }
-    public required string Name { get; init; }
+    public required string Name { get; set; }
     /// <summary>The controller's place in the region's controller table (see <see cref="Volume.Index"/>).</summary>
     public int Index { get; init; } = -1;
     public string? Layer { get; set; }

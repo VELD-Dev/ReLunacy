@@ -100,6 +100,15 @@ internal static class FileMenuDraw
         LunaWindow.Instance.AddFrame(new LevelExportModal());
     }
 
+    internal static void ImportMenu()
+    {
+        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_Import"), LunaWindow.Instance.Level != null)) return;
+        bool available = ImportModelModal.Available;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ImportModel"), "", false, available)) ImportModelModal.Choose();
+        if (!available && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ImportModel_ACiTOnly"));
+        ImGui.EndMenu();
+    }
+
     internal static void OpenGameBrowserMenuItem()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<GameBrowserFrame>();

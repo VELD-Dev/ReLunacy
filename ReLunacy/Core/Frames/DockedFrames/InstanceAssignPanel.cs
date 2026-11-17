@@ -117,7 +117,8 @@ public static class InstanceAssignPanel
     private static void Membership(EntityRegion region, string id, string labelKey, string hintKey, string undoKey, IReadOnlyList<Entity> targets,
         IReadOnlyList<string> names, Func<int, int> state, Action<int, bool> set)
     {
-        var on = Enumerable.Range(0, names.Count).Where(i => state(i) > 0).ToList();
+        string kind = id switch { "pods" => "Pod", "areas" => "Area", _ => "Scent" };
+        var on = Enumerable.Range(0, names.Count).Where(i => state(i) > 0 && !region.IsGroupDeleted(kind, i)).ToList();
         string preview = on.Count == 0 ? LM.Get("GUI_Assign_None")
             : on.Count <= 2 ? string.Join(", ", on.Select(i => names[i]))
             : LM.Get("GUI_Assign_Several", on.Count);
@@ -125,6 +126,7 @@ public static class InstanceAssignPanel
         {
             for (int i = 0; i < names.Count; i++)
             {
+                if (region.IsGroupDeleted(kind, i)) continue;
                 bool all = state(i) == 2;
                 if (ImGui.Checkbox($"{names[i]}##{id}{i}", ref all))
                 {

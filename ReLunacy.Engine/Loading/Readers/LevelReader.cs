@@ -297,6 +297,24 @@ public sealed class LevelReader
             regionNames: _regionNames);
     }
 
+    /// <summary>A class the editor built (not in the files yet) as a Tie asset, in the level's Tie library: listed and read like the
+    /// level's own until the level is read again. New engine only; null when the class does not read.</summary>
+    public Assets.Ties.Tie? AddPendingTie(Packing.PendingTieClass pending)
+    {
+        if (_fileManager.isOld || pending.Render.Problem != null) return null;
+        var reader = new TieReader(_fileManager, _materialReader, _debugReader)
+        {
+            CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
+        };
+        Assets.Ties.Tie tie;
+        lock (_fileLock) tie = reader.ReadClass(pending.Render.Bytes, pending.Tuid);
+        _ties.AddPending(pending.Tuid, tie);
+        return tie;
+    }
+
+    /// <summary>Drops a class <see cref="AddPendingTie"/> listed.</summary>
+    public void RemovePendingTie(ulong tuid) => _ties.RemovePending(tuid);
+
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys.Loaded;
     public IReadOnlyDictionary<ulong, Assets.Ties.Tie> Ties => _ties.Loaded;
     public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs => _shrubs.Loaded;

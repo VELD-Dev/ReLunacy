@@ -7,7 +7,7 @@ public sealed partial class GpPriusDocument
     /// and the Area indexes of volumes and paths do not follow. Null when the layer is fine.</summary>
     public string? GroupLayerProblem(GpKind kind, int layer)
     {
-        if (kind is not (GpKind.Pod or GpKind.Area)) return $"a {kind} is not a group";
+        if (kind is not (GpKind.Pod or GpKind.Area or GpKind.Scent)) return $"a {kind} is not a group";
         if (layer < 0 || layer >= LayerCount) return $"layer {layer} does not exist (the region has {LayerCount})";
         var meta = MetadataOf(kind);
         if (meta == null || RecordsOf(kind) == null) return $"this region has no {kind} tables";
@@ -16,7 +16,7 @@ public sealed partial class GpPriusDocument
     }
 
     /// <summary>
-    /// Appends an empty Pod or Area (no members; add them with <see cref="AddMember"/>). It goes at the end of its layer's
+    /// Appends an empty Pod, Area or Scent (no members; add them with <see cref="AddMember"/>). It goes at the end of its layer's
     /// run, which is the end of the table (<see cref="GroupLayerProblem"/>), so no existing Pod or Area is renumbered. An
     /// empty list is a null pointer and a zero count, as every shipped file has it. The counts in gameplay.dat are budgets
     /// the caller raises (<see cref="GameplayBudgets"/>).

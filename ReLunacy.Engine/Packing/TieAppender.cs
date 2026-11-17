@@ -75,6 +75,8 @@ public static partial class TieAppender
     private sealed class Level
     {
         public required Func<string, byte[]?> Read;
+        /// <summary>Classes TieClassRegistrar just wrote, which have no placement to copy.</summary>
+        public IReadOnlyDictionary<ulong, RegisteredTieClass>? Imported;
         public readonly Dictionary<string, byte[]> Files = new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, int> OriginalLength = new(StringComparer.OrdinalIgnoreCase);
 
@@ -233,6 +235,10 @@ public static partial class TieAppender
                     zn != null && i < zn.Count ? BinaryPrimitives.ReadUInt64BigEndian(zb[(zn.Offset + 16 * i)..]) : 0));
             }
         }
+        // A class that was just registered has none: it copies a plain placement of the zone (TieAppender.Classes.cs).
+        RegisteredTieClass? imported = null;
+        if (sources.Count == 0 && level.Imported?.TryGetValue(request.ClassTuid, out imported) == true)
+            sources.AddRange(TemplatePlacements(zones, zonePointers, zi));
         if (sources.Count == 0) throw new Refusal("the level has no placement of this class to copy");
 
         var lightingPointers = Pointers(lookup, LightingPointers);
@@ -296,6 +302,7 @@ public static partial class TieAppender
         for (int r = 0; r < 4; r++)
             for (int c = 0; c < 3; c++)
                 PutF(record, (r * 4 + c) * 4, m[r, c]);
+        if (imported != null) SetImportedSphere(record, held, imported);
         var oldCentre = new Vector3(F(record, 0x40), F(record, 0x44), F(record, 0x48));
         var centre = Vector3.Transform(Vector3.Transform(oldCentre, heldInverse), Affine(m));
         float radius = F(record, 0x4C) * MaxAxis(m) / MathF.Max(MaxAxis(held), 1e-6f);
@@ -305,7 +312,9 @@ public static partial class TieAppender
         // Lighting.
         string lighting;
         byte[]? newSlice = null;
-        if (src.Baked && canBake && BakedLighting(level, lightingPointers, slice, src, srcBlob, blob, record, payloads) is { } baked)
+        if (imported != null)
+            lighting = ImportedLighting(level, lightingPointers, slice, src, srcBlob, record, imported, out newSlice);
+        else if (src.Baked && canBake && BakedLighting(level, lightingPointers, slice, src, srcBlob, blob, record, payloads) is { } baked)
         {
             newSlice = baked.Slice;
             lighting = baked.Note;
@@ -454,6 +463,8 @@ public static partial class TieAppender
         for (int i = 0; i < tuidCount; i++)
             if (BinaryPrimitives.ReadUInt64BigEndian(payload.AsSpan(tuidOffset + 8 * i)) == request.ClassTuid) owner = i;
         if (owner < 0) { problems.Add($"Tie {request.Name}: its class has no collision in {request.Region}, the Tie is not solid"); return 0; }
+        if (level.Imported?.GetValueOrDefault(request.ClassTuid)?.Collision.GetValueOrDefault(request.Region) is { } registered && !OwnsInstances(payload, owner))
+            return AppendImportedCollision(level, request, file, payload, registered, problems);
 
         // The chunks of one placement of the class: Tie instances of this owner whose matrix is that placement's.
         var ofClass = new List<int>();

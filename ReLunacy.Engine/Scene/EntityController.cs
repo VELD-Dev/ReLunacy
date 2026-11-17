@@ -16,6 +16,8 @@ public class EntityController : Entity
 
     public override string Name { get; protected set; }
 
+    protected override void OnRenamed(string name) => Controller.Name = name;
+
     /// <summary>The diamond's half-size, in metres, following the camera model's size setting.</summary>
     public static float MarkerRadius => 1.2f * EntityCamera.ModelScale;
 

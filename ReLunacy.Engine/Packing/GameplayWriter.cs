@@ -134,7 +134,9 @@ public static partial class GameplayWriter
             {
                 foreach (var volume in region.Volumes.Entities.OfType<EntityVolume>()) volume.MarkSaved();
                 foreach (var pod in region.Pods) pod.MarkSaved();
+                region.MarkNamesSaved();
                 foreach (var area in region.NewAreas) area.MarkWritten();
+                foreach (var scent in region.NewScents) scent.MarkWritten();
                 foreach (var zone in region.Zones)
                 {
                     foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>()) tie.MarkSaved();
@@ -196,6 +198,7 @@ public static partial class GameplayWriter
             if (changes.Count > 0) plan.Entries[name] = bytes;
         }
 
+        var goneFromFiles = new List<string>();
         if (!files.isOld)
         {
             var budgeted = new List<GpPriusDocument>();
@@ -222,7 +225,8 @@ public static partial class GameplayWriter
                     allChanges.AddRange(shifts.Take(20).Select(s => $"handle {s}"));
                     if (shifts.Count > 20) allChanges.Add($"{shifts.Count - 20} more handles shifted");
                 }
-                if (structure?.Applied == true) plan.Structural = true;
+                if (structure?.Applied == true) { plan.Structural = true; goneFromFiles.AddRange(structure.DeletedPods); }
+                if (ScriptNames(files, region) is { } scripted) allProblems.Add(scripted);
                 Add(region.RegionName, name, patched, allChanges, allProblems);
                 if (allChanges.Count > 0 && (structure?.Applied == true || patched.Length != original.Length))
                     try { budgeted.Add(GpPriusDocument.Parse(patched)); }
@@ -245,13 +249,18 @@ public static partial class GameplayWriter
         }
 
         // New segments: their columns of level.csv, in the game's archive, read through the project's overlay.
-        if (!files.isOld && Config.SegmentRegistry.Pending.Count > 0)
+        var removedPods = files.isOld ? [] : goneFromFiles.Distinct().ToList();
+        foreach (string kept in files.isOld ? [] : regions.SelectMany(r => r.DeletedSegmentPods()).Except(goneFromFiles).Distinct())
+            plan.Problems.Add($"level.csv: segment {kept} kept, its Pod was not deleted from gp_prius");
+        if (!files.isOld && (Config.SegmentRegistry.Pending.Count > 0 || Config.SegmentRegistry.PendingRenames.Count > 0 || removedPods.Count > 0))
         {
             var pending = Config.SegmentRegistry.Pending.ToList();
+            var renames = Config.SegmentRegistry.PendingRenames.ToList();
             string? levelFile = files.ArchivePaths.FirstOrDefault();
             string? gameFolder = levelFile == null ? null : Config.GameConfigs.GameFolderFor(levelFile);
             var table = gameFolder == null ? null : Config.GameConfigs.LevelTable(gameFolder);
-            if (table == null) plan.Problems.Add("level.csv: not found, the new segment is not registered (the game ignores a Pod without its entry)");
+            if (table == null) plan.Problems.Add(pending.Count > 0 ? "level.csv: not found, the new segment is not registered (the game ignores a Pod without its entry)"
+                : "level.csv: not found, a renamed segment Pod is not renamed there");
             else
             {
                 string levelName = Path.GetFileName(Path.GetDirectoryName(levelFile)!);
@@ -263,12 +272,26 @@ public static partial class GameplayWriter
                     if (Config.SegmentRegistry.Apply(csv, levelName, registration, out var why)) done.Add(registration.NewPod);
                     else plan.Problems.Add($"level.csv: segment {registration.NewPod} not registered, {why}");
                 }
+                // After the new columns, so a Pod made and renamed before one save is entered under its last name.
+                var renamed = new List<(string Old, string New)>();
+                foreach (var rename in renames)
+                {
+                    if (!Config.SegmentRegistry.ApplyRename(csv, levelName, rename, out bool found, out var why)) plan.Problems.Add($"level.csv: segment {rename.Old} not renamed {rename.New}, {why}");
+                    else { renamed.Add(rename); if (found) done.Add($"{rename.Old} renamed {rename.New}"); }
+                }
+                // A deleted Pod's segment column (a segment is live through its column only), after the registrations.
+                foreach (string removed in removedPods)
+                {
+                    if (!Config.SegmentRegistry.ApplyRemoval(csv, levelName, removed, out bool found, out var why)) plan.Problems.Add($"level.csv: segment {removed} not removed, {why}");
+                    else if (found) done.Add($"{removed} removed");
+                }
                 if (csv.ToText() != before)
                 {
                     plan.External[table.ArchivePath] = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase) { [table.EntryPath] = csv.ToBytes() };
-                    plan.Changes.AddRange(done.Select(n => $"level.csv: segment {n} added to {levelName}'s block"));
+                    plan.Changes.AddRange(done.Select(n => n.Contains(" renamed ") || n.EndsWith(" removed") ? $"level.csv: segment {n} in {levelName}'s block" : $"level.csv: segment {n} added to {levelName}'s block"));
                 }
-                if (done.Count == pending.Count) afterSave?.Add(() => { foreach (var registration in pending) Config.SegmentRegistry.Remove(registration); });
+                if (done.Count(n => !n.Contains(" renamed ") && !n.EndsWith(" removed")) == pending.Count) afterSave?.Add(() => { foreach (var registration in pending) Config.SegmentRegistry.Remove(registration); });
+                afterSave?.Add(() => { foreach (var rename in renamed) Config.SegmentRegistry.RemoveRename(rename); });
             }
         }
 
@@ -320,6 +343,8 @@ public static partial class GameplayWriter
                 // offsets, the placements' record offsets) are stale until the level is read again.
                 if (result.Added.Count > 0) plan.Structural = true;
             }
+            // New Tie classes first: the placements below name them (GameplayWriter.Classes.cs).
+            var imported = RegisterPendingClasses(regions, Read, plan, current, afterSave);
             // Deleted Ties go first: the appends below find their sources in what is left.
             var deletes = new List<TieDeleteRequest>();
             foreach (var region in regions)
@@ -339,10 +364,50 @@ public static partial class GameplayWriter
                 if (gone.Deleted.Count > 0) plan.Structural = true;
             }
             foreach (var (region, zone, ties2) in madeZones)
-                Take(TieAppender.CreateZone(Read, new ZoneCreateRequest(zone.ZoneName, region.RegionName), ties2), "Tie");
-            if (requests.Count > 0) Take(TieAppender.Append(Read, requests), "Tie");
+                Take(TieAppender.CreateZone(Read, new ZoneCreateRequest(zone.ZoneName, region.RegionName), ties2, imported), "Tie");
+            if (requests.Count > 0) Take(TieAppender.Append(Read, requests, imported), "Tie");
+
+            // Renamed Ties last: a row is found by its class, matrix and name, which the steps above do not change, and the
+            // zone blob grows or shrinks, which would move the offsets the deletions go by.
+            var renames = new List<TieRenameRequest>();
+            var renamedTies = new HashSet<EntityTie>(ReferenceEqualityComparer.Instance);
+            foreach (var region in regions)
+                foreach (var zone in region.Zones)
+                    foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>().Where(t => t.IsRenamed && t.SourceOffset >= 0))
+                    {
+                        if (!renamedTies.Add(tie)) continue;
+                        var moved = tie.PlacementMatrix * (Matrix4x4.Invert(tie.SavedMatrix, out var savedInverse) ? savedInverse : Matrix4x4.Identity) * tie.Transform.GetMatrix();
+                        renames.Add(new TieRenameRequest(zone.ZoneTUID, tie.BaseTie.Id, moved, tie.LoadedName!, tie.Name));
+                    }
+            if (renames.Count > 0)
+            {
+                var named = TieAppender.Rename(Read, renames);
+                plan.Changes.AddRange(named.Changes.Select(c => $"zones: {c}"));
+                plan.Problems.AddRange(named.Problems.Select(p => $"zones: {p}"));
+                plan.Problems.AddRange(named.Refused.Select(r => $"Tie {r.Request.OldName}: rename not saved, {r.Reason}"));
+                foreach (var (name, bytes) in named.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
+                if (named.Changes.Count > 0) plan.Structural = true;
+            }
         }
         return plan;
+    }
+
+    /// <summary>A line for the problems when renamed instances are named in the level's scripts: instances.lua.trimmed lists the
+    /// instances the scripts use, as Lua variables bound to their (layer, index). Renaming does not break that binding, but the
+    /// scripts keep the old names (instances.lua is not rewritten). Null when none is.</summary>
+    private static string? ScriptNames(FileManager files, EntityRegion region)
+    {
+        var old = region.NamedEntities().Where(e => e.IsRenamed).Select(e => e.LoadedName!)
+            .Concat(region.Pods.Where(p => p.IsRenamed).Select(p => p.LoadedName!))
+            .Concat(region.AreaRenames.Values.Where(r => r.Old != r.New).Select(r => r.Old)).ToHashSet();
+        if (old.Count == 0 || files.ReadOriginal($"{region.RegionName}/instances.lua.trimmed") is not { } trimmed) return null;
+        var used = new HashSet<string>();
+        foreach (string line in System.Text.Encoding.Latin1.GetString(trimmed).Split('\n'))
+        {
+            int eq = line.IndexOf(" = ", StringComparison.Ordinal);
+            if (eq > 0 && old.Contains(line[..eq])) used.Add(line[..eq]);
+        }
+        return used.Count == 0 ? null : $"{used.Count} renamed instance(s) are named in instances.lua ({string.Join(", ", used.Take(3))}{(used.Count > 3 ? ", ..." : "")}): scripts keep the old names, bound to the same handles";
     }
 
     /// <summary>The rebuilt archive, entry by entry: the replaced ones hold the new bytes, every other one the old.</summary>

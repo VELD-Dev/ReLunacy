@@ -31,7 +31,113 @@ public static class SegmentRegistry
 
     public static void Remove(SegmentRegistration registration) => _pending.Remove(registration);
 
-    public static void Clear() => _pending.Clear();
+    public static void Clear() { _pending.Clear(); _renames.Clear(); }
+
+    private static readonly List<(string Old, string New)> _renames = [];
+
+    /// <summary>Pods renamed in the editor (old name, new name), for the level save to carry into level.csv's Pod row: a
+    /// segment is matched to its Pod by name. A rename of a rename is one rename; one back to the first name is none.</summary>
+    public static IReadOnlyList<(string Old, string New)> PendingRenames => _renames;
+
+    public static void RenamePod(string oldName, string newName)
+    {
+        if (oldName == newName) return;
+        int i = _renames.FindIndex(r => r.New == oldName);
+        if (i < 0) _renames.Add((oldName, newName));
+        else if (_renames[i].Old == newName) _renames.RemoveAt(i);
+        else _renames[i] = (_renames[i].Old, newName);
+    }
+
+    public static void RemoveRename((string Old, string New) rename) => _renames.Remove(rename);
+
+    /// <summary>What <see cref="DropPod"/> took out of the pending lists, for <see cref="RestorePod"/>.</summary>
+    public sealed record PodDrop(SegmentRegistration? Registration, int RegistrationAt, (string Old, string New)? Rename, int RenameAt);
+
+    /// <summary>A Pod is deleted: its pending registration (a new segment not in level.csv yet) and its pending rename go, as
+    /// there is nothing to enter or rename. The level save takes a column the file already has out (<see cref="ApplyRemoval"/>).</summary>
+    public static PodDrop DropPod(string name)
+    {
+        int r = _renames.FindIndex(x => x.New == name);
+        string first = r >= 0 ? _renames[r].Old : name;
+        var rename = r >= 0 ? _renames[r] : ((string, string)?)null;
+        if (r >= 0) _renames.RemoveAt(r);
+        int g = _pending.FindIndex(x => x.NewPod == first);
+        var registration = g >= 0 ? _pending[g] : null;
+        if (g >= 0) _pending.RemoveAt(g);
+        return new PodDrop(registration, g, rename, r);
+    }
+
+    public static void RestorePod(PodDrop drop)
+    {
+        if (drop.Registration != null && !_pending.Contains(drop.Registration)) _pending.Insert(Math.Clamp(drop.RegistrationAt, 0, _pending.Count), drop.Registration);
+        if (drop.Rename is { } rename && !_renames.Contains(rename)) _renames.Insert(Math.Clamp(drop.RenameAt, 0, _renames.Count), rename);
+    }
+
+    /// <summary>The level's block loses the segment's column (the Pod row names it): the cells behind it move left, and a
+    /// level-wide pool that is the sum of the segments' (as <see cref="Apply"/> keeps it) drops by the column's value.
+    /// A segment in the middle renumbers the ones after it, which the game keeps a save state for. True with
+    /// <paramref name="found"/> false when the level has no such segment (nothing to change).</summary>
+    public static bool ApplyRemoval(ConfigCsv csv, string levelName, string pod, out bool found, out string? problem)
+    {
+        problem = null;
+        found = false;
+        if (GameConfigs.LevelSection(csv, levelName) is not { } block) { problem = $"level.csv has no block for {levelName}"; return false; }
+        var rows = block.Rows;
+        int pods = GameConfigs.FieldRow(csv, rows, "Pod");
+        if (pods < 0) { problem = "its block has no Pod row"; return false; }
+        int column = -1, last = FirstSegment - 1;
+        for (int c = FirstSegment; c < csv.Rows[pods].Count; c++)
+        {
+            string cell = csv.Get(pods, c);
+            if (cell.Length > 0) last = c;
+            if (cell == pod && column < 0) column = c;
+        }
+        if (column < 0) return true;
+        for (int r = rows.Start + 1; r < rows.End; r++)
+        {
+            string field = csv.Get(r, 1);
+            if (r != pods && PoolRows.Contains(field)
+                && double.TryParse(csv.Get(r, column), NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+                && double.TryParse(csv.Get(r, GameConfigs.LevelValueColumn), NumberStyles.Float, CultureInfo.InvariantCulture, out double total)
+                && Math.Abs(total - Sum(csv, r, FirstSegment, last)) < 1e-6)
+                csv.Set(r, GameConfigs.LevelValueColumn, (total - value).ToString(CultureInfo.InvariantCulture));
+        }
+        for (int r = rows.Start + 1; r < rows.End; r++)
+        {
+            var cells = csv.Rows[r];
+            if (cells.Count > column) cells.RemoveAt(column);
+            // The last segment's column leaves: the empty cells a copied column padded a short row with go too.
+            if (column == last)
+                while (cells.Count > FirstSegment && cells[^1].Text.Length == 0 && !cells[^1].Quoted) cells.RemoveAt(cells.Count - 1);
+        }
+        found = true;
+        return true;
+    }
+
+    public static void ClearRenames() => _renames.Clear();
+
+    /// <summary>The level's block has the renamed Pod in its Pod row: that cell gets the new name. Returns false with
+    /// <paramref name="problem"/> when it cannot; true with <paramref name="found"/> false when the Pod is no segment of the
+    /// level (nothing to change).</summary>
+    public static bool ApplyRename(ConfigCsv csv, string levelName, (string Old, string New) rename, out bool found, out string? problem)
+    {
+        problem = null;
+        found = false;
+        if (GameConfigs.LevelSection(csv, levelName) is not { } block) { problem = $"level.csv has no block for {levelName}"; return false; }
+        int pods = GameConfigs.FieldRow(csv, block.Rows, "Pod");
+        if (pods < 0) { problem = "its block has no Pod row"; return false; }
+        int column = -1;
+        for (int c = FirstSegment; c < csv.Rows[pods].Count; c++)
+        {
+            string cell = csv.Get(pods, c);
+            if (cell == rename.New) { problem = $"another segment is already named {rename.New}"; return false; }
+            if (cell == rename.Old) column = c;
+        }
+        if (column < 0) return true;
+        csv.Set(pods, column, rename.New);
+        found = true;
+        return true;
+    }
 
     /// <summary>The level's block gets the segment's column. Returns false with <paramref name="problem"/> when it cannot, true
     /// with it null otherwise (also when the Pod is already there, which changes nothing).</summary>

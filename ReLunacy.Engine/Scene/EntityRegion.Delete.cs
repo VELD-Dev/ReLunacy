@@ -44,6 +44,7 @@ public partial class EntityRegion
 
     private IEnumerable<(string Kind, int Index)> DeletedHandles()
     {
+        foreach (var group in _deletedGroups) yield return group;
         foreach (var entity in _deleted)
             switch (entity)
             {
@@ -115,6 +116,36 @@ public partial class EntityRegion
         return new DeletePlan([.. lines.Distinct()], also);
     }
 
+    /// <summary>Adds the step that puts a holder's settings and references back (a deletion clears words in them).</summary>
+    private static void CaptureSettings(Entity holder, List<Action> restores)
+    {
+        switch (holder)
+        {
+            case EntityVolume { BaseVolume.Clue: { } clue }:
+            {
+                byte[] bytes = (byte[])clue.Settings.Clone();
+                var references = clue.References;
+                restores.Add(() => { bytes.CopyTo(clue.Settings, 0); clue.References = references; });
+                break;
+            }
+            case EntityController controller:
+            {
+                var c = controller.Controller;
+                byte[] bytes = (byte[])c.Settings.Clone();
+                var references = c.References;
+                restores.Add(() => { bytes.CopyTo(c.Settings, 0); c.References = references; });
+                break;
+            }
+            case EntityMoby moby:
+            {
+                byte[] bytes = (byte[])moby.Settings.Clone();
+                var references = moby.References;
+                restores.Add(() => { bytes.CopyTo(moby.Settings, 0); moby.SetReferences(references); });
+                break;
+            }
+        }
+    }
+
     /// <summary>Takes instances of the files out of the region. The settings of whatever named them are cleared (and kept for
     /// <see cref="Undelete"/>), the Pods lose them, the handles behind them move up.</summary>
     public DeletionState Delete(IReadOnlyCollection<Entity> entities)
@@ -128,32 +159,7 @@ public partial class EntityRegion
             foreach (var (kind, index) in HandlesOf(target))
                 foreach (var user in UsersOf(kind, index))
                     if (Find(user.Kind, user.Index) is { } holder) holders.Add(holder);
-        foreach (var holder in holders)
-            switch (holder)
-            {
-                case EntityVolume { BaseVolume.Clue: { } clue }:
-                {
-                    byte[] bytes = (byte[])clue.Settings.Clone();
-                    var references = clue.References;
-                    state.Holders.Add(() => { bytes.CopyTo(clue.Settings, 0); clue.References = references; });
-                    break;
-                }
-                case EntityController controller:
-                {
-                    var c = controller.Controller;
-                    byte[] bytes = (byte[])c.Settings.Clone();
-                    var references = c.References;
-                    state.Holders.Add(() => { bytes.CopyTo(c.Settings, 0); c.References = references; });
-                    break;
-                }
-                case EntityMoby moby:
-                {
-                    byte[] bytes = (byte[])moby.Settings.Clone();
-                    var references = moby.References;
-                    state.Holders.Add(() => { bytes.CopyTo(moby.Settings, 0); moby.SetReferences(references); });
-                    break;
-                }
-            }
+        foreach (var holder in holders) CaptureSettings(holder, state.Holders);
         foreach (var pod in Pods)
             if (doomed.OfType<EntityMoby>().Any(pod.Contains)) state.Pods.Add((pod, [.. pod.Members]));
 

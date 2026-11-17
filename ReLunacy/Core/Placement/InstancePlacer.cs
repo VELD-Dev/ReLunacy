@@ -115,35 +115,108 @@ public static class InstancePlacer
         return created;
     }
 
-    /// <summary>Makes a Pod (<paramref name="area"/> false) or an Area in the layer, with the selected instances in it (Mobys in a Pod,
-    /// volumes and paths in an Area), as one undo step. Null, with <paramref name="problem"/>, when it cannot be made.</summary>
-    public static bool CreateGroup(bool area, string name, int layer, out string? problem)
+    /// <summary>Whether an instance can be a member of a new group of the kind (Mobys in a Pod, volumes and paths in an Area,
+    /// volumes with a Clue in a Scent).</summary>
+    public static bool IsGroupMember(string kind, Entity e) => kind switch
+    {
+        "Pod" => e is EntityMoby,
+        "Area" => e is EntityVolume or EntityPath,
+        _ => e is EntityVolume { BaseVolume.Clue: not null },
+    };
+
+    /// <summary>Makes a Pod, an Area or a Scent in the layer, with the selected instances in it (Mobys in a Pod, volumes and
+    /// paths in an Area, volumes with a Clue in a Scent), as one undo step. False, with <paramref name="problem"/>, when it cannot be made.</summary>
+    public static bool CreateGroup(string kind, string name, int layer, out string? problem)
     {
         problem = null;
         if (!Available || TargetRegion() is not { } region) { problem = "no region"; return false; }
-        var members = SelectionManager.Singleton.Selection
-            .Where(e => area ? e is EntityVolume or EntityPath : e is EntityMoby).Where(region.Contains).ToList();
+        var members = SelectionManager.Singleton.Selection.Where(e => IsGroupMember(kind, e)).Where(region.Contains).ToList();
         var before = region.Snapshot(members);
         EntityPod? pod = null;
-        NewArea? made = null;
-        if (area) { made = region.CreateArea(name, layer, out problem); if (made == null) return false; region.AddArea(made); }
-        else { pod = region.CreatePod(name, layer, out problem); if (pod == null) return false; region.AddPod(pod); }
+        NewArea? area = null;
+        NewScent? scent = null;
+        switch (kind)
+        {
+            case "Area": area = region.CreateArea(name, layer, out problem); if (area == null) return false; region.AddArea(area); break;
+            case "Scent": scent = region.CreateScent(name, layer, out problem); if (scent == null) return false; region.AddScent(scent); break;
+            default: pod = region.CreatePod(name, layer, out problem); if (pod == null) return false; region.AddPod(pod); break;
+        }
         foreach (var member in members)
             if (pod != null) pod.Add((EntityMoby)member);
-            else region.SetAreas(member, region.AreasOf(member).Append(made!.Handle));
+            else if (area != null) region.SetAreas(member, region.AreasOf(member).Append(area.Handle));
+            else region.SetScents(member, region.ScentsOf(member).Append(scent!.Handle));
         var after = region.Snapshot(members);
         UndoManager.Singleton.Push(LM.Get("GUI_Undo_CreateGroup"),
             () =>
             {
                 before.Restore();
-                if (pod != null) region.RemovePod(pod); else region.RemoveArea(made!);
+                if (pod != null) region.RemovePod(pod); else if (area != null) region.RemoveArea(area); else region.RemoveScent(scent!);
             },
             () =>
             {
-                if (pod != null) region.AddPod(pod); else region.AddArea(made!);
+                if (pod != null) region.AddPod(pod); else if (area != null) region.AddArea(area); else region.AddScent(scent!);
                 after.Restore();
             });
         return true;
+    }
+
+    /// <summary>Delete on Pods, Areas or Scents (the files' or new): the confirmation lists who names them
+    /// (<see cref="Frames.Modals.ConfirmDeleteModal"/>), then one undo step takes them out.</summary>
+    public static void DeleteGroups(EntityRegion region, IReadOnlyList<GroupRef> groups)
+    {
+        groups = [.. groups.Where(g => region.CanDeleteGroup(g.Kind, g.Handle))];
+        if (groups.Count == 0 || LunaWindow.Instance.IsAnyFrameOpened<Frames.Modals.ConfirmDeleteModal>()) return;
+        var plan = region.PlanDeleteGroups(groups);
+        var names = groups.Select(g => region.GroupName(g.Kind, g.Handle) ?? "").ToList();
+        string title = groups.Count == 1 ? LM.Get("GUI_DeleteGroup_What", groups[0].Kind, names[0])
+            : LM.Get("GUI_DeleteGroup_Several", groups.Count, string.Join(", ", names.Take(3)) + (names.Count > 3 ? ", ..." : ""));
+        var warnings = new List<string>();
+        if (groups.Any(g => g.Kind == "Pod" && !region.IsGroupNew("Pod", g.Handle) && region.GroupName("Pod", g.Handle)!.StartsWith("SEGMENT", StringComparison.OrdinalIgnoreCase)))
+            warnings.Add(LM.Get("GUI_DeleteGroup_Segment"));
+        if (groups.Any(g => !region.IsGroupNew(g.Kind, g.Handle))) warnings.Add(LM.Get("GUI_DeleteGroup_Scripts"));
+        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(title, plan.References, [], warnings, () =>
+        {
+            var state = region.DeleteGroups(groups);
+            UndoManager.Singleton.Push(LM.Get("GUI_Undo_DeleteGroup"),
+                () => region.UndeleteGroups(state),
+                () => state = region.RedeleteGroups(state));
+        }));
+    }
+
+    /// <summary>Delete on a zone made in the editor and not saved: its new Ties go with it. The files' zones are refused.</summary>
+    public static void DeleteZone(EntityRegion region, EntityZone zone)
+    {
+        if (LunaWindow.Instance.IsAnyFrameOpened<Frames.Modals.ConfirmDeleteModal>()) return;
+        var problem = region.DeleteZoneProblem(zone);
+        var also = region.ZoneContents(zone).Select(t => $"Tie {t.Name}").ToList();
+        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(LM.Get("GUI_DeleteContainer_Zone", zone.ZoneName), [], also, [], () =>
+        {
+            var state = region.DeleteZone(zone);
+            AfterChange(state.Entities);
+            SelectionManager.Singleton.Deselect();
+            UndoManager.Singleton.Push(LM.Get("GUI_Undo_DeleteContainer"),
+                () => { region.UndeleteZone(state); AfterChange(state.Entities); },
+                () => { region.DeleteZone(zone); AfterChange(state.Entities); SelectionManager.Singleton.Deselect(); });
+        }, problem));
+    }
+
+    /// <summary>Delete on a layer made in the editor and not saved (the last one): the new instances and groups in it go with it.</summary>
+    public static void DeleteLayer(EntityRegion region, string layer)
+    {
+        if (LunaWindow.Instance.IsAnyFrameOpened<Frames.Modals.ConfirmDeleteModal>()) return;
+        var problem = region.DeleteLayerProblem(layer);
+        var (instances, groups) = region.LayerContents(layer);
+        var also = instances.Select(e => $"{e.GetType().Name.Replace("Entity", "")} {e.Name}")
+            .Concat(groups.Select(g => $"{g.Kind} {region.GroupName(g.Kind, g.Handle)}")).ToList();
+        LunaWindow.Instance.AddFrame(new Frames.Modals.ConfirmDeleteModal(LM.Get("GUI_DeleteContainer_Layer", layer), [], also, [], () =>
+        {
+            var state = region.DeleteLayer(layer);
+            AfterChange(state.Entities);
+            SelectionManager.Singleton.Deselect();
+            UndoManager.Singleton.Push(LM.Get("GUI_Undo_DeleteContainer"),
+                () => { region.UndeleteLayer(state); AfterChange(state.Entities); },
+                () => { region.DeleteLayer(layer); AfterChange(state.Entities); SelectionManager.Singleton.Deselect(); });
+        }, problem));
     }
 
     /// <summary>The controller classes the region has, each with the controller its settings are copied from, cameras

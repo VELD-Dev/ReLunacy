@@ -35,6 +35,7 @@ public sealed class GameplayReferences
     private Dictionary<(int Kind, ushort Layer), List<Entry>> _byLayer = [];
     private Func<IEnumerable<Change>>? _source;
     private Func<IEnumerable<(string Kind, int Index)>>? _deleted;
+    private Func<IEnumerable<(string Kind, int Index, string Name)>>? _names;
     private HashSet<(string Kind, int Index)> _deletedNow = [];
     private bool _stale = true;
 
@@ -60,6 +61,14 @@ public sealed class GameplayReferences
     public void SetDeletedSource(Func<IEnumerable<(string Kind, int Index)>>? source)
     {
         _deleted = source;
+        _stale = true;
+    }
+
+    /// <summary>Where the names the editor gave loaded instances come from (kind, handle, name), asked for again after
+    /// <see cref="Invalidate"/>.</summary>
+    public void SetNameSource(Func<IEnumerable<(string Kind, int Index, string Name)>>? source)
+    {
+        _names = source;
         _stale = true;
     }
 
@@ -93,6 +102,11 @@ public sealed class GameplayReferences
                 held.Layer = change.Layer;
                 held.Order = 2;
             }
+        }
+        foreach (var (kind, index, name) in _names?.Invoke() ?? [])
+        {
+            int k = _kinds.FindIndex(x => x.Kind == kind);
+            if (k >= 0 && _entries[k].TryGetValue(index, out var renamed)) renamed.Name = name;
         }
         _deletedNow = [.. _deleted?.Invoke() ?? []];
         foreach (var (kind, index) in _deletedNow)

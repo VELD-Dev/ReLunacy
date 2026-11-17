@@ -45,6 +45,16 @@ public sealed class AssetThumbnails
         return null;
     }
 
+    /// <summary>Drops a class's thumbnail (the class was removed).</summary>
+    public void Forget(bool tie, ulong id)
+    {
+        var key = new Key(tie, id);
+        if (_done.Remove(key, out var texture)) _retired.Add((texture, ImGui.GetFrameCount()));
+        _failed.Remove(key);
+        _queued.Remove(key);
+        _queue.Remove(key);
+    }
+
     /// <summary>The thumbnail was tried and could not be rendered (nothing to draw).</summary>
     public bool Failed(bool tie, ulong id) => _failed.Contains(new Key(tie, id));
 

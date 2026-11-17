@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Core.Placement;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
@@ -78,6 +79,16 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         public int Order;
         /// <summary>An asset (or class) group, rather than a layer or type folder.</summary>
         public bool IsGroup;
+        /// <summary>A Pod's or an Area's folder (grouped by Pod or Area): its region and its place in its table, which a rename needs.</summary>
+        public EntityRegion? GroupRegion;
+        public int PodIndex = -1, AreaIndex = -1;
+        /// <summary>A Pod's, Area's or Scent's folder: what Delete takes out. A zone's or a layer's folder: its region and the zone or the layer's name.</summary>
+        public GroupRef? Group;
+        public EntityRegion? ContainerRegion;
+        public EntityZone? Zone;
+        public string? LayerName;
+        /// <summary>Stays when empty (a Pod, Area, Scent, zone or layer made in the editor, which Delete can take out).</summary>
+        public bool Keep;
         /// <summary>What opens or closes it: a folder's key, or an entity row's own when instances are nested under it.</summary>
         public string OpenKey => Entity == null ? Key : $"{Key}/@{Entity.ID}";
     }
@@ -96,6 +107,12 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private string _appliedSearch = "";
     private bool _dirty = true;
     private int _totalCount;
+
+    /// <summary>The row being renamed (an instance row: "id_key"; a Pod's or an Area's folder: its key), its text and whether the
+    /// box still has to take the keyboard.</summary>
+    private string? _renaming;
+    private string _renameText = "";
+    private bool _renameFocus;
 
     private Entity? _lastSelected;
     private Entity? _scrollTo;
@@ -132,6 +149,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         RevealSelection();
 
         ImGui.BeginChild("hierarchy_tree", ImGui.GetContentRegionAvail());
+        if (ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows) && !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.F2, false)
+            && SelectionManager.Singleton.SelectedEntity is { } toRename)
+            BeginRename(toRename);
         // Ctrl+A: everything the tree holds (what the search and the type filter leave).
         if (ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows) && !ImGui.GetIO().WantTextInput && ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.A, false))
             SelectionManager.Singleton.Set(Entities(_root).Distinct().ToList(), SelectionManager.Singleton.SelectedEntity);
@@ -321,6 +341,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         // A click on the row, not only on the arrow, opens or closes it.
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left) && !ImGui.IsItemToggledOpen()) nowOpen = !open;
         FolderMenu(node);
+        if (ImGui.IsItemHovered() && !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete, false)
+            && (node.Group != null || node.Zone != null || node.LayerName != null))
+            DeleteNode(node);
         if (nowOpen != open)
         {
             if (nowOpen) _open.Add(node.Key); else _open.Remove(node.Key);
@@ -331,7 +354,13 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         string icon = node.Icon == Icons.Folder && nowOpen ? Icons.FolderOpen : node.Icon;
         ImGui.TextColored(node.IconColour, icon);
         ImGui.SameLine();
-        ImGui.TextUnformatted(node.Label);
+        if (_renaming == node.Key && node.GroupRegion != null) DrawRenameBox(node.Key, node.GroupRegion, node);
+        else
+        {
+            ImGui.TextUnformatted(node.Label);
+            // A Pod's or an Area's name, by a double-click on it.
+            if (node.GroupRegion != null && ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) BeginRename(node);
+        }
         ImGui.SameLine();
         ImGui.TextDisabled(node.Count.ToString("N0"));
         // The eye: open when everything below shows, crossed when nothing does, half-lit when some do.
@@ -343,6 +372,13 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private void FolderMenu(Node node)
     {
         if (!ImGui.BeginPopupContextItem($"folder_menu_{node.Key}")) return;
+        if (node.GroupRegion != null)
+        {
+            bool readOnly = node.GroupRegion.IsOldEngine;
+            if (ImGui.MenuItem(LM.Get("GUI_Rename"), "F2", false, !readOnly)) BeginRename(node);
+            if (readOnly && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
+            ImGui.Separator();
+        }
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_SelectContents")))
             SelectionManager.Singleton.Set(Entities(node).Distinct().ToList());
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_AddContents")))
@@ -354,6 +390,24 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_ExpandAll"))) { _open.Add(node.Key); SetOpenBelow(node, true); }
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_CollapseBelow"))) { _open.Remove(node.Key); SetOpenBelow(node, false); }
         ImGui.EndPopup();
+    }
+
+    /// <summary>Delete on a Pod's, Area's or Scent's folder, or a zone's or a layer's made in the editor (the confirmation says why not,
+    /// for one the files hold).</summary>
+    private static void DeleteMenu(Node node)
+    {
+        bool group = node.Group is { } g && node.ContainerRegion != null && node.ContainerRegion.CanDeleteGroup(g.Kind, g.Handle);
+        bool container = node.Group == null && node.ContainerRegion != null && (node.Zone != null || node.LayerName != null);
+        if (!group && !container) return;
+        if (ImGui.MenuItem(LM.Get("GUI_Delete_Menu"), "Del")) DeleteNode(node);
+        ImGui.Separator();
+    }
+
+    private static void DeleteNode(Node node)
+    {
+        if (node.Group is { } g && node.ContainerRegion != null) InstancePlacer.DeleteGroups(node.ContainerRegion, [g]);
+        else if (node.ContainerRegion is { } region && node.Zone != null) InstancePlacer.DeleteZone(region, node.Zone);
+        else if (node.ContainerRegion is { } layerRegion && node.LayerName != null) InstancePlacer.DeleteLayer(layerRegion, node.LayerName);
     }
 
     /// <summary>The eye at the right end of a row; true when clicked.</summary>
@@ -454,7 +508,15 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (clicked)
         {
             Click(entity, row);
-            if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) Focus(entity);
+            if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+            {
+                // On the name: rename it; anywhere else on the row: frame it.
+                float iconWidth = entity is EntityVolume or EntityPath ? ImGui.GetTextLineHeight() : ImGui.CalcTextSize(node.Icon).X;
+                float labelStart = ImGui.GetWindowPos().X - ImGui.GetScrollX() + x + iconWidth + ImGui.GetStyle().ItemSpacing.X;
+                float mouse = ImGui.GetMousePos().X;
+                if (RenameActions.CanRename(entity) && mouse >= labelStart && mouse <= labelStart + ImGui.CalcTextSize(node.Label).X) BeginRename(entity);
+                else Focus(entity);
+            }
         }
         // Dragged onto a reference field of the inspector, the instance becomes what the field names.
         if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceAllowNullId))
@@ -480,7 +542,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         }
         else ImGui.TextColored(node.IconColour with { W = entity.allowRender ? 1f : 0.4f }, node.Icon);
         ImGui.SameLine();
-        if (entity.allowRender) ImGui.TextUnformatted(node.Label);
+        if (_renaming == $"{entity.ID}_{node.Key}") DrawRenameBox(_renaming, RenameActions.RegionOf(entity), entity);
+        else if (entity.allowRender) ImGui.TextUnformatted(node.Label);
         else ImGui.TextDisabled(node.Label);
         // An instance made in the editor and not saved yet.
         if (entity.IsNew)
@@ -494,11 +557,75 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             SetVisible(entity.selected ? SelectionManager.Singleton.Selection : [entity], !entity.allowRender);
     }
 
+    /// <summary>Starts renaming an instance (its first row in the tree) or a Pod's or Area's folder, if it can be renamed.</summary>
+    private void BeginRename(object target)
+    {
+        switch (target)
+        {
+            case Entity entity when RenameActions.CanRename(entity) && _nodeOf.TryGetValue(entity, out var row):
+                _renaming = $"{entity.ID}_{row.Key}";
+                _renameText = entity.Name;
+                _scrollTo = entity;
+                break;
+            case Node { GroupRegion: { IsOldEngine: false } region } folder:
+                _renaming = folder.Key;
+                _renameText = folder.PodIndex >= 0 ? region.Pods[folder.PodIndex].Name : region.AreaNames[folder.AreaIndex];
+                break;
+            default: return;
+        }
+        _renameFocus = true;
+    }
+
+    /// <summary>The name box in place of a row's label: Enter or a click elsewhere keeps a valid name, Escape drops it. A name another
+    /// instance has is allowed and warned about.</summary>
+    private void DrawRenameBox(string row, EntityRegion? region, object target)
+    {
+        ImGui.SetNextItemWidth(MathF.Max(120f, _rightEdge - ImGui.GetCursorPosX() - 60f));
+        if (_renameFocus) { ImGui.SetKeyboardFocusHere(); _renameFocus = false; }
+        bool enter = ImGui.InputText($"##rename_{row}", ref _renameText, 64, ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.AutoSelectAll);
+        string? bad = target switch
+        {
+            Entity entity => RenameActions.Problem(entity, _renameText),
+            Node { PodIndex: >= 0 } pod => region?.PodRenameProblem(region.Pods[pod.PodIndex], _renameText),
+            Node area => region?.AreaRenameProblem(area.AreaIndex, _renameText),
+            _ => "not renamable",
+        };
+        bool same = target switch
+        {
+            Entity entity => entity.Name == _renameText,
+            Node { PodIndex: >= 0 } pod => region!.Pods[pod.PodIndex].Name == _renameText,
+            Node area => region!.AreaNames[area.AreaIndex] == _renameText,
+            _ => true,
+        };
+        if (ImGui.IsItemActive() && !same)
+        {
+            if (bad != null) ImGui.SetTooltip(bad);
+            else if (target is Entity shared && RenameActions.Shared(shared, _renameText)) ImGui.SetTooltip(LM.Get("GUI_Rename_Shared"));
+        }
+        bool cancel = ImGui.IsKeyPressed(ImGuiKey.Escape, false);
+        if (cancel || enter || ImGui.IsItemDeactivated())
+        {
+            if (!cancel && !same && bad == null)
+                switch (target)
+                {
+                    case Entity entity: RenameActions.Rename(entity, _renameText); break;
+                    case Node { PodIndex: >= 0 } pod: RenameActions.RenamePod(region!, region!.Pods[pod.PodIndex], _renameText); break;
+                    case Node area: RenameActions.RenameArea(region!, area.AreaIndex, _renameText); break;
+                }
+            _renaming = null;
+            _dirty = true;
+        }
+    }
+
     private void EntityMenu(Entity entity, Node node, int row)
     {
         if (!ImGui.BeginPopupContextItem($"entity_menu_{entity.ID}_{node.Key}")) return;
         if (!entity.selected) Click(entity, row);
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_Frame"))) Focus(entity);
+        bool canRename = RenameActions.CanRename(entity);
+        if (ImGui.MenuItem(LM.Get("GUI_Rename"), "F2", false, canRename)) BeginRename(entity);
+        if (!canRename && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) && RenameActions.RegionOf(entity)?.IsOldEngine == true)
+            ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
         var selection = SelectionManager.Singleton.Selection;
         bool anyHidden = selection.Any(e => !e.allowRender), anyShown = selection.Any(e => e.allowRender);
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_ShowSelection"), "", false, anyHidden)) SetVisible(selection, true);
@@ -614,14 +741,23 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
 
     private void BuildLayers(EntityRegion region, Node regionNode, string[] terms)
     {
-        Node Layer(string? layer, Kinds kind) => layer != null
-            ? Folder(regionNode, layer, Icons.Folder, FolderColour, 0)
-            : Folder(regionNode, LM.Get(LabelOf(kind)), IconOf(kind), ColourOf(kind), 1);
+        Node Layer(string? layer, Kinds kind)
+        {
+            if (layer == null) return Folder(regionNode, LM.Get(LabelOf(kind)), IconOf(kind), ColourOf(kind), 1);
+            var folder = Folder(regionNode, layer, Icons.Folder, FolderColour, 0);
+            // A layer made in the editor can be deleted; the folder of a zone of the same name is the zone's.
+            if (folder.Zone == null && region.NewLayers.Contains(layer)) { folder.ContainerRegion = region; folder.LayerName = layer; folder.Keep = true; }
+            return folder;
+        }
 
+        foreach (string layer in region.NewLayers) Layer(layer, Kinds.Mobys);
         // Zones first, so a layer's folder is where its zone is.
         foreach (var zone in region.Zones)
         {
             var zoneNode = Layer(zone.ZoneName, Kinds.Ties);
+            zoneNode.ContainerRegion = region;
+            zoneNode.Zone = zone;
+            zoneNode.Keep |= zone.IsNew;
             foreach (var tie in zone.TieInstances.Entities)
                 Add(zoneNode, tie, Kinds.Ties, terms);
             if (zone.UFrags.Size > 0 && (_shown & Kinds.UFrags) != 0)
@@ -664,7 +800,13 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         var podded = new HashSet<Entity>(ReferenceEqualityComparer.Instance);
         for (int i = 0; i < region.Pods.Count; i++)
         {
+            if (region.IsGroupDeleted("Pod", i)) continue;
             var folder = Folder(regionNode, region.Pods[i].Name, Icons.LayerGroup, FolderColour, 0, $"pod#{i}");
+            folder.GroupRegion = region;
+            folder.PodIndex = i;
+            folder.Group = new GroupRef("Pod", i);
+            folder.Keep = region.Pods[i].IsNew;
+            folder.ContainerRegion = region;
             foreach (var moby in region.Pods[i].Members)
             {
                 Add(folder, moby, Kinds.Mobys, terms);
@@ -685,11 +827,22 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             var areas = region.AreasOf(entity);
             if (areas.Count == 0) Add(none, entity, kind, terms);
             foreach (int area in areas)
-                Add(Folder(regionNode, area < region.AreaNames.Count ? region.AreaNames[area] : $"#{area}", Icons.LayerGroup, FolderColour, 0, $"area#{area}"),
-                    entity, kind, terms);
+            {
+                var folder = Folder(regionNode, area < region.AreaNames.Count ? region.AreaNames[area] : $"#{area}", Icons.LayerGroup, FolderColour, 0, $"area#{area}");
+                folder.GroupRegion = region;
+                folder.AreaIndex = area;
+                folder.Group = new GroupRef("Area", area);
+                folder.ContainerRegion = region;
+                Add(folder, entity, kind, terms);
+            }
         }
         foreach (var entity in region.Volumes.Entities) Place(entity, Kinds.Volumes);
         foreach (var entity in region.Paths.Entities) Place(entity, Kinds.Paths);
+        foreach (var made in region.NewAreas.Where(a => !region.IsGroupDeleted("Area", a.Handle)))
+        {
+            var folder = Folder(regionNode, made.Name, Icons.LayerGroup, FolderColour, 0, $"area#{made.Handle}");
+            (folder.GroupRegion, folder.ContainerRegion, folder.AreaIndex, folder.Group, folder.Keep) = (region, region, made.Handle, new GroupRef("Area", made.Handle), true);
+        }
     }
 
     /// <summary>A folder per Scent with its Clues (their volumes), then the Clues in none.</summary>
@@ -702,8 +855,17 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             var scents = region.ScentsOf(entity);
             if (scents.Count == 0) Add(none, entity, Kinds.Volumes, terms);
             foreach (int scent in scents)
-                Add(Folder(regionNode, scent < region.ScentNames.Count ? region.ScentNames[scent] : $"#{scent}", Icons.LayerGroup, FolderColour, 0, $"scent#{scent}"),
-                    entity, Kinds.Volumes, terms);
+            {
+                var folder = Folder(regionNode, scent < region.ScentNames.Count ? region.ScentNames[scent] : $"#{scent}", Icons.LayerGroup, FolderColour, 0, $"scent#{scent}");
+                folder.Group = new GroupRef("Scent", scent);
+                folder.ContainerRegion = region;
+                Add(folder, entity, Kinds.Volumes, terms);
+            }
+        }
+        foreach (var made in region.NewScents.Where(a => !region.IsGroupDeleted("Scent", a.Handle)))
+        {
+            var folder = Folder(regionNode, made.Name, Icons.LayerGroup, FolderColour, 0, $"scent#{made.Handle}");
+            (folder.ContainerRegion, folder.Group, folder.Keep) = (region, new GroupRef("Scent", made.Handle), true);
         }
     }
 
@@ -776,7 +938,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             var child = node.Children[i];
             if (child.Entity != null) { count += 1 + (child.Children.Count > 0 ? Finish(child) : 0); continue; }
             int below = Finish(child);
-            if (below == 0) { node.Children.RemoveAt(i); continue; }
+            if (below == 0 && !child.Keep) { node.Children.RemoveAt(i); continue; }
             // An asset group of one is noise: its entity takes its place.
             if (child.IsGroup && child.Children.Count == 1 && child.Children[0].Entity != null)
             {

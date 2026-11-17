@@ -55,6 +55,8 @@ public class EntityPath : Entity
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
+    protected override void OnRenamed(string name) => Path.Name = name;
+
     /// <summary>Bumped by every change to the points' world positions, so the line buffer is rebuilt only then.</summary>
     public int Version { get; private set; }
 

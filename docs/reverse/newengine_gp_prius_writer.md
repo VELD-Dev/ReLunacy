@@ -251,3 +251,54 @@ Members are added with `AddMember` afterwards; gameplay.dat's Pod / Area budgets
 Retail moons: layer `gameplay_<id>` holds `SEGMENT_SS<sector>_<ID>` (crates, enemies, breakables, Zoni; moon1x's also the landing
 beam) plus `<id>_enemies`, `<id>_antennae`... Pods and `<id>_apNN_homearea` / `_firepoints` Areas of volumes. A segment is live
 only through level.csv's `Pod` row (name match, `Type` SEG_MOON, pools), which is outside the level folder.
+
+## Renaming (2026-11-17)
+
+**Where names live.** gp_prius: one NUL-terminated Latin-1 string per instance in 0x11300, pointed at only by its metadata entry +8
+(Moby, path, volume, Clue, controller, Scent, Area, Pod). Data (ACiT 22 levels, A4O 81 regions, ITN 32): 263,000 names, none shared,
+no dead bytes, none holds a '/', only letters, digits and '_', longest 64 (ACiT), 56, 48. Tie names are 0x72C0 rows
+{TUID, char* -> 0x11300, 0} inside each zone blob of zones.dat (0x72C0 is row-parallel to the 0x7240 placements); every level with Ties of the three games, 0
+shared strings, longest 57. The editor shows a Moby's or Tie's name after its last '/'.
+
+**What binds by name.** Nothing in the files we write. References are (layer, index) words (ACiT) or TUID pool entries (A4O / ITN); collision,
+lighting and lookups go by TUID, class and row. Two outside things follow names: level.csv's `Pod` row names a segment's Pod (the
+save renames that cell through `SegmentRegistry.PendingRenames` / `ApplyRename`, after the new columns are added; a Pod not in the
+row changes nothing), and instances.lua(.lc) names the instances for scripts as Lua variables bound to `handle:new(layer, index)`
+(`SEGMENT_SS1_MOON1A = pod_handle:new(...)`; .trimmed lists the 43 of 1,201 Mobys the scripts use). instances.lua is generated from the
+names the level was built with and is not rewritten: a renamed instance keeps working through its handle, the scripts keep the old
+variable. The save lists a problem line naming the renamed instances instances.lua.trimmed uses. Not known: whether the game
+looks any instance up by its gp_prius name at run time (no reader of 0x11300 text was found).
+
+**Operation.** `GpPriusDocument.Rename(instance, name)`: `Splice(0x11300, at, oldLength, newBytes, owner)` replaces the string in place
+(the pool changes length, every pointer behind it moves, the owner pointer stays); when another pointer targets the string or
+its tail, the instance gets a new string at the end of the pool and the others keep theirs. `NameProblem`: 1 to 64 characters,
+printable ASCII, no space, no '/'. gameplay.dat's +0x14 size follows through the usual budget pass (the serialized size).
+Pods and Areas are renamed by their table index (appends go to the end of the table, so indexes hold); Clues keep their own names.
+
+**Editor.** `Entity.Rename` / `LoadedName` / `IsRenamed` (the name the files hold, set by the first rename; a rename back leaves
+nothing to save), `EntityPod`, `EntityRegion.AreaRenames`, `EntityRegion.SetName / SetPodName / SetAreaName`, validation in
+`RenameProblem`, `PodRenameProblem` (unique among Pods), `AreaRenameProblem` (unique among Areas), duplicates among instances
+allowed and flagged (`NameIsShared`). A new instance only changes its pending name (the append reads it). The reference table
+(`GameplayReferences.SetNameSource`) shows the new names. The old engine refuses (names come from debug.dat / instances.lua, not written).
+`GameplayStructure` step 7b writes the renames after the appends and before deletions. Layers and zones are not renamed (their names
+are in metadata.dat, gameplay.dat, region.dat and the zone tables).
+UI: F2, the hierarchy menu or a double-click on the name; the inspector's name field; the Pods frame; every rename one undo step.
+
+**Verification.** `dev/tools/renameprobe <level_cached.psarc> <scratch>` (copies, Save to a file): rename a Moby, volume, path, controller,
+Tie, Pod and Area of the level to longer and shorter names, make a new Moby, volume, path, controller, Tie, Pod and Area and rename
+them, save, re-read with the normal readers: every name equals the expected one, relations by TUID unchanged, gp_prius validates,
+re-serializes to itself and has no dead bytes, every Tie line unchanged except the renamed one, rename + undo leaves 0 changes. space_sector_1,
+krell_canyon (ACiT) and clank_puzzles (ITN, pooled references): ALL OK. `renameprobe shared <psarc>` makes two Tie rows share one
+string (retail has none) and renames one: it gets its own string, the other keeps its name, every other zone blob is identical.
+`renameprobe scan <levels dir>` is the data scan above. Not tested in game.
+
+## Deleting Pods, Areas and Scents (2026-11-17)
+
+`GpPriusDocument.Delete` takes `GpKind.Pod/Area/Scent`. Members leave first (RemoveMember, so pooled entries go too), then the same
+reference pass as instances: words naming the group are cleared, list elements cut, and on A Crack in Time the later groups of the
+layer are renumbered in every inline word (Slots map). The record, metadata entry, the group's own name string in 0x11300 (unless shared)
+and any leftover list are cut. `AppendGroup` also takes Scent. Editor side: `EntityRegion.DeleteGroups` flags the handle (tables keep
+their loaded indices until the reload after the save); `GameplayStructure` skips new groups that were deleted (landed index = handle
+minus dropped ones, `GroupAt`) and deletes the loaded ones in step 8. level.csv: `SegmentRegistry.ApplyRemoval` removes the Pod's
+column and reverts level-wide pool sums. Verified (probe, ACiT space_sector_1/krell_canyon, ITN meridian_city): survivors keep name+members,
+all references resolve to the same group, none dangling, Validate passes, undo leaves nothing to save, level.csv round-trips byte-identical.

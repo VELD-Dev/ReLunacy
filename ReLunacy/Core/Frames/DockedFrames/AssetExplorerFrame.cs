@@ -1,6 +1,10 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Placement;
+using ReLunacy.Core.Project;
+using ReLunacy.Engine.Importing;
+using ReLunacy.Engine.Scene;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
@@ -30,6 +34,16 @@ public sealed class AssetExplorerFrame : DockedFrame
 
     private const float ThumbSize = 96f;
     private const float Pad = 4f;
+
+    private static string? _reveal;
+    private bool _selectTies;
+
+    /// <summary>Shows a class just imported: the explorer opens on the Ties tab, searched for its name.</summary>
+    public static void Reveal(ulong id, string name)
+    {
+        _reveal = name;
+        if (!LunaWindow.Instance.IsAnyFrameOpened<AssetExplorerFrame>()) LunaWindow.Instance.AddFrame(new AssetExplorerFrame());
+    }
 
     private string _search = "";
     private bool _favouritesOnly;
@@ -62,6 +76,8 @@ public sealed class AssetExplorerFrame : DockedFrame
         ImGui.PopStyleColor();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_AssetExplorer_FavouritesTip"));
 
+        if (_reveal != null) { _search = _reveal; _favouritesOnly = false; _selectTies = true; _reveal = null; }
+
         bool placeable = InstancePlacer.Available;
         if (!placeable) ImGui.TextDisabled(LM.Get("GUI_AssetExplorer_NewEngineOnly"));
 
@@ -71,8 +87,15 @@ public sealed class AssetExplorerFrame : DockedFrame
             DrawGrid(PlaceableKind.Moby, _mobys, placeable);
             ImGui.EndTabItem();
         }
-        if (ImGui.BeginTabItem($"{Icons.Cubes} {LM.Get("GUI_AssetExplorer_Ties")}"))
+        bool selectTies = _selectTies;
+        _selectTies = false;
+        if (ImGui.BeginTabItem($"{Icons.Cubes} {LM.Get("GUI_AssetExplorer_Ties")}", selectTies ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
         {
+            ImGui.BeginDisabled(!ImportModelModal.Available);
+            if (ImGui.Button(LM.Get("GUI_AssetExplorer_ImportModel"))) ImportModelModal.Choose();
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(LM.Get(ImportModelModal.Available ? "GUI_AssetExplorer_ImportModelTip" : "GUI_ImportModel_ACiTOnly"));
             DrawGrid(PlaceableKind.Tie, _ties, placeable);
             ImGui.EndTabItem();
         }
@@ -168,6 +191,14 @@ public sealed class AssetExplorerFrame : DockedFrame
         ImGui.SetNextItemAllowOverlap();
         ImGui.InvisibleButton("##tile", size);
         bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
+        var pendingRegion = kind == PlaceableKind.Tie ? ModelImportSession.PendingRegion(EntityManager.Singleton.Regions, item.Id) : null;
+        if (pendingRegion != null && ImGui.BeginPopupContextItem("##tile_menu"))
+        {
+            bool used = ModelImportSession.IsPlaced(pendingRegion, item.Id);
+            if (ImGui.MenuItem(LM.Get("GUI_AssetExplorer_Remove"), "", false, !used)) RemoveImported(pendingRegion, item.Id);
+            if (used && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_AssetExplorer_RemoveUsed"));
+            ImGui.EndPopup();
+        }
         // The drag source is the tile itself: the payload says what it is, the tip under the cursor its name.
         if (placeable && ImGui.BeginDragDropSource(ImGuiDragDropFlags.None))
         {
@@ -207,8 +238,20 @@ public sealed class AssetExplorerFrame : DockedFrame
             dl.AddText(origin + new Vector2(size.X - starSize.X + 2f, 4f),
                 ImGui.ColorConvertFloat4ToU32(favourite ? Gold : new Vector4(1f, 1f, 1f, starHovered ? 0.9f : 0.4f)), Icons.Star);
 
-        if (hovered && !starHovered && !ImGui.IsMouseDragging(ImGuiMouseButton.Left)) ImGui.SetTooltip(item.Name);
+        if (pendingRegion != null)
+            dl.AddText(imageMin + new Vector2(2f), ImGui.GetColorU32(Gold), "*");
+        if (hovered && !starHovered && !ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+            ImGui.SetTooltip(pendingRegion != null ? $"{item.Name}\n{LM.Get("GUI_AssetExplorer_Imported")}" : item.Name);
         ImGui.PopID();
+    }
+
+    private static void RemoveImported(EntityRegion region, ulong tuid)
+    {
+        var window = LunaWindow.Instance;
+        if (window.Reader is not { } reader || !ModelImportSession.Remove(region, tuid, reader, window.AssetManager)) return;
+        ImportRecords.Forget(ProjectSession.Current, tuid);
+        AssetThumbnails.Singleton.Forget(true, tuid);
+        EntityManager.StructureVersion++;
     }
 
     /// <summary>The name cut to fit <paramref name="width"/>, with an ellipsis.</summary>

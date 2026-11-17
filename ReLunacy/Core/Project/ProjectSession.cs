@@ -101,7 +101,11 @@ internal static class ProjectSession
     }
 
     /// <summary>The editor's state is what the project holds.</summary>
-    public static void MarkSaved() => _savedRevision = UndoManager.Singleton.Revision;
+    public static void MarkSaved()
+    {
+        _savedRevision = UndoManager.Singleton.Revision;
+        ReLunacy.Engine.Importing.ImportRecords.Flush(Current);
+    }
 
     /// <summary>A level finished opening its files (on the loading task): the project records it and its archives.</summary>
     public static void OnLevelOpened(string path, IReadOnlyList<string> archives)

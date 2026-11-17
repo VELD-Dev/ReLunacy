@@ -108,6 +108,15 @@ public sealed class TieReader
         }, pointer => ReadNewTieName(tieStream, pointer), fileLock);
     }
 
+    /// <summary>A new-engine Tie class read from its container bytes (a class the editor built, see
+    /// <see cref="Packing.PendingTieClass"/>), keyed by <paramref name="id"/>.</summary>
+    public Assets.Ties.Tie ReadClass(byte[] classBytes, ulong id)
+    {
+        using MemoryStream stream = new(classBytes);
+        var legacyTie = new Objects.Tie(new IGFile(stream), _fileManager, old: false, crackInTime: CrackInTimeLayout);
+        return ConvertTie(legacyTie, id);
+    }
+
     /// <summary>A new-engine Tie's name (its metadata's +0x64 string) without parsing the rest of it.</summary>
     private static string? ReadNewTieName(Stream tieStream, AssetPointer pointer)
     {

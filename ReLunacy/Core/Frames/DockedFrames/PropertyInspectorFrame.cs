@@ -124,9 +124,7 @@ public class PropertyInspectorFrame : DockedFrame
         ImGui.EndGroup();
         ImGui.SameLine();
         ImGui.BeginGroup();
-        ImGui.TextWrapped(SelectedEntity.Name);
-        ImGui.SameLine();
-        ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_InstanceInspector_NameChangeNotice"));
+        RenderNameField(SelectedEntity);
         ImGui.Text(SelectedEntity.GetType().Name);
         ImGui.EndGroup();
         if (SelectedEntity.New is { Saved: false } made) RenderNewInstance(made);
@@ -359,6 +357,38 @@ public class PropertyInspectorFrame : DockedFrame
         }
 
         ImGui.EndGroup();
+    }
+
+    private string _nameText = "";
+    private Entity? _nameFor;
+
+    /// <summary>The instance's name as a field: Enter or leaving it keeps a valid name (one undo step); a name another instance has
+    /// is allowed and warned about. Read only where the name is not written (the old engine, a path's key).</summary>
+    private void RenderNameField(Entity entity)
+    {
+        if (!Core.Placement.RenameActions.CanRename(entity))
+        {
+            ImGui.TextWrapped(entity.Name);
+            if (Core.Placement.RenameActions.RegionOf(entity)?.IsOldEngine == true)
+            {
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Rename_ReadOnly"));
+            }
+            return;
+        }
+        if (!ReferenceEquals(_nameFor, entity) || (!ImGui.IsAnyItemActive() && _nameText != entity.Name)) { _nameFor = entity; _nameText = entity.Name; }
+        ImGui.SetNextItemWidth(-1f);
+        bool enter = ImGui.InputText("##instance_name", ref _nameText, 64, ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.AutoSelectAll);
+        bool left = ImGui.IsItemDeactivatedAfterEdit();
+        bool same = _nameText == entity.Name;
+        string? bad = same ? null : Core.Placement.RenameActions.Problem(entity, _nameText);
+        if (bad != null) ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), bad);
+        else if (!same && Core.Placement.RenameActions.Shared(entity, _nameText)) ImGui.TextColored(new Vector4(1f, 0.75f, 0.3f, 1f), LM.Get("GUI_Rename_Shared"));
+        if ((enter || left) && !same)
+        {
+            if (bad == null) Core.Placement.RenameActions.Rename(entity, _nameText);
+            else _nameText = entity.Name;
+        }
     }
 
     /// <summary>The line under the name of an instance made in the editor: that it is new, where it goes, and what its

@@ -77,7 +77,7 @@ public sealed class AssignSnapshot
         {
             var volume = (entity as EntityVolume)?.BaseVolume;
             var controller = (entity as EntityController)?.Controller;
-            _states.Add(new State(entity, region.LayerIndexOf(entity, strict: true), [.. region.AreasOf(entity)], [.. region.ScentsOf(entity)],
+            _states.Add(new State(entity, region.LayerIndexOf(entity, strict: true), [.. region.RawAreas(entity)], [.. region.RawScents(entity)],
                 volume != null ? [.. volume.Areas] : [], volume != null ? [.. volume.Scents] : [],
                 volume?.Clue, volume?.GravityRegion ?? false, volume?.Shape ?? default, (entity as EntityVolume)?.scale ?? default,
                 controller?.Class ?? 0, controller?.ClassName, controller?.Settings, controller?.References, controller?.IsCamera ?? false));

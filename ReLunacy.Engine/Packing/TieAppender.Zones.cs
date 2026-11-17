@@ -39,9 +39,10 @@ public static partial class TieAppender
     /// Then every Tie goes in as <see cref="Append"/> adds one (the first one also gives the zone its first cluster,
     /// class and cube palette entries).
     /// </summary>
-    public static TieAppendResult CreateZone(Func<string, byte[]?> read, ZoneCreateRequest zone, IReadOnlyList<TieAppendRequest> ties)
+    public static TieAppendResult CreateZone(Func<string, byte[]?> read, ZoneCreateRequest zone, IReadOnlyList<TieAppendRequest> ties,
+        IReadOnlyDictionary<ulong, RegisteredTieClass>? imported = null)
     {
-        var level = new Level { Read = read };
+        var level = new Level { Read = read, Imported = imported };
         TieAppendResult Refused(string why)
         {
             var r = new TieAppendResult();

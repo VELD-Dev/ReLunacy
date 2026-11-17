@@ -140,6 +140,55 @@ public static class MoonCreator
         return best;
     }
 
+    /// <summary>The moon's id from its Clue's name: "moon1a_moonclue" is moon1a, "moon1_2_moonclue" moon1_2 (an id may hold
+    /// underscores); a Clue not named that way keeps what precedes its first underscore.</summary>
+    public static string KeyOf(string clueName) =>
+        clueName.EndsWith("_moonclue", StringComparison.OrdinalIgnoreCase) ? clueName[..^"_moonclue".Length] : clueName.Split('_')[0];
+
+    /// <summary>What a moon is made of, found from its Clue: the surface the objects stand on, the area and the beam.</summary>
+    public sealed record Frame(Vector3 Centre, float Radius, EntityVolume? Area, EntityTie? Tie, EntityMoby? Beam);
+
+    /// <summary>Finds the moon's parts without trusting names: the area and beam by the Clue's references (a fresh lookup), the
+    /// surface Tie as the Tie in any zone whose bounding sphere is about the radius, centred on its placement, nearest the
+    /// area (the Clue when there is none), those in a zone named for the moon first. The centre is the Tie's placement, else
+    /// the area's, else the Clue's.</summary>
+    public static Frame Resolve(EntityRegion region, EntityVolume clueVolume, IEnumerable<EntityRegion> regions)
+    {
+        var clue = clueVolume.BaseVolume.Clue!;
+        float radius = RadiusOf(clue);
+        if (!float.IsFinite(radius) || radius <= 1f) radius = 50f;
+        var areaRef = clue.References.FirstOrDefault(r => r.Offset == AreaField && !r.InList);
+        var beamRef = clue.References.FirstOrDefault(r => r.Offset == BeamField && !r.InList);
+        var area = areaRef == null ? null : region.Find(areaRef.Kind, areaRef.Index) as EntityVolume;
+        var beam = beamRef == null ? null : region.Find(beamRef.Kind, beamRef.Index) as EntityMoby;
+        var near = (area ?? clueVolume).Transform.Translation;
+        string key = KeyOf(clue.Name);
+
+        EntityTie? best = null;
+        float bestScore = float.MaxValue;
+        foreach (var r in regions)
+            foreach (var zone in r.Zones)
+            {
+                bool named = key.Length > 0 && zone.ZoneName.Contains(key, StringComparison.OrdinalIgnoreCase);
+                foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>())
+                {
+                    var sphere = tie.WorldBoundingSphere;
+                    var place = tie.Transform.Translation;
+                    // The sphere carries a 2% margin.
+                    if (MathF.Abs(sphere.W / 1.02f - radius) > radius * 0.1f
+                        || Vector3.Distance(new Vector3(sphere.X, sphere.Y, sphere.Z), place) > radius * 0.1f) continue;
+                    float distance = Vector3.Distance(place, near);
+                    if (distance > radius * 1.5f) continue;
+                    float score = distance + (named ? 0f : radius * 2f);
+                    if (score >= bestScore) continue;
+                    bestScore = score;
+                    best = tie;
+                }
+            }
+        var centre = best?.Transform.Translation ?? near;
+        return new Frame(centre, radius, area, best, beam);
+    }
+
     /// <summary>The moons of the level a new one can be made from: ACiT only, with their surface Tie, area and beam found.</summary>
     public static List<MoonSurface> Surfaces(IReadOnlyList<EntityRegion> regions)
     {
@@ -155,8 +204,8 @@ public static class MoonCreator
                 var areaRef = clue.References.FirstOrDefault(r => r.Offset == AreaField && !r.InList);
                 if (!float.IsFinite(radius) || radius < 1f || beamRef == null || areaRef == null) continue;
                 if (region.Find(beamRef.Kind, beamRef.Index) is not EntityMoby beam || region.Find(areaRef.Kind, areaRef.Index) is not EntityVolume area) continue;
-                string name = clue.Name.Split('_')[0];
-                if (MainTie(regions, name, radius) is not { } tie) continue;
+                string name = KeyOf(clue.Name);
+                if (Resolve(region, volume, regions).Tie is not { } tie) continue;
                 list.Add(new MoonSurface(region, volume, tie, area, beam, name, radius));
             }
         }

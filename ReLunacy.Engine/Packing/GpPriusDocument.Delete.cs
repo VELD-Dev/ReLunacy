@@ -8,9 +8,12 @@ public sealed record GpReference(GpInstance Target, GpInstance Holder, string Wh
 
 public sealed partial class GpPriusDocument
 {
-    /// <summary>The kinds <see cref="Delete"/> takes out. Pods, Areas and Scents are lists the references leave; Squadrons
-    /// are not edited.</summary>
-    public static bool Deletable(GpKind kind) => kind is GpKind.Moby or GpKind.Path or GpKind.Volume or GpKind.Clue or GpKind.Controller;
+    /// <summary>The kinds <see cref="Delete"/> takes out. Pods, Areas and Scents are named groups (their lists go with them,
+    /// and the groups behind them in their layer are renumbered); Squadrons are not edited.</summary>
+    public static bool Deletable(GpKind kind) => kind is GpKind.Moby or GpKind.Path or GpKind.Volume or GpKind.Clue or GpKind.Controller
+        or GpKind.Pod or GpKind.Area or GpKind.Scent;
+
+    private static bool IsGroup(GpKind kind) => kind is GpKind.Pod or GpKind.Area or GpKind.Scent;
 
     private enum SlotKind { Link, Member, Field, ListItem, Unresolved }
 
@@ -202,6 +205,16 @@ public sealed partial class GpPriusDocument
         var result = new GpEditResult();
         var names = dead.ToDictionary(i => i, i => $"{i.Kind} {Name(i)}");
 
+        // 0. A deleted group's lists go first, while every reference still resolves: its members leave it one by one.
+        foreach (var group in dead.Where(i => IsGroup(i.Kind)))
+            foreach (var member in new[] { GpKind.Moby, GpKind.Path, GpKind.Volume, GpKind.Clue })
+                foreach (var held in Members(group, member).Where(m => m != null).Distinct().ToList())
+                    while (Members(group, member).Contains(held))
+                    {
+                        var removed = RemoveMember(group, held!.Value);
+                        if (!removed.Applied) throw new InvalidOperationException(string.Join("; ", removed.Problems));
+                    }
+
         // The handles that move: in each layer's run of a kind, the later instances move up by one per deleted one before.
         var deadWords = new HashSet<uint>();
         var map = new Dictionary<uint, uint>();
@@ -342,12 +355,30 @@ public sealed partial class GpPriusDocument
         if (Pooled && i.Kind == GpKind.Clue && PointerAt(records, from) is { Target.Id: ReferencePool } vp)
             pool = (vp.Target, vp.TargetAt, 0x10);
 
+        // A group's name is its own string in 0x11300 (a string others point at stays).
+        (GpSection Section, int At, int Length)? name = null;
+        if (IsGroup(i.Kind) && PointerAt(meta, i.Index * 0x10 + 8) is { } np && np.Target.Id == Names && !np.Target.IsTail)
+        {
+            int end = Array.IndexOf(np.Target.Data, (byte)0, np.TargetAt);
+            if (end >= 0) name = (np.Target, np.TargetAt, end - np.TargetAt + 1);
+        }
+
+        // What is left of a group's lists (members that did not resolve).
+        var lists = new List<(GpSection Section, int At, int Length)?>();
+        if (IsGroup(i.Kind))
+            foreach (var (pointer, count, size) in i.Kind == GpKind.Area ? new[] { (0x00, 0x08, 2), (0x04, 0x0A, 2) } : [(0x00, 0x04, 4)])
+                if (PointerAt(records, from + pointer) is { } lp)
+                {
+                    int n = size == 4 ? (int)Word(records, from + count) : Half(records, from + count);
+                    if (n > 0) lists.Add((lp.Target, lp.TargetAt, Math.Min(n * 4, lp.Target.Data.Length - lp.TargetAt)));
+                }
+
         Splice(records, from, info.RecordSize, []);
         Splice(meta, i.Index * 0x10, 0x10, []);
         AdjustLayerCount(i.Kind, layer, -1, 0);
 
         // What the record owned goes unless something else still points into it (blocks and pool entries can be shared).
-        foreach (var owned in new[] { payload, matrices, points, pool })
+        foreach (var owned in new[] { payload, matrices, points, pool, name }.Concat(lists))
         {
             if (owned is not { } o || o.Length <= 0) continue;
             if (_pointers.Any(p => p.Target == o.Section && p.TargetAt >= o.At && p.TargetAt < o.At + o.Length)) continue;

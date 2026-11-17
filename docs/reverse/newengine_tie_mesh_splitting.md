@@ -396,3 +396,107 @@ Code: `ReLunacy.Engine/Importing/` (`ImportModel.cs`, `TieSplitter.cs`, `TieClas
   writes the AABB centre with the farthest-vertex radius (a tighter, valid sphere). OPEN.
 - **Synthetic**: a 10,520-triangle sphere (slot 0) plus 70 cards (slots 1, 2) gives 78 leaves (7 bisections), 14 merges to 64 primitives, all at most 1238
   triangles, surface area preserved, batch/order/first-use rules hold; 70 same-slot parts of 1500 triangles are refused (no pair fits 2048).
+
+---
+
+## 8. Shader catalog status (step 4)
+
+Done 2026-11-17: `ReLunacy.Engine/Importing/TieShaderCatalog.cs`. Probe: `dev/tools/shadercatprobe` (gitignored).
+
+- `TieShaderCatalog.Build(FileManager, LevelData, regionName)` reads region.dat 0x1C100 (shaders) and 0x1C300 (Tie classes), scans
+  the Tie classes' primitives (ACiT layout) and returns `Candidates` (Tie-proven first, most used first), `Template`, `Find(tuid)`,
+  `AutoMatch(material, baseColourTexture)` (null under 0.6) and `Rank(...)`. A second overload takes the class bytes and name lookups directly.
+- `TieShaderCandidate`: TUID, display name (last segment of the shader name; the engine's names lose their first characters, so
+  `FullName` is cut), six texture names, tie primitive / class counts (region), level primitive count, lightmapped count, two-layer flag,
+  majority feature mask and fades (mask and fades vote separately), unanimous flag, template class + primitive index (majority values,
+  unlit and single layer preferred) and the template's 0x3500 densities. `ToSlot()` makes an `ImportMaterialSlot`.
+- Template class: among the region's classes that pass `TieClassBuilder.CheckTemplate`, are unlit, single-LOD, single-layer, have
+  0x3400 +0x0E = 0 and +0x1C = 4096, take the most common +0x78 and the smallest class of that group. `Template.Reason` is the log text.
+- Region membership: counts and majority come from the region's Ties; a shader no region Tie uses falls back to the level's Ties
+  (not Tie-proven, no template when no Tie has it).
+- Measured (ACiT, one region each): space_sector_1 693 shaders, 90 Tie-proven (all with a template), 31 mostly lightmapped, 2 two-layer;
+  all 1057 primitives' shaders are in the list; feature mask equals the catalog's on **100.0%**, fades on 92.8%. krell_canyon 828 shaders,
+  262 proven (258 with a template), 154 lightmapped, 3 two-layer; mask **94.6%**, fades 68.9% (both 66.3%) of 1317 primitives. Template
+  found on both (14 and 23 plain classes).
+- Auto-match with retail names as fake material names (proven shaders with an albedo; hit = same shader or same albedo texture): albedo
+  tail 98.9% / 96.2%, texture only 98.9% / 98.9%, Blender style `NAME.001` 96-99%, shader short name 100%, junk name "Material"
+  returns null 200/200. Misses are shaders that share one texture under different names.
+- Open: fades are the weak value on krell (use the template's per shader anyway); only the ACiT layout is scanned; the thumbnail is the
+  albedo texture of the loaded shader (`LevelData.Shaders[tuid].Albedo`), not part of the catalog.
+
+---
+
+## 8. glTF importer status (step 3)
+
+Done 2026-11-17: `ReLunacy.Engine/Importing/GltfTieImporter.cs`. Probe (gitignored): `dev/tools/gltfimportprobe` (`dotnet bin/Release/net10.0/gltfimportprobe.dll <levels dir> <level> <scratch dir> [classCount]`).
+
+- **API**: `GltfTieImporter.Import(path, GltfImportOptions?, collisionPath?)` returns `GltfImportResult { Model, Collision?, Warnings, Materials, counters, BoundsMin/Max }`. Options: `Name`, `Scale` (metres to game units, default 1), `FlipV` (default off), `CollisionMaterialWord(nodeName, glTF material name)` (default `CollisionMaterials.Default`), `CollisionPrefixes` (`COL_`, `UCX_`).
+- **Scene**: default scene (else the first), node world matrices baked in, root = class origin. A node or mesh named `COL_`/`UCX_` (case-insensitive) makes itself and its descendants collision: triangles go to `CollisionInput`, nothing to the render parts or the bounds. The optional second file is all collision.
+- **Conventions**: no axis change (Y-up, as the exporter writes); **no V flip**: the exporter writes the game's UVs unchanged and `TieClassBuilder` writes them unchanged, so game V = glTF V. Tangent w follows the engine (`GeometryMath`: B = dP/dV, w = sign(dot(cross(N, T), B))); a glTF TANGENT is used as given (xyz by the node matrix, w negated on a mirror). Mirrored nodes (det < 0) swap the winding. Strips and fans are triangulated (degenerates dropped); points/lines are skipped with a warning. Missing normals give flat normals (corners unwelded), missing TANGENT is generated, missing TEXCOORD_0 gives zeros with a warning.
+- **Materials**: one `ImportMaterialSlot` per used glTF material (ShaderTuid 0; the primitive without a material gets "Default"); `GltfMaterialInfo` carries name, slot, base-colour texture name/uri/factor, alpha mode, double-sided, part and triangle counts.
+- **Round trip** (retail space_sector_1, 14 plain classes exported with `GltfExporter`, imported, rebuilt with `TieSplitter` + `TieClassBuilder` using the class as template): 73,350 triangles, 73,350 matched on (position quantum, UV bits), 14 of 14 classes identical in triangle multiset and scale; normals within 0.056 degrees; handedness differs on 62 of about 220,000 corners (retail w disagrees with the UV-derived w the exporter writes; 0.03%). UV orientation is therefore correct with no flip.
+- **Hand-made glTF**: 2 materials, a mirrored node, a strip, `COL_box` and a `UCX_ramp` under a translated parent: 5 render parts (strip = 2 triangles, winding +Z after the mirror), 15 collision triangles excluded from the bounds, cooked into 1 chunk and read back (15 triangles, both material words).
+- **Open**: glTF TANGENT from foreign tools may use the opposite handedness (not measured); no LOD, skin or morph handling; UV1 is read but the builder does not write it; collision material mapping per glTF material needs UI.
+
+---
+
+## 9. Registration status (step 6)
+
+Done 2026-11-17: `ReLunacy.Engine/Packing/TieClassRegistrar.cs` (types, `FreshTuid`, `Register`), `TieAppender.Classes.cs` (the writer and the placement path
+for a class with no placement), `GameplayWriter.Classes.cs` (save chain), `Scene/EntityRegion.Imported.cs` (pending list). Probes (gitignored):
+`dev/tools/tieregprobe` (bytes and readers) and `dev/tools/tieregsaveprobe` (File > Save through the editor's regions).
+
+- **`TieClassRegistrar.Register(read, IReadOnlyList<PendingTieClass>)`** writes, per class and lowest TUID first: the container at the end of ties.dat (0x80 aligned);
+  assetlookup 0x1D300 `{TUID, offset, length}` and 0x1D301 (the bits of the target regions, `RegionBit`); each target region.dat's 0x1C300 (sorted); assetstats
+  0x9800 +0x2C (Tie classes), +0x08 (region.dat), +0x00 (resident pool, plus the 0x80-aligned growth of ties.dat and the collision files), +0x0C (collision.dat); the toc
+  sizes. The zones are not touched. **Refused** (nothing changes): TUID in use anywhere in assetlookup, TUID not above the largest 0x1D300 TUID (keeps it sorted with
+  ascending offsets; `FreshTuid` gives one), a shader of the class not in a target region's 0x1C100 or in 0x1D100, a build problem, a bad own TUID (0x3400 +0x68).
+- **Collision class entry** (per target region with a collision.dat): the TUID appended to the table (+0x68 count, +0x6C), 0xFFFF appended to the u16 table (+0x70, re-laid by
+  `CollisionBvh.BuildPayload` over a widened "old" payload), the cooked chunks appended to the shape blob, 16-aligned, each with its palette (`CookedCollisionChunk.Data`);
+  the owner index of the class is the old count. Instances, tree and header bounds are untouched until a placement exists (no placement uses the shapes yet).
+- **First placement of a class with no placement** (`TieAppender.Append(read, requests, imported)`, `CreateZone(..., imported)`): the record is a copy of a plain placement of
+  the zone (same preference as the normal source pick: unbaked with prelight first), its sphere is the class sphere carried by the template's matrix (then moved as usual),
+  no lightmap pair, and a new prelight block of `VertexCount` words at the end of the zone's lighting slice, each the template block's most common word (a neutral
+  placeholder; a fixed word when the template has none). Collision instances come from `CollisionCooker.BuildInstanceRecord` (owner `0x20000000 | index`), one leaf
+  per 255, `AddLeaf` / 64 KB `ExtendLastLeaf` fallback and the header-bounds union exactly as `AppendCollision`. Further placements in the same call, or later,
+  use the normal copy path (the first placement is their source).
+- **Save chain**: `GameplayWriter.Build` registers the regions' `EntityRegion.PendingTieClasses` before deletions and appends. A class loads in the region it was imported into and in
+  every region that loads a zone one of its placements is in. The save lists "Tie class <name> imported (...)", is structural (reload), and clears the pending list after a
+  real save. `LevelReader.AddPendingTie(pending)` reads the class bytes into the level's Tie library (`AssetLibrary.AddPending`: listed, named, survives `Unload`), which gives the
+  UI an `ITie` for `EntityRegion.CreateTie` and the asset explorer.
+- **Verified** (copies, read-only on the game; `tieregprobe`, 138 checks each on space_sector_1 and krell_canyon; `tieregsaveprobe` on space_sector_1):
+  two classes (a synthetic sphere plus card; the largest plain retail class of the region rebuilt from its own geometry under a new TUID, 64 primitives, 27,921 / 23,161
+  vertices) with cooked collision (4 and 1417 / 39 chunks), four placements (two rotated and scaled 1.7 / 0.6 / -1.1 rad yaw). The bytes at the new 0x1D300 entries equal the built
+  bytes; `LevelReader` loads both classes (primitive count, indices, vertices within 1e-4), the placements (class, matrix, prelight window of at least `VertexCount` words,
+  no lightmap pair); `LevelCollision` lists the TUIDs and the instances (4 / 1417 / 39 per placement, owner index, boxes), and every world vertex equals the cooked
+  chunk transformed by the placement within 1/512 (worst 0 on the quantised vertices), indices equal; 0x1D300 sorted with ascending offsets, region 0x1C300 sorted, 0x1D100 / 0x1C100
+  unchanged; every old class byte-identical, every other zone identical, the target zone's old placements identical, old collision instances / shape blob / TUID table
+  prefix identical, BVH valid (every instance in one leaf, boxes hold, <= 255 per leaf, bounds union, block <= 64 KB); toc sizes match; a TUID twice and a missing shader are
+  refused with no change. Through the editor: `tieregsaveprobe` queues a class, creates two Ties, saves to a copy: the save lists the class, the copy reads back with the
+  class, both placements and 4/4 collision instances.
+- **Numbers**: space_sector_1 collision.dat 904,576 -> 1,829,888 bytes with the 1417-chunk class twice (shape blob 558,736 -> 1,119,824; bounds grew on X); krell_canyon (a planet
+  region, tree at 64 KB: `ExtendLastLeaf` was used, 0x8200 entries copied) 7,454,100 -> 7,666,452. assetstats +0x2C 52 -> 54 (ss1), 200 -> 202 (krell).
+- **Open**: nothing loaded in game (the memory arena and the prelight placeholder are the risks, as for any Tie append); cooking the render mesh as collision gives
+  thousands of chunks for a big class (a `COL_` mesh is the intended input); the 0x8200 planet entry of a first placement copies another class's record (the u16
+  at +0x02 is per class: unknown); a pending class that is placed in a region the registrar did not list is refused by the zone-mask check; only the shader check
+  guards the "textures" (they live in the shader, as the `--copy` route found); no undo of a registered class (delete the Ties; the class stays in the files).
+
+---
+
+## 10. Import UI status (step 7)
+
+Done 2026-11-17: `ReLunacy/Core/Frames/Modals/ImportModelModal.cs` (File > Import > Model..., Asset Explorer Ties tab), logic in `ReLunacy.Engine/Importing/ModelImportSession.cs`,
+project record in `ImportRecords.cs`. Probe (gitignored): `dev/tools/modelimportprobe <level_cached.psarc> <scratch dir>`.
+
+- **Session**: `Parse()` (glTF, auto-match, collision words) and `Build()` (split, class, cook) run on a background task from the modal (one at a time, the UI is disabled meanwhile);
+  both fill new lists and assign them at the end. Collision materials are read with placeholder words, replaced at build time, so changing a surface type does not reparse.
+  `Commit(reader, assets)` = `AddPendingTieClass` + `LevelReader.AddPendingTie` + `AssetManager.GetOrBuildTie`; `Remove` refuses while a placed Tie uses the class.
+- **Collision source**: COL_/UCX_ nodes (default when the file has some), a second file, none, or the render mesh (each part's glTF material gives the word).
+- **Project**: the model (a .gltf with its buffers and images) is copied to `<project>.d/imports/<name>/`; `editor.importedAssets` gets `{kind: tieClass, name, tuid, region, model, scale, flipV,
+  materials[{material, shader, collisionWord}], collisionMaterials[], collisionSource}`. With no project open the record waits for the first save (`ProjectSession.MarkSaved`).
+- **Not done**: shader thumbnails in the picker; lightmapped and two-layer shaders are offered but written unlit (a warning is listed).
+- **Verified** (retail space_sector_1 copy): a retail class exported with `GltfExporter` and re-imported: parse 47 ms, auto-match 1 of 1 materials (the shader the class uses), build 55 ms
+  (4 primitives against 5 retail); render mesh as collision gives 16 chunks; an unmapped material blocks the build. A hand-made cube with a COL_ node: 12 collision triangles, 1 chunk, the chosen word
+  is in the palette. Both committed, two Ties created, the third (removed) class left no trace, a class with a placed Tie is refused; save to a copy lists both classes, both read back, the
+  collision class entry and instance of the solid one are present; the project holds both records and the model copies.
+

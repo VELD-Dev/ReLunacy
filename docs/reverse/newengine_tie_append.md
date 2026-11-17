@@ -236,3 +236,14 @@ matrix the collision carries when the editor moved the Tie (fallback), and the r
   Tie count -3, remaining records identical, other zones byte-identical, collision instances -43 (ss1) / -2 (krell) with the rest
   identical in order, BVH valid, bounds exact. Append then Delete: zones.dat, lighting.dat identical; collision differs in 3 (ss1) / 6
   (krell) tree bytes (box float rounding); assetstats differs in the collision-size and peak bytes Append raised.
+
+## Renaming a Tie (2026-11-17)
+
+`TieAppender.Rename(read, requests)` (TieRenameRequest: zone TUID, class TUID, the row's matrix as the file holds it, old name, new
+name). The row of the zone blob is found by class, matrix and name (indexes and offsets move when Ties are deleted or added, so it
+runs LAST in the save chain, after the in-place writers, the deletions and the appends). Its string in 0x11300 is replaced in place
+by `IghwRelayout.Relayout` with an offset map for the pool (every later string moves; a pointer into the middle of the string is an
+error); when another fix-up points at the string or its tail (retail has none: 0 shared strings in every level of the three games), the row gets a new string at the end
+of the pool and its field is repointed. A name with a '/' keeps its prefix. The zone blob is spliced into zones.dat, assetlookup 0x1DA00
+and level_cached.toc follow (as `Delete`); a level reload follows since the Ties' offsets moved. Only the name changes: collision,
+lighting and assetstats go by TUID, class and row. Probe: `dev/tools/renameprobe` (a renamed retail Tie, a new Tie renamed, `shared`).

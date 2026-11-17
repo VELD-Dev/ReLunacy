@@ -41,6 +41,26 @@ public abstract class Entity : IDisposable
 
     public abstract string Name { get; protected set; }
 
+    /// <summary>The name the files hold, set by the first <see cref="Rename"/> (null while the name is as loaded).</summary>
+    public string? LoadedName { get; private set; }
+
+    /// <summary>The name of an instance the files hold was changed in the editor and no save has written it yet.</summary>
+    public bool IsRenamed => !IsNew && LoadedName != null && LoadedName != Name;
+
+    /// <summary>Gives the entity another name. Validation and the region's lookups are <see cref="EntityRegion.SetName"/>'s.</summary>
+    public void Rename(string name)
+    {
+        LoadedName ??= Name;
+        Name = name;
+        OnRenamed(name);
+    }
+
+    /// <summary>A save wrote the name: the files hold it now.</summary>
+    public void MarkNameSaved() { if (LoadedName != null) LoadedName = Name; }
+
+    /// <summary>Brings the loaded object the entity wraps to the new name.</summary>
+    protected virtual void OnRenamed(string name) { }
+
     /// <summary>What a save needs to write this entity into the level, set only on an instance made in the editor
     /// (see <see cref="NewInstance"/>); null on everything loaded from the files.</summary>
     public NewInstance? New { get; set; }

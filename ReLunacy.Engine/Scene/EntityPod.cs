@@ -13,6 +13,19 @@ public sealed class EntityPod
     public GameplayGroup Source { get; }
 
     public string Name => Source.Name;
+
+    /// <summary>The name the file holds, set by the first <see cref="Rename"/>; null while the name is as loaded.</summary>
+    public string? LoadedName { get; private set; }
+
+    /// <summary>The name of a Pod the file holds was changed and no save has written it yet.</summary>
+    public bool IsRenamed => !IsNew && LoadedName != null && LoadedName != Name;
+
+    /// <summary>Gives the Pod another name (see <see cref="EntityRegion.SetPodName"/>).</summary>
+    public void Rename(string name)
+    {
+        LoadedName ??= Name;
+        Source.Name = name;
+    }
     public ulong Tuid => Source.Tuid;
     public string? Layer => Source.Layer;
 
@@ -86,5 +99,6 @@ public sealed class EntityPod
     {
         SavedMembers = [.. Members];
         IsNew = false;
+        if (LoadedName != null) LoadedName = Name;
     }
 }

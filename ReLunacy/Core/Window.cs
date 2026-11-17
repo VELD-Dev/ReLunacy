@@ -57,6 +57,9 @@ public class LunaWindow : IDisposable
     /// (see <see cref="SwitchRegion"/>).</summary>
     private LevelReader? _levelReader;
 
+    /// <summary>The reader of the open level (its files stay open for classes read later); null without a level.</summary>
+    public LevelReader? Reader => _levelReader;
+
     /// <summary>True while a level or region is being read, built or uploaded: no region switch then.</summary>
     public bool IsLoadingLevel => _loadBar != null || _sceneBuild != null || _buildingAssetManager != null || _finalizingLevelLoad;
 
@@ -498,6 +501,7 @@ public class LunaWindow : IDisposable
         AbandonLevelFinalization();
         // The history is the scene's: its steps hold the entities being thrown away (a region switch too).
         Core.Undo.UndoManager.Singleton.Clear();
+        ReLunacy.Engine.Config.SegmentRegistry.ClearRenames();
         // Anything the loading task finished but that was never picked up belongs to the level being
         // wiped, not to the one about to load - and a task still running is now a stale generation,
         // so whatever it enqueues later is dropped rather than built over the next level.
@@ -914,6 +918,7 @@ public class LunaWindow : IDisposable
             FileMenuDraw.InstallMenuItem();
             FileMenuDraw.BackupsMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
+            FileMenuDraw.ImportMenu();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }

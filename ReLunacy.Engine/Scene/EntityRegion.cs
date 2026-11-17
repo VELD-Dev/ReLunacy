@@ -102,6 +102,7 @@ public partial class EntityRegion : IDisposable
         // New instances and moved ones, so a reference word names an instance as the save will place it.
         References.SetLiveSource(LayoutChanges);
         References.SetDeletedSource(DeletedHandles);
+        References.SetNameSource(NameChanges);
         if (!deferZones)
             while (BuildNextZone(gd, assetManager)) { }
     }
@@ -224,18 +225,26 @@ public partial class EntityRegion : IDisposable
 
     /// <summary>The Pods a Moby is in, in table order.</summary>
     public IEnumerable<(EntityPod Pod, int Index)> PodsOf(EntityMoby moby) =>
-        Pods.Select((pod, i) => (pod, i)).Where(p => p.pod.Contains(moby));
+        Pods.Select((pod, i) => (pod, i)).Where(p => p.pod.Contains(moby) && !IsGroupDeleted("Pod", p.i));
 
     /// <summary>The Areas an instance is in (volumes and paths), by their place in the Area table.</summary>
     public IReadOnlyList<int> AreasOf(Entity entity) => entity switch
     {
-        EntityVolume volume => volume.BaseVolume.AreaIndexes,
-        EntityPath path => path.Path.AreaIndexes,
+        EntityVolume volume => Live("Area", volume.BaseVolume.AreaIndexes),
+        EntityPath path => Live("Area", path.Path.AreaIndexes),
         _ => [],
     };
 
+    /// <summary>The Areas and Scents an instance lists, the ones deleted in the editor too (what an undo puts back).</summary>
+    internal IReadOnlyList<int> RawAreas(Entity entity) => entity switch { EntityVolume v => v.BaseVolume.AreaIndexes, EntityPath p => p.Path.AreaIndexes, _ => [] };
+    internal IReadOnlyList<int> RawScents(Entity entity) => entity is EntityVolume v ? v.BaseVolume.ScentIndexes : [];
+
+    /// <summary>The group handles without the ones deleted in the editor.</summary>
+    private IReadOnlyList<int> Live(string kind, List<int> handles) =>
+        _deletedGroups.Count == 0 ? handles : [.. handles.Where(i => !_deletedGroups.Contains((kind, i)))];
+
     /// <summary>The Scents a Clue is in, by their place in the Scent table.</summary>
-    public IReadOnlyList<int> ScentsOf(Entity entity) => entity is EntityVolume volume ? volume.BaseVolume.ScentIndexes : [];
+    public IReadOnlyList<int> ScentsOf(Entity entity) => entity is EntityVolume volume ? Live("Scent", volume.BaseVolume.ScentIndexes) : [];
 
     private IReadOnlyList<string>? _areaNames, _scentNames;
     public IReadOnlyList<string> AreaNames => _areaNames ??= [.. References.Names("Area")];

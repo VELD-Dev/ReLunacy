@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Numerics;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Assets.LevelElements;
@@ -16,7 +15,6 @@ namespace ReLunacy.Core.Moon;
 public static class MoonMode
 {
     private const uint SpaceMoonClass = 0x4BC;
-    private const int AreaField = 0xD0, RadiusField = 0xE0;
     private const float DefaultRadius = 50f;
 
     public static bool Active { get; private set; }
@@ -46,46 +44,16 @@ public static class MoonMode
         if (Active || MoonClue(clue) == null) return false;
         var region = EntityManager.Singleton.Regions.FirstOrDefault(r => r.Contains(clue));
         if (region == null) return false;
-        var settings = clue.BaseVolume.Clue!.Settings;
-        float radius = settings.Length >= RadiusField + 4
-            ? BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(RadiusField))) : 0f;
-        Radius = float.IsFinite(radius) && radius > 1f ? radius : DefaultRadius;
-
-        var areaRef = clue.BaseVolume.Clue.References.FirstOrDefault(r => r.Offset == AreaField && !r.InList);
-        var area = areaRef == null ? null : region.Find(areaRef.Kind, areaRef.Index) as EntityVolume;
-        Centre = (area ?? clue).Transform.Translation;
-        var key = clue.BaseVolume.Clue.Name.Split('_')[0];
-        if (MainTie(key) is { } tie) Centre = tie;
+        var frame = MoonCreator.Resolve(region, clue, EntityManager.Singleton.Regions);
+        var area = frame.Area;
+        Radius = frame.Radius;
+        Centre = frame.Centre;
         AreaRadius = area != null ? MathF.Max(area.ShapeSize.X, MathF.Max(area.ShapeSize.Y, area.ShapeSize.Z)) * 0.5f : Radius * 4f;
         Clue = clue;
         Region = region;
-        HideUnrelated(region, area);
+        HideUnrelated(region, frame);
         Active = true;
         return true;
-    }
-
-    /// <summary>The placement of the moon's own Tie, the one every object on the surface is <see cref="Radius"/> away from: in a
-    /// zone named for the moon, a bounding sphere of about the surface radius centred on its placement. Checked on
-    /// space_sector_1 and 2: the area's centre is off it by up to 159 (moon2y), the Tie's never; a Tie's sphere
-    /// centre is off by 129 for the aurora Ties. Null when the moon has no such Tie.</summary>
-    private static Vector3? MainTie(string key)
-    {
-        if (key.Length == 0) return null;
-        Vector3? best = null;
-        float bestError = Radius * 0.1f;
-        foreach (var region in EntityManager.Singleton.Regions)
-            foreach (var zone in region.Zones.Where(z => z.ZoneName.Contains(key, StringComparison.OrdinalIgnoreCase)))
-                foreach (var tie in zone.TieInstances.Entities)
-                {
-                    var sphere = tie.WorldBoundingSphere;
-                    var place = tie.Transform.Translation;
-                    // The sphere carries a 2% margin.
-                    float error = MathF.Abs(sphere.W / 1.02f - Radius);
-                    if (error >= bestError || Vector3.Distance(new Vector3(sphere.X, sphere.Y, sphere.Z), place) > Radius * 0.1f) continue;
-                    bestError = error;
-                    best = place;
-                }
-        return best;
     }
 
     /// <summary>Leaves moon mode and shows what it hid.</summary>
@@ -101,11 +69,12 @@ public static class MoonMode
     }
 
     /// <summary>Related: in the moon's layers, named by the Clue (or in a Pod it names), or inside the moon's area.</summary>
-    private static void HideUnrelated(EntityRegion region, EntityVolume? area)
+    private static void HideUnrelated(EntityRegion region, MoonCreator.Frame frame)
     {
+        var area = frame.Area;
         var clue = Clue!.BaseVolume.Clue!;
         // "moon1a_moonclue" -> "moon1a": the layers, zones and Pods of the moon carry it in their names.
-        string key = clue.Name.Split('_')[0].ToLowerInvariant();
+        string key = MoonCreator.KeyOf(clue.Name).ToLowerInvariant();
         bool Named(string? name) => name != null && (key.Length > 0 && name.Contains(key, StringComparison.OrdinalIgnoreCase));
 
         var layers = new HashSet<string>();
@@ -117,6 +86,7 @@ public static class MoonMode
             foreach (var zone in r.Zones) if (Named(zone.ZoneName)) layers.Add(zone.ZoneName);
 
         var related = new HashSet<Entity>(ReferenceEqualityComparer.Instance) { Clue };
+        if (frame.Tie != null) related.Add(frame.Tie);
         foreach (var reference in clue.References)
         {
             if (reference.Kind == "Pod")
@@ -127,7 +97,7 @@ public static class MoonMode
             else if (region.Find(reference.Kind, reference.Index) is { } named) related.Add(named);
         }
         foreach (var pod in region.Pods)
-            if (Named(pod.Name) || (pod.Layer != null && layers.Contains(pod.Layer)))
+            if (Named(pod.Name) || (frame.Beam != null && pod.Members.Contains(frame.Beam)) || (pod.Layer != null && layers.Contains(pod.Layer)))
                 foreach (var member in pod.Members) related.Add(member);
 
         float reach = AreaRadius * AreaRadius;

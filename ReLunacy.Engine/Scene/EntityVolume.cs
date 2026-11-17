@@ -18,6 +18,8 @@ public class EntityVolume : Entity
 
     public override string Name { get; protected set; }
 
+    protected override void OnRenamed(string name) => BaseVolume.Name = name;
+
     // A volume has no mesh or material of its own; the renderer draws its wireframe edges (12 for a
     // box, rings and lines for the round shapes) directly from GetWorldEdgeTransforms and VolumeColour.
 

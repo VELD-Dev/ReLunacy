@@ -28,9 +28,20 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
 - [x] Delete instances the files hold (Mobys, volumes with their Clue, paths, controllers, cameras): Delete key / Edit > Delete,
       confirm modal listing who names them, undoable, clears or remaps every reference in gp_prius at Save (not tested in game).
       Spec: docs/reverse/newengine_gp_prius_writer.md section 7. Probes: dev/tools/delprobe, delsaveprobe.
+- [x] Delete Pods, Areas, Scents (2026-11-17; the files' and new ones) + Create > Scent: hierarchy folder menu / Del on a hovered folder, Pods
+      frame button -> ConfirmDeleteModal (referencers listed), undoable; save: GpPriusDocument.Delete on groups (record, lists, name, later
+      groups in the layer renumbered, references cleared/remapped), a segment Pod's level.csv column removed with the pool totals reverted.
+      Zones and layers made in the editor and not yet saved can be deleted (a zone with its new Ties, the last new layer with its new
+      instances and groups). NOT done: deleting a zone/layer a save already wrote (needs the reverse of every new-zone writer). Probe
+      dev/tools/groupdelprobe (run one level per process, 4 GB heap cap).
 - [x] Delete retail Ties (2026-11-17): TieAppender.Delete (zones.dat rows, clusters, names, collision instances and BVH leaves), run before
       the appends in the save chain, structural (level reloads). New unsaved Ties are just removed. Probe: dev/tools/tiedeleteprobe
       (space_sector_1, krell_canyon). Planet 0x8200 records are kept (stale TUID), lighting.dat is kept. Not tested in game.
+- [x] Rename (2026-11-17): every instance kind (Moby, volume, path, controller, camera, Tie), Pods and Areas; the ones the files hold are rewritten in
+      their name tables at Save (gp_prius 0x11300 re-laid, zones.dat 0x11300 per zone, level.csv Pod cell of a segment), new ones just change their
+      pending name. F2 / menu / double-click on the name in the hierarchy, name field in the inspector and the Pods frame, one undo step each, the
+      Save dialog lists them and warns about instances.lua. Name = 1-64 printable ASCII, no space or '/'; a repeated name is allowed and flagged.
+      Old engine: read only. Not renamed: layers, zones, Clues, Scents. Probe: dev/tools/renameprobe (space_sector_1, krell_canyon, clank_puzzles). Not tested in game.
 - [ ] Test in game: add a Moby, a Tie with collision, a volume, a path, a controller on a copy.
 
 ## Moon creation tooling (requested 2026-11-16)
@@ -58,5 +69,9 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
 - [ ] Build "curve to moon" (bent copy under a new class TUID + collision.dat class entry)
 - [ ] Fix Tie normals on stretched classes (reader divides normals by the quantisation scale)
 - [ ] Decode the ACiT prelight word (needed for baking)
-- [ ] Tie import: split meshes by material (one material per mesh), existing shaders/materials only.
+- [x] Tie import (2026-11-17): glTF -> new Tie class. File > Import > Model... and the Asset Explorer's Ties tab; ImportModelModal (materials -> shaders by
+      catalog auto-match, collision from COL_/UCX_ nodes / a file / none / the render mesh with per-material surface words), logic in
+      ReLunacy.Engine/Importing/ModelImportSession.cs, project copy in ImportRecords (editor.importedAssets). Spec: docs/reverse/newengine_tie_mesh_splitting.md
+      sections 3, 9, 10. Probe: dev/tools/modelimportprobe. ACiT only; not tested in game.
+      - [ ] Lightmapped / two-layer shaders (written unlit), LODs, prelight bake, shader thumbnails in the picker.
 - [ ] Bake prelight / baked lighting for new Ties: game's directional lights + placeable bake point lights.

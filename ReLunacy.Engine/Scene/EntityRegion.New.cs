@@ -157,6 +157,7 @@ public partial class EntityRegion
         foreach (var e in Paths.Entities.OfType<EntityPath>()) used.Add(e.Path.Tuid);
         foreach (var pod in Pods) used.Add(pod.Tuid);
         foreach (var area in _newAreas) used.Add(area.Tuid);
+        foreach (var scent in _newScents) used.Add(scent.Tuid);
         foreach (var zone in Zones) used.Add(zone.ZoneTUID);
         ulong tuid;
         do tuid = (ulong)Random.Shared.NextInt64(1, long.MaxValue);
@@ -270,7 +271,7 @@ public partial class EntityRegion
             }
             return dropped ? [.. references.Where(r => !References.IsDeleted(r.Kind, r.Index))] : null;
         }
-        if (!References.Editable && _deleted.Count == 0) return;
+        if (!References.Editable && _deleted.Count == 0 && _deletedGroups.Count == 0) return;
         foreach (var volume in Volumes.Entities.OfType<EntityVolume>())
             if (volume.BaseVolume.Clue is { } clue && Write(clue.Settings, clue.References) is { } kept) clue.References = kept;
         foreach (var controller in _controllers)

@@ -63,17 +63,21 @@ public partial class EntityRegion
     /// <summary>Puts a volume or a path in exactly these Areas (indexes in the Area table).</summary>
     public void SetAreas(Entity entity, IEnumerable<int> areas)
     {
+        // The Areas deleted in the editor stay in the list, so an undo of their deletion finds the members.
+        var raw = entity is EntityVolume v0 ? v0.BaseVolume.AreaIndexes : entity is EntityPath p0 ? p0.Path.AreaIndexes : null;
+        if (raw == null) return;
         var sorted = areas.Distinct().Order().ToList();
+        var kept = raw.Where(i => _deletedGroups.Contains(("Area", i))).ToList();
+        var all = sorted.Concat(kept).Distinct().Order().ToList();
         if (entity is EntityVolume volume)
         {
-            volume.BaseVolume.AreaIndexes.Clear(); volume.BaseVolume.AreaIndexes.AddRange(sorted);
+            volume.BaseVolume.AreaIndexes.Clear(); volume.BaseVolume.AreaIndexes.AddRange(all);
             volume.BaseVolume.Areas.Clear(); volume.BaseVolume.Areas.AddRange(sorted.Select(AreaName));
         }
         else if (entity is EntityPath path)
         {
-            path.Path.AreaIndexes.Clear(); path.Path.AreaIndexes.AddRange(sorted);
+            path.Path.AreaIndexes.Clear(); path.Path.AreaIndexes.AddRange(all);
         }
-        else return;
         InvalidateLookups();
     }
 
@@ -82,7 +86,8 @@ public partial class EntityRegion
     {
         if (entity is not EntityVolume { BaseVolume.Clue: not null } volume) return;
         var sorted = scents.Distinct().Order().ToList();
-        volume.BaseVolume.ScentIndexes.Clear(); volume.BaseVolume.ScentIndexes.AddRange(sorted);
+        var kept = volume.BaseVolume.ScentIndexes.Where(i => _deletedGroups.Contains(("Scent", i)));
+        volume.BaseVolume.ScentIndexes.Clear(); volume.BaseVolume.ScentIndexes.AddRange(sorted.Concat(kept).Distinct().Order());
         volume.BaseVolume.Scents.Clear(); volume.BaseVolume.Scents.AddRange(sorted.Select(i => i < ScentNames.Count ? ScentNames[i] : $"#{i}"));
         InvalidateLookups();
     }
