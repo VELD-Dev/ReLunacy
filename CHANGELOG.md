@@ -5,7 +5,7 @@ Because the European date format is better, please keep date format like this: `
 
 ## [v0.06-alpha.2](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-11-2026
 
-- New level editing and saving on A Crack in Time, All 4 One and Into the Nexus: Mobys, Ties, UFrags, volumes, cameras, paths, and Clue and Moby settings.
+- New level editing and saving on A Crack in Time, Full Frontal Assault, All 4 One and Into the Nexus: Mobys, Ties, UFrags, volumes, cameras, paths, and Clue and Moby settings.
 - New projects (`.lunaproj`): File > Save keeps your edits in a project, and Install to Game writes them into the game.
 - New Asset Explorer (View menu): drag Mobys and Ties into the 3D view to place them. Favourites are listed first.
 - New Create menu: volumes, paths, controllers, Pods, Areas and Scents.
