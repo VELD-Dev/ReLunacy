@@ -19,6 +19,7 @@ public class EntityManager : IDisposable
     public bool renderFoliage = true;
     public bool renderVolumes = true;
     public bool renderCameras = true;
+    public bool renderControllers = true;
     public bool renderPaths = true;
 
     /// <summary>Bumped whenever an entity's own visibility (<see cref="Entity.allowRender"/>) is changed, for the
@@ -99,6 +100,9 @@ public class EntityManager : IDisposable
     public Vector4 NavmeshColor = new(0.2f, 0.45f, 1f, 0.35f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
 
+    /// <summary>Bumped when an instance is added to or removed from a region, for whoever caches a list of them.</summary>
+    public static int StructureVersion { get; set; }
+
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);
     public int VolumesCount => Regions.Sum(r => r.Volumes.Size);
     public int TiesCount => Regions.Sum(r => r.TiesCount);
@@ -163,6 +167,7 @@ public class EntityManager : IDisposable
             foreach (var e in region.MobyInstances.Entities) yield return e;
             foreach (var e in region.Volumes.Entities) yield return e;
             foreach (var e in region.Cameras.Entities) yield return e;
+            foreach (var e in region.ControllerInstances.Entities) yield return e;
             foreach (var e in region.Paths.Entities) yield return e;
 
             foreach (var zone in region.Zones)
@@ -215,6 +220,7 @@ public class EntityManager : IDisposable
             if (region.MobyInstances.TryGetEntity(id, out entity)) return true;
             if (region.Volumes.TryGetEntity(id, out entity)) return true;
             if (region.Cameras.TryGetEntity(id, out entity)) return true;
+            if (region.ControllerInstances.TryGetEntity(id, out entity)) return true;
             if (region.Paths.TryGetEntity(id, out entity)) return true;
 
             foreach (var zone in region.Zones)

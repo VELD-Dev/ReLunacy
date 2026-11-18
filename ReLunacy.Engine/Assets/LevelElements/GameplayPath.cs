@@ -16,9 +16,35 @@ public readonly record struct GameplayPathPoint(Vector3 Position, float Distance
 /// </summary>
 public sealed class GameplayPath
 {
+    public GameplayPath() { }
+
+    /// <summary>A path made in the editor: the points joined by straight segments, each carrying its distance along
+    /// the path. <paramref name="index"/> is its place at the end of the region's path table (see NewInstance).</summary>
+    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    public GameplayPath(ulong tuid, string name, int index, string? layer, IReadOnlyList<Vector3> positions, bool closed = false, byte kind = 1)
+    {
+        Tuid = tuid;
+        Name = name;
+        Index = index;
+        Layer = layer;
+        Closed = closed;
+        Kind = kind;
+        var points = new List<GameplayPathPoint>(positions.Count);
+        float distance = 0f;
+        for (int i = 0; i < positions.Count; i++)
+        {
+            if (i > 0) distance += Vector3.Distance(positions[i - 1], positions[i]);
+            points.Add(new GameplayPathPoint(positions[i], distance));
+        }
+        Points = points;
+        Length = distance;
+    }
+
     public required ulong Tuid { get; init; }
-    public required string Name { get; init; }
-    public string? Layer { get; init; }
+    public required string Name { get; set; }
+    /// <summary>The path's place in the region's path table (see <see cref="Volume.Index"/>).</summary>
+    public int Index { get; init; } = -1;
+    public string? Layer { get; set; }
     public float Length { get; init; }
     public bool Closed { get; init; }
     public byte Kind { get; init; }
@@ -28,6 +54,8 @@ public sealed class GameplayPath
     /// <summary>What gave the role: the instance that references the path, or null when it came from the name.</summary>
     public string? RoleSource { get; set; }
     public IReadOnlyList<GameplayPathPoint> Points { get; init; } = [];
+    /// <summary>The Areas listing this path, by their place in the region's Area table.</summary>
+    public List<int> AreaIndexes { get; } = [];
 }
 
 /// <summary>
@@ -39,8 +67,8 @@ public sealed class GameplayPath
 public sealed class GameplayGroup
 {
     public required ulong Tuid { get; init; }
-    public required string Name { get; init; }
-    public string? Layer { get; init; }
+    public required string Name { get; set; }
+    public string? Layer { get; set; }
     /// <summary>The members' names, where they resolve (Pods); empty for Squadrons, whose members are Tie placements.</summary>
     public IReadOnlyList<string> MemberNames { get; init; } = [];
     public IReadOnlyList<ulong> MemberTuids { get; init; } = [];

@@ -13,6 +13,19 @@ public sealed class EntityPod
     public GameplayGroup Source { get; }
 
     public string Name => Source.Name;
+
+    /// <summary>The name the file holds, set by the first <see cref="Rename"/>; null while the name is as loaded.</summary>
+    public string? LoadedName { get; private set; }
+
+    /// <summary>The name of a Pod the file holds was changed and no save has written it yet.</summary>
+    public bool IsRenamed => !IsNew && LoadedName != null && LoadedName != Name;
+
+    /// <summary>Gives the Pod another name (see <see cref="EntityRegion.SetPodName"/>).</summary>
+    public void Rename(string name)
+    {
+        LoadedName ??= Name;
+        Source.Name = name;
+    }
     public ulong Tuid => Source.Tuid;
     public string? Layer => Source.Layer;
 
@@ -43,7 +56,18 @@ public sealed class EntityPod
         SavedMembers = [.. Members];
     }
 
-    public bool Changed => !Members.SequenceEqual(SavedMembers);
+    /// <summary>Made in the editor and not written yet: a save adds its record (GameplayStructure) at the end of the Pod table.</summary>
+    public bool IsNew { get; private set; }
+
+    /// <summary>A Pod made in the editor, empty, in the layer (<see cref="Layer"/> is its name).</summary>
+    public EntityPod(string name, ulong tuid, string layer)
+    {
+        Source = new GameplayGroup { Tuid = tuid, Name = name, Layer = layer };
+        SavedMembers = [];
+        IsNew = true;
+    }
+
+    public bool Changed => IsNew || !Members.SequenceEqual(SavedMembers);
 
     public bool Contains(EntityMoby moby) => Members.Contains(moby);
 
@@ -71,5 +95,10 @@ public sealed class EntityPod
     }
 
     /// <summary>The file now holds the members as they are (after a save).</summary>
-    public void MarkSaved() => SavedMembers = [.. Members];
+    public void MarkSaved()
+    {
+        SavedMembers = [.. Members];
+        IsNew = false;
+        if (LoadedName != null) LoadedName = Name;
+    }
 }

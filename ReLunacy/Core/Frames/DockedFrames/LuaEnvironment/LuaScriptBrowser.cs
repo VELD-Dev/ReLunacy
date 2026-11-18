@@ -35,7 +35,8 @@ public sealed class LuaScriptBrowser
     public Action<string, string, byte[]?>? ScriptSelected { get; set; }
 
     /// <summary>The archives open, level's own first; empty until a level is loaded.</summary>
-    private readonly List<(string Path, PSARC Archive)> _archives = [];
+    // Read through the open project (OverlaidArchive): a script saved into it shows its saved text.
+    private readonly List<(string Path, Engine.Projects.OverlaidArchive Archive)> _archives = [];
 
     /// <summary>Which of <see cref="_archives"/> each script path was found in.</summary>
     private readonly Dictionary<string, int> _owner = new(StringComparer.OrdinalIgnoreCase);
@@ -99,7 +100,7 @@ public sealed class LuaScriptBrowser
         {
             // The level's own first: its scripts are found there before anywhere else.
             foreach (string path in new[] { own, shared }.OfType<string>())
-                _archives.Add((path, new PSARC(File.OpenRead(path))));
+                _archives.Add((path, new Engine.Projects.OverlaidArchive(path)));
             Categorise();
         }
         catch (Exception e) { _error = e.Message; }
@@ -475,24 +476,19 @@ public sealed class LuaScriptBrowser
     }
 
     /// <summary>The archive holding a path: the one its source was listed from, else the first that has it.</summary>
-    private PSARC? Holder(string path)
+    private Engine.Projects.OverlaidArchive? Holder(string path)
     {
         if (_owner.TryGetValue(path, out int a)) return _archives[a].Archive;
-        return _archives.Select(x => x.Archive).FirstOrDefault(x => x.Manifest.ContainsKey(path));
+        return _archives.Select(x => x.Archive).FirstOrDefault(x => x.Contains(path));
     }
 
-    private string ReadText(string path)
-    {
-        using var buffer = (Holder(path) ?? throw new FileNotFoundException(path)).OpenFile(path);
-        return LuaText.FromBytes(buffer.Data);
-    }
+    private string ReadText(string path) =>
+        LuaText.FromBytes((Holder(path) ?? throw new FileNotFoundException(path)).Read(path));
 
     /// <summary>The compiled chunk, or null when this source has none. Presence is checked against
     /// the manifest rather than by catching a failed read, so a genuine read error still surfaces.</summary>
     private byte[]? TryRead(string path)
     {
-        if (Holder(path) is not { } archive) return null;
-        using var buffer = archive.OpenFile(path);
-        return buffer.Data.ToArray();
+        return Holder(path)?.Read(path);
     }
 }

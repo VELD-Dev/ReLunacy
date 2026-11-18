@@ -116,9 +116,12 @@ public sealed class ConfigCsv
 
     /// <summary>Sets a cell, growing a short row with empty cells to reach it. Setting a cell past the end of
     /// its row to "" changes nothing.</summary>
-    public void Set(int row, int column, string text)
+    public void Set(int row, int column, string text) => Set(Rows[row], column, text);
+
+    /// <summary><see cref="Set(int, int, string)"/> on a row held directly: it stays the same cell when rows are
+    /// inserted or removed above it (an undo step keeps the row, not its index).</summary>
+    public static void Set(List<Cell> cells, int column, string text)
     {
-        var cells = Rows[row];
         if (column >= cells.Count)
         {
             if (text.Length == 0) return;

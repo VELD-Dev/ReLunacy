@@ -13,6 +13,8 @@ internal static class EditMenuDraw
             undo.Undo();
         if (ImGui.MenuItem(undo.RedoLabel is { } r ? LM.Get("GUI_MenuItem_RedoWhat", r) : LM.Get("GUI_MenuItem_Redo"), "CTRL+Y", false, undo.RedoLabel != null))
             undo.Redo();
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_Delete"), "DEL", false, Core.Selection.SelectionManager.Singleton.Count > 0))
+            Core.Placement.InstancePlacer.DeleteSelection();
         ImGui.Separator();
     }
 

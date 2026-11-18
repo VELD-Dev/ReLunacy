@@ -94,7 +94,7 @@ public static class GameplayGroupReader
             var clueMeta = index.Instances[ClueKind];
             var clueVolumes = new Volume?[clueMeta.Count];
             var clueClasses = new uint[clueMeta.Count];
-            var clueSettings = new (byte[] Struct, List<ClueReference> References)[clueMeta.Count];
+            var clueSettings = new (byte[] Struct, List<ClueReference> References, bool Shared)[clueMeta.Count];
             var clues = prius.QuerySection(ClueSection);
             if (clues.id == ClueSection && clues.length >= 0x10)
                 for (int i = 0; i < clueMeta.Count && i < clues.count; i++)
@@ -113,8 +113,10 @@ public static class GameplayGroupReader
                     volume.Clue = new VolumeClue(clueClasses[i], clueMeta[i].Name, classNames[clueClasses[i]])
                     {
                         Tuid = clueMeta[i].Tuid,
+                        Index = i,
                         Settings = clueSettings[i].Struct ?? [],
                         References = clueSettings[i].References ?? [],
+                        SharedSettings = clueSettings[i].Shared,
                     };
 
             // Areas: their volumes list.
@@ -128,8 +130,11 @@ public static class GameplayGroupReader
                     prius.sh.Seek(areas.offset + (uint)i * areas.length + 0x0A);
                     ushort count = prius.sh.ReadUInt16();
                     foreach (uint reference in References(prius, list, count))
-                        if (VolumeAt(reference) is { } volume && !volume.Areas.Contains(areaMeta[i].Name))
-                            volume.Areas.Add(areaMeta[i].Name);
+                        if (VolumeAt(reference) is { } volume)
+                        {
+                            if (!volume.Areas.Contains(areaMeta[i].Name)) volume.Areas.Add(areaMeta[i].Name);
+                            if (!volume.AreaIndexes.Contains(i)) volume.AreaIndexes.Add(i);
+                        }
                 }
 
             // Scents: their Clues, and through them the Clues' volumes.
@@ -141,9 +146,11 @@ public static class GameplayGroupReader
                     prius.sh.Seek(scents.offset + (uint)i * scents.length);
                     uint list = prius.sh.ReadUInt32(), count = prius.sh.ReadUInt32();
                     foreach (uint reference in References(prius, list, count))
-                        if (Resolve(reference) is (ClueKind, var clue) && clueVolumes[clue] is { } volume
-                            && !volume.Scents.Contains(scentMeta[i].Name))
-                            volume.Scents.Add(scentMeta[i].Name);
+                        if (Resolve(reference) is (ClueKind, var clue) && clueVolumes[clue] is { } volume)
+                        {
+                            if (!volume.Scents.Contains(scentMeta[i].Name)) volume.Scents.Add(scentMeta[i].Name);
+                            if (!volume.ScentIndexes.Contains(i)) volume.ScentIndexes.Add(i);
+                        }
                 }
 
             int clued = volumes.Count(v => v.Clue != null);
@@ -154,6 +161,22 @@ public static class GameplayGroupReader
         {
             // Annotations only: the volumes themselves are already read.
             Console.WriteLine($"Volumes: could not read their Clues, Areas and Scents: {ex.Message}");
+        }
+    }
+
+    /// <summary>The region's instances as its references name them (see <see cref="GameplayReferences"/>).</summary>
+    public static GameplayReferences ReadReferences(IGFile prius)
+    {
+        try
+        {
+            var index = BuildIndex(prius);
+            return new GameplayReferences(!index.Pooled,
+                Kinds.Select((k, i) => (k.Kind, (IReadOnlyList<(string Name, ushort Layer)>)index.Instances[i].Select(m => (m.Name, m.Layer)).ToList())).ToList());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"References: could not be indexed: {ex.Message}");
+            return GameplayReferences.None;
         }
     }
 
@@ -196,7 +219,26 @@ public static class GameplayGroupReader
         return -1;
     }
 
-    private static (byte[] Struct, List<ClueReference> References) ReadSettings(IGFile prius, Index index, uint offset, uint size)
+    /// <summary>The section of class-default settings blocks: one per (kind, class), shared by every instance that
+    /// was not edited away from it. The other settings blocks (0x25020) are private to one instance.</summary>
+    private const uint SharedSettingsSection = 0x25030;
+
+    /// <summary>Whether a settings block at <paramref name="offset"/> lies in the class-default section.</summary>
+    private static bool InSharedSection(IGFile prius, uint offset)
+    {
+        var section = prius.QuerySection(SharedSettingsSection);
+        if (section.id != SharedSettingsSection || offset == 0) return false;
+        long end = section.offset + (long)section.length * Math.Max(section.count, 1u);
+        return offset >= section.offset && offset < end;
+    }
+
+    private static (byte[] Struct, List<ClueReference> References, bool Shared) ReadSettings(IGFile prius, Index index, uint offset, uint size)
+    {
+        var (body, references) = ReadSettingsBlock(prius, index, offset, size);
+        return (body, references, InSharedSection(prius, offset));
+    }
+
+    private static (byte[] Struct, List<ClueReference> References) ReadSettingsBlock(IGFile prius, Index index, uint offset, uint size)
     {
         var references = new List<ClueReference>();
         if (offset == 0 || size < 4 || offset + (long)size > prius.sh.BaseStream.Length) return ([], references);
@@ -207,6 +249,7 @@ public static class GameplayGroupReader
         {
             uint sections = BinaryPrimitives.ReadUInt32BigEndian(span[0x08..]);
             (uint Offset, uint Length) structSection = default, pool = default;
+            var extra = new List<(uint Offset, uint Length)>();
             for (uint s = 0; s < sections && 0x20 + s * 0x10 <= block.Length; s++)
             {
                 var header = span[(int)(0x10 + s * 0x10)..];
@@ -214,24 +257,28 @@ public static class GameplayGroupReader
                 var range = (BinaryPrimitives.ReadUInt32BigEndian(header[4..]), BinaryPrimitives.ReadUInt32BigEndian(header[8..]));
                 if (id == InnerStructSection) structSection = range;
                 else if (id == InnerPoolSection) pool = range;
+                else extra.Add(range);
             }
             if (structSection.Length == 0 || structSection.Offset + structSection.Length > block.Length) return ([], references);
             byte[] body = span.Slice((int)structSection.Offset, (int)structSection.Length).ToArray();
             // No pool: references are inline, as in a flat block. A Crack in Time wraps Moby settings this way
             // (a beam's +0x80, a landing pad's +0x84: the volume the ship lands in).
             if (pool.Length == 0)
+            {
                 for (int w = 4; w + 4 <= body.Length; w += 4)
                 {
                     var target = index.Inline(BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(w)), BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(w + 2)));
-                    if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+                    if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target), target.Index));
                 }
+                ReadLists(span, sections, structSection, extra, index, references);
+            }
             else for (int w = 4; w + 4 <= body.Length; w += 4)
             {
                 uint value = BinaryPrimitives.ReadUInt32BigEndian(body.AsSpan(w));
                 if (pool.Length == 0 || value < pool.Offset || value >= pool.Offset + pool.Length
                     || (value - pool.Offset) % 0x10 != 0 || value + 0x0C > block.Length) continue;
                 var target = index.Pooled16(span[(int)value..]);
-                if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+                if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target), target.Index));
             }
             return (body, references);
         }
@@ -239,9 +286,48 @@ public static class GameplayGroupReader
         for (int w = 4; w + 4 <= block.Length; w += 4)
         {
             var target = index.Inline(BinaryPrimitives.ReadUInt16BigEndian(span[w..]), BinaryPrimitives.ReadUInt16BigEndian(span[(w + 2)..]));
-            if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target)));
+            if (target.Kind >= 0) references.Add(new ClueReference(w, Kinds[target.Kind].Kind, index.NameOf(target), target.Index));
         }
         return (block, references);
+    }
+
+    /// <summary>
+    /// The references in the lists a settings block keeps outside its class struct, in its extra data (A Crack in
+    /// Time: a SoundEnvironment's volumes +0x28, a SoundEmitter's environments +0x18, a dropship's actions +0x1218).
+    /// Such a list's pointer is a struct field listed in the block's own fix-up table (after the sections and their
+    /// PADn filler: a count, then offsets in the block); it holds the list's offset in the block, the element count
+    /// is the word before, and the elements fill the rest of that extra-data section. Every word of an element that
+    /// names an instance is taken, as <see cref="ClueReference.Item"/> of the pointer field.
+    /// </summary>
+    private static void ReadLists(ReadOnlySpan<byte> block, uint sections, (uint Offset, uint Length) structSection,
+        List<(uint Offset, uint Length)> extra, Index index, List<ClueReference> references)
+    {
+        long at = 0x10 + sections * 0x10L;
+        foreach (var (offset, length) in extra.Append(structSection)) at = Math.Max(at, offset + (long)length);
+        while (at + 4 <= block.Length && block[(int)at] == 'P' && block[(int)at + 1] == 'A' && block[(int)at + 2] == 'D') at += 4;
+        if (at + 4 > block.Length) return;
+        uint fixups = BinaryPrimitives.ReadUInt32BigEndian(block[(int)at..]);
+        if (at + 4 + fixups * 4L > block.Length) return;
+        for (uint f = 0; f < fixups; f++)
+        {
+            uint location = BinaryPrimitives.ReadUInt32BigEndian(block[(int)(at + 4 + f * 4)..]);
+            if (location < structSection.Offset || location + 4 > structSection.Offset + structSection.Length) continue;
+            uint list = BinaryPrimitives.ReadUInt32BigEndian(block[(int)location..]);
+            var section = extra.FirstOrDefault(e => list >= e.Offset + 4 && list <= e.Offset + e.Length);
+            if (section.Length == 0) continue;
+            uint count = BinaryPrimitives.ReadUInt32BigEndian(block[(int)(list - 4)..]);
+            uint end = section.Offset + section.Length;
+            if (count == 0 || end - list < count * 4) continue;
+            uint size = (end - list) / count & ~3u;
+            for (uint item = 0; item < count; item++)
+                for (uint w = 0; w < size; w += 4)
+                {
+                    uint word = list + item * size + w;
+                    var target = index.Inline(BinaryPrimitives.ReadUInt16BigEndian(block[(int)word..]), BinaryPrimitives.ReadUInt16BigEndian(block[(int)(word + 2)..]));
+                    if (target.Kind >= 0)
+                        references.Add(new ClueReference((int)(location - structSection.Offset), Kinds[target.Kind].Kind, index.NameOf(target), target.Index, (int)item));
+                }
+        }
     }
 
     private const uint ControllerSection = 0x2506C;
@@ -270,7 +356,7 @@ public static class GameplayGroupReader
             var section = prius.QuerySection(ControllerSection);
             if (section.id != ControllerSection || section.length < 0x2C) return controllers;
             var classes = new uint[meta.Count];
-            var settingsOf = new (byte[] Struct, List<ClueReference> References)[meta.Count];
+            var settingsOf = new (byte[] Struct, List<ClueReference> References, bool Shared)[meta.Count];
             var records = new (System.Numerics.Vector3 Position, System.Numerics.Vector3 Rotation, System.Numerics.Vector3 Scale)[meta.Count];
             for (int i = 0; i < meta.Count && i < section.count; i++)
             {
@@ -298,11 +384,13 @@ public static class GameplayGroupReader
                 {
                     Tuid = meta[i].Tuid,
                     Name = meta[i].Name,
+                    Index = i,
                     Layer = meta[i].Layer < layers.Count ? layers[meta[i].Layer] : null,
                     Class = classes[i],
                     ClassName = GameClassNames.Name(game, classes[i]),
                     Settings = settingsOf[i].Struct ?? [],
                     References = settingsOf[i].References ?? [],
+                    SharedSettings = settingsOf[i].Shared,
                     Position = records[i].Position,
                     Rotation = records[i].Rotation,
                     Scale = records[i].Scale,
@@ -354,6 +442,7 @@ public static class GameplayGroupReader
                 {
                     Tuid = meta[i].Tuid,
                     Name = meta[i].Name,
+                    Index = i,
                     Layer = meta[i].Layer < layers.Count ? layers[meta[i].Layer] : null,
                     Length = length,
                     Closed = closed != 0,
@@ -361,6 +450,21 @@ public static class GameplayGroupReader
                     Points = points,
                 });
             }
+
+            // Areas: their paths list (0x25088, the half of an Area's lists before its volumes).
+            var index = BuildIndex(prius);
+            var areas = prius.QuerySection(AreaSection);
+            if (areas.id == AreaSection && areas.length >= 0x0C)
+                for (int i = 0; i < index.Instances[AreaKind].Count && i < areas.count; i++)
+                {
+                    prius.sh.Seek(areas.offset + (uint)i * areas.length);
+                    uint list = prius.sh.ReadUInt32();
+                    prius.sh.Seek(areas.offset + (uint)i * areas.length + 0x08);
+                    ushort count = prius.sh.ReadUInt16();
+                    foreach (uint reference in References(prius, list, count))
+                        if (ResolveAt(prius, index, reference) is (PathKind, var p) && p < paths.Count && !paths[p].AreaIndexes.Contains(i))
+                            paths[p].AreaIndexes.Add(i);
+                }
         }
         catch (Exception ex)
         {
@@ -463,9 +567,9 @@ public static class GameplayGroupReader
     /// fields that name another instance, in record order. Identical blocks are stored once and shared (moon1a's and
     /// moon1c's landing pad beams). Empty for an instance without one.
     /// </summary>
-    public static List<(byte[] Struct, List<ClueReference> References)> ReadMobySettings(IGFile prius)
+    public static List<(byte[] Struct, List<ClueReference> References, bool Shared)> ReadMobySettings(IGFile prius)
     {
-        var list = new List<(byte[], List<ClueReference>)>();
+        var list = new List<(byte[], List<ClueReference>, bool)>();
         try
         {
             var index = BuildIndex(prius);

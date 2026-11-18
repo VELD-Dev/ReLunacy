@@ -23,8 +23,10 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=ikCgyPvIbjo&feature=player_embedded" target="_blank">
-    <img src="https://img.youtube.com/vi/ikCgyPvIbjo/mqdefault.jpg" alt="Watch preview" width="480"/>
+  (Youtube video)
+  <br/>
+  <a href="https://www.youtube.com/watch?v=HfPGGMuyccw&feature=player_embedded" target="_blank">
+    <img src="https://img.youtube.com/vi/HfPGGMuyccw/hqdefault.jpg" alt="Watch preview" width="480"/>
   </a>
 </p>
 
@@ -58,16 +60,16 @@ Sorry for this message, please proceed to the rest of the readme :)
 | Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  | Volumes & Triggers |
 |---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:-------:|:--------:|:-----------:|:------------------:|
 | Resistance: Fall Of Man               |      Old+      |    🚧    |    🚧    |        🚧         |  🚧   |  🚧  |   🚧   |   ❌    |    🚧    |     ❌      |         🚧         |
-| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ❌      |         ✅         |
-| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ❌      |         ✅         |
-| Resistance 2                          |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Ratchet & Clank: A Crack In Time      |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Resistance: Retribution               |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Ratchet & Clank: All 4 One            |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Resistance 3                          |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Ratchet & Clank: Full Frontal Assault |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |   ❌    |    ❌    |     ❌      |         ?          |
-| Ratchet & Clank: Into the Nexus       |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
+| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
+| Resistance 2                          |      New       |    ✅    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Ratchet & Clank: A Crack In Time      |      New       |    ✅    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance: Retribution               |      New       |    ✅    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
+| Ratchet & Clank: All 4 One            |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance 3                          |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
+| Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |    ?    |    ?     |      ?      |         ?          |
+| Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
 
 Notes:
 - **¹** : Textures are supported but some artifacts remain.
@@ -196,8 +198,9 @@ Of course, I haven't been working alone on this, I wrote ReLunacy, but it would 
 - [**@chaoticgd**](https://github.com/chaoticgd) greatly helped me with the 3D rendering
 - [**@MilchRatchet**](https://github.com/MilchRatchet): I strongly inspired the global level editor from [Replanetizer](https://github.com/RatchetModding/Replanetizer), of which they are the maintainer, mostly for the Frames systems.
 - [**@PredatorCZ**](https://github.com/PredatorCZ) is one of the pioneer of Ratchet & Clank: Future Series reverse engineer, it makes sense that a lot of the code is based on their [InsomniaToolset](https://github.com/PredatorCZ/InsomniaToolset).
-- **@Nooga** is the artist that made ReLunacy's Logo
+- **Nooga** is the artist that made ReLunacy's Logo
 - [**@Neigy**](https://github.com/Neigy) Made huge reverse engineering progresses especially regarding textures, volumes and triggers. Also helped a lot for ReLunacy's ultimate rewrite.
+- All icons are from [flaticon.com](https://www.flaticon.com) under CC-BY licensing. All icons attributions under [`ICONS.md`](./ICONS.md)
 
 ## Contributing
 

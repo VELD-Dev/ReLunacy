@@ -14,9 +14,11 @@ namespace ReLunacy.Engine.Packing;
 ///     0x400 (primitive set) kept as the file has it, since it says what the shape is.
 /// A shape is stored once and placed by every instance using it, so a face edited once is written once.
 ///
-///   - an instance moved with its Tie (CollisionEditor.FollowEntity): its matrix, box and sphere. The spatial grid
-///     the game finds collision through (header +0x30) is not decoded and not rewritten, so a Tie moved far could
-///     fall out of the cells its collision is listed in: that is reported with the save.
+///   - an instance moved with its Tie (CollisionEditor.FollowEntity): its matrix, box and sphere. On the new engine
+///     the bounding-volume hierarchy the game finds collision through (payload +0x30, see <see cref="CollisionBvh"/>)
+///     is refitted: the leaf holding a moved instance and every node above it get the union of their contents
+///     again, and the header bounds the union of every instance. A move that grows the header bounds is reported
+///     (the game sizes a run-time grid from them). The old engine's grid is not decoded: a move there is reported.
 ///
 /// The data is the old engine's whole collision.dat, or the new engine's section 0x2900 of a region's.
 /// </summary>
@@ -32,7 +34,7 @@ public static class CollisionWriter
         var problems = new List<string>();
         byte[] file = (byte[])original.Clone();
 
-        int baseOffset = 0;
+        int baseOffset = 0, payloadSize = file.Length;
         if (collision.IsNewEngine)
         {
             var ig = new IGFile(new MemoryStream(original, writable: false));
@@ -43,6 +45,17 @@ public static class CollisionWriter
                 return (file, changes, problems);
             }
             baseOffset = checked((int)section.offset);
+            payloadSize = checked((int)(section.count * section.length));
+        }
+
+        // The collision's offsets are those of the data it was read from. A file that has grown since (a save that added
+        // Ties, with no reload) holds its shapes elsewhere, and writing at the old offsets would put one shape's material
+        // bytes and triangle flags into another's.
+        if (BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(baseOffset + 0x04)) != collision.HeaderInstanceCount
+            || BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(baseOffset + 0x08)) != collision.HeaderShapeBase)
+        {
+            problems.Add("collision.dat changed since the editor read it (a save added Ties): reload the level, its collision edits are not written");
+            return (file, changes, problems);
         }
 
         int faces = 0, meshes = 0;
@@ -68,6 +81,8 @@ public static class CollisionWriter
         if (faces > 0) changes.Add($"{faces} collision face(s) in {meshes} shape(s): material or flags");
 
         int flagged = 0, moved = 0;
+        var movedIndices = new List<int>();
+        int instanceOffset = collision.IsNewEngine ? BinaryPrimitives.ReadInt32BigEndian(file.AsSpan(baseOffset)) : 0;
         foreach (var instance in collision.Instances)
         {
             if (instance.RecordOffset < 0) continue;
@@ -89,17 +104,27 @@ public static class CollisionWriter
             for (int r = 0; r < 4; r++)
                 for (int c = 0; c < 4; c++)
                     Put(file, record + matrixAt + (r * 4 + c) * 4, m[r, c]);
+            // A primitive set keeps its uniform scale in the matrix's w (+0x6C) instead of 1.
+            if (collision.IsNewEngine && file[record + 0x26] == 4)
+                Put(file, record + matrixAt + 0x3C, new System.Numerics.Vector3(m.M11, m.M12, m.M13).Length());
             Put3(file, record + minAt, instance.BoundsMin);
             Put3(file, record + maxAt, instance.BoundsMax);
             Put3(file, record + sphereAt, new System.Numerics.Vector3(instance.BoundingSphere.X, instance.BoundingSphere.Y, instance.BoundingSphere.Z));
             Put(file, record + sphereAt + 12, instance.BoundingSphere.W);
             moved++;
+            if (collision.IsNewEngine) movedIndices.Add((instance.RecordOffset - instanceOffset) / 0x80);
         }
         if (flagged > 0) changes.Add($"{flagged} collision instance(s): flags");
         if (moved > 0)
         {
             changes.Add($"{moved} collision instance(s): moved with their Tie");
-            problems.Add($"{moved} collision instance(s) moved: the game finds collision through a spatial grid (header +0x30) that is not decoded nor rewritten, so a Tie moved far from where it was may lose its collision there");
+            if (!collision.IsNewEngine)
+                problems.Add($"{moved} collision instance(s) moved: the game finds collision through a spatial grid that is not decoded nor rewritten, so a Tie moved far from where it was may lose its collision there");
+            else
+            {
+                if (CollisionBvh.Refit(file.AsSpan(baseOffset, payloadSize), movedIndices))
+                    problems.Add("collision moved outside the region's collision bounds: the bounds were grown, untested in game");
+            }
         }
 
         return (file, changes, problems);

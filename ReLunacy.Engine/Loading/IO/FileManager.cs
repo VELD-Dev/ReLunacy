@@ -1,10 +1,13 @@
 using LibreFios;
+using ReLunacy.Engine.Projects;
 
 namespace ReLunacy.Engine.Loading.IO;
 
 // Filesystem entry point: auto-detects old-vs-new engine format and opens the fixed set of
 // top-level .dat files eagerly, from either a plain extracted folder or a PSARC archive.
 // Per-region files are opened lazily via LoadFile.
+// Every read goes through the open project's overlay (GameFileOverlay): an entry the project holds wins over the
+// archive's, and an archive the project has a pristine copy of is read from that copy.
 public class FileManager : IDisposable
 {
     public string folderPath = string.Empty;
@@ -48,7 +51,7 @@ public class FileManager : IDisposable
     public void LoadFromPsarcFile(string path)
     {
         SourcePath = path;
-        var primary = new PSARC(File.OpenRead(path));
+        var primary = new PSARC(File.OpenRead(GameFileOverlay.BaseOf(path)));
         _archives.Clear();
         _archivePaths.Clear();
         _archives.Add(primary);
@@ -63,7 +66,7 @@ public class FileManager : IDisposable
             {
                 if (string.Equals(Path.GetFullPath(siblingPath), fullPrimaryPath, StringComparison.OrdinalIgnoreCase))
                     continue;
-                _archives.Add(new PSARC(File.OpenRead(siblingPath)));
+                _archives.Add(new PSARC(File.OpenRead(GameFileOverlay.BaseOf(siblingPath))));
                 _archivePaths.Add(Path.GetFullPath(siblingPath));
             }
         }
@@ -153,7 +156,7 @@ public class FileManager : IDisposable
     public (string ArchivePath, string EntryPath)? Locate(string name)
     {
         for (int i = 0; i < _archives.Count; i++)
-            if (ResolveArchivePath(_archives[i], name) is { } entry && _archivePaths[i].Length > 0)
+            if (Resolve(i, name) is { } entry && _archivePaths[i].Length > 0)
                 return (_archivePaths[i], entry);
         return null;
     }
@@ -169,6 +172,29 @@ public class FileManager : IDisposable
         return copy.ToArray();
     }
 
+    /// <summary>The bytes of <paramref name="name"/> as the game shipped it, as far as the project knows: the open
+    /// project's pristine copy of the archive (or the game's archive before the project has one), none of the project's
+    /// entries applied. Without a project this is the game's file as it is now. Null for an entry the project added or a
+    /// file not found.</summary>
+    public byte[]? ReadPristine(string name)
+    {
+        if (_archives.Count == 0)
+        {
+            string path = Path.Combine(folderPath, name);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        for (int i = 0; i < _archives.Count; i++)
+        {
+            if (ResolveArchivePath(_archives[i], name) is not { } matched) continue;
+            using var buffer = _archives[i].OpenFile(matched);
+            return buffer.Data.ToArray();
+        }
+        return null;
+    }
+
+    /// <summary>The entry paths of the level's archives (empty for a folder), for finding the scripts.</summary>
+    public IEnumerable<string> EntryPaths() => _archives.SelectMany(a => a.Paths);
+
     /// <summary>Closes the archive files, so a save can replace them (Windows will not replace an open file).
     /// Nothing may be read from them until <see cref="ReopenArchives"/>.</summary>
     public void ReleaseArchives()
@@ -181,11 +207,12 @@ public class FileManager : IDisposable
     {
         for (int i = 0; i < _archives.Count; i++)
             if (_archivePaths[i].Length > 0)
-                _archives[i] = new PSARC(File.OpenRead(_archivePaths[i]));
+                _archives[i] = new PSARC(File.OpenRead(GameFileOverlay.BaseOf(_archivePaths[i])));
     }
 
     private Stream? OpenFromFolder(string name)
     {
+        if (GameFileOverlay.Read(Path.GetFullPath(folderPath), name) is { } held) return new MemoryStream(held, writable: false);
         string path = Path.Combine(folderPath, name);
         if (File.Exists(path))
             return File.Open(path, FileMode.Open, FileAccess.Read);
@@ -196,18 +223,30 @@ public class FileManager : IDisposable
 
     private Stream? OpenFromArchives(string name)
     {
-        foreach (var archive in _archives)
+        for (int i = 0; i < _archives.Count; i++)
         {
-            string? matchedPath = ResolveArchivePath(archive, name);
+            var archive = _archives[i];
+            string? matchedPath = Resolve(i, name);
             if (matchedPath is null)
                 continue;
 
+            if (_archivePaths[i].Length > 0 && GameFileOverlay.Read(_archivePaths[i], matchedPath) is { } held)
+                return new MemoryStream(held, writable: false);
             using var buffer = archive.OpenFile(matchedPath);
             return new MemoryStream(buffer.Data.ToArray());
         }
 
         Console.WriteLine($"File '{name}' doesn't exist in {_archives.Count} archive(s) !");
         return null;
+    }
+
+    /// <summary>An entry of archive <paramref name="i"/>, its own or one the project added to it.</summary>
+    private string? Resolve(int i, string name)
+    {
+        if (ResolveArchivePath(_archives[i], name) is { } own) return own;
+        if (_archivePaths[i].Length == 0) return null;
+        return GameFileOverlay.Added(_archivePaths[i]).FirstOrDefault(p =>
+            p.Equals(name, StringComparison.OrdinalIgnoreCase) || p.EndsWith("/" + name, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ArchiveContains(PSARC archive, string name) => ResolveArchivePath(archive, name) != null;

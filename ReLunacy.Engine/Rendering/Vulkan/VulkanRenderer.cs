@@ -285,8 +285,8 @@ void main() {
     gl_Position = uPick * (uT[gl_InstanceIndex] * vec4(skinnedPosition, 1.0));
 }";
 
-    // Volume edges use their own per-draw world matrix rather than the transform SSBO, like the
-    // visible wireframe pass.
+    // Camera markers and controller icons place themselves with a per-draw world matrix rather than the
+    // transform SSBO (the volume edges are instanced: VulkanRenderer.VolumeEdges.cs).
     private const string PickVolumeVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; };
 layout(push_constant) uniform Push { mat4 uWorld; uvec4 uId; };
@@ -437,10 +437,6 @@ layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; };
 layout(push_constant) uniform PC { mat4 uModel; vec4 uColor; };
 layout(location = 0) in vec3 inPos;
 void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
-    private const string VolumeFragmentGlsl = @"#version 450
-layout(push_constant) uniform PC { mat4 uModel; vec4 uColor; };
-layout(location = 0) out vec4 o;
-void main() { o = vec4(uColor.rgb, 1.0); }";
 
     private readonly VulkanContext _ctx;
     private readonly VkDeviceApi _api;
@@ -574,10 +570,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     // The opaque pass resumed after the scene colour is copied (same attachments, loaded): additive
     // draws and the blended pass that follows can then sample what lies behind them.
     private VkRenderPass _rpOpaqueLoad;
-    private VkShaderModule _vs, _vsNonOpaque, _fsOpaque, _fsAccum, _fsAdditive, _resolveVs, _resolveFs, _volumeVs, _volumeFs;
+    private VkShaderModule _vs, _vsNonOpaque, _fsOpaque, _fsAccum, _fsAdditive, _resolveVs, _resolveFs, _volumeVs;
     private VkShaderModule _outlineVs, _outlineFs;
     private VkPipelineLayout _layout, _resolveLayout, _volumeLayout, _outlineLayout;
-    private VkPipeline _pipelineOpaque, _pipelineAccum, _pipelineResolve, _volumePipeline;
+    private VkPipeline _pipelineOpaque, _pipelineAccum, _pipelineResolve;
     private VkPipeline _pipelineSoftEdgeDepth, _pipelineAdditive;
     private VkPipeline _pipelineOpaqueCull, _pipelineAccumCull, _pipelineSoftEdgeDepthCull, _pipelineAdditiveCull;
     private VkPipeline _pipelineOpaqueCullCw, _pipelineAccumCullCw, _pipelineSoftEdgeDepthCullCw, _pipelineAdditiveCullCw;
@@ -645,7 +641,6 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private VkBuffer _edgeVertexBuffer; private VkDeviceMemory _edgeVbMemory; private void* _edgeVbMapped;
     private VkBuffer _edgeIndexBuffer; private VkDeviceMemory _edgeIbMemory; private uint _edgeIndexCount;
     private float _edgeThickness = -1f;
-    private IReadOnlyList<(Matrix4x4 world, Vector4 color, uint pickId)> _volumes = System.Array.Empty<(Matrix4x4, Vector4, uint)>();
     private int _volumeCount;
 
     // Size-dependent targets. Colour is per-slot (ImGui reads one while the GPU writes the other);
@@ -903,6 +898,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         long tUpload = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateUniformBuffers();
         CreateSampler();
+        _iconTexture = CreateControllerIconTexture(graphicsDevice);
         long tSamplers = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         // A scene whose every material is untextured (e.g. a preview of editor-helper geometry) still
         // needs one image to bind; a neutral 1x1 white stands in instead of failing the whole renderer.
@@ -1444,18 +1440,25 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         (DebugLineFragmentGlsl, ShaderStages.Fragment),
         (PickVertexGlsl, ShaderStages.Vertex),
         (PickVolumeVertexGlsl, ShaderStages.Vertex),
+        (PickVolumeEdgeVertexGlsl, ShaderStages.Vertex),
+        (PickVolumeEdgeFragmentGlsl, ShaderStages.Fragment),
         (PickFragmentGlsl, ShaderStages.Fragment),
         (BillboardVertexGlsl, ShaderStages.Vertex),
         (BillboardFragmentGlsl, ShaderStages.Fragment),
         (OutlineVertexGlsl, ShaderStages.Vertex),
         (OutlineFragmentGlsl, ShaderStages.Fragment),
         (VolumeVertexGlsl, ShaderStages.Vertex),
-        (VolumeFragmentGlsl, ShaderStages.Fragment),
+        (VolumeEdgeVertexGlsl, ShaderStages.Vertex),
+        (VolumeEdgeFragmentGlsl, ShaderStages.Fragment),
         (VolumeFillFragmentGlsl, ShaderStages.Fragment),
         (CameraMarkerVertexGlsl, ShaderStages.Vertex),
         (CameraMarkerFragmentGlsl, ShaderStages.Fragment),
+        (ControllerIconVertexGlsl, ShaderStages.Vertex),
+        (ControllerIconFragmentGlsl, ShaderStages.Fragment),
         (PathLineVertexGlsl, ShaderStages.Vertex),
         (PathLineFragmentGlsl, ShaderStages.Fragment),
+        (BoundaryVertexGlsl, ShaderStages.Vertex),
+        (BoundaryFragmentGlsl, ShaderStages.Fragment),
     ];
 
     public static void WarmUpShaderCache()
@@ -1585,29 +1588,15 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         RegisterLitKinds();
 
         _volumeVs = Module(VolumeVertexGlsl, ShaderStages.Vertex);
-        _volumeFs = Module(VolumeFragmentGlsl, ShaderStages.Fragment);
         VkDescriptorSetLayout vl = _descLayout;
         var volPush = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = 80 };
         var volLayoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 1, pSetLayouts = &vl, pushConstantRangeCount = 1, pPushConstantRanges = &volPush };
         VkPipelineLayout volLayout; Check(_api.vkCreatePipelineLayout(&volLayoutInfo, &volLayout), "vkCreatePipelineLayout(volume)"); _volumeLayout = volLayout;
-        {
-            VkPipelineShaderStageCreateInfo* stages = stackalloc VkPipelineShaderStageCreateInfo[2];
-            stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _volumeVs, pName = entry };
-            stages[1] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Fragment, module = _volumeFs, pName = entry };
-            var vbind = new VkVertexInputBindingDescription { binding = 0, stride = 3 * sizeof(float), inputRate = VkVertexInputRate.Vertex };
-            var vattr = new VkVertexInputAttributeDescription { location = 0, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 0 };
-            var vin = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbind, vertexAttributeDescriptionCount = 1, pVertexAttributeDescriptions = &vattr };
-            var ia = new VkPipelineInputAssemblyStateCreateInfo { topology = VkPrimitiveTopology.TriangleList };
-            var depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = true, depthCompareOp = VkCompareOp.GreaterOrEqual };
-            // RGB only: the opaque pass's alpha is the bloom's glow mask (VulkanRenderer.Bloom.cs).
-            var blendAttach = new VkPipelineColorBlendAttachmentState { blendEnable = false, colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B };
-            var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
-            var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &vin, pInputAssemblyState = &ia, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _volumeLayout, renderPass = _rpOpaque, subpass = 0 };
-            VkPipeline p; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &info, &p), "vkCreateGraphicsPipelines(volume)"); _volumePipeline = p;
-        }
         CreateVolumeFillPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreateCameraMarkerPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateControllerIconPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreatePathLinePipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateBoundaryPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
 
         _billboardVs = Module(BillboardVertexGlsl, ShaderStages.Vertex);
         _billboardFs = Module(BillboardFragmentGlsl, ShaderStages.Fragment);
@@ -1715,6 +1704,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             var binfo = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = bstages, pVertexInputState = &litVertexInput, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _pickLayout, renderPass = _rpPick, subpass = 0 };
             VkPipeline bp; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &binfo, &bp), "vkCreateGraphicsPipelines(pickBillboard)"); _pipelinePickBillboard = bp;
         }
+        CreateVolumeEdgePipelines(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
     }
 
     private void CreatePickResources()
@@ -1900,7 +1890,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         BindLitState();
         DrawVisible(_pipelineOpaque, _visibleOpaqueLate, _visOpaqueLateCount);
         DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
-        DrawVolumes();
+        using (Diagnostics.FrameProfiler.Sample("Vk Volumes")) DrawVolumes();
         // After the volumes so the overlays blend over the finished scene, and in the load pass so they
         // are not cleared away. Collision first: it writes depth, and the navmesh floats over the floor
         // collision it was built on, so it stays visible on top.
@@ -1933,6 +1923,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkCmdBeginRenderPass(_cmd, &rpO2, VkSubpassContents.Inline);
         }
         DrawDepthDebugLines();
+        // Depth-tested against the level, over the finished image (VulkanRenderer.Effects.cs).
+        using (Diagnostics.FrameProfiler.Sample("Vk Effects")) DrawEffectSprites();
         DrawSelectionOutline();
         DrawDebugLines();
         _api.vkCmdEndRenderPass(_cmd);
@@ -2063,25 +2055,13 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private void DrawVolumes()
     {
         DrawCameraMarkers();
+        DrawControllerIcons();
         DrawPathLines();
         // The faces first, so the wireframe draws over them.
         DrawVolumeFills();
-        if (_volumeCount == 0) return;
-        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _volumePipeline);
-        VkDescriptorSet s0 = _descSet;
-        _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _volumeLayout, 0, 1, &s0, 0, null);
-        VkBuffer evb = _edgeVertexBuffer; ulong offset = 0;
-        _api.vkCmdBindVertexBuffers(_cmd, 0, 1, &evb, &offset);
-        _api.vkCmdBindIndexBuffer(_cmd, _edgeIndexBuffer, 0, VkIndexType.Uint32);
-        byte* pc = stackalloc byte[80];
-        for (int i = 0; i < _volumeCount; i++)
-        {
-            var v = _volumes[i];
-            *(Matrix4x4*)pc = v.world;
-            *(Vector4*)(pc + 64) = v.color;
-            _api.vkCmdPushConstants(_cmd, _volumeLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);
-            _api.vkCmdDrawIndexed(_cmd, _edgeIndexCount, 1, 0, 0, 0);
-        }
+        DrawBoundary();
+        DrawFlyPlane();
+        DrawVolumeEdges();
     }
 
     /// <summary>Editor switch over the retail raster state: false draws every lit triangle double-sided.</summary>
@@ -2215,12 +2195,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         WriteNewEngineFog(ref light);
         light.SceneTime = (float)_skyClock.Elapsed.TotalSeconds;
         *(LightData*)_lightMappings[_slot] = light;
-        _volumes = volumes;
         _volumeCount = volumes.Count;
         if (volumeThickness != _edgeThickness) WriteEdgeVertices(volumeThickness);
         using (Diagnostics.FrameProfiler.Sample("Vk Cull"))
         {
             ExtractFrustumPlanes(viewProj);
+            using (Diagnostics.FrameProfiler.Sample("Vk Volume Edges")) FillVolumeEdges(volumes);
             _visOpaqueCount = CullRange(0, _overStart, _visibleOpaque);
             _visOpaqueLateCount = 0;
             if (_instLate.Length == _instanceCount)
@@ -2376,23 +2356,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 _api.vkCmdDrawIndexed(_pickCmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
             }
         }
-        if (_volumeCount > 0)
-        {
-            _api.vkCmdBindPipeline(_pickCmd, VkPipelineBindPoint.Graphics, _pipelinePickVolume);
-            VkBuffer evb = _edgeVertexBuffer; ulong eoffset = 0;
-            _api.vkCmdBindVertexBuffers(_pickCmd, 0, 1, &evb, &eoffset);
-            _api.vkCmdBindIndexBuffer(_pickCmd, _edgeIndexBuffer, 0, VkIndexType.Uint32);
-            for (int i = 0; i < _volumeCount; i++)
-            {
-                var v = _volumes[i];
-                if (v.pickId == NoHit) continue;
-                *(Matrix4x4*)pc = v.world;
-                *(uint*)(pc + 64) = v.pickId;
-                _api.vkCmdPushConstants(_pickCmd, _pickLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);
-                _api.vkCmdDrawIndexed(_pickCmd, _edgeIndexCount, 1, 0, 0, 0);
-            }
-        }
+        PickVolumeEdges();
         PickCameraMarkers(pc);
+        PickControllerIcons(pc);
         _api.vkCmdEndRenderPass(_pickCmd);
         var copy = new VkBufferImageCopy { bufferOffset = 0, bufferRowLength = 0, bufferImageHeight = 0, imageSubresource = new VkImageSubresourceLayers { aspectMask = VkImageAspectFlags.Color, mipLevel = 0, baseArrayLayer = 0, layerCount = 1 }, imageOffset = default, imageExtent = new VkExtent3D { width = PickTargetSize, height = PickTargetSize, depth = 1 } };
         _api.vkCmdCopyImageToBuffer(_pickCmd, _pickImage, VkImageLayout.TransferSrcOptimal, _pickReadback, 1, &copy);
@@ -2662,7 +2628,6 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyBuffer(_pickReadback); _api.vkFreeMemory(_pickReadbackMemory);
         _api.vkDestroyRenderPass(_rpPick);
         _api.vkDestroyPipelineLayout(_pickLayout);
-        _api.vkDestroyPipeline(_pipelinePickVolume);
         _api.vkDestroyPipeline(_pipelinePickBillboard);
         _api.vkDestroyPipeline(_pipelinePick);
         _api.vkDestroyPipeline(_pipelineDebugLines);
@@ -2671,7 +2636,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyPipeline(_pipelineBillboard);
         _api.vkDestroyPipeline(_pipelineOutlineRim);
         _api.vkDestroyPipeline(_pipelineOutlineMask);
-        _api.vkDestroyPipeline(_volumePipeline);
+        _api.vkDestroyPipeline(_pipelinePickVolume);
+        DestroyVolumeEdges();
         _api.vkDestroyPipeline(_pipelineSoftEdgeDepth);
         _api.vkDestroyPipeline(_pipelineSoftEdgeDepthCull);
         _api.vkDestroyPipeline(_pipelineSoftEdgeDepthCullCw);
@@ -2690,12 +2656,11 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyShaderModule(_resolveVs);
         _api.vkDestroyShaderModule(_resolveFs);
         _api.vkDestroyShaderModule(_volumeVs);
-        _api.vkDestroyShaderModule(_volumeFs);
         _api.vkDestroyShaderModule(_debugLineVs);
         _api.vkDestroyShaderModule(_debugLineFs);
         _api.vkDestroyShaderModule(_pickVs);
-        _api.vkDestroyShaderModule(_pickVolumeVs);
         _api.vkDestroyShaderModule(_pickBillboardVs);
+        _api.vkDestroyShaderModule(_pickVolumeVs);
         _api.vkDestroyShaderModule(_pickFs);
         _api.vkDestroyShaderModule(_billboardVs);
         _api.vkDestroyShaderModule(_billboardFs);
@@ -2703,7 +2668,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyShaderModule(_outlineFs);
         DestroyVolumeFill();
         DestroyCameraMarkers();
+        DestroyControllerIcons();
+        DisposeEffects();
         DestroyPathLines();
+        DestroyBoundary();
         _api.vkDestroyBuffer(_edgeVertexBuffer); _api.vkFreeMemory(_edgeVbMemory);
         _api.vkDestroyBuffer(_edgeIndexBuffer); _api.vkFreeMemory(_edgeIbMemory);
         _api.vkDestroyRenderPass(_rpOpaque);

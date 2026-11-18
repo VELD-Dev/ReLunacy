@@ -19,6 +19,10 @@ namespace ReLunacy.Engine.Packing;
 /// anchor moved. A UFrag rotated or scaled in the editor is reported: that can not be written.
 ///
 /// A record several entities share (a zone several regions list) is written from the one that was edited.
+///
+/// New engine: the game walks a zone's Tie placements only through its clusters (0x72D0 {sphere, first, first, 0,
+/// u16 count, 0}, docs/reverse/acit_zones_coverage.md) and culls a cluster by its sphere, so a placement moved out
+/// of its cluster's sphere would vanish with it: the sphere is grown to hold the moved placement's again.
 /// </summary>
 public static class ZoneWriter
 {
@@ -61,6 +65,11 @@ public static class ZoneWriter
             tieCount++;
         }
         if (tieCount > 0) changes.Add($"{tieCount} Tie placement(s): matrix and bounds");
+        if (tieCount > 0 && !oldEngine)
+        {
+            int grown = GrowClusters(file, written);
+            if (grown > 0) changes.Add($"{grown} Tie cluster sphere(s) grown to hold moved placements");
+        }
 
         int ufragCount = 0, turned = 0;
         foreach (var ufrag in ufrags)
@@ -85,6 +94,89 @@ public static class ZoneWriter
         if (turned > 0) problems.Add($"{turned} UFrag(s) rotated or scaled: a UFrag's record holds only a position, so only moves are written");
 
         return (file, changes, problems);
+    }
+
+    /// <summary>What a save of <paramref name="tie"/> leaves in its record of <paramref name="zones"/> (the file as the
+    /// editor loaded it, what <see cref="Patch"/> is given): the matrix (fourth column affine) and the 16 sphere bytes,
+    /// moved as <see cref="Patch"/> moves them when the Tie was moved, else the file's. Null when the record is not in the
+    /// file or its matrix can not be inverted.</summary>
+    public static (Matrix4x4 Matrix, byte[] Sphere)? TiePose(byte[] zones, EntityTie tie)
+    {
+        long at = tie.SourceOffset;
+        if (at < 0 || at + 0x80 > zones.Length) return null;
+        var held = ReadMatrix(zones, at);
+        var now = tie.Transform.GetMatrix();
+        if (Same(now, tie.SavedMatrix)) return (held, zones.AsSpan((int)at + 0x40, 16).ToArray());
+        if (!Matrix4x4.Invert(tie.SavedMatrix, out var savedInverse) || !Matrix4x4.Invert(held, out var heldInverse)) return null;
+        var moved = held * savedInverse * now;
+        var copy = new byte[0x50];
+        WriteMatrix(copy, 0, moved);
+        var sphere = new Vector4(F(zones, at + 0x40), F(zones, at + 0x44), F(zones, at + 0x48), F(zones, at + 0x4C));
+        var centre = Vector3.Transform(Vector3.Transform(new Vector3(sphere.X, sphere.Y, sphere.Z), heldInverse), moved);
+        float growth = MaxAxis(moved) / MathF.Max(MaxAxis(held), 1e-6f);
+        Put(copy, 0x40, centre.X); Put(copy, 0x44, centre.Y); Put(copy, 0x48, centre.Z); Put(copy, 0x4C, sphere.W * growth);
+        return (ReadMatrix(copy, 0), copy.AsSpan(0x40, 16).ToArray());
+    }
+
+    /// <summary>The 16 sphere bytes a save of <paramref name="ufrag"/> leaves in its record of <paramref name="zones"/>
+    /// (moved as <see cref="Patch"/> moves it); null when the record is not in the file.</summary>
+    public static byte[]? UFragSphere(byte[] zones, EntityUFrag ufrag)
+    {
+        long at = ufrag.UFrag.SourceOffset;
+        if (at < 0 || at + 0x80 > zones.Length) return null;
+        var sphere = zones.AsSpan((int)at + 0x30, 16).ToArray();
+        var delta = ufrag.Transform.Translation - ufrag.SavedTranslation;
+        if (delta.LengthSquared() < 1e-8f) return sphere;
+        for (int k = 0; k < 3; k++) Put(sphere, k * 4, F(zones, at + 0x30 + k * 4) + delta[k]);
+        return sphere;
+    }
+
+    /// <summary>Every zone blob of zones.dat (each an IGHW at a 0x80 boundary): the Tie clusters holding a record of
+    /// <paramref name="records"/> get a sphere that holds the record's sphere. Returns how many grew.</summary>
+    private static int GrowClusters(byte[] file, HashSet<long> records)
+    {
+        int grown = 0;
+        int at = 0;
+        while (at + 0x20 <= file.Length)
+        {
+            if (BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(at)) != IghwRelayout.Magic) { at += 0x80; continue; }
+            var blob = file.AsSpan(at);
+            int length = BinaryPrimitives.ReadInt32BigEndian(blob[0x10..]) + 4 * BinaryPrimitives.ReadInt32BigEndian(blob[0x14..]);
+            var sections = IghwRelayout.Sections(blob);
+            var placements = IghwRelayout.Find(sections, 0x7240);
+            var clusters = IghwRelayout.Find(sections, 0x72D0);
+            if (placements != null && clusters != null && placements.LengthWord == 0x80 && clusters.LengthWord == 0x20)
+                for (int c = 0; c < clusters.Count; c++)
+                {
+                    long cluster = at + clusters.Offset + 0x20L * c;
+                    int first = BinaryPrimitives.ReadInt32BigEndian(file.AsSpan((int)cluster + 0x10));
+                    int count = BinaryPrimitives.ReadUInt16BigEndian(file.AsSpan((int)cluster + 0x1C));
+                    var sphere = new Vector4(F(file, cluster), F(file, cluster + 4), F(file, cluster + 8), F(file, cluster + 12));
+                    bool changed = false;
+                    for (int k = first; k < first + count && k < placements.Count; k++)
+                    {
+                        long record = at + placements.Offset + 0x80L * k;
+                        if (!records.Contains(record)) continue;
+                        var s = new Vector4(F(file, record + 0x40), F(file, record + 0x44), F(file, record + 0x48), F(file, record + 0x4C));
+                        var d = Vector3.Distance(new Vector3(sphere.X, sphere.Y, sphere.Z), new Vector3(s.X, s.Y, s.Z));
+                        if (d + s.W <= sphere.W) continue;
+                        float r = (d + sphere.W + s.W) * 0.5f;
+                        if (s.W >= d + sphere.W) sphere = s;
+                        else
+                        {
+                            var c0 = new Vector3(sphere.X, sphere.Y, sphere.Z);
+                            sphere = new Vector4(c0 + (new Vector3(s.X, s.Y, s.Z) - c0) * ((r - sphere.W) / d), r);
+                        }
+                        sphere.W = sphere.W * 1.0001f + 0.001f;
+                        changed = true;
+                    }
+                    if (!changed) continue;
+                    Put(file, cluster, sphere.X); Put(file, cluster + 4, sphere.Y); Put(file, cluster + 8, sphere.Z); Put(file, cluster + 12, sphere.W);
+                    grown++;
+                }
+            at += Math.Max(0x80, (length + 0x7F) & ~0x7F);
+        }
+        return grown;
     }
 
     private static bool Same(Matrix4x4 a, Matrix4x4 b)

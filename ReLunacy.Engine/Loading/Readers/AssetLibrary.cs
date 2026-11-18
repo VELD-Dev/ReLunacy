@@ -25,6 +25,8 @@ public sealed class AssetLibrary<T> where T : class
     // Classes that failed to read (or read as empty), so they are not retried on every lookup.
     private readonly HashSet<ulong> _failed = [];
     private readonly object _lock;
+    // Classes the editor built that the level's files do not hold yet (imported models): they survive Unload.
+    private readonly Dictionary<ulong, T> _pending = [];
 
     /// <param name="fileLock">Shared by every library of one level: they read the same file streams.</param>
     public AssetLibrary(IEnumerable<AssetPointer> pointers, Func<AssetPointer, T?> read, Func<AssetPointer, string?>? readName, object fileLock)
@@ -51,11 +53,23 @@ public sealed class AssetLibrary<T> where T : class
     public IReadOnlyDictionary<ulong, T> Loaded => _loaded;
 
     /// <summary>Every class the level ships, read or not.</summary>
-    public IEnumerable<ulong> Ids => _pointers.Count > 0 ? _pointers.Keys : _loaded.Keys;
+    public IEnumerable<ulong> Ids => (_pointers.Count > 0 ? (IEnumerable<ulong>)_pointers.Keys : _loaded.Keys).Union(_pending.Keys);
 
-    public int Count => _pointers.Count > 0 ? _pointers.Count : _loaded.Count;
+    public int Count => _pointers.Count > 0 ? _pointers.Count + _pending.Count : _loaded.Count;
 
     public bool Contains(ulong id) => _pointers.ContainsKey(id) || _loaded.ContainsKey(id);
+
+    /// <summary>Adds a class that is not in the level's files yet (see <see cref="Packing.PendingTieClass"/>); listed, read and named
+    /// like the level's own until the level is read again.</summary>
+    public void AddPending(ulong id, T value)
+    {
+        lock (_lock) { _pending[id] = value; _loaded[id] = value; _failed.Remove(id); }
+    }
+
+    public void RemovePending(ulong id)
+    {
+        lock (_lock) { if (_pending.Remove(id)) _loaded.Remove(id); }
+    }
 
     /// <summary>The class, read from disk on first use; null when the level has no such class or it
     /// does not read.</summary>
@@ -102,6 +116,7 @@ public sealed class AssetLibrary<T> where T : class
         {
             _loaded.Clear();
             _failed.Clear();
+            foreach (var (id, value) in _pending) _loaded[id] = value;
         }
     }
 }

@@ -11,9 +11,8 @@ namespace ReLunacy.Engine.Scene;
 /// model at its placement. Like a volume, it has no mesh of its own in the level: the renderer draws the
 /// model at <see cref="Entity.Transform"/> (VulkanRenderer.CameraMarkers).
 /// </summary>
-public class EntityCamera : Entity
+public class EntityCamera : EntityController
 {
-    public readonly GameplayController Controller;
 
     /// <summary>The camera model looks down its own -Z; a camera controller looks along its local +Z (CamArgFixed's
     /// init at QForce EBOOT 0x000176F0 copies the controller's matrix to the view, the Tools of Destruction
@@ -59,16 +58,7 @@ public class EntityCamera : Entity
         float value = BinaryPrimitives.ReadSingleBigEndian(Controller.Settings.AsSpan(offset));
         return float.IsFinite(value) && value > 0f && value < 180f ? value : null;
     }
-    public override string Name { get; protected set; }
+    public EntityCamera(GameplayController controller) : base(controller) { }
 
-    public EntityCamera(GameplayController controller)
-    {
-        Controller = controller;
-        Name = controller.Name;
-        // As a Moby's rotation (EntityMoby): Z, then Y, then X.
-        var rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, controller.Rotation.Z)
-                     * Quaternion.CreateFromAxisAngle(Vector3.UnitY, controller.Rotation.Y)
-                     * Quaternion.CreateFromAxisAngle(Vector3.UnitX, controller.Rotation.X);
-        Transform = new Transform { Translation = controller.Position, Rotation = rotation, Scale = Vector3.One };
-    }
+    protected override Vector3 InitialScale(GameplayController controller) => Vector3.One;
 }

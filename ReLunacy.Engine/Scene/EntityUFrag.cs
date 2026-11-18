@@ -24,6 +24,9 @@ public class EntityUFrag : Entity
 
     public void MarkSaved() => SavedTranslation = Transform.Translation;
 
+    /// <summary>Planet regions: the occlusion grid never hides this UFrag (see <see cref="EntityTie.NeverCulled"/>).</summary>
+    public bool NeverCulled { get; set; }
+
     public EntityUFrag(IUFrag ufrag, AssetManager assetManager)
     {
         UFrag = ufrag;

@@ -248,7 +248,11 @@ public static class CollisionGeometry
     /// <param name="collisions">One per region, in an order the caller keeps: the Nth sets bit N of each
     /// instance's region mask (up to 32; later ones share bit 31), which is how the overlay follows the
     /// Zones menu's per-region toggles. An instance several regions list is kept once, with all their bits.</param>
-    public static CollisionScene Build(IReadOnlyList<LevelCollision> collisions)
+    public static CollisionScene Build(IReadOnlyList<LevelCollision> collisions) =>
+        Build([.. collisions.Select(c => c.Instances)]);
+
+    /// <summary>The same, from bare instance lists (one per region): what a single Tie class's collision is built from.</summary>
+    public static CollisionScene Build(IReadOnlyList<IReadOnlyList<CollisionInstance>> collisions)
     {
         var vertices = new List<CollisionVertex>();
         // Shape -> its entry in the pool. Each region's file carries its own copy of every shape it
@@ -266,7 +270,7 @@ public static class CollisionGeometry
         for (int region = 0; region < collisions.Count; region++)
         {
             uint regionBit = 1u << Math.Min(region, 31);
-            foreach (CollisionInstance instance in collisions[region].Instances)
+            foreach (CollisionInstance instance in collisions[region])
             {
                 if (!contentOf.TryGetValue(instance.Shape, out UInt128 content))
                     contentOf[instance.Shape] = content = ContentKey(instance.Shape);

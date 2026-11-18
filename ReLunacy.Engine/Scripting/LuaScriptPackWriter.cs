@@ -1,5 +1,5 @@
-using LibreFios;
 using ReLunacy.Engine.Packing;
+using ReLunacy.Engine.Projects;
 
 namespace ReLunacy.Engine.Scripting;
 
@@ -25,9 +25,10 @@ public sealed record LuaScriptSaveResult(
 /// copied aside before every save under the date and time (<see cref="Backups"/>), so no save
 /// overwrites an earlier backup and the shipped file is always among them.
 ///
-/// The writing itself goes through <see cref="PsarcPatcher"/> rather than LibreFios's builder, so
-/// that every file this edit does not touch keeps the exact bytes it shipped with. LibreFios stays
-/// a read-only dependency.
+/// The writing itself goes through a sink (<see cref="GameFileSink.Current"/> by default): into the
+/// open project, or into the game's archive through <see cref="PsarcPatcher"/> rather than LibreFios's
+/// builder, so that every file this edit does not touch keeps the exact bytes it shipped with.
+/// LibreFios stays a read-only dependency. The archive is read as the project sees it.
 ///
 /// A script the archive does not have yet is the same work plus the game's own file index, and
 /// where that index lives turns out to be simple: of ToD's 64 shipped table-of-contents files only
@@ -97,8 +98,9 @@ public static class LuaScriptPackWriter
     /// nothing here needs the UI thread, so the whole method is safe to run on a worker (see
     /// ReLunacy.Utility.BackgroundJob, which is what the editor's Install button does).</param>
     public static LuaScriptSaveResult Save(string archivePath, string scriptPath, string source,
-                                           Action<LuaSaveProgressReport>? onProgress = null)
+                                           Action<LuaSaveProgressReport>? onProgress = null, IGameFileSink? sink = null)
     {
+        sink ??= GameFileSink.Current;
         // 1. Compile first. A chunk that does not exist cannot be written, and a source whose
         //    chunk failed to build must not be written either.
         //    (For a Lua 5.1 archive the 5.0 chunk is not what gets written - see below - and a script
@@ -110,7 +112,6 @@ public static class LuaScriptPackWriter
         byte[] compiledBytes = chunk is null ? [] : LuaChunkWriter.Write(chunk);
         byte[] sourceBytes = LuaText.ToBytes(source);
         string compiledPath = CompiledPathFor(scriptPath);
-        string temporaryPath = archivePath + ".new";
 
         var halves = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
         {
@@ -121,25 +122,18 @@ public static class LuaScriptPackWriter
         try
         {
             // 2. What the archive holds now, and therefore whether this is a replacement or an add.
-            bool hasSource, hasChunk;
-            int originalCount;
-            Dictionary<string, byte[]> expected;
-            using (var archive = new PSARC(File.OpenRead(archivePath)))
-            {
-                hasSource = archive.Manifest.ContainsKey(scriptPath);
-                hasChunk = archive.Manifest.ContainsKey(compiledPath);
+            var expected = GameFileOverlay.ReadAll(archivePath, (done, total) =>
+                onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Reading, done / (float)Math.Max(1, total), done, total)));
+            bool hasSource = expected.ContainsKey(scriptPath);
+            bool hasChunk = expected.ContainsKey(compiledPath);
 
-                // One half without the other is neither job, and guessing which one the caller
-                // meant would write a pair whose two halves disagree about what exists.
-                if (hasSource != hasChunk)
-                    return LuaScriptSaveResult.Refused(
-                        $"{Path.GetFileName(archivePath)} holds {(hasSource ? scriptPath : compiledPath)} "
-                      + $"but not {(hasSource ? compiledPath : scriptPath)}, so this is neither a "
-                      + "replacement nor a new script");
-
-                originalCount = archive.FileEntries.Count;
-                expected = ReadEverything(archive, onProgress);
-            }
+            // One half without the other is neither job, and guessing which one the caller
+            // meant would write a pair whose two halves disagree about what exists.
+            if (hasSource != hasChunk)
+                return LuaScriptSaveResult.Refused(
+                    $"{Path.GetFileName(archivePath)} holds {(hasSource ? scriptPath : compiledPath)} "
+                  + $"but not {(hasSource ? compiledPath : scriptPath)}, so this is neither a "
+                  + "replacement nor a new script");
 
             // The compiler writes Lua 5.0 chunks, the format of Tools of Destruction. A Crack in Time
             // on ship Lua 5.1 chunks ("\x1BLuaQ"), which the game would refuse. Its Lua keeps the 5.1
@@ -172,12 +166,11 @@ public static class LuaScriptPackWriter
                 }
 
             string summary;
+            IReadOnlyDictionary<string, byte[]> replacements = halves;
+            IReadOnlyDictionary<string, byte[]>? additions = null;
 
-            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Writing, 0f));
             if (hasSource)
             {
-                PsarcPatcher.Patch(archivePath, temporaryPath, halves);
-                foreach (var (path, contents) in halves) expected[path] = contents;
                 summary = $"wrote {scriptPath} ({sourceBytes.Length} bytes) and {compiledPath} "
                         + $"({halves[compiledPath].Length} bytes{(sourceAsChunk ? ", the source as text: the game's Lua 5.1 compiles it on load" : "")}) "
                         + $"into {Path.GetFileName(archivePath)}"
@@ -185,35 +178,26 @@ public static class LuaScriptPackWriter
             }
             else
             {
-                var added = AddToArchive(archivePath, temporaryPath, expected, halves);
+                var added = AddToIndex(archivePath, expected, halves);
                 if (added.Refusal is not null) return added.Refusal;
                 summary = added.Summary!;
+                replacements = new Dictionary<string, byte[]> { [added.IndexPath!] = added.Index! };
+                additions = halves;
             }
 
-            // 3. Verify before anything irreversible happens.
-            var problems = Verify(temporaryPath, expected, originalCount + (hasSource ? 0 : 2), onProgress);
-            if (problems.Count > 0)
-            {
-                File.Delete(temporaryPath);
-                return LuaScriptSaveResult.Refused(
-                    "the rebuilt archive did not verify, so the original was left alone", problems);
-            }
+            // 3. The sink rebuilds, verifies and backs up the archive (the game), or keeps the files (a project).
+            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Writing, 0f));
+            var written = sink.WriteArchive(archivePath, replacements, additions);
+            if (!written.Succeeded) return LuaScriptSaveResult.Refused(written.Summary, written.Problems);
+            if (sink.ProjectName is { } project) summary += $"; saved into project {project}";
+            if (written.Problems.Count > 0) summary += "; " + string.Join("; ", written.Problems);
 
-            // 4. Keep the archive as it was aside, every time, under its own date and time (Backups).
-            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.BackingUp, 0f));
-            string backupPath = Backups.Create(archivePath);
-
-            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Finishing, 0f));
-            File.Move(temporaryPath, archivePath, overwrite: true);
-
-            var result = new LuaScriptSaveResult(
-                true, summary + RefreshArchiveSizes(archivePath), backupPath, []);
+            var result = new LuaScriptSaveResult(true, summary, written.BackupPath, []);
             onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Finishing, 1f));
             return result;
         }
         catch (Exception e)
         {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
             return LuaScriptSaveResult.Refused($"{Path.GetFileName(archivePath)}: {e.Message}");
         }
     }
@@ -244,94 +228,32 @@ public static class LuaScriptPackWriter
     }
 
     /// <summary>
-    /// Brings <c>game.toc</c>'s record of this archive's length back in step, since writing the
-    /// archive just changed it. That number lives in <c>game.psarc</c> - a different archive - so
-    /// it cannot be fixed in the same pass, and leaving it stale would mean every install this
-    /// editor touches carries a wrong number that nobody chose to write.
-    ///
-    /// This runs after the script is safely in place and must never undo it: if the sizes cannot
-    /// be refreshed, the save still succeeded and the reason is reported alongside it.
-    /// </summary>
-    private static string RefreshArchiveSizes(string archivePath)
-    {
-        try
-        {
-            if (GameArchiveSizes.FindGameArchive(archivePath) is not { } gameArchive) return "";
-            var changed = GameArchiveSizes.Refresh(gameArchive);
-            return changed.Count switch
-            {
-                0 => "",
-                1 => $"; refreshed {changed[0].Path}'s recorded size in game.psarc "
-                   + $"({changed[0].Recorded} to {changed[0].OnDisk})",
-                _ => $"; refreshed {changed.Count} recorded archive sizes in game.psarc",
-            };
-        }
-        catch (Exception e)
-        {
-            return "; the script is installed, but game.psarc still records the old archive size "
-                 + $"({e.Message})";
-        }
-    }
-
-    /// <summary>
     /// Adds a script the archive does not have: two new archive entries, and two new entries in
-    /// the game's file index so that the game can see them.
-    ///
-    /// <paramref name="expected"/> is updated in place with everything the patched archive should
-    /// then contain, so the caller's verification covers the index rewrite as well as the scripts.
+    /// the game's file index so that the game can see them. The index also records the size of the
+    /// archive it lives in, which only the rebuilt archive knows: the rebuild sets it
+    /// (<see cref="ArchiveRebuild"/>), at a save into the game or at a project's install.
     /// </summary>
-    private static (LuaScriptSaveResult? Refusal, string? Summary) AddToArchive(
-        string archivePath, string temporaryPath,
-        Dictionary<string, byte[]> expected, Dictionary<string, byte[]> halves)
+    private static (LuaScriptSaveResult? Refusal, string? Summary, string? IndexPath, byte[]? Index) AddToIndex(
+        string archivePath, Dictionary<string, byte[]> expected, Dictionary<string, byte[]> halves)
     {
         var located = FindIndex(expected, archivePath);
         if (located is null)
             return (LuaScriptSaveResult.Refused(
                 $"{Path.GetFileName(archivePath)} carries no file index that names any script, so a "
               + "new script could be added to the archive but the game would have no way to find it. "
-              + "Only global_cached names scripts in the games examined."), null);
+              + "Only global_cached names scripts in the games examined."), null, null, null);
         var (indexPath, index) = located.Value;
 
         foreach (var (path, contents) in halves)
         {
             if (index.Find(path) >= 0)
-                return (LuaScriptSaveResult.Refused($"{path} is already in {indexPath}"), null);
+                return (LuaScriptSaveResult.Refused($"{path} is already in {indexPath}"), null, null, null);
             index.AddFile(path, contents.Length);
         }
 
-        // The index records the size of the archive it lives in, so growing the archive makes that
-        // number stale. Two passes settle it: write once to learn the new length, then write again
-        // with the length recorded. The size is a fixed-width field, so correcting it cannot change
-        // the length a second time - which is what the check below is for rather than an assumption.
-        int self = index.Find(Path.ChangeExtension(indexPath, ".psarc").Replace('\\', '/'));
-        byte[] indexBytes = index.Write();
-
-        long length = PatchWith(archivePath, temporaryPath, indexPath, indexBytes, halves);
-        if (self >= 0)
-        {
-            index.SetSize(self, length);
-            indexBytes = index.Write();
-            long again = PatchWith(archivePath, temporaryPath, indexPath, indexBytes, halves);
-            if (again != length)
-                throw new InvalidDataException(
-                    $"recording the archive's own size changed its length, {length} to {again}");
-        }
-
-        expected[indexPath] = indexBytes;
-        foreach (var (path, contents) in halves) expected[path] = contents;
-
         return (null,
             $"added {string.Join(" and ", halves.Select(h => $"{h.Key} ({h.Value.Length} bytes)"))} "
-          + $"to {Path.GetFileName(archivePath)}, and listed both in {indexPath}"
-          + (self >= 0 ? $" along with the archive's own new size ({length} bytes)" : ""));
-    }
-
-    private static long PatchWith(string archivePath, string temporaryPath, string indexPath,
-                                  byte[] indexBytes, Dictionary<string, byte[]> additions)
-    {
-        PsarcPatcher.Patch(archivePath, temporaryPath,
-                           new Dictionary<string, byte[]> { [indexPath] = indexBytes }, additions);
-        return new FileInfo(temporaryPath).Length;
+          + $"to {Path.GetFileName(archivePath)}, and listed both in {indexPath}", indexPath, index.Write());
     }
 
     /// <summary>
@@ -359,58 +281,5 @@ public static class LuaScriptPackWriter
             if (namesScripts) return (path, index);
         }
         return null;
-    }
-
-    /// <summary>Every named entry of an archive, by path.</summary>
-    private static Dictionary<string, byte[]> ReadEverything(PSARC archive, Action<LuaSaveProgressReport>? onProgress = null)
-    {
-        var contents = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        int done = 0, total = archive.Manifest.Count;
-        foreach (string path in archive.Manifest.Keys)
-        {
-            using var buffer = archive.OpenFile(path);
-            contents[path] = buffer.Data.ToArray();
-            done++;
-            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Reading, done / (float)Math.Max(1, total), done, total));
-        }
-        return contents;
-    }
-
-    /// <summary>
-    /// Reads the rebuilt archive back and compares it with what it should contain - every entry,
-    /// not a sample, because the ways a rebuild goes wrong are structural: a shifted entry index or
-    /// a mis-sized block table corrupts everything after it rather than one file.
-    /// </summary>
-    private static List<string> Verify(
-        string path, Dictionary<string, byte[]> expected, int expectedCount,
-        Action<LuaSaveProgressReport>? onProgress = null)
-    {
-        var problems = new List<string>();
-        using var rebuilt = new PSARC(File.OpenRead(path));
-
-        if (rebuilt.FileEntries.Count != expectedCount)
-            problems.Add($"entry count is {rebuilt.FileEntries.Count} instead of {expectedCount}");
-
-        int differing = 0;
-        int checked_ = 0;
-        foreach (var (entryPath, contents) in expected)
-        {
-            onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Verifying,
-                ++checked_ / (float)Math.Max(1, expected.Count), checked_, expected.Count));
-            if (!rebuilt.Manifest.ContainsKey(entryPath))
-            {
-                problems.Add($"{entryPath} is missing from the rebuilt archive");
-                differing++;
-                continue;
-            }
-            using var buffer = rebuilt.OpenFile(entryPath);
-            if (buffer.Data.SequenceEqual(contents)) continue;
-            differing++;
-            if (differing <= 3)
-                problems.Add($"{entryPath}: {buffer.Length} bytes instead of {contents.Length}");
-        }
-        if (differing > 3) problems.Add($"...and {differing - 3} more entries differ");
-
-        return problems;
     }
 }

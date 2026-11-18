@@ -10,6 +10,9 @@ public class EntityTie : Entity
 {
     public readonly ITie BaseTie;
 
+    /// <summary>The placement's TUID (its 0x72C0 name record), which the planet occlusion's Tie records are found by.</summary>
+    public ulong Tuid { get; }
+
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
@@ -31,9 +34,15 @@ public class EntityTie : Entity
 
     public void MarkSaved() => SavedMatrix = Transform.GetMatrix();
 
+    /// <summary>Planet regions: the occlusion grid never hides this placement (its bit cleared in every cell, far
+    /// distances grown to reach it); cleared again, it gets its retail or baked bits back. A plain value: the editor's undo
+    /// sets it back; it is kept in the project by a save and set at load by <see cref="Packing.OcclusionBake.LoadFlags"/>.</summary>
+    public bool NeverCulled { get; set; }
+
     public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager)
     {
         BaseTie = tieInstance.Asset;
+        Tuid = tieInstance.ID;
 
         // Ties are placed via a raw affine matrix; decomposed directly rather than through
         // IPlacedInstance's Euler-angle properties, which are lossy and collapse anisotropic scale

@@ -1,6 +1,5 @@
 using System.Numerics;
 using ReLunacy.Engine.Config;
-using ReLunacy.Engine.Packing;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
@@ -8,7 +7,8 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 /// <summary>
 /// View > Config Tables: the game's configuration spreadsheets (/data/configs/*.csv in packed/game's
-/// archives - level, weapon, enemy, vendor...), edited and written back into their archive.
+/// archives - level, weapon, enemy, vendor...), edited and written back into their archive. The table edited is
+/// the shared <see cref="ConfigDocument"/>, so Level Data and the level view see the same edits.
 ///
 /// A table opens on its structure (<see cref="ConfigLayout"/>): a sectioned table as its sections (a level, a
 /// weapon, an enemy) with a form of fields per section, its value columns named by the header - or, in level.csv,
@@ -26,16 +26,16 @@ public sealed class ConfigTablesFrame : DockedFrame
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
-    private static readonly Vector4 SectionColour = new(1f, 0.8f, 0.35f, 1f);
+    private static readonly Vector4 SectionColour = ConfigDocument.SectionColour;
     private static readonly Vector4 ChangedColour = new(0.35f, 0.8f, 1f, 0.25f);
-    private static readonly Vector4 InvalidColour = new(1f, 0.3f, 0.25f, 0.35f);
 
     private string? _scannedFor;
     private string? _gameFolder;
     private List<ConfigTableRef> _tables = [];
     private ConfigTableRef? _open;
-    private ConfigCsv? _table;
-    private ConfigCsv? _loaded;
+    private ConfigDocument? _doc;
+    private ConfigCsv? _table => _doc?.Table;
+    private int _structure;
     private ConfigLayout? _layout;
     private bool _raw;
     private string _filter = "";
@@ -45,8 +45,6 @@ public sealed class ConfigTablesFrame : DockedFrame
     private int _selectedRow = -1;
     private int? _scrollTo;
     private string? _status;
-    private bool _saving;
-    private GameCacheNotice? _cacheNotice;
 
     public ConfigTablesFrame()
     {
@@ -65,7 +63,7 @@ public sealed class ConfigTablesFrame : DockedFrame
         if (_layout != null) _section = _layout.Sections.FindIndex(s => s.Row <= row && row < s.End);
     }
 
-    private bool Dirty => _table != null && _loaded != null && _table.ToText() != _loaded.ToText();
+    private bool Dirty => _doc?.Dirty == true;
 
     private void Scan()
     {
@@ -79,21 +77,28 @@ public sealed class ConfigTablesFrame : DockedFrame
     {
         try
         {
-            _table = GameConfigs.Read(table);
-            _loaded = GameConfigs.Read(table);
-            _layout = ConfigLayout.Of(_table);
+            _doc = ConfigDocument.Open(table);
+            _layout = ConfigLayout.Of(_doc.Table);
+            _structure = _doc.Structure;
             _open = table;
             _section = _layout.Sectioned ? 0 : -1;
             _selectedRow = -1;
             _status = null;
-            _cacheNotice = null;
         }
         catch (Exception e) { _status = e.Message; }
     }
 
-    /// <summary>Rows were added or removed: section bounds move, so the structure is read again.</summary>
+    /// <summary>Rows were added or removed here: section bounds move, so the structure is read again.</summary>
     private void Restructure()
     {
+        _doc!.Restructured();
+        Relayout();
+    }
+
+    /// <summary>Reads the structure again, keeping the open section.</summary>
+    private void Relayout()
+    {
+        _structure = _doc!.Structure;
         string? name = _layout != null && _section >= 0 && _section < _layout.Sections.Count ? _layout.Sections[_section].Name : null;
         _layout = ConfigLayout.Of(_table!);
         if (name != null) _section = _layout.Sections.FindIndex(s => s.Name == name);
@@ -140,12 +145,10 @@ public sealed class ConfigTablesFrame : DockedFrame
 
     private void RenderTable()
     {
-        bool dirty = Dirty;
-        ImGui.BeginDisabled(!dirty || _saving);
-        if (ImGui.Button(LM.Get("GUI_ConfigTables_Save"))) Save();
-        ImGui.SameLine();
-        if (ImGui.Button(LM.Get("GUI_ConfigTables_Revert"))) { Open(_open!); return; }
-        ImGui.EndDisabled();
+        var doc = _doc!;
+        doc.DrawSaveBar();
+        // Reverted, or rows moved in another view of the table.
+        if (doc.Structure != _structure) { Relayout(); _selectedRow = -1; }
         ImGui.SameLine();
         ImGui.Checkbox(LM.Get("GUI_ConfigTables_Raw"), ref _raw);
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ConfigTables_RawTip"));
@@ -153,7 +156,7 @@ public sealed class ConfigTablesFrame : DockedFrame
         ImGui.TextDisabled($"{_open!.EntryPath}  ({Path.GetFileName(_open.ArchivePath)})");
 
         if (_status != null) ImGui.TextWrapped(_status);
-        _cacheNotice?.Draw();
+        doc.DrawStatus();
 
         if (_raw) RenderRaw();
         else if (_layout!.Sectioned) RenderSections();
@@ -194,6 +197,7 @@ public sealed class ConfigTablesFrame : DockedFrame
         string name = table.Get(section.Row, 0);
         ImGui.SetNextItemWidth(260f);
         if (ImGui.InputText("##sectionname", ref name, 128) && name.Length > 0) table.Set(section.Row, 0, name);
+        _doc!.TrackEdit(section.Row, 0);
         ImGui.PopStyleColor();
         if (table.Get(section.Row, 2) is { Length: > 0 } note) { ImGui.SameLine(); ImGui.TextDisabled(note); }
 
@@ -354,36 +358,9 @@ public sealed class ConfigTablesFrame : DockedFrame
 
     // --- Cells ------------------------------------------------------------------------------------------------
 
-    /// <summary>One cell: its text, tinted when edited or when it does not fit its field (a number field holding a
-    /// non-number), with the field's names offered on a name field.</summary>
     private void CellEditor(int row, int column, (ConfigValueKind Kind, IReadOnlyList<string> Choices) field, bool bold = false, bool dim = false)
     {
-        var table = _table!;
-        string text = table.Get(row, column);
-        if (!ConfigLayout.Fits(field.Kind, text))
-            ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ImGui.GetColorU32(InvalidColour));
-        else if (_loaded != null && Changed(row, column, text))
-            ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ImGui.GetColorU32(ChangedColour));
-
-        bool choices = field.Kind == ConfigValueKind.Name && field.Choices.Count > 1;
-        float button = choices ? ImGui.GetFrameHeight() : 0f;
-        ImGui.SetNextItemWidth(-1f - button);
-        if (bold) ImGui.PushStyleColor(ImGuiCol.Text, SectionColour);
-        if (dim) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        if (ImGui.InputText($"##c{column}", ref text, 512)) table.Set(row, column, text);
-        if (bold || dim) ImGui.PopStyleColor();
-        if (ImGui.IsItemActivated()) _selectedRow = row;
-        if (ImGui.IsItemHovered() && !ConfigLayout.Fits(field.Kind, text)) ImGui.SetTooltip(LM.Get("GUI_ConfigTables_NotANumber"));
-        if (!choices) return;
-
-        ImGui.SameLine(0f, 0f);
-        if (ImGui.ArrowButton($"##pick{column}", ImGuiDir.Down)) ImGui.OpenPopup($"##choices{column}");
-        if (ImGui.BeginPopup($"##choices{column}"))
-        {
-            foreach (string choice in field.Choices)
-                if (ImGui.Selectable(choice, choice == text)) table.Set(row, column, choice);
-            ImGui.EndPopup();
-        }
+        if (_doc!.CellEditor(row, column, field, bold, dim)) _selectedRow = row;
     }
 
     // --- Raw grid ---------------------------------------------------------------------------------------------
@@ -462,13 +439,14 @@ public sealed class ConfigTablesFrame : DockedFrame
                 {
                     ImGui.TableNextColumn();
                     string text = table.Get(r, c);
-                    if (_loaded != null && Changed(r, c, text))
+                    if (Changed(r, c, text))
                         ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ImGui.GetColorU32(ChangedColour));
                     ImGui.SetNextItemWidth(-1f);
                     if (section && c == 0) ImGui.PushStyleColor(ImGuiCol.Text, SectionColour);
                     if (ImGui.InputText($"##c{c}", ref text, 512)) table.Set(r, c, text);
                     if (section && c == 0) ImGui.PopStyleColor();
                     if (ImGui.IsItemActivated()) _selectedRow = r;
+                    _doc!.TrackEdit(r, c);
                 }
                 ImGui.PopID();
             }
@@ -479,36 +457,5 @@ public sealed class ConfigTablesFrame : DockedFrame
 
     private static bool IsSectionStart(ConfigCsv table, int row) => table.Rows[row].Count > 0 && table.Rows[row][0].Text.Length > 0;
 
-    /// <summary>Whether a cell differs from the table as loaded. Rows inserted or deleted shift what follows, so
-    /// this compares by position - after such an edit the tint shows everything that moved.</summary>
-    private bool Changed(int row, int column, string text) => _loaded!.Rows.Count <= row
-        ? text.Length > 0
-        : _loaded.Get(row, column) != text;
-
-    private void Save()
-    {
-        var table = _open!;
-        byte[] bytes = _table!.ToBytes();
-        _saving = true;
-        _status = LM.Get("GUI_ConfigTables_Saving", Path.GetFileName(table.ArchivePath));
-        BackgroundJob.Run(
-            LM.Get("GUI_ConfigTables_Save"),
-            _status,
-            _ => ArchiveEntryWriter.Replace(table.ArchivePath, new Dictionary<string, byte[]> { [table.EntryPath] = bytes }),
-            result =>
-            {
-                _saving = false;
-                _status = result.Succeeded && result.BackupPath != null
-                    ? $"{result.Summary} (backup: {Path.GetFileName(result.BackupPath)})"
-                    : result.Summary;
-                if (!result.Succeeded) return;
-                _loaded = ConfigCsv.Parse(bytes);
-                _cacheNotice = new GameCacheNotice(table.ArchivePath);
-            },
-            e =>
-            {
-                _saving = false;
-                _status = e.Message;
-            });
-    }
+    private bool Changed(int row, int column, string text) => _doc!.Changed(row, column, text);
 }

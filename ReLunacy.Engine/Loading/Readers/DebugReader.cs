@@ -17,12 +17,25 @@ public sealed class DebugReader
     // RegionReader.ReadVolumesOld). Must Add an entry (even null) per record - skipping one
     // desyncs every name after it from its volume index.
     private readonly List<string?> _volumeNames = [];
+    // Old engine, the other gameplay families by position, from debug.dat (see OldFamilySections).
+    private readonly Dictionary<string, List<string?>> _familyNames = [];
     private readonly bool _isOld;
+
+    /// <summary>Old engine: the level's instances.lua names (Tools of Destruction's every level, where debug.dat is
+    /// absent); empty on the new engine. debug.dat's names win where both exist: they are the same.</summary>
+    public OldInstanceNames InstanceNames { get; } = new();
+
+    // debug.dat's name sections of the old gameplay families: the gameplay section's id + 0x20.
+    private static readonly (string Family, uint Section)[] OldFamilySections =
+    [
+        ("path", 0x7720), ("clue", 0x77A0), ("controller", 0x77D0), ("pod", 0x7920), ("area", 0x7960), ("scent", 0x79A0),
+    ];
 
     public DebugReader(FileManager fileManager)
     {
         ArgumentNullException.ThrowIfNull(fileManager);
         _isOld = fileManager.isOld;
+        if (_isOld) InstanceNames = OldInstanceNames.Read(fileManager.SourcePath);
 
         if (fileManager.igfiles.TryGetValue("debug.dat", out _debugFile) && _debugFile != null)
         {
@@ -45,6 +58,7 @@ public sealed class DebugReader
             LoadTiePrototypeNames();
             LoadShaderNames();
             LoadVolumeNames();
+            LoadOldFamilyNames();
         }
         catch (Exception ex)
         {
@@ -140,12 +154,45 @@ public sealed class DebugReader
             _volumeNames.Add(string.IsNullOrEmpty(item.name) ? null : item.name);
     }
 
+    private void LoadOldFamilyNames()
+    {
+        if (!_isOld) return;
+
+        foreach (var (family, id) in OldFamilySections)
+        {
+            var section = _debugFile!.QuerySection(id);
+            if (section.count == 0) continue;
+            _debugFile.sh.Seek(section.offset);
+            var names = FileUtils.ReadStructureArray<DebugInstanceName>(_debugFile.sh, section.count);
+            _familyNames[family] = [.. names.Select(item => string.IsNullOrEmpty(item.name) ? null : item.name)];
+        }
+    }
+
     public string? GetMobyPrototypeName(ulong tuid) => _mobyPrototypeNames.TryGetValue(tuid, out var name) ? name : null;
     public string? GetTiePrototypeName(ulong tuid) => _tiePrototypeNames.TryGetValue(tuid, out var name) ? name : null;
     public string? GetShaderName(ulong tuid) => _shaderNames.TryGetValue(tuid, out var name) ? name : null;
-    public string? GetMobyInstanceName(int index) => index >= 0 && index < _mobyInstanceNames.Count ? _mobyInstanceNames[index] : null;
+    public string? GetMobyInstanceName(int index) =>
+        (index >= 0 && index < _mobyInstanceNames.Count ? _mobyInstanceNames[index] : null) ?? InstanceNames.Name("moby", index);
     public string? GetTieInstanceName(int index) => index >= 0 && index < _tieInstanceNames.Count ? _tieInstanceNames[index] : null;
-    public string? GetVolumeName(int index) => index >= 0 && index < _volumeNames.Count ? _volumeNames[index] : null;
+    public string? GetVolumeName(int index) =>
+        (index >= 0 && index < _volumeNames.Count ? _volumeNames[index] : null) ?? InstanceNames.Name("volume", index);
+
+    /// <summary>Old engine: the name of an instance of a family (path, clue, controller, area, pod, scent; also moby and
+    /// volume) by its place in its gameplay.dat table, from debug.dat else instances.lua; null when neither names it.</summary>
+    public string? GetOldInstanceName(string family, int index) => (DebugName(family, index)) ?? InstanceNames.Name(family, index);
+
+    /// <summary>Old engine: debug.dat's own name for the instance, without instances.lua behind it.</summary>
+    public string? DebugName(string family, int index)
+    {
+        var list = family switch { "moby" => _mobyInstanceNames, "volume" => _volumeNames, _ => _familyNames.GetValueOrDefault(family) };
+        return list != null && index >= 0 && index < list.Count ? list[index] : null;
+    }
+
+    /// <summary>Old engine: how many instances debug.dat names in the family.</summary>
+    public int DebugCount(string family) => family switch
+    {
+        "moby" => _mobyInstanceNames.Count, "volume" => _volumeNames.Count, _ => _familyNames.GetValueOrDefault(family)?.Count ?? 0,
+    };
 
     public string GetSummary()
     {

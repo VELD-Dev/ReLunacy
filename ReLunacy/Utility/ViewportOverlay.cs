@@ -63,7 +63,7 @@ public sealed class ViewportOverlay
     /// <summary>A button that latches. Returns true on the frame it was clicked.</summary>
     /// <param name="enabled">False greys the button out and ignores clicks; its tooltip still shows,
     /// so it can say why.</param>
-    public bool ToggleButton(string label, ref bool state, string? tooltip = null, bool enabled = true)
+    public bool ToggleButton(string label, ref bool state, string? tooltip = null, bool enabled = true, float width = ButtonSize)
     {
         if (!_active) return false;
 
@@ -71,12 +71,12 @@ public sealed class ViewportOverlay
         if (state)
         {
             ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.20f, 0.45f, 0.75f, 0.90f));
-            clicked = Button(label, tooltip, enabled);
+            clicked = Button(label, tooltip, enabled, width);
             ImGui.PopStyleColor();
         }
         else
         {
-            clicked = Button(label, tooltip, enabled);
+            clicked = Button(label, tooltip, enabled, width);
         }
 
         if (clicked) state = !state;
@@ -84,13 +84,13 @@ public sealed class ViewportOverlay
     }
 
     /// <summary>A momentary button. Returns true on the frame it was clicked.</summary>
-    public bool Button(string label, string? tooltip = null, bool enabled = true)
+    public bool Button(string label, string? tooltip = null, bool enabled = true, float width = ButtonSize)
     {
         if (!_active) return false;
 
         ImGui.SetCursorScreenPos(_cursor);
         if (!enabled) ImGui.BeginDisabled();
-        bool clicked = ImGui.Button(label, new Vector2(ButtonSize, ButtonSize));
+        bool clicked = ImGui.Button(label, new Vector2(width, ButtonSize));
         if (!enabled) ImGui.EndDisabled();
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
         {
@@ -100,8 +100,58 @@ public sealed class ViewportOverlay
 
         // Remember where a panel opened from this button should hang.
         _panelLeft = _cursor.X;
-        _cursor.X += ButtonSize + Spacing;
+        _cursor.X += width + Spacing;
         return clicked && enabled;
+    }
+
+    /// <summary>A labelled button in the bottom-left corner of the image, apart from the toolbar. Returns true on the frame it was clicked.</summary>
+    public bool CornerButton(string label, string? tooltip = null)
+    {
+        if (!_active) return false;
+
+        var size = ImGui.CalcTextSize(label) + new Vector2(16f, 8f);
+        ImGui.SetCursorScreenPos(_origin + new Vector2(Margin, _size.Y - size.Y - Margin));
+        bool clicked = ImGui.Button(label, size);
+        if (ImGui.IsItemHovered())
+        {
+            WantsMouse = true;
+            if (tooltip != null) ImGui.SetTooltip(tooltip);
+        }
+        return clicked;
+    }
+
+    /// <summary>Width of a button that fits <paramref name="label"/>.</summary>
+    public static float FitWidth(string label) => Math.Max(ButtonSize, ImGui.CalcTextSize(label).X + 16f);
+
+    /// <summary>Starts a row of controls along the bottom centre of the image, on a translucent plate that is
+    /// <paramref name="width"/> wide. Returns false when the row would crowd the corner buttons; then add nothing.
+    /// Buttons added afterwards sit in the row until <see cref="BeginPanel"/> or another row is started.</summary>
+    public bool BeginBottomBar(float width)
+    {
+        if (!_active || _size.X < width + 300f) return false;
+        var pos = _origin + new Vector2((_size.X - width) * 0.5f, _size.Y - ButtonSize - Margin);
+        var pad = new Vector2(4f, 4f);
+        ImGui.GetWindowDrawList().AddRectFilled(pos - pad, pos + new Vector2(width, ButtonSize) + pad,
+            ImGui.GetColorU32(new Vector4(0.06f, 0.06f, 0.08f, 0.55f)), 6f);
+        if (ImGui.IsMouseHoveringRect(pos - pad, pos + new Vector2(width, ButtonSize) + pad)) WantsMouse = true;
+        _cursor = pos;
+        return true;
+    }
+
+    /// <summary>A drag field in the row. Returns true when the value changed.</summary>
+    public bool DragValue(string id, ref float value, float speed, float min, float max, string format, float width, string? tooltip = null)
+    {
+        if (!_active) return false;
+        ImGui.SetCursorScreenPos(_cursor);
+        ImGui.SetNextItemWidth(width);
+        bool changed = ImGui.DragFloat(id, ref value, speed, min, max, format);
+        if (ImGui.IsItemHovered() || ImGui.IsItemActive())
+        {
+            WantsMouse = true;
+            if (tooltip != null && !ImGui.IsItemActive()) ImGui.SetTooltip(tooltip);
+        }
+        _cursor.X += width + Spacing;
+        return changed;
     }
 
     /// <summary>Left edge of the button added last: pass it to <see cref="BeginPanel"/> to hang a panel

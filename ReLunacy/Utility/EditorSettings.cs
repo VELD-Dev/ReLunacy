@@ -9,6 +9,16 @@ public enum UpdateChannel
     Nightly,
 }
 
+/// <summary>What the hierarchy's top folders are (BasicEntityExplorer).</summary>
+public enum HierarchyGroupBy
+{
+    Layer,
+    Pod,
+    Area,
+    Scent,
+    Type,
+}
+
 /// <summary>One saved dockspace layout: the raw ImGui ini blob (dock node tree + whichever windows
 /// were already open when it was saved), plus which Frame TYPES were open and which dock node each
 /// one was docked into. The ini blob alone isn't enough to restore a frame that's currently CLOSED:
@@ -55,9 +65,18 @@ public class EditorSettings
     public bool RenderUFrags;
     public bool RenderFoliage;
     public bool RenderVolumes;
-    // Inverted so a settings file from before the cameras existed shows them.
+    // Inverted so a settings file from before the cameras (and the other controllers) existed shows them.
     public bool HideCameras;
+    public bool HideControllers;
+    // The hierarchy's Group by switch.
+    public HierarchyGroupBy HierarchyGroupBy;
     public bool HidePaths;
+    // The level view's particle effects. Inverted, as the cameras' switch, so older settings files show them.
+    public bool HideEffects;
+    // The space sector boundary shell. Inverted, as the effects' switch, so older settings files show it.
+    public bool HideSectorBounds;
+    // The Aphelion's flight height plane. Inverted like the boundary's switch.
+    public bool HideFlyPlane;
     public bool RenderNavmesh;
     public bool RenderCollision;
     // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.
@@ -95,6 +114,7 @@ public class EditorSettings
     public Vector2 OverlayPadding;
     public int OverlayPos;
     public float ToolsGizmoSize;
+    public bool GizmoLocal;
     public bool GizmoSnapEnabled;
     public float GizmoSnapTranslation;
     public float GizmoSnapRotation;
@@ -102,8 +122,10 @@ public class EditorSettings
     public float VolumeWireThickness;
     // The camera controllers' model, relative to the OBJ's own size (EntityCamera.ModelScale).
     public float CameraModelScale;
-    // Horizontal FOV, in degrees, of a camera looked through when its settings give none: the game's own
-    // default is not known.
+    // The controller icons' size, relative to the controller diamond.
+    public float ControllerIconScale;
+    // Horizontal FOV, in degrees, of a camera looked through when its settings give none and the game's own
+    // default is not known (View3D.GameDefaultFieldOfView).
     public float CameraPovFov;
     public Vector4 VolumeColor;
     public Vector4 NavmeshColor;
@@ -111,6 +133,9 @@ public class EditorSettings
     public Vector4 SelectionOutlineColor;
     internal LunaLog.LogLevel LogLevel;
     public Dictionary<string, string> CustomShaders = [];
+    // The Asset Explorer's favourite assets per game (the game's id as the key): "M:" or "T:" and the asset's
+    // id in hex, Moby or Tie.
+    public Dictionary<string, List<string>> AssetFavourites = [];
     // Dockspace layouts saved via View > Layout > Save Current Layout As... - each value is an ImGui
     // ini-settings blob (ImGui.SaveIniSettingsToMemoryS/LoadIniSettingsFromMemory), which captures
     // every dock node split and window dock assignment in one string. ActiveLayoutName is which of
@@ -135,6 +160,10 @@ public class EditorSettings
     // See GameBrowserFrame's constructor, which auto re-scans this path (if set) as soon as the
     // frame is opened, instead of making the user re-Browse/Paste/Scan it by hand every session.
     public string GameBrowserRootPath = string.Empty;
+    // File > Recent Projects: .lunaproj paths, newest first (ProjectSession.Remember).
+    public List<string> RecentProjects = [];
+    // Where File > New Project suggests putting a project; the last location used.
+    public string ProjectsFolder = string.Empty;
     // Opt-in only: the outline's history documents that both winding-based and
     // normal-based backface techniques were tried for the selection outline and both broke -
     // triangle winding in these source assets isn't reliably consistent (sometimes not even within
@@ -163,6 +192,17 @@ public class EditorSettings
     // Far clip for the asset viewer's preview camera only (the 3D view uses RenderDistance instead).
     // Adjustable from the overlay toolbar over the preview.
     public float AssetViewerFarPlane;
+
+    // The asset viewer's Tie collision overlay: shown, shown without the render mesh, coloured by material.
+    public bool AssetViewerCollision;
+    public bool AssetViewerCollisionOnly;
+    public bool AssetViewerCollisionByMaterial;
+
+    // Clear colour of the asset viewer's preview, set from its overlay toolbar.
+    public Vector4 AssetViewerBackground;
+
+    [JsonIgnore]
+    public static readonly Vector4 DefaultAssetViewerBackground = new(0.68f, 0.85f, 0.90f, 1f);
 
     [JsonIgnore]
     public float CamFOVRad => CamFOV * (MathF.PI / 180f);
@@ -218,13 +258,15 @@ public class EditorSettings
         OverlayPadding = new Vector2(10f, 10f);
         OverlayPos = 0;
         ToolsGizmoSize = 0.06f;
+        GizmoLocal = false;
         GizmoSnapEnabled = false;
         GizmoSnapTranslation = 1.0f;
         GizmoSnapRotation = 15.0f;
         GizmoSnapScale = 0.25f;
         VolumeWireThickness = 0.1f;
         CameraModelScale = 0.5f;
-        CameraPovFov = 90f;
+        ControllerIconScale = 3f;
+        CameraPovFov = 75.9f;
         VolumeColor = new Vector4(1f, 1f, 0f, 1f);
         // Semi-transparent blue; alpha is the overlay's opacity over the level.
         NavmeshColor = new Vector4(0.2f, 0.45f, 1f, 0.35f);
@@ -236,6 +278,7 @@ public class EditorSettings
         EnableLighting = false;
         CodeEditorTheme = "dark";
         AssetViewerFarPlane = 100f;
+        AssetViewerBackground = DefaultAssetViewerBackground;
         // Bilinear by default, matching the game's own PS3 behavior; Point is selectable for raw texel data.
         TextureFiltering = ReLunacy.Engine.Rendering.TextureFiltering.Bilinear;
 #if DEBUG

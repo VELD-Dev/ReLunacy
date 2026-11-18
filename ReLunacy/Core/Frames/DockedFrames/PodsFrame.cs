@@ -27,6 +27,8 @@ public sealed class PodsFrame : DockedFrame
     private string _filter = "";
     private string _memberFilter = "";
     private EntityPod? _pod;
+    private EntityPod? _nameFor;
+    private string _nameText = "";
     private EntityRegion? _podRegion;
 
     private string? _configFor;
@@ -55,7 +57,7 @@ public sealed class PodsFrame : DockedFrame
             ImGui.TextDisabled(LM.Get("GUI_Pods_None"));
             return;
         }
-        if (_pod != null && !regions.Any(r => r.Pods.Contains(_pod))) { _pod = null; _podRegion = null; }
+        if (_pod != null && !regions.Any(r => r.Pods.Contains(_pod) && !r.IsGroupDeleted("Pod", r.Pods.IndexOf(_pod)))) { _pod = null; _podRegion = null; }
 
         if (ImGui.BeginChild("##podlist", new Vector2(260f, 0f), ImGuiChildFlags.Borders | ImGuiChildFlags.ResizeX))
         {
@@ -69,9 +71,10 @@ public sealed class PodsFrame : DockedFrame
                 for (int i = 0; i < region.Pods.Count; i++)
                 {
                     var pod = region.Pods[i];
+                    if (region.IsGroupDeleted("Pod", i)) continue;
                     if (_filter.Length > 0 && !pod.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase) &&
                         !(pod.Layer?.Contains(_filter, StringComparison.OrdinalIgnoreCase) ?? false)) continue;
-                    string label = $"{pod.Name}{(pod.Changed ? " *" : "")}  ({pod.Members.Count})##{region.RegionName}{i}";
+                    string label = $"{pod.Name}{(pod.Changed || pod.IsRenamed ? " *" : "")}  ({pod.Members.Count})##{region.RegionName}{i}";
                     if (ImGui.Selectable(label, ReferenceEquals(pod, _pod))) { _pod = pod; _podRegion = region; }
                     if (ImGui.IsItemHovered() && pod.Layer != null) ImGui.SetTooltip(pod.Layer);
                 }
@@ -90,10 +93,24 @@ public sealed class PodsFrame : DockedFrame
 
     private void RenderPod(EntityPod pod, EntityRegion region)
     {
-        ImGui.TextUnformatted(pod.Name);
+        if (!ReferenceEquals(_nameFor, pod) || (!ImGui.IsAnyItemActive() && _nameText != pod.Name)) { _nameFor = pod; _nameText = pod.Name; }
+        ImGui.BeginDisabled(region.IsOldEngine);
+        ImGui.SetNextItemWidth(-1f);
+        bool enter = ImGui.InputText("##podname", ref _nameText, 64, ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.AutoSelectAll);
+        bool left = ImGui.IsItemDeactivatedAfterEdit();
+        ImGui.EndDisabled();
+        string? bad = _nameText == pod.Name ? null : region.PodRenameProblem(pod, _nameText);
+        if (bad != null) ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), bad);
+        if ((enter || left) && _nameText != pod.Name)
+        {
+            if (bad == null) Core.Placement.RenameActions.RenamePod(region, pod, _nameText);
+            else _nameText = pod.Name;
+        }
+        if (ImGui.Button(LM.Get("GUI_Delete_Menu")) && region.Pods.IndexOf(pod) is >= 0 and var podIndex)
+            Core.Placement.InstancePlacer.DeleteGroups(region, [new GroupRef("Pod", podIndex)]);
         ImGui.TextDisabled(LM.Get("GUI_Pods_Info", pod.Members.Count, pod.Layer ?? "-", region.RegionName, $"0x{pod.Tuid:X16}"));
         if (pod.Unresolved > 0) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Pods_Unresolved", pod.Unresolved));
-        if (pod.Changed) ImGui.TextColored(new Vector4(0.35f, 0.8f, 1f, 1f), LM.Get("GUI_Pods_Unsaved"));
+        if (pod.Changed || pod.IsRenamed) ImGui.TextColored(new Vector4(0.35f, 0.8f, 1f, 1f), LM.Get("GUI_Pods_Unsaved"));
 
         var selection = SelectionManager.Singleton;
         var selectedMobys = selection.Selection.OfType<EntityMoby>().ToList();

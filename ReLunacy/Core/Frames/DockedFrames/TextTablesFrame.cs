@@ -37,6 +37,7 @@ public sealed class TextTablesFrame : DockedFrame
     }
 
     private string? _scannedFor;
+    private object? _scannedProject;
     private string? _gameFolder;
     private List<Language> _languages = [];
     private string _filter = "";
@@ -67,8 +68,10 @@ public sealed class TextTablesFrame : DockedFrame
 
     private void Scan()
     {
-        if (_scannedFor == Program.ProvidedPath && _gameFolder != null) return;
+        // Again when the project changes: its strings are what the tables show.
+        if (_scannedFor == Program.ProvidedPath && _gameFolder != null && ReferenceEquals(_scannedProject, Project.ProjectSession.Current)) return;
         _scannedFor = Program.ProvidedPath;
+        _scannedProject = Project.ProjectSession.Current;
         _gameFolder = string.IsNullOrEmpty(Program.ProvidedPath) ? null : GameConfigs.GameFolderFor(Program.ProvidedPath);
         Load();
     }
@@ -125,6 +128,7 @@ public sealed class TextTablesFrame : DockedFrame
         var game = LunaWindow.Instance.Level?.GameDefinition?.Id;
 
         bool dirty = Dirty;
+        Project.ProjectSession.PendingTextEdits = dirty;
         ImGui.BeginDisabled(!dirty || _saving);
         if (ImGui.Button(LM.Get("GUI_ConfigTables_Save"))) Save();
         ImGui.SameLine();
@@ -185,9 +189,16 @@ public sealed class TextTablesFrame : DockedFrame
                 if (ImGui.Selectable($"{id}", _selected == id)) { _selected = id; ImGui.SetClipboardText(id.ToString()); }
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_TextTables_IdHint", $"0x{id:X}"));
                 ImGui.TableNextColumn();
-                string? tag = GameText.TagName(game, id);
-                if (tag != null) ImGui.TextUnformatted(tag);
-                else ImGui.TextDisabled(_languages.Any(l => id >= l.Loaded.Count) ? LM.Get("GUI_TextTables_Custom") : "-");
+                // The tag is the project's own note of what the id is (Resources/Classes/<Game>.textids): editable,
+                // and written to that file as soon as it is entered.
+                string tag = GameText.TagName(game, id) ?? "";
+                ImGui.SetNextItemWidth(-1f);
+                if (game is { } named && ImGui.InputTextWithHint("##tag", _languages.Any(l => id >= l.Loaded.Count) ? LM.Get("GUI_TextTables_Custom") : "-",
+                        ref tag, 96, ImGuiInputTextFlags.EnterReturnsTrue))
+                {
+                    GameText.SetTagName(named, id, new string(tag.Where(ch => char.IsLetterOrDigit(ch) || ch == '_').ToArray()));
+                    _version++;
+                }
                 foreach (var language in shown)
                 {
                     ImGui.TableNextColumn();
@@ -217,6 +228,10 @@ public sealed class TextTablesFrame : DockedFrame
     /// language is written.</summary>
     private void Add(string tag)
     {
+        tag = new string(tag.Where(ch => char.IsAsciiLetterOrDigit(ch) || ch == '_').ToArray());
+        var game = LunaWindow.Instance.Level?.GameDefinition?.Id;
+        if (tag.Length == 0) return;
+        if (GameText.IdOfTag(game, tag, Count) is var taken and >= 0) { _status = LM.Get("GUI_TextTables_TagTaken", tag, taken); return; }
         int count = Count;
         // One hash for all languages: free in each of them.
         uint hash = _languages[0].Table.FreeHash(tag);
@@ -226,6 +241,8 @@ public sealed class TextTablesFrame : DockedFrame
             while (language.Table.Entries.Count < count) language.Table.Entries.Add(new TextTable.Entry());
             language.Table.Entries.Add(new TextTable.Entry { Hash = hash, Text = tag });
         }
+        // The tag is the new id's name, kept with the project.
+        if (game is { } named) GameText.SetTagName(named, count, tag);
         _newTag = "";
         _filter = "";
         _selected = count;
@@ -272,7 +289,7 @@ public sealed class TextTablesFrame : DockedFrame
                     language.Loaded = language.Table.Entries.Select(e => e.Text).ToList();
                 }
                 _version++;
-                if (results.FirstOrDefault(r => r.Result.Succeeded) is { Archive: { } archive }) _cacheNotice = new GameCacheNotice(archive);
+                if (results.FirstOrDefault(r => r.Result.Succeeded && r.Result.BackupPath != null) is { Archive: { } archive }) _cacheNotice = new GameCacheNotice(archive);
             },
             e =>
             {

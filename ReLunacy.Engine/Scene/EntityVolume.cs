@@ -18,6 +18,8 @@ public class EntityVolume : Entity
 
     public override string Name { get; protected set; }
 
+    protected override void OnRenamed(string name) => BaseVolume.Name = name;
+
     // A volume has no mesh or material of its own; the renderer draws its wireframe edges (12 for a
     // box, rings and lines for the round shapes) directly from GetWorldEdgeTransforms and VolumeColour.
 
@@ -61,7 +63,11 @@ public class EntityVolume : Entity
     public Matrix4x4 LoadedMatrix { get; private set; }
 
     /// <summary>The file now holds this volume as it is: later edits are measured from here.</summary>
-    public void MarkSaved() => LoadedMatrix = FillMatrix;
+    public void MarkSaved()
+    {
+        LoadedMatrix = FillMatrix;
+        if (Assigned != null) Assigned.LoadedShape = BaseVolume.Shape;
+    }
 
     /// <summary>
     /// Places the volume from a whole matrix (a gizmo drag): its size goes to <see cref="scale"/>, its rotation and
@@ -107,8 +113,21 @@ public class EntityVolume : Entity
     {
         // _edgeTransforms are already world transforms; composing again here would double-apply the
         // volume's placement.
-        foreach (var e in _edgeTransforms)
-            yield return e.GetMatrix();
+        foreach (var m in _edgeMatrices)
+            yield return m;
+    }
+
+    private Matrix4x4[] _edgeMatrices = [];
+
+    /// <summary>The same matrices as <see cref="GetWorldEdgeTransforms"/>, cached when the edges are rebuilt: the
+    /// per-frame wireframe list copies them without composing or allocating.</summary>
+    public ReadOnlySpan<Matrix4x4> WorldEdgeMatrices
+    {
+        get
+        {
+            EnsureRenderables();
+            return _edgeMatrices;
+        }
     }
 
     /// <summary>The volume's matrix as the file holds it: its unit shape scaled, turned and placed (the gizmo works on it
@@ -203,6 +222,8 @@ public class EntityVolume : Entity
                 break;
         }
         _edgeTransforms = [.. edges];
+        _edgeMatrices = new Matrix4x4[_edgeTransforms.Length];
+        for (int i = 0; i < _edgeMatrices.Length; i++) _edgeMatrices[i] = _edgeTransforms[i].GetMatrix();
     }
 
     private static readonly float[] Signs = [-1f, 1f];
@@ -322,7 +343,7 @@ public class EntityVolume : Entity
     /// <summary>Rotation aligning the edge mesh's local +X (its length axis) to the unit vector
     /// <paramref name="axis"/>. Only the axis line matters, not polarity, since the edge mesh is
     /// radially symmetric.</summary>
-    private static Quaternion AlignUnitXTo(Vector3 axis)
+    internal static Quaternion AlignUnitXTo(Vector3 axis)
     {
         float dot = Vector3.Dot(Vector3.UnitX, axis);
         if (dot > 0.99999f || dot < -0.99999f) return Quaternion.Identity;

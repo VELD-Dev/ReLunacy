@@ -53,9 +53,15 @@ public class LunaWindow : IDisposable
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
 
+    /// <summary>The loaded level is an A Crack in Time space sector: the moon tools exist only there, until custom levels do.</summary>
+    public static bool IsSpaceSector => Instance.Level != null && ConfigDocument.LevelName.StartsWith("space_sector", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The open level's reader, kept so another of its regions can be read over the same files
     /// (see <see cref="SwitchRegion"/>).</summary>
     private LevelReader? _levelReader;
+
+    /// <summary>The reader of the open level (its files stay open for classes read later); null without a level.</summary>
+    public LevelReader? Reader => _levelReader;
 
     /// <summary>True while a level or region is being read, built or uploaded: no region switch then.</summary>
     public bool IsLoadingLevel => _loadBar != null || _sceneBuild != null || _buildingAssetManager != null || _finalizingLevelLoad;
@@ -168,6 +174,8 @@ public class LunaWindow : IDisposable
         });
 
         Time.Init();
+        // No project yet: saves are refused until one is opened, so nothing reaches the game unasked.
+        Project.ProjectSession.Init();
         SetTargetFPS(EditorSettings.TargetFPS);
 
         CommandList = graphicsDevice.ResourceFactory.CreateCommandList();
@@ -246,6 +254,9 @@ public class LunaWindow : IDisposable
         {
             LunaLog.LogWarn($"The camera model could not be loaded, so cameras are not drawn: {ex.Message}");
         }
+        // The controller icons (VulkanRenderer.ControllerIcons); a class whose icon fails keeps the diamond.
+        foreach (var failure in Engine.Rendering.ControllerIcons.Load(Path.Combine(Program.EditorPath, "Assets", "Icons")))
+            LunaLog.LogWarn($"A controller icon could not be loaded: {failure}");
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
         LM.Initialize();
@@ -260,6 +271,7 @@ public class LunaWindow : IDisposable
         em.renderFoliage = EditorSettings.RenderFoliage;
         em.renderVolumes = EditorSettings.RenderVolumes;
         em.renderCameras = !EditorSettings.HideCameras;
+        em.renderControllers = !EditorSettings.HideControllers;
         em.renderPaths = !EditorSettings.HidePaths;
         em.renderNavmesh = EditorSettings.RenderNavmesh;
         // The RSX shaders only apply while lit (see View3D, which keeps this in step afterwards); set
@@ -363,6 +375,7 @@ public class LunaWindow : IDisposable
                     if (resolvedDebugDat != null)
                         fileManager.LoadExternalDebugDat(resolvedDebugDat);
                 }
+                Project.ProjectSession.OnLevelOpened(path, fileManager.ArchivePaths);
                 progress.CompletePhase();
 
                 var levelReader = new LevelReader(fileManager);
@@ -491,6 +504,7 @@ public class LunaWindow : IDisposable
         AbandonLevelFinalization();
         // The history is the scene's: its steps hold the entities being thrown away (a region switch too).
         Core.Undo.UndoManager.Singleton.Clear();
+        ReLunacy.Engine.Config.SegmentRegistry.ClearRenames();
         // Anything the loading task finished but that was never picked up belongs to the level being
         // wiped, not to the one about to load - and a task still running is now a stale generation,
         // so whatever it enqueues later is dropped rather than built over the next level.
@@ -790,6 +804,10 @@ public class LunaWindow : IDisposable
         _loadBar = null;
         _loadProgress = null;
 
+        // Every load ends here (a level, a region switch, the reload after a save): the never-culled flags come back
+        // from the project, or the next save would write them all away.
+        if (fileManager != null) Engine.Packing.OcclusionBake.LoadFlags(fileManager, EntityManager.Singleton.Regions.ToList());
+
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
 
@@ -894,15 +912,20 @@ public class LunaWindow : IDisposable
     {
         FileMenuDraw.SaveLevelShortcut();
         EditMenuDraw.UndoRedoShortcuts();
+        Project.ProjectSession.UpdateTitle();
         if (!ImGui.BeginMainMenuBar()) return;
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
         {
+            FileMenuDraw.ProjectMenuItems();
+            ImGui.Separator();
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.OpenGameBrowserMenuItem();
             FileMenuDraw.SaveLevelMenuItem();
+            FileMenuDraw.InstallMenuItem();
             FileMenuDraw.BackupsMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
+            FileMenuDraw.ImportMenu();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }
@@ -919,10 +942,15 @@ public class LunaWindow : IDisposable
             ToolsMenuDraw.TranslationTool();
             ToolsMenuDraw.RotationTool();
             ToolsMenuDraw.ScaleTool();
+            ToolsMenuDraw.LocalSpace();
+if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
             ImGui.Separator();
             ToolsMenuDraw.DeselectObject();
             ImGui.EndMenu();
         }
+
+        BakeMenuDraw.Menu();
+        CreateMenuDraw.Menu();
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_View")))
         {
@@ -931,12 +959,14 @@ public class LunaWindow : IDisposable
             ViewMenuDraw.ShowLevelData();
             ViewMenuDraw.ShowView3D();
             ViewMenuDraw.ShowAssetViewer();
+            ViewMenuDraw.ShowAssetExplorer();
             ViewMenuDraw.ShowTextureExplorer();
             ViewMenuDraw.ShowCubemapViewer();
             ViewMenuDraw.ShowShaderBrowser();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
             ViewMenuDraw.ShowPods();
+            ViewMenuDraw.ShowSoundBanks();
             ViewMenuDraw.ShowProfiler();
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();

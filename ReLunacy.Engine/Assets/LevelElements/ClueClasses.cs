@@ -109,12 +109,30 @@ public static class ClueClasses
     /// <summary>The role of a plain volume a gravity Clue acts in instead of its own (ClueGravity +0x14, +0x18).</summary>
     public const string GravityRegionRole = "Gravity region";
 
+    /// <summary>The class has a field with a known meaning at the offset (see <see cref="KnownFields"/>).</summary>
+    public static bool IsKnownField(Games.GameId? game, uint cls, int offset) =>
+        game is { } g && KnownFields.ContainsKey((g, cls, offset));
+
     /// <summary>Gives the volumes a known Clue field names their role (<see cref="Volume.Role"/>): a moon's
     /// area. Only links that resolve count; nothing is guessed from names. Also marks where each gravity Clue acts
-    /// (<see cref="Volume.GravityRegion"/>).</summary>
-    public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game)
+    /// (<see cref="Volume.GravityRegion"/>). A controller field the table types as a volume or a volume list gives
+    /// its class as the role (SoundEnvironment, infocontroller); a Clue's wins over it.</summary>
+    public static void AssignVolumeRoles(IReadOnlyList<Volume> volumes, Games.GameId? game, IReadOnlyList<GameplayController>? controllers = null)
     {
-        var byName = volumes.Where(v => v.Name != null).ToLookup(v => v.Name!);
+        // By place in the table: volume names repeat, and a reference means one of the namesakes.
+        var byIndex = volumes.Where(v => v.Index >= 0).ToLookup(v => v.Index);
+        foreach (var controller in controllers ?? [])
+            foreach (var reference in controller.References)
+            {
+                if (reference.Kind != "Volume" || ClassFields.At(game, controller.Class, reference.Offset) is not
+                    { Kind: ClassFieldKind.Reference or ClassFieldKind.ReferenceList, TypeName: "Volume" } field) continue;
+                string cls = controller.ClassName ?? ClassFields.ClassName(game, controller.Class) ?? $"0x{controller.Class:X}";
+                foreach (var target in byIndex[reference.Index])
+                {
+                    target.Role = cls;
+                    target.RoleSource = $"{controller.Name} ({cls} +0x{reference.Offset:X} {field.Name})";
+                }
+            }
         foreach (var volume in volumes)
             if (volume.Clue is { } clue)
             {
@@ -122,14 +140,14 @@ public static class ClueClasses
                 {
                     if (reference.Kind != "Volume" || game is not { } g
                         || !KnownFields.TryGetValue((g, clue.Class, reference.Offset), out var field)) continue;
-                    foreach (var target in byName[reference.Name])
+                    foreach (var target in byIndex[reference.Index])
                     {
                         target.Role = field;
                         target.RoleSource = $"{clue.Name} ({clue.ClassName} +0x{reference.Offset:X})";
                     }
                 }
                 if (game == Games.GameId.ACrackInTime && ClassFields.IsA(game, clue.Class, CrackInTimeGravity))
-                    MarkGravityRegion(volume, clue, volumes, byName);
+                    MarkGravityRegion(volume, clue, volumes, byIndex);
             }
     }
 
@@ -138,13 +156,13 @@ public static class ClueClasses
     /// set, else its volume reference (+0x14), else the Clue's own volume - a moon's case, every SpaceMoon leaving
     /// both unset. Inside it, in the air, "up" points away from the volume's centre.
     /// </summary>
-    private static void MarkGravityRegion(Volume own, VolumeClue clue, IReadOnlyList<Volume> volumes, ILookup<string, Volume> byName)
+    private static void MarkGravityRegion(Volume own, VolumeClue clue, IReadOnlyList<Volume> volumes, ILookup<int, Volume> byIndex)
     {
         var targets = new List<Volume>();
         if (clue.References.FirstOrDefault(r => r.Offset == 0x18 && r.Kind == "Area") is { } area)
             targets.AddRange(volumes.Where(v => v.Areas.Contains(area.Name)));
         else if (clue.References.FirstOrDefault(r => r.Offset == 0x14 && r.Kind == "Volume") is { } volume)
-            targets.AddRange(byName[volume.Name]);
+            targets.AddRange(byIndex[volume.Index]);
         if (targets.Count == 0) { own.GravityRegion = true; return; }
         foreach (var target in targets)
         {

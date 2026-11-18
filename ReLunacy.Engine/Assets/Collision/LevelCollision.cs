@@ -24,12 +24,22 @@ public sealed class LevelCollision
     public Vector3 BoundsMin { get; }
     public Vector3 BoundsMax { get; }
 
+    /// <summary>New engine: the region's table of Tie class TUIDs (header +0x68 count, +0x6C offset). A Tie instance's
+    /// <see cref="CollisionInstance.Id"/> indexes it. Empty on the old engine, which has no class link.</summary>
+    public IReadOnlyList<ulong> TieClassTuids { get; private init; } = [];
+
     /// <summary>Header +0x20: edge of a cell of the spatial grid the game queries through (10 on ToD,
     /// 12 on the new engine). +0x24 is its reciprocal.</summary>
     public float GridCellSize { get; }
 
     /// <summary>The new engine's instance layout (see <see cref="Read"/>), which a save writes back in.</summary>
     public bool IsNewEngine { get; private init; }
+
+    /// <summary>Header +0x04 and +0x08 of the data it was read from: how many instances it held and where its shape blob
+    /// started. Every <see cref="CollisionInstance.RecordOffset"/> and <see cref="CollisionShape.Offset"/> is only good
+    /// for data with these two (a write checks them, so offsets of an older layout are never used on a newer file).</summary>
+    public uint HeaderInstanceCount { get; private init; }
+    public uint HeaderShapeBase { get; private init; }
 
     private LevelCollision(IReadOnlyList<CollisionInstance> instances, IReadOnlyList<CollisionShape> shapes,
         Vector3 boundsMin, Vector3 boundsMax, float gridCellSize)
@@ -137,7 +147,20 @@ public sealed class LevelCollision
         if (skipped != 0)
             Console.WriteLine($"Collision: {skipped} instance(s) point at a shape that does not parse; skipped.");
 
-        return new LevelCollision(instances, shapes, Vec3(d, 0x40), Vec3(d, 0x50), F32(d, 0x20)) { IsNewEngine = newEngine };
+        var tuids = new List<ulong>();
+        if (newEngine)
+        {
+            uint tuidCount = U32(d, 0x68), tuidOffset = U32(d, 0x6C);
+            if (tuidOffset + (ulong)tuidCount * 8 <= (ulong)data.Length)
+                for (int i = 0; i < tuidCount; i++)
+                    tuids.Add(BinaryPrimitives.ReadUInt64BigEndian(d[(int)(tuidOffset + i * 8)..]));
+        }
+
+        return new LevelCollision(instances, shapes, Vec3(d, 0x40), Vec3(d, 0x50), F32(d, 0x20))
+        {
+            TieClassTuids = tuids,
+            IsNewEngine = newEngine, HeaderInstanceCount = instanceCount, HeaderShapeBase = shapeBase,
+        };
     }
 
     internal static uint U32(ReadOnlySpan<byte> d, int o) => BinaryPrimitives.ReadUInt32BigEndian(d[o..]);

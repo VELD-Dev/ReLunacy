@@ -39,6 +39,10 @@ public record struct TieMesh : ILunaSerializable, IMesh
     /// </summary>
     [FileOffset(0x20)] public byte newEngineFeatureMask;
 
+    /// <summary>A Crack in Time keeps the same mask at +0x24 instead (+0x20 is 0 there): 0x1D on 35,582 of
+    /// 36,622 primitives, then 0x19, 0x14, 0x10, 0x0D (docs/reverse/newengine_tie_asset_writing.md 3.2).</summary>
+    [FileOffset(0x24)] public byte crackInTimeFeatureMask;
+
     // Physical bytes in the shared 0x40-byte Tie primitive record. Their old-engine runtime use is
     // proven; for new-engine records they stay raw and are ignored because all accessors below gate
     // on isOld. +0x2F deliberately keeps a neutral name because its semantic is still OPEN.
@@ -157,21 +161,29 @@ public record struct TieMesh : ILunaSerializable, IMesh
             uvcoords[k * 2 + 0] = (float)vertices[k].UVs.Item1;
             uvcoords[k * 2 + 1] = (float)vertices[k].UVs.Item2;
 
-            // Non-uniform scale: normals use the inverse-transpose (divide by axis scale, renormalize).
+            // New engine: normal and tangent are unit vectors already in object space (7.23M of 7.23M
+            // ACiT vertices are unit, and the raw normal is the one that matches the face normals on
+            // stretched classes: 15.4 deg mean error against 28.0 deg after dividing by the per-axis
+            // position scale). The scale quantises positions only, so they are taken as stored. The
+            // old engine keeps its inverse-transpose handling: that layout is unmeasured.
             Vector3 n = vertices[k].Normal;
-            Vector3 scaledN = new(n.X / scale.X, n.Y / scale.Y, n.Z / scale.Z);
-            scaledN = scaledN.LengthSquared() > 1e-12f ? Vector3.Normalize(scaledN) : Vector3.UnitY;
-            normals[k * 3 + 0] = scaledN.X;
-            normals[k * 3 + 1] = scaledN.Y;
-            normals[k * 3 + 2] = scaledN.Z;
-
-            // Tangents lie in the surface, so they scale directly (not inverse-transpose).
             Vector3 t = vertices[k].Tangent;
-            Vector3 scaledT = new(t.X * scale.X, t.Y * scale.Y, t.Z * scale.Z);
-            scaledT = scaledT.LengthSquared() > 1e-12f ? Vector3.Normalize(scaledT) : Vector3.UnitX;
-            tangents[k * 3 + 0] = scaledT.X;
-            tangents[k * 3 + 1] = scaledT.Y;
-            tangents[k * 3 + 2] = scaledT.Z;
+            if (isOld)
+            {
+                // Non-uniform scale: normals use the inverse-transpose (divide by axis scale, renormalize).
+                n = new(n.X / scale.X, n.Y / scale.Y, n.Z / scale.Z);
+                // Tangents lie in the surface, so they scale directly (not inverse-transpose).
+                t = new(t.X * scale.X, t.Y * scale.Y, t.Z * scale.Z);
+            }
+            n = n.LengthSquared() > 1e-12f ? Vector3.Normalize(n) : Vector3.UnitY;
+            normals[k * 3 + 0] = n.X;
+            normals[k * 3 + 1] = n.Y;
+            normals[k * 3 + 2] = n.Z;
+
+            t = t.LengthSquared() > 1e-12f ? Vector3.Normalize(t) : Vector3.UnitX;
+            tangents[k * 3 + 0] = t.X;
+            tangents[k * 3 + 1] = t.Y;
+            tangents[k * 3 + 2] = t.Z;
         }
     }
 

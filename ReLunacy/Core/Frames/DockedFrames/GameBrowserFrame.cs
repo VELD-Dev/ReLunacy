@@ -208,12 +208,7 @@ public class GameBrowserFrame : DockedFrame
         }
     }
 
-    private static void LoadLevel(Level level)
-    {
-        var loadingFrame = new LoadingFrame(LM.Get("GUI_LoadLevelModal_Title"), 1);
-        LunaWindow.Instance.AddFrame(loadingFrame);
-        LunaWindow.Instance.LoadLevelDataAsync(level.SourcePath, loadingFrame, level.DebugDatPath);
-    }
+    private static void LoadLevel(Level level) => Project.ProjectSession.LoadLevel(level.SourcePath, level.DebugDatPath);
 
     public override void RenderAsWindow(double deltaTime)
     {
