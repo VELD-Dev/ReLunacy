@@ -260,7 +260,6 @@ public class PropertyInspectorFrame : DockedFrame
                 : baseVolume.Role != null
                     ? LM.Get("GUI_Frame_InstanceInspector_VolumeRole", baseVolume.Role)
                     : LM.Get("GUI_Frame_InstanceInspector_VolumePlain"));
-            if (baseVolume.Clue != null) RenderClueNameField(volumeEntity);
             if (baseVolume.GravityRegion)
                 ImGui.TextColored(new Vector4(0.4f, 0.85f, 1f, 1f), LM.Get("GUI_Frame_InstanceInspector_GravityRegion"));
             if (baseVolume.Clue is { Settings.Length: > 4 } clueSettings)
@@ -364,30 +363,6 @@ public class PropertyInspectorFrame : DockedFrame
 
     private string _nameText = "";
     private Entity? _nameFor;
-
-    private string _clueText = "";
-    private EntityVolume? _clueFor;
-
-    /// <summary>The Clue's name as a field, like <see cref="RenderNameField"/>.</summary>
-    private void RenderClueNameField(EntityVolume volume)
-    {
-        var clue = volume.BaseVolume.Clue!;
-        var region = Core.Placement.RenameActions.RegionOf(volume);
-        if (region == null || region.IsOldEngine) return;
-        ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ClueName"));
-        if (!ReferenceEquals(_clueFor, volume) || (!ImGui.IsAnyItemActive() && _clueText != clue.Name)) { _clueFor = volume; _clueText = clue.Name; }
-        ImGui.SetNextItemWidth(-1f);
-        bool enter = ImGui.InputText("##clue_name", ref _clueText, 64, ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.AutoSelectAll);
-        bool left = ImGui.IsItemDeactivatedAfterEdit();
-        bool same = _clueText == clue.Name;
-        string? bad = same ? null : region.ClueRenameProblem(volume, _clueText);
-        if (bad != null) ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), bad);
-        if ((enter || left) && !same)
-        {
-            if (bad == null) Core.Placement.RenameActions.RenameClue(region, volume, _clueText);
-            else _clueText = clue.Name;
-        }
-    }
 
     /// <summary>The instance's name as a field: Enter or leaving it keeps a valid name (one undo step); a name another instance has
     /// is allowed and warned about. Read only where the name is not written (the old engine, a path's key).</summary>

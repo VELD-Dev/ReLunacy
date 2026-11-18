@@ -27,8 +27,10 @@ public sealed class PendingTieClass
 public sealed record RegisteredCollision(int OwnerIndex, IReadOnlyList<uint> ShapeOffsets, CollisionCookResult Cooked);
 
 /// <summary>A class that is now in the level's files, and what placing it needs (see <see cref="TieAppender.Append(Func{string, byte[]?}, IReadOnlyList{TieAppendRequest}, IReadOnlyDictionary{ulong, RegisteredTieClass})"/>).</summary>
+/// <param name="LightmappedPrimitives">Primitives with the lightmap gate: a placement then gets a lightmap pair.</param>
+/// <param name="Primitives">All primitives: when more than the lightmapped ones, a placement also gets prelight words.</param>
 public sealed record RegisteredTieClass(ulong Tuid, string Name, int VertexCount, Vector4 Sphere,
-    IReadOnlyDictionary<string, RegisteredCollision> Collision);
+    IReadOnlyDictionary<string, RegisteredCollision> Collision, int LightmappedPrimitives = 0, int Primitives = 0);
 
 public sealed class TieClassRegistration
 {
@@ -55,12 +57,13 @@ public sealed class TieClassRegistration
 public static class TieClassRegistrar
 {
     /// <summary>A class TUID for a new class: above every Tie class of the level (assetlookup 0x1D300 stays sorted) and every
-    /// TUID the lookup lists, and above <paramref name="taken"/> (pending classes).</summary>
-    public static ulong FreshTuid(Func<string, byte[]?> read, IEnumerable<ulong>? taken = null)
+    /// TUID the lookup lists, and above <paramref name="taken"/> (pending classes); never one of <paramref name="avoid"/> (pending shaders).</summary>
+    public static ulong FreshTuid(Func<string, byte[]?> read, IEnumerable<ulong>? taken = null, IEnumerable<ulong>? avoid = null)
     {
         byte[] lookup = read("assetlookup.dat") ?? throw new InvalidDataException("assetlookup.dat not found");
         var used = new HashSet<ulong>(taken ?? []);
         ulong max = used.Count == 0 ? 0 : used.Max();
+        used.UnionWith(avoid ?? []);
         foreach (var sec in IghwRelayout.Sections(lookup).Where(x => x.Id is >= 0x1D100 and < 0x1DC00 && (x.Id & 0xFF) == 0 && x.Size % 16 == 0))
             for (int i = 0; i < sec.Size / 16; i++)
             {

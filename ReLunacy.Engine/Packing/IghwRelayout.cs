@@ -226,6 +226,69 @@ public static class IghwRelayout
         return output;
     }
 
+    /// <summary>The container with empty sections added: each {Id, CountWord, LengthWord} goes before section <c>Before</c> (an
+    /// array section gets count 0 under its flag). Fill them with <see cref="Relayout"/> afterwards.</summary>
+    public static byte[] WithSections(byte[] blob, IReadOnlyList<(uint Before, uint Id, uint CountWord, uint LengthWord)> added)
+    {
+        var secs = Sections(blob);
+        int fileLength = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(0x10));
+        int fixCount = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(0x14));
+        var table = new List<(uint Id, int OldOffset, int Size, uint CountWord, uint LengthWord)>();
+        foreach (var sec in secs)
+        {
+            foreach (var a in added.Where(a => a.Before == sec.Id))
+            {
+                if (Find(secs, a.Id) != null) throw new InvalidDataException($"section 0x{a.Id:X} already exists");
+                table.Add((a.Id, -1, 0, (a.CountWord & 0x10000000) != 0 ? 0x10000000u : a.CountWord, (a.CountWord & 0x10000000) != 0 ? a.LengthWord : 0));
+            }
+            table.Add((sec.Id, sec.Offset, sec.Size, sec.CountWord, sec.LengthWord));
+        }
+        if (table.Count != secs.Count + added.Count) throw new InvalidDataException("a section to insert before is missing");
+        int header = 0x20 + 16 * table.Count;
+        var offsets = new int[table.Count];
+        int pos = header;
+        for (int i = 0; i < table.Count; i++) { offsets[i] = Align(pos, 0x80); pos = offsets[i] + table[i].Size; }
+        int trailing = blob.Length - (fileLength + 4 * fixCount);
+        var output = new byte[pos + 4 * fixCount + trailing];
+        blob.AsSpan(0, 0x20).CopyTo(output);
+        BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(8), table.Count);
+        BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(0x0C), header);
+        BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(0x10), pos);
+        int end = header;
+        for (int i = 0; i < table.Count; i++)
+        {
+            var t = table[i];
+            int e = 0x20 + 16 * i;
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(e), t.Id);
+            BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(e + 4), offsets[i]);
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(e + 8), t.CountWord);
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(e + 12), t.LengthWord);
+            Pad(output.AsSpan(end, offsets[i] - end));
+            if (t.OldOffset >= 0) blob.AsSpan(t.OldOffset, t.Size).CopyTo(output.AsSpan(offsets[i]));
+            end = offsets[i] + t.Size;
+        }
+        int Remap(int offset)
+        {
+            for (int i = 0; i < table.Count; i++)
+                if (table[i].OldOffset >= 0 && offset >= table[i].OldOffset && offset < table[i].OldOffset + table[i].Size) return offsets[i] + (offset - table[i].OldOffset);
+            for (int i = 0; i < table.Count; i++)
+                if (table[i].OldOffset >= 0 && offset == table[i].OldOffset + table[i].Size) return offsets[i] + table[i].Size;
+            throw new InvalidDataException($"pointer 0x{offset:X} is in no section");
+        }
+        var fix = new List<int>();
+        for (int i = 0; i < fixCount; i++)
+        {
+            int f = BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(fileLength + 4 * i));
+            int field = Remap(f);
+            BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(field), Remap(BinaryPrimitives.ReadInt32BigEndian(blob.AsSpan(f))));
+            fix.Add(field);
+        }
+        fix.Sort();
+        for (int i = 0; i < fix.Count; i++) BinaryPrimitives.WriteInt32BigEndian(output.AsSpan(pos + 4 * i), fix[i]);
+        blob.AsSpan(blob.Length - trailing, trailing).CopyTo(output.AsSpan(pos + 4 * fixCount));
+        return output;
+    }
+
     /// <summary>The builder's gap filler: "PAD" and a hex digit, restarting at 0 in every gap.</summary>
     public static void Pad(Span<byte> gap)
     {

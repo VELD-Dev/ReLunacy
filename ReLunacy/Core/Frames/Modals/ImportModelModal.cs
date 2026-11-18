@@ -63,6 +63,8 @@ public sealed class ImportModelModal : Modal
     private string _collisionPath = "";
     private string _name = "";
     private float _scale = 1f;
+    private int _selected;
+    private readonly HashSet<ImportMaterialRow> _decided = [];
 
     private ImportModelModal(ModelImportSession session, List<EntityRegion> regions, string path)
     {
@@ -222,33 +224,234 @@ public sealed class ImportModelModal : Modal
         var s = _session;
         var materials = s.Materials;
         if (!ImGui.CollapsingHeader(LM.Get("GUI_ImportModel_Materials", materials.Count), ImGuiTreeNodeFlags.DefaultOpen)) return;
-        if (!ImGui.BeginTable("##materials", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg)) return;
-        ImGui.TableSetupColumn(LM.Get("GUI_ImportModel_Material"), ImGuiTableColumnFlags.WidthFixed, 200f);
-        ImGui.TableSetupColumn(LM.Get("GUI_ImportModel_Shader"), ImGuiTableColumnFlags.WidthFixed, 300f);
-        ImGui.TableHeadersRow();
-        for (int i = 0; i < materials.Count; i++)
+        if (!Busy)
+            foreach (var row in materials)
+                if (_decided.Add(row) && s.NewShaderProblem == null && row.NewShader == null && row.ShaderTuid == 0 && row.Auto == null && row.Info.BaseColorImage != null)
+                {
+                    row.NewShader = NewShaderRequest.From(row.Info);
+                    _buildDirty = true;
+                }
+        _selected = Math.Clamp(_selected, 0, Math.Max(0, materials.Count - 1));
+        if (materials.Count == 0) return;
+
+        float height = 330f;
+        if (ImGui.BeginChild("##materials", new Vector2(190f, height), ImGuiChildFlags.Borders))
         {
-            var row = materials[i];
-            ImGui.PushID(i);
-            ImGui.TableNextRow();
-            ImGui.TableNextColumn();
-            bool missing = row.ShaderTuid == 0;
-            if (missing) ImGui.PushStyleColor(ImGuiCol.Text, Bad);
-            ImGui.TextUnformatted(row.Info.Name.Length > 0 ? row.Info.Name : "-");
-            if (missing) ImGui.PopStyleColor();
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(LM.Get("GUI_ImportModel_MaterialInfo", row.Info.TriangleCount, row.Info.BaseColorTextureName ?? "-"));
-            ImGui.TableNextColumn();
-            DrawShaderCombo(row);
+            for (int i = 0; i < materials.Count; i++)
+            {
+                var row = materials[i];
+                bool missing = row.ShaderTuid == 0 && row.NewShader == null;
+                if (missing) ImGui.PushStyleColor(ImGuiCol.Text, Bad);
+                string label = row.Info.Name.Length > 0 ? row.Info.Name : "-";
+                if (ImGui.Selectable($"{label}##{i}", i == _selected)) _selected = i;
+                if (missing) ImGui.PopStyleColor();
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(LM.Get("GUI_ImportModel_MaterialInfo", row.Info.TriangleCount, row.Info.BaseColorTextureName ?? "-"));
+            }
+        }
+        ImGui.EndChild();
+        ImGui.SameLine();
+        if (ImGui.BeginChild("##material", new Vector2(480f, height), ImGuiChildFlags.Borders))
+        {
+            var row = materials[_selected];
+            ImGui.PushID(_selected);
+            DrawMaterial(row);
             ImGui.PopID();
         }
-        ImGui.EndTable();
+        ImGui.EndChild();
     }
 
-    private void DrawShaderCombo(ImportMaterialRow row)
+    private void DrawMaterial(ImportMaterialRow row)
+    {
+        bool canNew = _session.NewShaderProblem == null;
+        if (!canNew) row.NewShader = null;
+        DrawShaderChoice("base", ref row.ShaderTuid, ref row.NewShader, row.BuiltTemplate, () => NewShaderRequest.From(row.Info), canNew);
+
+        ImGui.Separator();
+        bool lit = row.Lightmapped || row.Overlay != null;
+        ImGui.BeginDisabled(row.Overlay != null);
+        if (ImGui.Checkbox(LM.Get("GUI_ImportModel_Lightmapped"), ref lit)) { row.Lightmapped = lit; _buildDirty = true; }
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ImportModel_LightmappedTip"));
+        ImGui.SameLine();
+        bool overlay = row.Overlay != null;
+        if (ImGui.Checkbox(LM.Get("GUI_ImportModel_Overlay"), ref overlay))
+        {
+            row.Overlay = overlay ? new ImportOverlay() : null;
+            _buildDirty = true;
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_OverlayTip"));
+        if (row.Overlay is not { } o) return;
+
+        ImGui.Indent();
+        var mask = _session.OverlayMask;
+        ImageSlot(LM.Get("GUI_ImportModel_OverlayMask"), "mask", ref mask, LM.Get("GUI_ImportModel_OverlayMaskTip"));
+        if (!ReferenceEquals(mask, _session.OverlayMask)) { _session.OverlayMask = mask; _buildDirty = true; }
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.DragFloat2(LM.Get("GUI_ImportModel_OverlayUvScale"), ref o.UvScale, 0.01f, 0.01f, 64f)) _buildDirty = true;
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.DragFloat2(LM.Get("GUI_ImportModel_OverlayUvOffset"), ref o.UvOffset, 0.01f, -64f, 64f)) _buildDirty = true;
+        DrawShaderChoice("overlay", ref o.ShaderTuid, ref o.NewShader, o.BuiltTemplate,
+            () => new NewShaderRequest { Name = $"{row.Info.Name}_overlay" }, canNew);
+        ImGui.Unindent();
+    }
+
+    /// <summary>Existing / new radios, then the shader combo or the new shader's settings.</summary>
+    private void DrawShaderChoice(string id, ref ulong tuid, ref NewShaderRequest? request, ShaderTemplate? built, Func<NewShaderRequest> make, bool canNew)
+    {
+        ImGui.PushID(id);
+        if (canNew)
+        {
+            if (ImGui.RadioButton(LM.Get("GUI_ImportModel_ModeExisting"), request == null) && request != null)
+            {
+                request = null;
+                _buildDirty = true;
+            }
+            ImGui.SameLine();
+            if (ImGui.RadioButton(LM.Get("GUI_ImportModel_NewShader"), request != null) && request == null)
+            {
+                request = make();
+                _buildDirty = true;
+            }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_NewShaderTip"));
+        }
+        if (request != null) DrawNewShader(request, built);
+        else DrawShaderCombo(ref tuid);
+        ImGui.PopID();
+    }
+
+    private void DrawNewShader(NewShaderRequest r, ShaderTemplate? built)
+    {
+        ImGui.SetNextItemWidth(220f);
+        ImGui.InputText(LM.Get("GUI_ImportModel_ShaderName"), ref r.Name, 63);
+        if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
+
+        var shaderClass = ShaderClasses.Find(r.Class);
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.BeginCombo(LM.Get("GUI_ImportModel_Class"), shaderClass?.Name ?? $"0x{r.Class:X2}"))
+        {
+            foreach (var c in ShaderClasses.Creatable)
+                if (ImGui.Selectable(c.Name, c.Id == r.Class) && c.Id != r.Class) { r.Class = c.Id; r.TemplateTuid = 0; _buildDirty = true; }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_ClassTip"));
+
+        ImageSlot(LM.Get("GUI_ImportModel_SlotAlbedo"), "albedo", ref r.Albedo);
+        ImageSlot(LM.Get("GUI_ImportModel_SlotNormal"), "normal", ref r.Normal);
+        ImageSlot(LM.Get("GUI_ImportModel_SlotExpensive"), "expensive", ref r.Expensive, LM.Get("GUI_ImportModel_SlotExpensiveTip"));
+        ImageSlot(LM.Get("GUI_ImportModel_SlotDetail"), "detail", ref r.Detail, LM.Get("GUI_ImportModel_SlotDetailTip"));
+        ImageSlot(LM.Get("GUI_ImportModel_SlotEmissive"), "emissive", ref r.Emissive, LM.Get("GUI_ImportModel_SlotEmissiveTip"));
+
+        ImGui.SetNextItemWidth(220f);
+        ImGui.ColorEdit4(LM.Get("GUI_ImportModel_Factor"), ref r.AlbedoFactor);
+        if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
+        ImGui.SetNextItemWidth(220f);
+        ImGui.ColorEdit3(LM.Get("GUI_ImportModel_EmissiveFactor"), ref r.EmissiveFactor, ImGuiColorEditFlags.Hdr | ImGuiColorEditFlags.Float);
+        if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
+        bool specular = r.Specular != null;
+        if (ImGui.Checkbox(LM.Get("GUI_ImportModel_Specular"), ref specular)) { r.Specular = specular ? 0.25f : null; _buildDirty = true; }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_SpecularTip"));
+        if (r.Specular is { } level)
+        {
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120f);
+            if (ImGui.SliderFloat("##specular", ref level, 0f, 1f)) r.Specular = level;
+            if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
+        }
+
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.BeginCombo(LM.Get("GUI_ImportModel_Alpha"), AlphaName(r.Alpha)))
+        {
+            foreach (var mode in Enum.GetValues<ImportAlphaMode>())
+                if (ImGui.Selectable(AlphaName(mode), mode == r.Alpha) && mode != r.Alpha) { r.Alpha = mode; _buildDirty = true; }
+            ImGui.EndCombo();
+        }
+        if (ImGui.Checkbox(LM.Get("GUI_ImportModel_DoubleSided"), ref r.DoubleSided)) _buildDirty = true;
+        ImGui.SameLine();
+        if (ImGui.Checkbox(LM.Get("GUI_ImportModel_FlipGreen"), ref r.FlipNormalGreen)) _buildDirty = true;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_FlipGreenTip"));
+
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.BeginCombo(LM.Get("GUI_ImportModel_MaxSize"), r.MaxSize.ToString()))
+        {
+            foreach (int size in MaxSizes)
+                if (ImGui.Selectable(size.ToString(), size == r.MaxSize) && size != r.MaxSize) { r.MaxSize = size; _buildDirty = true; }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_MaxSizeTip"));
+
+        var templates = _session.ShaderTemplates.Where(t => t.Class == r.Class).ToList();
+        var chosen = r.TemplateTuid == 0 ? null : templates.FirstOrDefault(t => t.Tuid == r.TemplateTuid);
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.BeginCombo(LM.Get("GUI_ImportModel_Template"), chosen?.Candidate.DisplayName ?? LM.Get("GUI_ImportModel_TemplateAuto")))
+        {
+            if (ImGui.Selectable(LM.Get("GUI_ImportModel_TemplateAuto"), r.TemplateTuid == 0) && r.TemplateTuid != 0) { r.TemplateTuid = 0; _buildDirty = true; }
+            foreach (var t in templates)
+            {
+                if (ImGui.Selectable($"{t.Candidate.DisplayName}##{t.Tuid:X}", t.Tuid == r.TemplateTuid) && t.Tuid != r.TemplateTuid) { r.TemplateTuid = t.Tuid; _buildDirty = true; }
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(t.SlotSummary);
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered() && chosen != null) ImGui.SetTooltip(chosen.SlotSummary);
+
+        if (built != null && !_buildDirty && !Busy)
+        {
+            ImGui.TextUnformatted(LM.Get("GUI_ImportModel_BuiltFrom", built.Candidate.DisplayName));
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(built.SlotSummary);
+            string key = TieShaderFactory.SafeName(r.Name);
+            var shader = _session.BuiltShaders.FirstOrDefault(p => p.Name == $"{key}/{key}");
+            if (shader != null)
+                foreach (var texture in shader.Textures)
+                {
+                    var t = texture.Texture;
+                    string format = t.Format switch { 0x08 => "DXT5", 0x05 => "ARGB8", _ => "DXT1" };
+                    ImGui.TextDisabled(LM.Get("GUI_ImportModel_BuiltTexture", t.Kind, t.Width, t.Height, format, t.MipCount));
+                }
+        }
+    }
+
+    private static readonly int[] MaxSizes = [256, 512, 1024, 2048];
+
+    private static string AlphaName(ImportAlphaMode mode) => mode switch
+    {
+        ImportAlphaMode.Cutout => LM.Get("GUI_ImportModel_AlphaCutout"),
+        ImportAlphaMode.Blend => LM.Get("GUI_ImportModel_AlphaBlend"),
+        _ => LM.Get("GUI_ImportModel_AlphaOpaque"),
+    };
+
+    private void ImageSlot(string label, string id, ref ImportImage? image, string? tip = null)
+    {
+        ImGui.PushID(id);
+        ImGui.TextUnformatted(label);
+        if (tip != null && ImGui.IsItemHovered()) ImGui.SetTooltip(tip);
+        ImGui.SameLine(110f);
+        string source = image == null ? LM.Get("GUI_ImportModel_SlotNone")
+            : image.SourcePath != null ? Path.GetFileName(image.SourcePath) : image.Name.Length > 0 ? image.Name : "-";
+        ImGui.TextDisabled(source);
+        ImGui.SameLine(330f);
+        if (ImGui.Button("...") && Pick.File("png,jpg,jpeg") is { } picked)
+        {
+            try
+            {
+                image = ImportImage.FromFile(picked);
+                _buildDirty = true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _error = e.Message; }
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_Browse"));
+        ImGui.SameLine();
+        ImGui.BeginDisabled(image == null);
+        if (ImGui.Button(Icons.Close)) { image = null; _buildDirty = true; }
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ImportModel_Clear"));
+        ImGui.PopID();
+    }
+
+    private void DrawShaderCombo(ref ulong tuid)
     {
         var catalog = _session.Catalog;
-        var current = catalog.Find(row.ShaderTuid);
+        var current = catalog.Find(tuid);
         string preview = current?.DisplayName ?? LM.Get("GUI_ImportModel_NoShader");
         ImGui.SetNextItemWidth(290f);
         bool open = ImGui.BeginCombo("##shader", preview);
@@ -268,9 +471,9 @@ public sealed class ImportModelModal : Modal
                     && !(candidate.AlbedoName?.Contains(_filter, StringComparison.OrdinalIgnoreCase) ?? false)) continue;
                 if (proven && !candidate.TieProven) { proven = false; ImGui.Separator(); }
                 string label = candidate.AlbedoName is { Length: > 0 } albedo ? $"{candidate.DisplayName}  [{albedo}]" : candidate.DisplayName;
-                if (ImGui.Selectable($"{label}##{candidate.Tuid:X}", candidate.Tuid == row.ShaderTuid))
+                if (ImGui.Selectable($"{label}##{candidate.Tuid:X}", candidate.Tuid == tuid))
                 {
-                    row.ShaderTuid = candidate.Tuid;
+                    tuid = candidate.Tuid;
                     _buildDirty = true;
                     ImGui.CloseCurrentPopup();
                 }

@@ -242,7 +242,12 @@ public static partial class TieAppender
         // A class that was just registered has none: it copies a plain placement of the zone (TieAppender.Classes.cs).
         RegisteredTieClass? imported = null;
         if (sources.Count == 0 && level.Imported?.TryGetValue(request.ClassTuid, out imported) == true)
+        {
             sources.AddRange(TemplatePlacements(zones, zonePointers, zi));
+            // A lightmapped class copies a baked placement (its baked-light constants and lightmap sampler), from any zone.
+            if (imported.LightmappedPrimitives > 0 && !sources.Any(s => s.Baked))
+                sources.InsertRange(0, TemplatePlacements(zones, zonePointers, -1).Where(s => s.Baked));
+        }
         if (sources.Count == 0) throw new Refusal("the level has no placement of this class to copy");
 
         var lightingPointers = Pointers(lookup, LightingPointers);
@@ -251,7 +256,9 @@ public static partial class TieAppender
         const uint none = 0xFFFFFFFF;
         // A baked source's lightmap pair can be copied when this zone has a slice and lightmap tables to take it.
         bool canBake = slice >= 0 && IghwRelayout.Find(secs, Lightmaps) != null && IghwRelayout.Find(secs, Directions) != null;
-        var source = Pick(s => s.Zone == zi && !s.Baked && s.Prelight != none)
+        bool litImport = imported is { LightmappedPrimitives: > 0 };
+        var source = (litImport ? Pick(s => s.Zone == zi && s.Baked) ?? Pick(s => s.Baked) : null)
+                     ?? Pick(s => s.Zone == zi && !s.Baked && s.Prelight != none)
                      ?? (slice >= 0 ? Pick(s => s.Zone != zi && !s.Baked && s.Prelight != none) : null)
                      ?? Pick(s => s.Zone == zi && !s.Baked)
                      ?? Pick(s => s.Zone == zi)
@@ -316,8 +323,17 @@ public static partial class TieAppender
         // Lighting.
         string lighting;
         byte[]? newSlice = null;
-        if (imported != null)
+        if (litImport && canBake && src.Baked && NeutralLightmap(level, lightingPointers, slice, src, srcBlob, blob, record, payloads, imported!) is { } neutral)
+        {
+            newSlice = neutral.Slice;
+            lighting = neutral.Note;
+        }
+        else if (imported != null)
+        {
             lighting = ImportedLighting(level, lightingPointers, slice, src, srcBlob, record, imported, out newSlice);
+            if (litImport)
+                problems.Add($"Tie {request.Name}: no lightmap pair could be written ({(canBake ? "the level has no baked placement to copy" : "the zone has no lightmap tables")}); its lightmapped primitives are unlit");
+        }
         else if (src.Baked && canBake && BakedLighting(level, lightingPointers, slice, src, srcBlob, blob, record, payloads) is { } baked)
         {
             newSlice = baked.Slice;
@@ -667,25 +683,37 @@ public static partial class TieAppender
     // ---------------------------------------------------------------------------------------------------------------
     // Files
 
+    /// <summary>The level files in level_uncached.psarc, listed by level_uncached.toc instead of level_cached.toc.</summary>
+    private static bool IsUncached(string name) => name.Equals("highmips.dat", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsToc(string name) => name.EndsWith(".toc", StringComparison.OrdinalIgnoreCase);
+
     private static void UpdateToc(Level level, List<string> problems)
     {
-        byte[]? toc = level.Get("level_cached.toc");
-        if (toc == null) { problems.Add("level_cached.toc not found: its file sizes were not updated"); return; }
+        UpdateToc(level, problems, "level_cached.toc", n => !IsUncached(n));
+        if (level.Changed.Any(IsUncached)) UpdateToc(level, problems, "level_uncached.toc", IsUncached);
+    }
+
+    private static void UpdateToc(Level level, List<string> problems, string tocName, Func<string, bool> listed)
+    {
+        byte[]? toc = level.Get(tocName);
+        if (toc == null) { problems.Add($"{tocName} not found: its file sizes were not updated"); return; }
         var index = GameToc.Read(toc);
         bool any = false;
-        foreach (string name in level.Changed)
+        foreach (string name in level.Changed.ToList())
         {
+            if (IsToc(name) || !listed(name)) continue;
             long before = level.OriginalLength[name], after = level.Files[name].Length;
             if (before == after) continue;
             // Entries are named by their build path: /built/levels/<level>/zones.dat, .../default/collision.dat.
             var matches = Enumerable.Range(0, index.Index.Count)
                 .Where(i => index.NameOf(index.Index[i].NameSpan).EndsWith("/" + name, StringComparison.OrdinalIgnoreCase) && index.SizeOf(i) == before)
                 .ToList();
-            if (matches.Count != 1) { problems.Add($"level_cached.toc: {name} found {matches.Count} times at its old size, not updated"); continue; }
+            if (matches.Count != 1) { problems.Add($"{tocName}: {name} found {matches.Count} times at its old size, not updated"); continue; }
             index.SetSize(matches[0], after);
             any = true;
         }
-        if (any) level.Set("level_cached.toc", index.Write());
+        if (any) level.Set(tocName, index.Write());
     }
 
     /// <summary>

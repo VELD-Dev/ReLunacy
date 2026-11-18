@@ -69,6 +69,93 @@ public static partial class TieAppender
                        (prelightBytes > 0 ? $", prelight {prelightBytes} bytes)" : ")"));
     }
 
+    /// <summary>
+    /// A neutral lightmap pair for a placement of an imported lightmapped class, until a bake writes a real one: the baked source
+    /// placement's pair sampler words (format, address, filter, remap) on a flat 8 x 8, one-mip texture of the source pair's average
+    /// colour (its first mip's DXT1 endpoints averaged), for both the colour (0x5400) and the direction (0x5410) map; appended to the
+    /// target slice (0x80 aligned) with two new descriptors, the record's +0x5A naming them, and a zero 0x5460 entry when the zone has
+    /// one. The baked-light constants (+0x60..+0x6C) stay as the source has them. A class with unlit primitives also gets
+    /// VertexCount neutral prelight words (as <see cref="ImportedLighting"/>). Null when the source pair is not DXT1 or not readable.
+    /// The pair is the placement's own (no retail placements share one), so a bake can overwrite its texels or replace it.
+    /// </summary>
+    private static (byte[] Slice, string Note)? NeutralLightmap(Level level, List<(ulong Tuid, int Offset, int Length)> lightingPointers, int slice,
+        Source src, byte[] srcBlob, byte[] blob, byte[] record, Dictionary<uint, byte[]> payloads, RegisteredTieClass cls)
+    {
+        byte[]? file = level.Get("lighting.dat");
+        int srcSlice = lightingPointers.FindIndex(p => p.Tuid == src.ZoneTuid);
+        if (file == null || srcSlice < 0 || slice < 0) return null;
+        var ss = IghwRelayout.Sections(srcBlob);
+        var sl = IghwRelayout.Find(ss, Lightmaps);
+        var sd = IghwRelayout.Find(ss, Directions);
+        int k = BinaryPrimitives.ReadUInt16BigEndian(record.AsSpan(0x5A));
+        if (sl == null || sd == null || sl.LengthWord != 0x20 || sd.LengthWord != 0x20 || k >= sl.Count || k >= sd.Count) return null;
+        var ts = IghwRelayout.Sections(blob);
+        var tl = IghwRelayout.Find(ts, Lightmaps)!;
+        var td = IghwRelayout.Find(ts, Directions)!;
+        var th = IghwRelayout.Find(ts, HighMips);
+        if (tl.LengthWord != 0x20 || td.LengthWord != 0x20 || tl.Count != td.Count || tl.Count >= 0xFFFF) return null;
+        if (th != null && (th.LengthWord != 0x10 || th.Count != tl.Count)) return null;
+
+        var (_, so, slen) = lightingPointers[srcSlice];
+        var (_, to, tlen) = lightingPointers[slice];
+        byte[]? Flat(byte[] descriptor)
+        {
+            if ((descriptor[6] & 0x1F) != 0x06) return null;
+            int w = BinaryPrimitives.ReadUInt16BigEndian(descriptor.AsSpan(0x18)), h = BinaryPrimitives.ReadUInt16BigEndian(descriptor.AsSpan(0x1A));
+            uint at = BinaryPrimitives.ReadUInt32BigEndian(descriptor);
+            int blocks = Math.Max(1, (w + 3) / 4) * Math.Max(1, (h + 3) / 4);
+            if (w == 0 || h == 0 || at + 8L * blocks > slen) return null;
+            double r = 0, g = 0, b = 0;
+            for (int i = 0; i < blocks; i++)
+                foreach (int e in new[] { 0, 2 })
+                {
+                    int c = BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(so + (int)at + 8 * i + e));
+                    r += c >> 11 & 31; g += c >> 5 & 63; b += c & 31;
+                }
+            int n = 2 * blocks;
+            ushort colour = (ushort)((int)Math.Round(r / n) << 11 | (int)Math.Round(g / n) << 5 | (int)Math.Round(b / n));
+            var texels = new byte[8 * 4];
+            for (int i = 0; i < 4; i++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(texels.AsSpan(8 * i), colour);
+                BinaryPrimitives.WriteUInt16LittleEndian(texels.AsSpan(8 * i + 2), colour);
+            }
+            return texels;
+        }
+        byte[] light = srcBlob.AsSpan(sl.Offset + 0x20 * k, 0x20).ToArray();
+        byte[] direction = srcBlob.AsSpan(sd.Offset + 0x20 * k, 0x20).ToArray();
+        if (Flat(light) is not { } lightTexels || Flat(direction) is not { } directionTexels) return null;
+
+        const uint none = 0xFFFFFFFF;
+        bool unlit = cls.Primitives > cls.LightmappedPrimitives;
+        int newLight = IghwRelayout.Align(tlen, 0x80);
+        int newDirection = IghwRelayout.Align(newLight + lightTexels.Length, 0x80);
+        int newPrelight = IghwRelayout.Align(newDirection + directionTexels.Length, 0x80);
+        int prelightBytes = unlit ? 4 * cls.VertexCount : 0;
+        var bytes = new byte[unlit ? newPrelight + prelightBytes : newDirection + directionTexels.Length];
+        file.AsSpan(to, tlen).CopyTo(bytes);
+        lightTexels.CopyTo(bytes, newLight);
+        directionTexels.CopyTo(bytes, newDirection);
+        for (int i = 0; i < prelightBytes; i += 4) BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(newPrelight + i), 0x822E8080);
+
+        foreach (var (d, at) in new[] { (light, newLight), (direction, newDirection) })
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(d, (uint)at);
+            BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(4), 1);
+            uint control0 = BinaryPrimitives.ReadUInt32BigEndian(d.AsSpan(12));
+            BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(12), control0 & ~(0xFFFu << 15));
+            BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(0x18), 8);
+            BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(0x1A), 8);
+        }
+        payloads[Lightmaps] = Concat(blob.AsSpan(tl.Offset, tl.Size), light);
+        payloads[Directions] = Concat(blob.AsSpan(td.Offset, td.Size), direction);
+        if (th != null) payloads[HighMips] = Concat(blob.AsSpan(th.Offset, th.Size), new byte[0x10]);
+        BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(0x5A), (ushort)tl.Count);
+        BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(0x54), unlit ? (uint)newPrelight : none);
+        RaiseLightmapBudget(level, lightingPointers[slice].Tuid);
+        return (bytes, $"neutral lightmap pair (flat average of {src.Name}'s)" + (unlit ? $", neutral prelight {cls.VertexCount} words" : ""));
+    }
+
     /// <summary>assetstats +0x14 = the most lightmap pairs (0x5400 entries) any region's zones hold, with the one being
     /// added to <paramref name="zoneTuid"/>.</summary>
     private static void RaiseLightmapBudget(Level level, ulong zoneTuid)

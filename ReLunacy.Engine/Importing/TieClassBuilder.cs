@@ -9,7 +9,7 @@ namespace ReLunacy.Engine.Importing;
 /// <summary>A built Tie class container and what registering it in a level needs: the bytes go to ties.dat (0x80
 /// aligned) with {<see cref="Tuid"/>, offset, length} in assetlookup 0x1D300 and 0x1D301, <see cref="ShaderTuids"/> must be in
 /// the region's 0x1C100, <see cref="Tuid"/> in 0x1C300, and a placement needs <see cref="VertexCount"/> prelight
-/// words (the class has no lightmap array and every primitive is unlit).</summary>
+/// words for its unlit primitives and, when it has lightmapped ones, a lightmap pair (<see cref="Lightmapped"/>).</summary>
 public sealed class TieClassResult
 {
     /// <summary>Why the class was not built; the other members are then empty.</summary>
@@ -22,6 +22,9 @@ public sealed class TieClassResult
     /// <summary>Model slot to class slot, -1 for a slot no primitive uses.</summary>
     public int[] SlotMap = [];
     public int PrimitiveCount, VertexCount, IndexCount;
+    /// <summary>Primitives with the lightmap gate, and those with an overlay layer.</summary>
+    public int LightmappedPrimitives, OverlayPrimitives;
+    public bool Lightmapped => LightmappedPrimitives > 0;
     public Vector3 Scale, BoundsCentre, BoundsHalf;
     /// <summary>xyz centre, w radius (0x3400 +0x30).</summary>
     public Vector4 Sphere;
@@ -34,8 +37,15 @@ public sealed class TieClassResult
 /// same level so the header, fix-ups and the fields nobody has decoded come from a loadable class: 0x3400 +0x0E, +0x1C,
 /// +0x74, +0x78 and the rest not listed below are copied. Written fresh: the vertex block (20 B, per-axis scale = max(1, max
 /// |coordinate|) / 32767, no offset), the u16 indices, the 0x3300 primitives (unlit, one LOD repeated four times, slot stored
-/// twice, single layer), the 0x3F00 boxes (half extents, centre, half-diagonal), the 0x3500 densities, 0x5600, 0x5B00 (0), the name, and 0x3400's count, vertex
-/// bytes, scale, sphere, AABB and TUID. No lightmap array and no prelight: placements are lit by their own prelight words.
+/// twice), the 0x3F00 boxes (half extents, centre, half-diagonal), the 0x3500 densities, 0x5600, 0x5B00 (0), the name, and 0x3400's count, vertex
+/// bytes, scale, sphere, AABB and TUID.
+/// Lightmapped primitives (+0x0E bit 0) get their UV1 in the Half2 array after the vertex block (0x3000), from +0x06; an unlit
+/// primitive holds the next lightmapped start there (PROVEN, ACiT). Overlay primitives (PROVEN on the 55 retail overlay classes:
+/// every one of their 593 overlay primitives is lightmapped) have +0x0A 0 (the class's one mask), +0x22 / +0x2B the second slot,
+/// +0x28 their window into a second Half2 run after the lightmap array, which 0x3400 +0x74 points at (byte offset in 0x3000 =
+/// vertex bytes + 4 x lightmap entries; 0x3000 ends with the run), and the class gets 0x5800 (the mask's DXT1 texels), 0x5700
+/// (its descriptor: offset 0, one mip, 0x86 | 0x29, address 0x30101, CONTROL0 0x80000000, CONTROL1 0xAAE4, filter 0x02022000,
+/// CONTROL3 0x00100000, as all 55 retail ones) and 0x5900 {id, bytes} before 0x3000. The layer weight is the vertex alpha in w.
 /// </summary>
 public static class TieClassBuilder
 {
@@ -109,17 +119,27 @@ public static class TieClassBuilder
         foreach (var p in prims)
         {
             var slot = model.Slots[p.Slot];
-            if (slot.Lightmapped) return Fail(result, $"slot '{slot.Name}' is lightmapped; a lightmap unwrap is not written yet");
-            if (slot.BlendMask != 0xFFFF) return Fail(result, $"slot '{slot.Name}' is two-layer; blend masks are not generated");
+            if (slot.Lightmapped && p.Uv1 == null) return Fail(result, $"slot '{slot.Name}' is lightmapped and the model has no second UV set (TEXCOORD_1)");
+            if (slot.OverlaySlot >= 0)
+            {
+                if (slot.OverlaySlot >= model.Slots.Count || slot.OverlaySlot == p.Slot) return Fail(result, $"slot '{slot.Name}' has no valid overlay layer");
+                if (!slot.Lightmapped) return Fail(result, $"slot '{slot.Name}' has an overlay layer and is not lightmapped (every retail overlay primitive is)");
+                if (slot.BlendMask != 0 || model.OverlayMask == null) return Fail(result, $"slot '{slot.Name}' has an overlay layer and the class has no overlay mask");
+            }
+            else if (slot.BlendMask != 0xFFFF) return Fail(result, $"slot '{slot.Name}' has a blend mask and no overlay layer");
             if (slot.Fades.Length != 4) return Fail(result, $"slot '{slot.Name}' needs four fades");
         }
         int vertexTotal = prims.Sum(p => p.Positions.Length);
         if (vertexTotal > ushort.MaxValue) return Fail(result, $"{vertexTotal} vertices (the vertex start is u16)");
+        if (prims.Where(p => model.Slots[p.Slot].Lightmapped).Sum(p => p.Positions.Length) > ushort.MaxValue)
+            return Fail(result, "more than 65535 lightmapped vertices (+0x06 is u16)");
 
         // Used slots only, in model order.
         var slotMap = new int[model.Slots.Count];
         Array.Fill(slotMap, -1);
-        foreach (int s in prims.Select(p => p.Slot).Distinct().Order()) slotMap[s] = slotMap.Count(x => x >= 0);
+        var used = prims.Select(p => p.Slot).ToHashSet();
+        used.UnionWith(used.Select(s => model.Slots[s].OverlaySlot).Where(s => s >= 0).ToList());
+        foreach (int s in used.Order()) slotMap[s] = slotMap.Count(x => x >= 0);
         int usedSlots = slotMap.Count(x => x >= 0);
         if (usedSlots > 255) return Fail(result, $"{usedSlots} slots");
 
@@ -138,6 +158,9 @@ public static class TieClassBuilder
         var classMin = new Vector3(float.MaxValue); var classMax = new Vector3(float.MinValue);
         var decoded = new List<Vector3>(vertexTotal);
         int vertexAt = 0, indexAt = 0;
+        var lightmapUvs = new List<Vector2>();
+        var overlayUvs = new List<Vector2>();
+        int lit = 0, overlays = 0;
         for (int i = 0; i < prims.Count; i++)
         {
             var p = prims[i];
@@ -154,7 +177,7 @@ public static class TieClassBuilder
                 BinaryPrimitives.WriteInt16BigEndian(o, qx);
                 BinaryPrimitives.WriteInt16BigEndian(o[2..], qy);
                 BinaryPrimitives.WriteInt16BigEndian(o[4..], qz);
-                BinaryPrimitives.WriteInt16BigEndian(o[6..], VertexW(p.Tangents[v].W, p.Colors?[v].W ?? 1f));
+                BinaryPrimitives.WriteInt16BigEndian(o[6..], VertexW(p.Tangents[v].W, p.Colors?[v].W ?? 1f, slot.OverlaySlot >= 0));
                 BinaryPrimitives.WriteHalfBigEndian(o[8..], (Half)p.Uv0[v].X);
                 BinaryPrimitives.WriteHalfBigEndian(o[10..], (Half)p.Uv0[v].Y);
                 BinaryPrimitives.WriteUInt32BigEndian(o[12..], PackedNormal.EncodeForImport(Unit(p.Normals[v], Vector3.UnitY)));
@@ -167,9 +190,16 @@ public static class TieClassBuilder
             var a = primitives.AsSpan(i * PrimitiveSize, PrimitiveSize);
             BinaryPrimitives.WriteUInt32BigEndian(a, (uint)indexAt);
             BinaryPrimitives.WriteUInt16BigEndian(a[4..], (ushort)vertexAt);
-            // +0x06 stays 0: an unlit primitive holds the next lightmapped start, which is the (empty) array's end.
+            // +0x06: a lightmapped primitive's first entry in the lightmap array; an unlit one holds the next lightmapped start.
+            BinaryPrimitives.WriteUInt16BigEndian(a[6..], (ushort)lightmapUvs.Count);
+            if (slot.Lightmapped)
+            {
+                lightmapUvs.AddRange(p.Uv1!);
+                a[0x0E] = 1;
+                lit++;
+            }
             BinaryPrimitives.WriteUInt16BigEndian(a[8..], (ushort)p.Positions.Length);
-            BinaryPrimitives.WriteUInt16BigEndian(a[0x0A..], 0xFFFF);
+            BinaryPrimitives.WriteUInt16BigEndian(a[0x0A..], slot.BlendMask);
             a[0x0D] = (byte)p.Batch;
             a[0x0F] = 1;
             for (int r = 0; r < 4; r++)
@@ -181,6 +211,15 @@ public static class TieClassBuilder
             a[0x21] = cs; a[0x2A] = cs; a[0x2B] = 0xFF;
             BinaryPrimitives.WriteUInt16BigEndian(a[0x22..], 0xFFFF);
             BinaryPrimitives.WriteUInt16BigEndian(a[0x28..], 0xFFFF);
+            if (slot.OverlaySlot >= 0)
+            {
+                byte second = (byte)slotMap[slot.OverlaySlot];
+                BinaryPrimitives.WriteUInt16BigEndian(a[0x22..], second);
+                a[0x2B] = second;
+                BinaryPrimitives.WriteUInt16BigEndian(a[0x28..], (ushort)overlayUvs.Count);
+                foreach (var uv in p.Uv0) overlayUvs.Add(uv * slot.OverlayUvScale + slot.OverlayUvOffset);
+                overlays++;
+            }
             a[0x24] = slot.FeatureMask;
             for (int k = 0; k < 4; k++) BinaryPrimitives.WriteInt16BigEndian(a[(0x30 + 2 * k)..], slot.Fades[k]);
 
@@ -227,13 +266,49 @@ public static class TieClassBuilder
         WriteVector3(definition.AsSpan(0x40), half);
         WriteVector3(definition.AsSpan(0x50), centre);
         BinaryPrimitives.WriteUInt64BigEndian(definition.AsSpan(0x68), tuid);
+        // +0x74: the overlay run's byte offset in 0x3000 (not fixed up), FFFFFFFF without one.
+        BinaryPrimitives.WriteUInt32BigEndian(definition.AsSpan(0x74), overlays > 0 ? (uint)(vertices.Length + 4 * lightmapUvs.Count) : 0xFFFFFFFF);
 
+        var block = new byte[vertices.Length + 4 * (lightmapUvs.Count + overlayUvs.Count)];
+        vertices.CopyTo(block, 0);
+        int uvAt = vertices.Length;
+        foreach (var uv in lightmapUvs.Concat(overlayUvs))
+        {
+            BinaryPrimitives.WriteHalfBigEndian(block.AsSpan(uvAt), (Half)uv.X);
+            BinaryPrimitives.WriteHalfBigEndian(block.AsSpan(uvAt + 2), (Half)uv.Y);
+            uvAt += 4;
+        }
         var payloads = new Dictionary<uint, byte[]>
         {
-            [0x5600] = shaders, [0x5B00] = flags, [0x3000] = vertices, [0x3200] = indices, [0x3F00] = boxes,
+            [0x5600] = shaders, [0x5B00] = flags, [0x3000] = block, [0x3200] = indices, [0x3F00] = boxes,
             [0x3300] = primitives, [0x3500] = slotRecords, [0x3410] = name, [0x3400] = definition,
         };
-        result.Bytes = IghwRelayout.Relayout(template, payloads);
+        byte[] layout = template;
+        if (overlays > 0)
+        {
+            var mask = model.OverlayMask!;
+            if (mask.Format != 0x06 || mask.MipCount != 1 || mask.Width != mask.Height) return Fail(result, "the overlay mask must be a square single-mip DXT1");
+            layout = IghwRelayout.WithSections(template, [(0x3000, 0x5800, 1, 0), (0x3000, 0x5700, 0x10000000, 0x20), (0x3000, 0x5900, 0x10000000, 8)]);
+            var descriptor = new byte[0x20];
+            BinaryPrimitives.WriteUInt16BigEndian(descriptor.AsSpan(4), 1);
+            descriptor[6] = 0x86; descriptor[7] = 0x29;
+            BinaryPrimitives.WriteUInt32BigEndian(descriptor.AsSpan(8), 0x00030101);
+            BinaryPrimitives.WriteUInt32BigEndian(descriptor.AsSpan(12), 0x80000000);
+            BinaryPrimitives.WriteUInt32BigEndian(descriptor.AsSpan(16), 0xAAE4);
+            BinaryPrimitives.WriteUInt32BigEndian(descriptor.AsSpan(20), 0x02022000);
+            BinaryPrimitives.WriteUInt16BigEndian(descriptor.AsSpan(24), (ushort)mask.Width);
+            BinaryPrimitives.WriteUInt16BigEndian(descriptor.AsSpan(26), (ushort)mask.Height);
+            BinaryPrimitives.WriteUInt32BigEndian(descriptor.AsSpan(28), 0x00100000);
+            var id = new byte[8];
+            BinaryPrimitives.WriteUInt32BigEndian(id, model.OverlayMaskId);
+            BinaryPrimitives.WriteInt32BigEndian(id.AsSpan(4), mask.Chain.Length);
+            payloads[0x5800] = mask.Chain;
+            payloads[0x5700] = descriptor;
+            payloads[0x5900] = id;
+        }
+        result.Bytes = IghwRelayout.Relayout(layout, payloads);
+        result.LightmappedPrimitives = lit;
+        result.OverlayPrimitives = overlays;
         result.ShaderTuids = shaderTuids;
         result.SlotMap = slotMap;
         result.PrimitiveCount = prims.Count;
@@ -251,11 +326,12 @@ public static class TieClassBuilder
     private static short Quantise(float v, float scale) => (short)Math.Clamp(MathF.Round(v / scale), -32767f, 32767f);
 
     /// <summary>+0x06: sign = minus the UV handedness, magnitude 0x7F80 + 127 x alpha. Opaque is what retail writes,
-    /// 0x8000 for a negative and 0x7F80 for a positive word.</summary>
-    private static short VertexW(float handedness, float alpha)
+    /// 0x8000 for a negative and 0x7F80 for a positive word. On an overlay primitive the low 7 bits are the layer weight
+    /// (|w| &amp; 0x7F = 127 on most retail overlay vertices), so a full weight is written as 127.</summary>
+    private static short VertexW(float handedness, float alpha, bool overlay = false)
     {
         bool negative = handedness >= 0;
-        if (alpha >= 1f) return negative ? short.MinValue : (short)0x7F80;
+        if (alpha >= 1f && !overlay) return negative ? short.MinValue : (short)0x7F80;
         int magnitude = Math.Min(0x7F80 + (int)MathF.Round(127f * Math.Clamp(alpha, 0f, 1f)), 0x7FFF);
         return (short)(negative ? -magnitude : magnitude);
     }

@@ -1,17 +1,19 @@
 using System.Text.Json.Nodes;
+using ReLunacy.Engine.Packing;
 using ReLunacy.Engine.Projects;
 
 namespace ReLunacy.Engine.Importing;
 
 /// <summary>
-/// Keeps what a model import was made from in the project (manifest <c>editor.importedAssets</c>, the model files under
-/// <c>&lt;project&gt;.d/imports/&lt;name&gt;/</c>), so it can be made again. An import done with no project open waits until a project
-/// takes its first save. Installs nothing.
+/// Keeps what a model import was made from in the project (manifest <c>editor.importedAssets</c>, the model files and the source
+/// images of new shaders under <c>&lt;project&gt;.d/imports/&lt;name&gt;/</c>), so it can be made again. An import done with no project
+/// open waits until a project takes its first save. Installs nothing.
 /// </summary>
 public static class ImportRecords
 {
     private sealed record Snapshot(string ModelPath, string CollisionPath, ModelCollisionSource Source, float Scale, bool FlipV,
-        string Region, ulong Tuid, string Name, List<ImportMaterialRow> Materials, List<CollisionMaterialRow> CollisionRows);
+        string Region, ulong Tuid, string Name, List<ImportMaterialRow> Materials, List<CollisionMaterialRow> CollisionRows,
+        Dictionary<NewShaderRequest, PendingShader> NewShaders, ImportImage? OverlayMask);
 
     private static readonly List<Snapshot> Waiting = [];
 
@@ -19,8 +21,15 @@ public static class ImportRecords
     public static void Record(LunaProject? project, ModelImportSession session)
     {
         if (session.Built == null) return;
+        // A new shader is named after its request.
+        var shaders = new Dictionary<NewShaderRequest, PendingShader>(ReferenceEqualityComparer.Instance);
+        foreach (var request in session.Materials.SelectMany(m => new[] { m.NewShader, m.Overlay?.NewShader }).OfType<NewShaderRequest>())
+        {
+            string key = TieShaderFactory.SafeName(request.Name);
+            if (session.BuiltShaders.FirstOrDefault(p => p.Name == $"{key}/{key}") is { } made) shaders[request] = made;
+        }
         var snapshot = new Snapshot(session.ModelPath, session.CollisionPath, session.Source, session.Scale, session.FlipV,
-            session.Region.RegionName, session.Built.Tuid, session.Built.Name, [.. session.Materials], [.. session.CollisionRows]);
+            session.RegionName, session.Built.Tuid, session.Built.Name, [.. session.Materials], [.. session.CollisionRows], shaders, session.OverlayMask);
         if (project == null) { Waiting.Add(snapshot); return; }
         Write(project, snapshot);
     }
@@ -71,9 +80,19 @@ public static class ImportRecords
                 ["materials"] = new JsonArray([.. s.Materials.Select(m => (JsonNode)new JsonObject
                 {
                     ["material"] = m.Info.Name,
-                    ["shader"] = $"{m.ShaderTuid:X16}",
+                    ["shader"] = $"{(m.NewShader != null && s.NewShaders.TryGetValue(m.NewShader, out var made) ? made.Tuid : m.ShaderTuid):X16}",
+                    ["lightmapped"] = m.Lightmapped,
+                    ["overlay"] = m.Overlay is { } o ? new JsonObject
+                    {
+                        ["shader"] = $"{(o.NewShader != null && s.NewShaders.TryGetValue(o.NewShader, out var layer) ? layer.Tuid : o.ShaderTuid):X16}",
+                        ["uvScale"] = new JsonArray(o.UvScale.X, o.UvScale.Y),
+                        ["uvOffset"] = new JsonArray(o.UvOffset.X, o.UvOffset.Y),
+                        ["newShader"] = o.NewShader is { } lr ? NewShaderEntry(lr, s.NewShaders.GetValueOrDefault(lr), folder, safe) : null,
+                    } : null,
                     ["collisionWord"] = $"{m.CollisionWord:X8}",
+                    ["newShader"] = m.NewShader is { } request ? NewShaderEntry(request, s.NewShaders.GetValueOrDefault(request), folder, safe) : null,
                 })]),
+                ["overlayMask"] = CopyImage(s.OverlayMask, folder, safe, "overlay_mask"),
                 ["collisionMaterials"] = new JsonArray([.. s.CollisionRows.Select(c => (JsonNode)new JsonObject
                 {
                     ["material"] = c.Name,
@@ -95,6 +114,55 @@ public static class ImportRecords
         {
             Console.Error.WriteLine($"[Import] The import of {s.Name} could not be recorded: {e.Message}");
         }
+    }
+
+    /// <summary>Copies an image to <c>imports/&lt;name&gt;/textures/&lt;file&gt;</c>; returns its project path.</summary>
+    private static string? CopyImage(ImportImage? image, string folder, string safe, string file)
+    {
+        if (image == null || image.Bytes.Length == 0) return null;
+        string extension = image.Bytes.Length > 3 && image.Bytes[0] == 0xFF && image.Bytes[1] == 0xD8 ? ".jpg" : ".png";
+        Directory.CreateDirectory(Path.Combine(folder, "textures"));
+        File.WriteAllBytes(Path.Combine(folder, "textures", file + extension), image.Bytes);
+        return $"imports/{safe}/textures/{file}{extension}";
+    }
+
+    /// <summary>A new shader's settings, with its source images copied to <c>imports/&lt;name&gt;/textures/</c>.</summary>
+    private static JsonObject NewShaderEntry(NewShaderRequest r, PendingShader? made, string folder, string safe)
+    {
+        string? Copy(ImportImage? image, string slot)
+        {
+            if (image == null || image.Bytes.Length == 0) return null;
+            string extension = image.Bytes.Length > 3 && image.Bytes[0] == 0xFF && image.Bytes[1] == 0xD8 ? ".jpg" : ".png";
+            string file = $"{Safe(TieShaderFactory.SafeName(r.Name))}_{slot}{extension}";
+            Directory.CreateDirectory(Path.Combine(folder, "textures"));
+            File.WriteAllBytes(Path.Combine(folder, "textures", file), image.Bytes);
+            return $"imports/{safe}/textures/{file}";
+        }
+        return new JsonObject
+        {
+            ["name"] = r.Name,
+            ["tuid"] = made == null ? null : $"{made.Tuid:X16}",
+            ["template"] = made == null ? null : $"{made.TemplateTuid:X16}",
+            ["alpha"] = r.Alpha.ToString(),
+            ["doubleSided"] = r.DoubleSided,
+            ["flipNormalGreen"] = r.FlipNormalGreen,
+            ["maxSize"] = r.MaxSize,
+            ["albedoFactor"] = new JsonArray(r.AlbedoFactor.X, r.AlbedoFactor.Y, r.AlbedoFactor.Z, r.AlbedoFactor.W),
+            ["albedo"] = Copy(r.Albedo, "albedo"),
+            ["albedoSource"] = r.Albedo?.SourcePath,
+            ["normal"] = Copy(r.Normal, "normal"),
+            ["normalSource"] = r.Normal?.SourcePath,
+            ["class"] = r.Class,
+            ["expensive"] = Copy(r.Expensive, "expensive"),
+            ["expensiveSource"] = r.Expensive?.SourcePath,
+            ["detail"] = Copy(r.Detail, "detail"),
+            ["detailSource"] = r.Detail?.SourcePath,
+            ["emissive"] = Copy(r.Emissive, "emissive"),
+            ["emissiveSource"] = r.Emissive?.SourcePath,
+            ["emissiveFactor"] = new JsonArray(r.EmissiveFactor.X, r.EmissiveFactor.Y, r.EmissiveFactor.Z),
+            ["specular"] = r.Specular,
+            ["detailTiling"] = r.DetailTiling,
+        };
     }
 
     /// <summary>Copies a glTF with the files it names (buffers, images) next to it; returns the model's file name.</summary>

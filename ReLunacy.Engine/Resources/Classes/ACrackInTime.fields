@@ -1079,7 +1079,7 @@ class 0x4C2 SpacePlanet : 0x11D
     [0xC8, Level] Destination level = "The level the ship loads when it lands here.";
     [0xCC, text] Planet name = "Name shown on the HUD and the map.";
     [0xD0, text] Barrier name = "Name of the barrier around the planet, when it has one.";
-    [0xD4, Volume] Location volume = "The ship can land while it is inside.";
+    [0xD4, Volume] Location volume = "Unknown usage but seems required";
     [0xD8, Volume] Barrier outer volume = "";
     [0xDC, Volume] Barrier inner volume = "";
     [0xE8, float, runtime] Barrier spacing = "";

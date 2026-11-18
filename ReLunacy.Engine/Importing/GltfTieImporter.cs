@@ -34,6 +34,11 @@ public sealed class GltfMaterialInfo
     public Vector4 BaseColorFactor = Vector4.One;
     public string AlphaMode = "OPAQUE";
     public bool DoubleSided;
+    /// <summary>The material's images (embedded bytes or the file the glTF names), null where it has none: what a new shader is
+    /// made from (<see cref="NewShaderRequest.From"/>).</summary>
+    public ImportImage? BaseColorImage, NormalImage, MetallicRoughnessImage, EmissiveImage;
+    /// <summary>The linear emissive factor (times KHR_materials_emissive_strength); zero when the material does not glow.</summary>
+    public Vector3 EmissiveFactor;
     public int PartCount;
     public int TriangleCount;
 }
@@ -292,10 +297,42 @@ public static class GltfTieImporter
                     try { info.BaseColorTextureUri = image.Content.SourcePath; } catch { }
                 }
             }
+            info.BaseColorImage = ImageOf(material, "BaseColor");
+            info.NormalImage = ImageOf(material, "Normal");
+            info.MetallicRoughnessImage = ImageOf(material, "MetallicRoughness");
+            info.EmissiveImage = ImageOf(material, "Emissive");
+            if (material.FindChannel("Emissive") is { } emissive)
+            {
+                float strength = 1f;
+                foreach (var parameter in emissive.Parameters)
+                {
+                    if (parameter.Value is Vector3 rgb) info.EmissiveFactor = rgb;
+                    else if (parameter.Value is float f && parameter.Name.Contains("Strength", StringComparison.OrdinalIgnoreCase)) strength = f;
+                }
+                info.EmissiveFactor *= strength;
+            }
         }
         result.Materials.Add(info);
         result.Model.Slots.Add(new ImportMaterialSlot { Name = info.Name, ShaderTuid = 0 });
         return slot;
+    }
+
+    /// <summary>The image of a material channel: its bytes (PNG / JPEG, embedded or read by SharpGLTF) and source path. Null when the
+    /// channel has none or the image is in a format the importer does not decode.</summary>
+    private static ImportImage? ImageOf(Material material, string channelName)
+    {
+        var image = material.FindChannel(channelName)?.Texture?.PrimaryImage;
+        if (image == null) return null;
+        try
+        {
+            var content = image.Content;
+            if (!content.IsPng && !content.IsJpg) return null;
+            string? source = null;
+            try { source = content.SourcePath; } catch { }
+            string name = !string.IsNullOrEmpty(image.Name) ? image.Name : source != null ? Path.GetFileNameWithoutExtension(source) : $"{material.Name}_{channelName}";
+            return new ImportImage { Name = name, SourcePath = string.IsNullOrEmpty(source) ? null : source, Bytes = content.Content.ToArray() };
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException or ArgumentException) { return null; }
     }
 
     /// <summary>Per-vertex tangents from the UV derivatives, in the engine's convention (B = dP/dV, w = sign(dot(cross(N, T), B)); the same as
