@@ -59,17 +59,17 @@ Sorry for this message, please proceed to the rest of the readme :)
 
 | Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  | Volumes & Triggers |
 |---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:-------:|:--------:|:-----------:|:------------------:|
-| Resistance: Fall Of Man               |      Old+      |    🚧    |    🚧    |        🚧         |  🚧   |  🚧  |   🚧   |   ❌    |    🚧    |     ❌      |         🚧         |
+| Resistance: Fall Of Man               |      Old+      |    🚧    |    🚧    |        🚧         |  🚧   |  🚧  |   🚧   |   ❌    |    🚧    |     🚧      |         🚧         |
 | Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
 | Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
-| Resistance 2                          |      New       |    ✅    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
-| Ratchet & Clank: A Crack In Time      |      New       |    ✅    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
-| Resistance: Retribution               |      New       |    ✅    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
-| Ratchet & Clank: All 4 One            |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
-| Resistance 3                          |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
-| Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance 2                          |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Ratchet & Clank: A Crack In Time      |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance: Retribution               |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
+| Ratchet & Clank: All 4 One            |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance 3                          |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
+| Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
 | Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |    ?    |    ?     |      ?      |         ?          |
-| Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
 
 Notes:
 - **¹** : Textures are supported but some artifacts remain.
