@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Numerics;
 using NeoVeldrid;
 using ReLunacy.Core.Project;
+using ReLunacy.Engine.Assets.Audio;
 using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Assets.Effects;
 using ReLunacy.Engine.Assets.Interfaces;
@@ -50,7 +51,8 @@ public sealed class ThumbnailService
         public object? Tag;
         public bool Imported;
         public Stage Stage = Stage.New;
-        public Task<ThumbnailImage?>? Job;
+        public Task<object?>? Job;
+        public SoundWaveform? Waveform;
         public bool DiskOnly;
         public ulong Stamp;
         public bool Cacheable;
@@ -85,12 +87,21 @@ public sealed class ThumbnailService
     private (int Mobys, int Ties, int Shrubs) _materialsFor;
     private readonly Dictionary<int, int> _effectTextures = [];
     private (float[] Vertices, uint[] Indices)? _sphere;
+    private LevelSounds? _sounds;
 
     // --- Asking ------------------------------------------------------------------------------------
 
     /// <summary>Whether this kind gets a thumbnail of its own.</summary>
     public static bool Supports(AssetKind kind) => kind is AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.UFrag
-        or AssetKind.Foliage or AssetKind.Texture or AssetKind.EffectTexture or AssetKind.Shader;
+        or AssetKind.Foliage or AssetKind.Texture or AssetKind.EffectTexture or AssetKind.Shader or AssetKind.Sound;
+
+    /// <summary>The longest a resident (Scream) sound is rendered for its waveform: a loop would never end.</summary>
+    public const double WaveformSeconds = 20.0;
+    // A stream is decoded whole up to this, as the Sound Banks player keeps it.
+    private const double StreamSeconds = 900.0;
+    // Decoding shares the level's sound files and Scream bank: one at a time.
+    private static readonly object SoundLock = new();
+    private const int MaxWaveforms = 4096;
 
     /// <summary>The entry's thumbnail, or null while it is made (it is asked for by this call) or when it has none.</summary>
     public ImTextureRef? Get(AssetEntry entry) => Get(entry.Key, entry.Tag, entry.Imported);
@@ -99,7 +110,17 @@ public sealed class ThumbnailService
     /// (UFrag, Foliage, Shader).</summary>
     public ImTextureRef? Get(AssetKey key, object? tag = null, bool imported = false)
     {
-        if (!Supports(key.Kind)) return null;
+        if (!Supports(key.Kind) || key.Kind == AssetKind.Sound) return null;
+        var slot = Request(key, tag, imported);
+        var window = LunaWindow.Instance;
+        return slot.Texture != null ? window.imGuiController.GetOrCreateImGuiBinding(window.GraphicsDevice.ResourceFactory, slot.Texture) : null;
+    }
+
+    /// <summary>A sound's waveform (the Tag is its BankSound), or null while it is decoded (it is asked for by this call).</summary>
+    public SoundWaveform? Waveform(AssetKey key, object? tag) => key.Kind == AssetKind.Sound ? Request(key, tag, false).Waveform : null;
+
+    private Slot Request(AssetKey key, object? tag, bool imported)
+    {
         var window = LunaWindow.Instance;
         CheckLevel(window.Level);
         int frame = ImGui.GetFrameCount();
@@ -110,7 +131,7 @@ public sealed class ThumbnailService
         slot.LastFrame = frame;
         slot.Tag = tag ?? slot.Tag;
         slot.Imported |= imported;
-        return slot.Texture != null ? window.imGuiController.GetOrCreateImGuiBinding(window.GraphicsDevice.ResourceFactory, slot.Texture) : null;
+        return slot;
     }
 
     public State StateOf(AssetKey key)
@@ -181,14 +202,16 @@ public sealed class ThumbnailService
         ReleaseRetired(frame);
         if (window.Level is not { } level || window.AssetManager is not { } assets) return;
         UpdateCache(window, level);
+        _sounds = window.fileManager is { } files ? SoundReader.For(files) : null;
 
         // Finished jobs: a disk hit or a decode is uploaded; a disk miss goes to be rendered.
         foreach (var slot in _slots.Values)
         {
             if (slot.Stage != Stage.Loading || slot.Job is not { IsCompleted: true } job) continue;
-            var image = job.IsCompletedSuccessfully ? job.Result : null;
+            var result = job.IsCompletedSuccessfully ? job.Result : null;
             slot.Job = null;
-            if (image != null) { slot.Image = image; slot.Stage = Stage.Upload; }
+            if (result is ThumbnailImage image) { slot.Image = image; slot.Stage = Stage.Upload; }
+            else if (result is SoundWaveform waveform) { slot.Waveform = waveform; slot.Stage = Stage.Ready; }
             else slot.Stage = slot.DiskOnly ? Stage.Render : Stage.Failed;
         }
 
@@ -342,6 +365,9 @@ public sealed class ThumbnailService
         var cache = _cache;
         switch (key.Kind)
         {
+            case AssetKind.Sound:
+                StartWaveform(slot, cache);
+                return;
             case AssetKind.Texture:
                 if (!level.AllTextures.TryGetValue(key.Id, out var texture)) { slot.Stage = Stage.Failed; return; }
                 StartDecode(slot, cache, () => DecodeTexture(texture), () => TextureStamp(texture));
@@ -373,7 +399,30 @@ public sealed class ThumbnailService
         ulong stamp = slot.Stamp;
         slot.DiskOnly = true;
         slot.Stage = Stage.Loading;
-        slot.Job = Task.Run(() => cache!.TryLoad(key, stamp));
+        slot.Job = Task.Run<object?>(() => cache!.TryLoad(key, stamp));
+    }
+
+    /// <summary>A worker job: the waveform from disk, or decoded (a stream) or rendered (a Scream sound), written back.</summary>
+    private void StartWaveform(Slot slot, ThumbnailCache? cache)
+    {
+        if (slot.Tag is not BankSound sound || _sounds is not { } sounds) { slot.Stage = Stage.Failed; return; }
+        var key = slot.Key;
+        ulong stamp = ThumbnailCache.Combine(ThumbnailCache.Combine(_levelStamp, $"{sound.Bank}|{sound.BankIndex}|{sound.Name}"), (ulong)SoundWaveform.DefaultBuckets);
+        slot.DiskOnly = false;
+        slot.Stage = Stage.Loading;
+        slot.Job = Task.Run<object?>(() =>
+        {
+            if (cache?.TryLoadBytes(key, stamp, ".wave") is { } bytes && SoundWaveform.Decode(bytes) is { } hit) return hit;
+            SoundWaveform? waveform;
+            lock (SoundLock)
+            {
+                var source = SoundReader.Open(sounds, sound.Bank, sound.BankIndex);
+                waveform = source == null ? null
+                    : SoundWaveform.Render(source, source is PcmSource ? StreamSeconds : WaveformSeconds);
+            }
+            if (waveform != null) cache?.StoreBytes(key, stamp, ".wave", waveform.Encode());
+            return waveform;
+        });
     }
 
     /// <summary>A worker job: the stamp, the disk, and on a miss the decode, written back.</summary>
@@ -383,7 +432,7 @@ public sealed class ThumbnailService
         bool cacheable = cache != null && !slot.Imported;
         slot.DiskOnly = false;
         slot.Stage = Stage.Loading;
-        slot.Job = Task.Run(() =>
+        slot.Job = Task.Run<object?>(() =>
         {
             ulong s = cacheable ? stamp() : 0;
             if (cacheable && cache!.TryLoad(key, s) is { } hit) return hit;
@@ -703,6 +752,11 @@ public sealed class ThumbnailService
     /// <summary>Above <see cref="MaxResident"/>, the least recently drawn go; never one drawn this frame or the last.</summary>
     private void Evict(int frame)
     {
+        int waveforms = _slots.Values.Count(s => s.Waveform != null);
+        if (waveforms > MaxWaveforms)
+            foreach (var slot in _slots.Values.Where(s => s.Waveform != null && s.LastFrame < frame - 1).OrderBy(s => s.LastFrame).Take(waveforms - MaxWaveforms).ToList())
+                _slots.Remove(slot.Key);
+
         int resident = _slots.Values.Count(s => s.Texture != null);
         if (resident <= MaxResident) return;
         foreach (var slot in _slots.Values.Where(s => s.Texture != null && s.LastFrame < frame - 1).OrderBy(s => s.LastFrame).Take(resident - MaxResident).ToList())

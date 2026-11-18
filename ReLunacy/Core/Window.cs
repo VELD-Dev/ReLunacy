@@ -1101,6 +1101,11 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
         // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
         // called for it.
         RememberDockIdsBeforeClosing();
+        // A closing frame that owns GPU resources frees them here: the previous frame, the last one that drew its
+        // window, has been presented by now.
+        foreach (var frame in openFrames)
+            if (!frame.isOpen && frame is IDisposable disposable)
+                disposable.Dispose();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)

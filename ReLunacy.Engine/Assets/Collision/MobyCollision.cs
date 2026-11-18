@@ -150,7 +150,7 @@ public sealed class MobyCollision
                 var k => new CollisionPrimitive(k, Xyz(r0), Xyz(r1), r0.W, Matrix4x4.Identity, default, d[e + 0x0A]),
             };
             list.Add(new MobyCollisionPrimitive(shape, d[e + 0x01], d[e + 0x03], U16(d, e + 0x04), U16(d, e + 0x06),
-                U16(d, e + 0x08), d[e + 0x0B], F32(d, e + 0x0C)));
+                U16(d, e + 0x08), d[e + 0x0A], F32(d, e + 0x0C)));
         }
         return list;
     }

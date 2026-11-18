@@ -27,6 +27,8 @@ public sealed class AssetIndexSources
     public LevelSounds? Sounds { get; init; }
 
     public IReadOnlyList<TextTableRef>? TextTables { get; init; }
+    /// <summary>The level archive's path: the game's other level folders give cut shader names their start.</summary>
+    public string? LevelPath { get; init; }
 }
 
 /// <summary>
@@ -146,6 +148,45 @@ public sealed class AssetIndex
             folder = parent > 0 ? folder[..parent] : "";
         if (last.Length == 0) last = fallbackName;
         return (folder.Length > 0 ? folder : fallbackFolder, last);
+    }
+
+    /// <summary>
+    /// A new-engine shader's folder. The game stores shader names with their first 8 characters cut ("levels/great_clock/shaders/x/x"
+    /// is kept as "reat_clock/shaders/x/x", 22/22 ACiT levels), or as "x/x" with no folder at all; its texture names keep the full path.
+    /// The first texture folder (or its parent) that ends with the shader's folder wins; a shader with no folder goes next to its first texture.
+    /// </summary>
+    /// <summary>The folder names next to the level's own (".../levels/&lt;name&gt;/level_cached.psarc").</summary>
+    private static IEnumerable<string> LevelFolders(string? levelPath)
+    {
+        string? levels = Path.GetDirectoryName(Path.GetDirectoryName(levelPath ?? ""));
+        if (string.IsNullOrEmpty(levels) || !Directory.Exists(levels)) return [];
+        try { return Directory.GetDirectories(levels).Select(Path.GetFileName).OfType<string>().ToList(); }
+        catch (IOException) { return []; }
+        catch (UnauthorizedAccessException) { return []; }
+    }
+
+    private static string ShaderFolder(string folder, IReadOnlyList<string?> textureNames, IReadOnlySet<string> known)
+    {
+        foreach (string? texture in textureNames)
+        {
+            if (string.IsNullOrEmpty(texture)) continue;
+            var (textureFolder, _) = SplitPath(texture, "", "");
+            if (textureFolder.Length == 0) continue;
+            if (folder.Length == 0 || textureFolder.EndsWith(folder, StringComparison.OrdinalIgnoreCase)) return textureFolder;
+            // "…/shaders/x/x_c" next to the shader "…/shaders/x/x", which sits in "…/shaders".
+            int cut = textureFolder.LastIndexOf('/');
+            if (cut > 0 && textureFolder[..cut].EndsWith(folder, StringComparison.OrdinalIgnoreCase)) return textureFolder[..cut];
+        }
+        if (folder.Length == 0) return $"{UnsortedFolder}/Shaders";
+        if (known.Contains(folder)) return folder;
+        // No texture to go by: a known folder that is the name with its 8 characters back ("levels/a" + "gorian_arena/shaders"), or
+        // one whose first segment is ("levels/agorian_arena" + "/shaders").
+        string? whole = known.FirstOrDefault(k => k.Length == folder.Length + 8 && k.EndsWith(folder, StringComparison.OrdinalIgnoreCase));
+        if (whole != null) return whole;
+        int slash = folder.IndexOf('/');
+        string first = slash < 0 ? folder : folder[..slash];
+        string? root = known.FirstOrDefault(k => k.Length == first.Length + 8 && k.EndsWith(first, StringComparison.OrdinalIgnoreCase));
+        return root != null ? root + folder[first.Length..] : folder;
     }
 
     public static AssetIndex Build(AssetIndexSources sources)
@@ -301,9 +342,15 @@ public sealed class AssetIndex
 
     private static void AddShaders(LevelData level, AssetIndexSources sources, List<AssetEntry> entries)
     {
+        // Every folder the classes and textures use, to give a cut shader name its missing start.
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string other in LevelFolders(sources.LevelPath)) known.Add($"levels/{other}");
+        foreach (var entry in entries)
+            for (string f = entry.Folder; f.Length > 0 && known.Add(f); f = f.LastIndexOf('/') is int i and > 0 ? f[..i] : "") { }
         foreach (var (id, shader) in level.Shaders)
         {
-            var (folder, name) = SplitPath(shader.name, $"{UnsortedFolder}/Shaders", $"Shader {id:X}");
+            var (folder, name) = SplitPath(shader.name, "", $"Shader {id:X}");
+            folder = ShaderFolder(folder, shader.NewTextureSourceNames, known);
             entries.Add(new AssetEntry
             {
                 Key = new(AssetKind.Shader, id), Name = name, FullName = shader.name, Folder = folder,

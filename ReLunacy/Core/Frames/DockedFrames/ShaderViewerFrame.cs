@@ -71,9 +71,17 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
         _programs = null;
         _graphDirty = true;
         _previewDirty = true;
-        string name = _shader == null ? $"{_tuid:X}" : ShortName(_shader);
+        string name = _shader == null ? $"{_tuid:X}" : DisplayName(_shader);
         FrameName = $"{Icons.Palette} {name}";
     }
+
+    /// <summary>The Assets Browser entry of this shader: its Folder / Name carry the full name (the files cut the first
+    /// characters of a shader's name; the index recovers them).</summary>
+    private AssetEntry? Entry() => AssetsBrowserFrame.EnsureIndex()?.Get(new AssetKey(AssetKind.Shader, _tuid));
+
+    private string DisplayName(Shader shader) => Entry()?.Name ?? ShortName(shader);
+
+    private string FullPath(Shader shader) => Entry()?.Path ?? (string.IsNullOrEmpty(shader.name) ? "-" : shader.name);
 
     private static string ShortName(Shader shader)
     {
@@ -408,9 +416,9 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderViewer_Identity"));
         if (BeginFields("##identity"))
         {
-            Row(LM.Get("GUI_Frame_ShaderViewer_Name"), ShortName(shader));
+            Row(LM.Get("GUI_Frame_ShaderViewer_Name"), DisplayName(shader));
             Row(LM.Get("GUI_Frame_ShaderViewer_Tuid"), $"0x{_tuid:X16}");
-            Row(LM.Get("GUI_Frame_ShaderViewer_Path"), string.IsNullOrEmpty(shader.name) ? "-" : shader.name);
+            Row(LM.Get("GUI_Frame_ShaderViewer_Path"), FullPath(shader));
             Row(LM.Get("GUI_Frame_ShaderViewer_Engine"), LM.Get(shader.isOld ? "GUI_Frame_ShaderViewer_EngineOld" : "GUI_Frame_ShaderViewer_EngineNew"));
             if (entry != null) Row(LM.Get("GUI_Frame_ShaderViewer_Origin"), entry.Source.ToString());
             ImGui.EndTable();

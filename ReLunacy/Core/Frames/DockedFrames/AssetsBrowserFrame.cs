@@ -2,6 +2,7 @@ using System.Numerics;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Placement;
 using ReLunacy.Core.Project;
+using ReLunacy.Engine.Assets.Audio;
 using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Assets.Effects;
 using ReLunacy.Engine.Config;
@@ -148,6 +149,7 @@ public sealed class AssetsBrowserFrame : DockedFrame
         _index = AssetIndex.Build(new AssetIndexSources
         {
             Level = level,
+            LevelPath = source,
             Regions = EntityManager.Singleton.Regions,
             SceneEntities = EntityManager.Singleton.AllEntities(),
             Effects = effects,
@@ -661,6 +663,9 @@ public sealed class AssetsBrowserFrame : DockedFrame
                 && EffectTextureImage(used) is { } effectImage:
                 dl.AddImage(effectImage, min, max);
                 return;
+            case AssetKind.Sound when thumbnails.Waveform(entry.Key, entry.Tag) is { } waveform:
+                DrawWaveform(dl, waveform, min, max, KindColour(entry.Kind));
+                return;
         }
         if (ThumbnailService.Supports(entry.Kind))
         {
@@ -681,6 +686,21 @@ public sealed class AssetsBrowserFrame : DockedFrame
         if ((uint)index >= (uint)textures.Count || textures[index] is not { } gpu) return null;
         var window = LunaWindow.Instance;
         return window.imGuiController.GetOrCreateImGuiBinding(window.GraphicsDevice.ResourceFactory, gpu.DeviceTexture);
+    }
+
+    /// <summary>A sound's waveform squeezed into the box: filled and mirrored about the middle, on a dark ground.</summary>
+    internal static void DrawWaveform(ImDrawListPtr dl, SoundWaveform waveform, Vector2 min, Vector2 max, Vector4 colour)
+    {
+        dl.AddRectFilled(min, max, ImGui.ColorConvertFloat4ToU32(new Vector4(0.06f, 0.07f, 0.09f, 1f)), 2f);
+        float mid = (min.Y + max.Y) * 0.5f, half = (max.Y - min.Y) * 0.5f - 1f;
+        int columns = Math.Max(1, (int)(max.X - min.X));
+        uint fill = ImGui.ColorConvertFloat4ToU32(colour);
+        for (int x = 0; x < columns; x++)
+        {
+            var (low, high) = waveform.Range(x / (float)columns, (x + 1) / (float)columns);
+            float peak = MathF.Min(1f, MathF.Max(-low, high)) * half;
+            dl.AddRectFilled(new Vector2(min.X + x, mid - peak), new Vector2(min.X + x + 1f, mid + MathF.Max(peak, 0.5f)), fill);
+        }
     }
 
     /// <summary>A small turning arc in the corner: the thumbnail is on its way.</summary>

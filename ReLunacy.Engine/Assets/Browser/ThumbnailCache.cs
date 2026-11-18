@@ -42,18 +42,17 @@ public sealed class ThumbnailCache
         return $"{Sanitize(name)}_{Hash(Encoding.UTF8.GetBytes(full)) & 0xFFFFFFFF:x8}";
     }
 
-    public string PathFor(AssetKey key, ulong stamp) => Path.Combine(Folder, $"{FilePrefix(key)}{stamp:x16}.png");
+    public string PathFor(AssetKey key, ulong stamp, string extension = ".png") => Path.Combine(Folder, $"{FilePrefix(key)}{stamp:x16}{extension}");
 
     private static string FilePrefix(AssetKey key) => $"{key.Kind}_{key.Id:X16}_";
 
     /// <summary>The thumbnail, or null when there is none for this stamp (or it does not decode).</summary>
     public ThumbnailImage? TryLoad(AssetKey key, ulong stamp)
     {
-        string path = PathFor(key, stamp);
+        if (TryLoadBytes(key, stamp, ".png") is not { } bytes) return null;
         try
         {
-            if (!File.Exists(path)) return null;
-            var image = new Image(File.ReadAllBytes(path));
+            var image = new Image(bytes);
             return image.Width > 0 && image.Height > 0 ? new ThumbnailImage(image.Width, image.Height, image.Data) : null;
         }
         catch (Exception)
@@ -63,17 +62,36 @@ public sealed class ThumbnailCache
     }
 
     /// <summary>Writes the thumbnail and deletes the asset's thumbnails of other stamps. False when it could not be written.</summary>
-    public bool Store(AssetKey key, ulong stamp, ThumbnailImage image)
+    public bool Store(AssetKey key, ulong stamp, ThumbnailImage image) =>
+        StoreBytes(key, stamp, ".png", new Image(image.Width, image.Height, image.Rgba).EncodeToPng());
+
+    /// <summary>A cached file of another form (a sound's waveform), or null.</summary>
+    public byte[]? TryLoadBytes(AssetKey key, ulong stamp, string extension)
     {
-        string path = PathFor(key, stamp);
+        try
+        {
+            string path = PathFor(key, stamp, extension);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Writes a cached file through a temporary file and a rename, then deletes the asset's files of the same
+    /// form and other stamps. False when it could not be written.</summary>
+    public bool StoreBytes(AssetKey key, ulong stamp, string extension, byte[] bytes)
+    {
+        string path = PathFor(key, stamp, extension);
         string temporary = $"{path}.{Environment.CurrentManagedThreadId}.{Guid.NewGuid():N}.tmp";
         try
         {
             Directory.CreateDirectory(Folder);
-            File.WriteAllBytes(temporary, new Image(image.Width, image.Height, image.Rgba).EncodeToPng());
+            File.WriteAllBytes(temporary, bytes);
             File.Move(temporary, path, overwrite: true);
             string own = Path.GetFileName(path);
-            foreach (string stale in Directory.EnumerateFiles(Folder, FilePrefix(key) + "*.png"))
+            foreach (string stale in Directory.EnumerateFiles(Folder, FilePrefix(key) + "*" + extension))
                 if (!string.Equals(Path.GetFileName(stale), own, StringComparison.Ordinal))
                     try { File.Delete(stale); } catch (IOException) { }
             return true;
