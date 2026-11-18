@@ -15,7 +15,7 @@ namespace ReLunacy.Engine.Rendering;
 /// authored mip levels. ADDRESS signed/unsigned remap and gamma remain separate later sampling
 /// stages and are not folded into stored RGBA here.
 /// </summary>
-internal static class TextureUploadPreparer
+public static class TextureUploadPreparer
 {
     private static readonly ConditionalWeakTable<byte[], TextureLevels> AuthoredByTopLevel = new();
     private static bool _loggedAuthored;

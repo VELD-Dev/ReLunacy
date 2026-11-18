@@ -1,5 +1,6 @@
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
+using ReLunacy.Engine.Rendering.Resources;
 
 namespace ReLunacy.Utility;
 

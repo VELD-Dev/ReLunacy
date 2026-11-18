@@ -230,12 +230,33 @@ public sealed class AssetIndex
         AddEffects(sources, entries);
 
         if (sources.Sounds is { } sounds)
+        {
             foreach (var sound in sounds.BankSounds)
+            {
+                var format = SoundReader.Format(sources.Sounds, sound.Bank, sound.BankIndex);
+                string details = "";
+
+                if (format is {} f)
+                {
+                    var (samprate, channels, seconds) = f;
+                    details = $"{sound.Bank.ToString()}\n{TimeSpan.FromSeconds(seconds):m\\:ss}, {(channels == 1 ? "Mono" : channels == 2 ? "Stereo" : "Ambisonic")}, {samprate}Hz";
+                }
+                else
+                {
+                    details = $"{sound.Bank.ToString()}";
+                }
+                
                 entries.Add(new AssetEntry
                 {
-                    Key = new(AssetKind.Sound, (ulong)sound.NameIndex), Name = sound.Name, FullName = sound.Name,
-                    Folder = $"Sounds/{sound.Bank}", Detail = sound.Bank.ToString(), Tag = sound,
+                    Key = new(AssetKind.Sound, (ulong)sound.NameIndex),
+                    Name = sound.Name,
+                    FullName = sound.Name,
+                    Folder = $"Sounds/{sound.Bank}",
+                    Detail = details,
+                    Tag = sound,
                 });
+            }
+        }
 
         if (sources.TextTables is { } tables)
             for (int i = 0; i < tables.Count; i++)

@@ -885,7 +885,7 @@ class 0x3A7 PromptTeleporter : 0x47
 class 0x3B0 PadFling : 0x2B6
 {
     [0xBC, text] Prompt text = "";
-    [0xC0, Volume] Trigger volume = "";
+    [0xC0, Volume] Land volume = "";
     [0xC4, Path] Flight path = "";
     [0xC8, Controller] Camera during the flight = "";
     [0xCC, float] Flight tuning = "";

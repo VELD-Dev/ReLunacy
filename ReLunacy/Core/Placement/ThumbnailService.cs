@@ -6,11 +6,13 @@ using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Assets.Effects;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Loading.Readers;
+using ReLunacy.Engine.Projects;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Rendering.Vulkan;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
+using LunaLog = ReLunacy.Utility.LunaLog;
 
 namespace ReLunacy.Core.Placement;
 

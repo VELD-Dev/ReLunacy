@@ -8,6 +8,7 @@ using ReLunacy.Engine.Rendering.Vulkan;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using LegacyTexture = ReLunacy.Engine.Loading.Textures.Texture;
+using LunaLog = ReLunacy.Utility.LunaLog;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -613,10 +614,10 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
     {
         var bytes = new byte[0x80];
         var span = bytes.AsSpan();
-        void U32(int at, uint v) => System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(span[at..], v);
-        void I32(int at, int v) => System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(span[at..], v);
-        void F32(int at, float v) => System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(span[at..], v);
-        void Raw(int at, byte[]? data) { if (data != null) data.AsSpan(0, Math.Min(data.Length, 0x80 - at)).CopyTo(span[at..]); }
+        void U32(int at, uint v) => System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan()[at..], v);
+        void I32(int at, int v) => System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan()[at..], v);
+        void F32(int at, float v) => System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(bytes.AsSpan()[at..], v);
+        void Raw(int at, byte[]? data) { if (data != null) data.AsSpan(0, Math.Min(data.Length, 0x80 - at)).CopyTo(bytes.AsSpan()[at..]); }
         if (shader.isOld)
         {
             var o = shader.metadataOld!.Value;

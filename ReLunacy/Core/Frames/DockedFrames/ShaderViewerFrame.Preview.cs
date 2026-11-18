@@ -4,6 +4,7 @@ using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Rendering.Vulkan;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
+using LunaLog = ReLunacy.Utility.LunaLog;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
