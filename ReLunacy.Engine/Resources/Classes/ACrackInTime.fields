@@ -1661,6 +1661,26 @@ class 0x699 Nefarious swarmer : 0x181
 
 class 0x69A Nefarious trooper : 0x181
 {
+    [0x920, u32] 409 = "409 on all enemies it seems";
+    [0xB74, float] = "";
+    [0xB78, float] = "";
+    [0xB7C, float] = "";
+    [0xB80, float] = "";
+    [0xB84, float] = "";
+    [0xB88, float] = "";
+    [0xB8C, float] = "";
+    [0xB94, float] = "";
+    [0xB98, float] = "";
+    [0xBF0, u32] 322 = "322 on all NPCs with an AI";
+    [0xE44, float] = "";
+    [0xE48, float] = "";
+    [0xE4C, float] = "";
+    [0xE50, float] = "";
+    [0xE54, float] = "";
+    [0xE58, float] = "";
+    [0xE5C, float] = "";
+    [0xE64, float] = "";
+    [0xE68, float] = "";
 }
 
 class 0x69D EnemyStateFollowTarget_DebugData : 0x3ED
