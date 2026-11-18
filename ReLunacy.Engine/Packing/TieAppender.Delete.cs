@@ -25,7 +25,7 @@ public sealed class TieDeleteResult
 
 public static partial class TieAppender
 {
-    private sealed record Doomed(TieDeleteRequest Request, int Zone, int Index, ulong Tuid, Matrix4x4 Matrix);
+    private sealed record Doomed(TieDeleteRequest Request, int Zone, int Index, ulong Tuid, Matrix4x4 Matrix, uint SphereHash);
 
     /// <summary>
     /// Takes Tie placements out of a new-engine level, the mirror of <see cref="Append"/> (docs/reverse/newengine_tie_append.md):
@@ -38,8 +38,9 @@ public static partial class TieAppender
     ///   - collision.dat of the zone's regions: the placement's chunks (Tie instances of its class's owner with its matrix)
     ///     out of the instance array, the BVH leaf ranges renumbered (<see cref="CollisionBvh.RemoveInstances"/>), the
     ///     header bounds the union of what is left. The shape blob is kept (shapes can be shared);
-    ///   - planet regions: the 0x8200 record stays (it is part of a numbering the undecoded 0x8300 grid uses; retail ships
-    ///     a record whose TUID names no placement on phonica_moon a_landing). Reported, untested in game;
+    ///   - planet regions (<see cref="PlanetOcclusion"/>): the placement's 0x8200 record (its TUID and sphere hash; a record
+    ///     whose TUID no placement keeps goes too) out, the indices after it and the extra object's down by one, and the bit
+    ///     out of every set of the 0x8300 grid (<see cref="RemovePlanetEntries"/>). Untested in game;
     ///   - level_cached.toc: the sizes.
     /// A refused request changes nothing. Run it on the output of the in-place writers, before <see cref="Append"/>.
     /// </summary>
@@ -89,7 +90,7 @@ public static partial class TieAppender
             { result.Refused.Add((request, "its record is not of the class the editor loaded")); continue; }
             if (doomed.Any(d => d.Zone == zi && d.Index == index)) continue;
             doomed.Add(new Doomed(request, zi, index, BinaryPrimitives.ReadUInt64BigEndian(blob[(names.Offset + 16 * index)..]),
-                ReadAffine(blob, placements.Offset + 0x80 * index)));
+                ReadAffine(blob, placements.Offset + 0x80 * index), PlanetOcclusion.Hash(blob.Slice(placements.Offset + 0x80 * index + 0x40, 16))));
         }
         if (doomed.Count == 0) return;
 
@@ -135,8 +136,7 @@ public static partial class TieAppender
         // 4. Collision.
         foreach (var (name, removed) in plans)
             if (removed.Count > 0) RemoveCollision(level, name, removed, result);
-        foreach (var name in planetFiles)
-            result.Problems.Add($"{name}: planet collision table (0x8200) keeps the deleted Ties' records, untested in game");
+        foreach (var name in planetFiles) RemovePlanetEntries(level, name, doomed, zones, newLookup, result);
 
         if (finish)
         {

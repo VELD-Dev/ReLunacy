@@ -66,7 +66,7 @@ internal static class CreateMenuDraw
             CreateGroupModal.Open("Area");
         if (ImGui.MenuItem($"{Icons.Gear}  {LM.Get("GUI_Create_Scent")}", "", false, enabled && InstancePlacer.TargetRegion()?.GroupLayers("Scent").Any() == true))
             CreateGroupModal.Open("Scent");
-        if (ImGui.MenuItem($"{Icons.Globe}  {LM.Get("GUI_Create_Moon")}", "", false, enabled && CreateMoonModal.Available))
+        if (LunaWindow.IsSpaceSector && ImGui.MenuItem($"{Icons.Globe}  {LM.Get("GUI_Create_Moon")}", "", false, enabled && CreateMoonModal.Available))
             CreateMoonModal.Open();
         ImGui.EndMenu();
     }

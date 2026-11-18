@@ -172,6 +172,26 @@ public class FileManager : IDisposable
         return copy.ToArray();
     }
 
+    /// <summary>The bytes of <paramref name="name"/> as the game shipped it, as far as the project knows: the open
+    /// project's pristine copy of the archive (or the game's archive before the project has one), none of the project's
+    /// entries applied. Without a project this is the game's file as it is now. Null for an entry the project added or a
+    /// file not found.</summary>
+    public byte[]? ReadPristine(string name)
+    {
+        if (_archives.Count == 0)
+        {
+            string path = Path.Combine(folderPath, name);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        for (int i = 0; i < _archives.Count; i++)
+        {
+            if (ResolveArchivePath(_archives[i], name) is not { } matched) continue;
+            using var buffer = _archives[i].OpenFile(matched);
+            return buffer.Data.ToArray();
+        }
+        return null;
+    }
+
     /// <summary>The entry paths of the level's archives (empty for a folder), for finding the scripts.</summary>
     public IEnumerable<string> EntryPaths() => _archives.SelectMany(a => a.Paths);
 

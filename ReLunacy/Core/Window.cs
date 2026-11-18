@@ -53,6 +53,9 @@ public class LunaWindow : IDisposable
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
 
+    /// <summary>The loaded level is an A Crack in Time space sector: the moon tools exist only there, until custom levels do.</summary>
+    public static bool IsSpaceSector => Instance.Level != null && ConfigDocument.LevelName.StartsWith("space_sector", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The open level's reader, kept so another of its regions can be read over the same files
     /// (see <see cref="SwitchRegion"/>).</summary>
     private LevelReader? _levelReader;
@@ -801,6 +804,10 @@ public class LunaWindow : IDisposable
         _loadBar = null;
         _loadProgress = null;
 
+        // Every load ends here (a level, a region switch, the reload after a save): the never-culled flags come back
+        // from the project, or the next save would write them all away.
+        if (fileManager != null) Engine.Packing.OcclusionBake.LoadFlags(fileManager, EntityManager.Singleton.Regions.ToList());
+
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
 
@@ -936,12 +943,13 @@ public class LunaWindow : IDisposable
             ToolsMenuDraw.RotationTool();
             ToolsMenuDraw.ScaleTool();
             ToolsMenuDraw.LocalSpace();
-ToolsMenuDraw.MoonSpace();
+if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
             ImGui.Separator();
             ToolsMenuDraw.DeselectObject();
             ImGui.EndMenu();
         }
 
+        BakeMenuDraw.Menu();
         CreateMenuDraw.Menu();
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_View")))

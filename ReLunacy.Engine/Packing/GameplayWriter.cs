@@ -322,6 +322,16 @@ public static partial class GameplayWriter
                 Add(files.isOld ? "collision" : $"{region} collision", name, bytes, changes, problems);
                 if (changes.Count > 0) current[name] = bytes;
             }
+        // Planet regions find a Tie's or UFrag's occlusion record by the hash of its sphere, which a move changes.
+        if (!files.isOld && current.TryGetValue(zonesName, out var movedZones) && files.ReadOriginal(zonesName) is { } zonesBefore && movedZones != zonesBefore)
+        {
+            byte[]? ReadMoved(string name) => current.TryGetValue(name, out var held) ? held
+                : plan.Entries.TryGetValue(name, out var planned) ? planned : files.ReadOriginal(name);
+            var (followed, changes, problems) = TieAppender.FollowMoves(ReadMoved, zonesBefore, regions.Select(r => r.RegionName).ToList());
+            plan.Changes.AddRange(changes.Select(c => $"zones: {c}"));
+            plan.Problems.AddRange(problems.Select(p => $"zones: {p}"));
+            foreach (var (name, bytes) in followed) { plan.Entries[name] = bytes; current[name] = bytes; }
+        }
 
         // New Ties (new engine), on what the in-place writers made of the files. A new zone is made with its first Tie
         // (TieAppender.CreateZone), then the Ties of the zones the file has go in.
@@ -333,7 +343,8 @@ public static partial class GameplayWriter
                 foreach (var zone in region.Zones)
                 {
                     var added = zone.TieInstances.Entities.OfType<EntityTie>().Where(t => t.IsNew)
-                        .Select(t => new TieAppendRequest(zone.ZoneTUID, t.New!.AssetId, t.Transform.GetMatrix(), t.Name, region.RegionName)).ToList();
+                        .Select(t => new TieAppendRequest(zone.ZoneTUID, t.New!.AssetId, t.Transform.GetMatrix(), t.Name, region.RegionName,
+                            Tuid: t.New.Tuid)).ToList();
                     if (zone.IsNew && added.Count > 0) madeZones.Add((region, zone, added));
                     else if (zone.IsNew) plan.Problems.Add($"zone {zone.ZoneName}: not saved, it has no Tie");
                     else requests.AddRange(added);
@@ -421,8 +432,60 @@ public static partial class GameplayWriter
                 plan.Problems.AddRange(named.Refused.Select(r => $"zone {r.Request.OldName}: rename not saved, {r.Reason}"));
                 foreach (var (name, bytes) in named.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
             }
+
+            // Planet occlusion last, on everything above: bakes, never-culled flags, retail bits back (OcclusionBake).
+            ApplyOcclusion(files, regions, plan, current, afterSave);
         }
         return plan;
+    }
+
+    /// <summary>
+    /// Each planet region's occlusion made what the project and the entities say (<see cref="TieAppender.ApplyOcclusion"/>):
+    /// never-culled flags from the Ties and UFrags being saved (the level's other flags from the project), bakes from the
+    /// project, retail bits from the pristine files. After the save the flags go to the project (<see cref="OcclusionBake"/>).
+    /// </summary>
+    private static void ApplyOcclusion(FileManager files, IReadOnlyList<EntityRegion> regions, SavePlan plan, Dictionary<string, byte[]> current,
+        List<Action>? afterSave)
+    {
+        string level = OcclusionBake.LevelName(files);
+        var stored = OcclusionBake.NeverCulled(level);
+        // UFrag keys come from the loaded zones.dat: read only when a UFrag flag is set or stored.
+        bool ufragFlags = stored.Any(k => k.Kind == OcclusionObjectKind.UFrag)
+                          || regions.SelectMany(r => r.Zones).SelectMany(z => z.UFrags.Entities).OfType<EntityUFrag>().Any(u => u.NeverCulled);
+        byte[]? zonesLoaded = ufragFlags ? files.ReadOriginal("zones.dat") : null, lookupLoaded = ufragFlags ? files.ReadOriginal("assetlookup.dat") : null;
+        var present = new HashSet<OcclusionKey>();
+        var flagged = new HashSet<OcclusionKey>();
+        foreach (var zone in regions.SelectMany(r => r.Zones))
+        {
+            foreach (var tie in zone.TieInstances.Entities.OfType<EntityTie>())
+            {
+                var key = OcclusionKey.Tie(tie.Tuid);
+                present.Add(key);
+                if (tie.NeverCulled) flagged.Add(key);
+            }
+            if (zonesLoaded == null || lookupLoaded == null) continue;
+            foreach (var ufrag in zone.UFrags.Entities.OfType<EntityUFrag>())
+                if (OcclusionBake.KeyOf(ufrag, zonesLoaded, lookupLoaded) is { } key)
+                {
+                    present.Add(key);
+                    if (ufrag.NeverCulled) flagged.Add(key);
+                }
+        }
+        // Deleted Ties leave the list too.
+        foreach (var region in regions)
+            foreach (var (tie, _) in region.DeletedTies) present.Add(OcclusionKey.Tie(tie.Tuid));
+        var neverCulled = new HashSet<OcclusionKey>(stored);
+        neverCulled.ExceptWith(present);
+        neverCulled.UnionWith(flagged);
+
+        byte[]? Read(string name) => current.TryGetValue(name, out var held) ? held
+            : plan.Entries.TryGetValue(name, out var planned) ? planned : files.ReadOriginal(name);
+        var (written, changes, problems) = TieAppender.ApplyOcclusion(Read, files.ReadPristine, regions.Select(r => r.RegionName).ToList(),
+            region => OcclusionBake.State(level, region, neverCulled));
+        plan.Changes.AddRange(changes.Select(c => $"occlusion: {c}"));
+        plan.Problems.AddRange(problems.Select(p => $"occlusion: {p}"));
+        foreach (var (name, bytes) in written) { plan.Entries[name] = bytes; current[name] = bytes; }
+        afterSave?.Add(() => { OcclusionBake.CommitFlags(level, present, flagged); OcclusionBake.Persist(); });
     }
 
     /// <summary>A line for the problems when renamed instances are named in the level's scripts: instances.lua.trimmed lists the

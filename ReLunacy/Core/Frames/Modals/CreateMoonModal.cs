@@ -34,7 +34,7 @@ public sealed class CreateMoonModal : Modal
     }
 
     /// <summary>The level is an A Crack in Time space sector with a moon to copy.</summary>
-    public static bool Available => Surfaces().Count > 0 && EntityManager.Singleton.Regions.Count == 1;
+    public static bool Available => LunaWindow.IsSpaceSector && Surfaces().Count > 0 && EntityManager.Singleton.Regions.Count == 1;
 
     public static void Open()
     {

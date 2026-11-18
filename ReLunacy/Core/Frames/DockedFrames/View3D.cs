@@ -243,6 +243,11 @@ public class View3D : DockedFrame
         overlay.ToggleButton(Icons.Palette, ref _pathPanel.Open, LM.Get("GUI_Viewport_PathFilters"));
         float pathFilterAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
+        // Planet occlusion cells: only where the current region has them.
+        bool hasOcclusion = _occlusion.Available(em, Camera.Position);
+        if (hasOcclusion) overlay.ToggleButton(Icons.EyeSlash, ref _occlusion.On, LM.Get("GUI_Viewport_Occlusion"));
+        else _occlusion.On = false;
+        float occlusionAnchor = overlay.LastButtonLeft;
         if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
         // A space sector's play area: only where level.csv gives the level a BoundsRadius.
         if (ConfigDocument.LevelBoundsRadius() != null)
@@ -317,8 +322,9 @@ public class View3D : DockedFrame
 
         _volumePanel.Draw(overlay, volumeAnchor);
         _pathPanel.Draw(overlay, pathFilterAnchor);
+        _occlusion.DrawPanel(overlay, occlusionAnchor, Camera.Position, SelectedEntity);
         if (em.renderPaths && !CollisionEditing) _pathEditor.DrawPanel(overlay, pathAnchor);
-        DrawMoonButton(overlay);
+        if (Core.LunaWindow.IsSpaceSector) DrawMoonButton(overlay);
         DrawTransformBar(overlay);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
@@ -332,7 +338,9 @@ public class View3D : DockedFrame
         var settings = Program.Settings;
         string[] ops = [LM.Get("GUI_Gizmo_Move"), LM.Get("GUI_Gizmo_Rotate"), LM.Get("GUI_Gizmo_Scale")];
         string[] opTips = [LM.Get("GUI_Gizmo_MoveHelp"), LM.Get("GUI_Gizmo_RotateHelp"), LM.Get("GUI_Gizmo_ScaleHelp")];
-        string[] spaces = [LM.Get("GUI_Gizmo_World"), LM.Get("GUI_Gizmo_Local"), LM.Get("GUI_Gizmo_Moon")];
+        bool moons = Core.LunaWindow.IsSpaceSector;
+        string[] spaces = moons ? [LM.Get("GUI_Gizmo_World"), LM.Get("GUI_Gizmo_Local"), LM.Get("GUI_Gizmo_Moon")]
+            : [LM.Get("GUI_Gizmo_World"), LM.Get("GUI_Gizmo_Local")];
         string snapLabel = LM.Get("GUI_Gizmo_Snap");
         const float Step = 4f, Gap = 10f, DragWidth = 64f;
         float width = Gap * 2f + DragWidth + Step;
@@ -352,7 +360,7 @@ public class View3D : DockedFrame
 
         overlay.Gap();
         var space = gizmo.Space;
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < spaces.Length; i++)
         {
             bool on = (int)space == i;
             bool enabled = i != 2 || MoonMode.Active;
@@ -408,6 +416,7 @@ public class View3D : DockedFrame
     /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
     private readonly VolumeFilterPanel _volumePanel = new();
     private readonly PathFilterPanel _pathPanel = new();
+    private readonly OcclusionViewer _occlusion = new();
     private readonly PathOverlay _paths = new();
     private readonly PathEditor _pathEditor = new();
 
@@ -905,6 +914,7 @@ public class View3D : DockedFrame
 
                 // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
                 var volumeList = BuildVolumeList();
+                _occlusion.AppendEdges(volumeList, Camera.Position);
                 vkStage.VolumeFills = _vkVolumeFills;
                 vkStage.CameraMarkers = BuildCameraList();
                 vkStage.ControllerIconMarkers = _vkControllerIcons;
@@ -1025,7 +1035,8 @@ public class View3D : DockedFrame
         // the mouse (see CheckRotationInput), which is what stops a click from also picking.
         if (MoonMode.Active)
         {
-            if (!EntityManager.Singleton.Regions.Contains(MoonMode.Region!)) ExitMoonMode();
+            if (!Core.LunaWindow.IsSpaceSector) { ExitMoonMode(); GizmoController.SetMoonSpace(false); }
+            else if (!EntityManager.Singleton.Regions.Contains(MoonMode.Region!)) ExitMoonMode();
             else if (_viewport.AllowCameraInput && Input.IsMouseScrolling(out var wheel) && wheel.Y != 0f)
                 _moonOrbit.Zoom(Camera, wheel.Y);
         }

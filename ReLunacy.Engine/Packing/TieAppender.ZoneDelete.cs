@@ -40,7 +40,7 @@ public static partial class TieAppender
     ///   - level_cached.toc: the sizes.
     /// Refused (nothing changes) when the zone is not in the level, still holds a Tie after its Ties go (one the editor did not
     /// load), has data a Tie-only zone does not (<see cref="TieZoneSections"/>), or another asset table names its TUID. Planet regions
-    /// keep their 0x8200 records, as for a Tie delete. Run with the Tie deletions of the same save, before the appends.
+    /// lose the Ties' occlusion records, as for a Tie delete. Run with the Tie deletions of the same save, before the appends.
     /// </summary>
     public static ZoneDeleteResult DeleteZones(Func<string, byte[]?> read, IReadOnlyList<ZoneDeleteRequest> requests)
     {

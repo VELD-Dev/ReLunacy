@@ -4,7 +4,7 @@ Requested 2026-11-15. Ticked = built (not tested in game unless said).
 
 - [x] Gizmo World/Local toggle (X, Tools > Local Space); Local on path keys = frame along the path.
 - [x] Double-click a selected path to add a key where clicked (one undo step).
-- [ ] gp_prius structural writer: add Moby / volume / Clue / path / controller to a layer, path point count change,
+- [x] gp_prius structural writer: add Moby / volume / Clue / path / controller to a layer, path point count change,
       layer / Pod / Area / Scent membership, reference remap. Spec: docs/reverse/acit_gp_prius_coverage.md,
       dev/tools/gpcoverage. Report: docs/reverse/newengine_gp_prius_writer.md.
 - [ ] Decode collision.dat 0x8200/0x8300 (planet levels) so Ties can be added there; TieAppender refuses them today.

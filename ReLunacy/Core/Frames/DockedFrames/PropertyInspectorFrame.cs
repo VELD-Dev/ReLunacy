@@ -237,12 +237,14 @@ public class PropertyInspectorFrame : DockedFrame
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenTieInAssetViewer(tie.BaseTie.Id);
             RenderCubemapSection(tie.NewEngineCubeTuid);
+            RenderNeverCulled(tie);
         }
         else if (SelectedEntity is EntityUFrag ufrag)
         {
             if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_OpenInAssetViewer")))
                 OpenUFragInAssetViewer(ufrag.UFrag);
             RenderCubemapSection(ufrag.UFrag.NewEngineCubeTuid);
+            RenderNeverCulled(ufrag);
         }
         else if (SelectedEntity is EntityVolume volumeEntity)
         {
@@ -1567,6 +1569,21 @@ public class PropertyInspectorFrame : DockedFrame
     /// <summary>The undo step a field being edited is building: opened when the field is clicked into, from the
     /// state at the start of that frame, committed when it is left.</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> SyncedSettings = new();
+    /// <summary>The never-culled flag of a Tie or UFrag (planet occlusion): one undo step per click.</summary>
+    private static void RenderNeverCulled(Entity entity)
+    {
+        if (!Engine.Packing.OcclusionBake.CanNeverCull(entity)) return;
+        bool on = Engine.Packing.OcclusionBake.GetNeverCulled(entity);
+        if (ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_NeverCulled"), ref on))
+        {
+            Engine.Packing.OcclusionBake.SetNeverCulled(entity, on);
+            Core.Undo.UndoManager.Singleton.Push(LM.Get("GUI_Undo_NeverCulled"),
+                () => Engine.Packing.OcclusionBake.SetNeverCulled(entity, !on),
+                () => Engine.Packing.OcclusionBake.SetNeverCulled(entity, on));
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_NeverCulledTip"));
+    }
+
     private static Core.Undo.UndoManager.Session? _fieldEdit;
 
     private static void TrackField(Lazy<Core.Undo.UndoManager.Session> beforeThisFrame, string label)

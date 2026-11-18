@@ -96,6 +96,41 @@ public static class ZoneWriter
         return (file, changes, problems);
     }
 
+    /// <summary>What a save of <paramref name="tie"/> leaves in its record of <paramref name="zones"/> (the file as the
+    /// editor loaded it, what <see cref="Patch"/> is given): the matrix (fourth column affine) and the 16 sphere bytes,
+    /// moved as <see cref="Patch"/> moves them when the Tie was moved, else the file's. Null when the record is not in the
+    /// file or its matrix can not be inverted.</summary>
+    public static (Matrix4x4 Matrix, byte[] Sphere)? TiePose(byte[] zones, EntityTie tie)
+    {
+        long at = tie.SourceOffset;
+        if (at < 0 || at + 0x80 > zones.Length) return null;
+        var held = ReadMatrix(zones, at);
+        var now = tie.Transform.GetMatrix();
+        if (Same(now, tie.SavedMatrix)) return (held, zones.AsSpan((int)at + 0x40, 16).ToArray());
+        if (!Matrix4x4.Invert(tie.SavedMatrix, out var savedInverse) || !Matrix4x4.Invert(held, out var heldInverse)) return null;
+        var moved = held * savedInverse * now;
+        var copy = new byte[0x50];
+        WriteMatrix(copy, 0, moved);
+        var sphere = new Vector4(F(zones, at + 0x40), F(zones, at + 0x44), F(zones, at + 0x48), F(zones, at + 0x4C));
+        var centre = Vector3.Transform(Vector3.Transform(new Vector3(sphere.X, sphere.Y, sphere.Z), heldInverse), moved);
+        float growth = MaxAxis(moved) / MathF.Max(MaxAxis(held), 1e-6f);
+        Put(copy, 0x40, centre.X); Put(copy, 0x44, centre.Y); Put(copy, 0x48, centre.Z); Put(copy, 0x4C, sphere.W * growth);
+        return (ReadMatrix(copy, 0), copy.AsSpan(0x40, 16).ToArray());
+    }
+
+    /// <summary>The 16 sphere bytes a save of <paramref name="ufrag"/> leaves in its record of <paramref name="zones"/>
+    /// (moved as <see cref="Patch"/> moves it); null when the record is not in the file.</summary>
+    public static byte[]? UFragSphere(byte[] zones, EntityUFrag ufrag)
+    {
+        long at = ufrag.UFrag.SourceOffset;
+        if (at < 0 || at + 0x80 > zones.Length) return null;
+        var sphere = zones.AsSpan((int)at + 0x30, 16).ToArray();
+        var delta = ufrag.Transform.Translation - ufrag.SavedTranslation;
+        if (delta.LengthSquared() < 1e-8f) return sphere;
+        for (int k = 0; k < 3; k++) Put(sphere, k * 4, F(zones, at + 0x30 + k * 4) + delta[k]);
+        return sphere;
+    }
+
     /// <summary>Every zone blob of zones.dat (each an IGHW at a 0x80 boundary): the Tie clusters holding a record of
     /// <paramref name="records"/> get a sphere that holds the record's sphere. Returns how many grew.</summary>
     private static int GrowClusters(byte[] file, HashSet<long> records)

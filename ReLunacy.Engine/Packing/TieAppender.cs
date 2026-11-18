@@ -7,9 +7,12 @@ namespace ReLunacy.Engine.Packing;
 
 /// <summary>One Tie placement to add: the zone it goes in, its class, its world matrix (row vectors, translation in
 /// the fourth row, like <see cref="Loading.Objects.Instances.TieInstance"/>), its name, the region whose collision.dat
-/// gets its collision, and whether to give it collision at all.</summary>
+/// gets its collision, whether to give it collision at all, and the placement TUID to give it (0: one is made; the
+/// editor passes the TUID its new Tie was made with, which the occlusion bake (<see cref="OcclusionBake"/>) keys it by).
+/// A planet region's occlusion never hides it until a bake or the never-culled flag says otherwise
+/// (<see cref="TieAppender.ApplyOcclusion"/>).</summary>
 public sealed record TieAppendRequest(ulong ZoneTuid, ulong ClassTuid, Matrix4x4 Transform, string Name,
-    string Region = "default", bool Collision = true);
+    string Region = "default", bool Collision = true, ulong Tuid = 0);
 
 /// <summary>A placement that was added: its index in the zone's 0x7240, its new placement TUID, where its record now
 /// is in zones.dat (what <c>PlacedInstance.SourceOffset</c> would read), which recipe case it took ("a": the class
@@ -56,9 +59,10 @@ public sealed class TieAppendResult
 ///     bounds, the payload rebuilt (<see cref="CollisionBvh"/>), assetstats +0x8C (collision.dat size rounded to 0x80).
 ///   - level_cached.toc: the sizes of the files that changed.
 ///
-///   - Planet regions (collision.dat 0x8200 / 0x8300, see <see cref="AppendPlanetEntry"/>): the source placement's
-///     0x8200 record copied for the new one with the next object index and the new TUID, the object totals of both
-///     sections raised by one. Reported as untested.
+///   - Planet regions (collision.dat 0x8200 / 0x8300, <see cref="PlanetOcclusion"/>, <see cref="AppendPlanetEntry"/>):
+///     a 0x8200 record for the new placement (the next index, its TUID and sphere hash), never hidden in the 0x8300 grid,
+///     every cell's far distances grown to reach it; a bake applies later in the save (<see cref="ApplyOcclusion"/>).
+///     Reported as untested.
 ///
 /// The existing in-place writers (<see cref="ZoneWriter"/>, <see cref="CollisionWriter"/>) address records by their
 /// offsets in the files as loaded, so they run first and this on their output.
@@ -348,7 +352,7 @@ public static partial class TieAppender
         }
 
         // Name, TUID.
-        ulong tuid = NewTuid(request, tuids);
+        ulong tuid = request.Tuid != 0 && request.Tuid != ulong.MaxValue && tuids.Add(request.Tuid) ? request.Tuid : NewTuid(request, tuids);
         payloads[Placements] = Concat(blob.AsSpan(placements.Offset, placements.Size), record);
         var nameRecord = new byte[0x10];
         BinaryPrimitives.WriteUInt64BigEndian(nameRecord, tuid);
@@ -413,7 +417,7 @@ public static partial class TieAppender
         int collision = 0;
         if (request.Collision)
             collision = AppendCollision(level, request, sources, src, held, problems);
-        AppendPlanetEntry(level, request, tuid, sources, src, problems);
+        AppendPlanetEntry(level, request, tuid, record.AsSpan(0x40, 16).ToArray(), sources, src, problems);
         if (lighting.Contains("untested") || lighting.StartsWith("no prelight ("))
             problems.Add($"Tie {request.Name}: {lighting}");
         return (n, tuid, recipe, $"{src.Name} in zone {src.ZoneTuid:X16}, {lighting}", collision);
@@ -573,61 +577,57 @@ public static partial class TieAppender
         return chunks.Count;
     }
 
-    private static void UpdateCollisionSize(Level level, int oldLength, int newLength)
+    /// <summary>assetstats +0x8C after a collision file went from <paramref name="oldLength"/> to <paramref name="newLength"/>
+    /// bytes. With <paramref name="name"/>, a value that followed this file follows it down too, never below the file's
+    /// size as read (a step that shrinks the file a little, after one that grew it).</summary>
+    private static void UpdateCollisionSize(Level level, int oldLength, int newLength, string? name = null)
     {
         byte[] stats = level.Files["assetstats.dat"];
         int statsAt = StatsOffset(stats);
         // One value per level: the collision.dat size rounded to 0x80 (the largest region's, on the levels with
         // several, as the other counters are peaks; ASSUMED).
         int recorded = BinaryPrimitives.ReadInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize));
-        if (recorded == IghwRelayout.Align(oldLength, 0x80) || recorded < IghwRelayout.Align(newLength, 0x80))
+        int now = IghwRelayout.Align(newLength, 0x80);
+        bool follows = recorded == IghwRelayout.Align(oldLength, 0x80);
+        if (follows || recorded < now)
         {
+            int value = follows && name != null && level.OriginalLength.TryGetValue(name, out int read)
+                ? Math.Max(IghwRelayout.Align(read, 0x80), now) : Math.Max(recorded, now);
+            if (value == recorded) return;
             stats = (byte[])stats.Clone();
-            BinaryPrimitives.WriteInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize), Math.Max(recorded, IghwRelayout.Align(newLength, 0x80)));
+            BinaryPrimitives.WriteInt32BigEndian(stats.AsSpan(statsAt + StatsCollisionSize), value);
             level.Set("assetstats.dat", stats);
         }
     }
 
     /// <summary>
-    /// Planet regions: collision.dat 0x8200 lists the region's static objects, one 16-byte record each, little-endian
-    /// apart from the TUID (krell_canyon, axiom_city, tombli, zolar_forest, luminopolis, phonica_moon, vendra_homeworld):
-    ///   header 0x30: +0x00 2, +0x04 end of table D, then {offset, count} of tables A (+0x08, at 0x30), B (+0x10),
-    ///   C (+0x18), D (+0x20), +0x28 u16 1, +0x2A u16 object total, +0x2C u16 count of table E (after D), +0x2E u16 (0 on
-    ///   ACiT, 0x57 on phonica_moon a_landing; kept);
-    ///   record: +0x00 u16 object index (0..total-1, running through A, B, C, D, E in file order), +0x02 u16 (one value
-    ///   per Tie class on every class of the levels checked), +0x04 u32 (hash-like, nearly unique), +0x08 u64 TUID,
-    ///   big-endian. Table B holds the region's Tie placements (one stale TUID on phonica_moon a_landing) (the TUID is the 0x72C0 one), in runs of one
-    ///   zone each; A, D, E are not Tie placements; C repeats a few of B (index in both u16s).
-    /// 0x8300 is a grid over these objects (not decoded); its BE u32 at +0x20 is the object total + 1.
-    /// The new placement gets a copy of a same-class B record (its source's when it has one) with index = the old
-    /// total (no existing index changes, so whatever 0x8300 holds stays valid) and the new TUID, inserted after its
-    /// zone's run; B's count, the offsets after it, the end, the total, and 0x8300's total + 1 grow by one.
+    /// Planet regions (<see cref="PlanetOcclusion"/>): the new placement gets a 0x8200 table B record, inserted after its
+    /// zone's run: the index is the old total (no existing index changes), +0x02 is a same-class record's (another's when
+    /// the class has none: the game does not read it), the hash is that of its sphere and the TUID its own, so the game
+    /// matches it. The extra object's index (the total) moves up by one. In the 0x8300 grid the sets get one more bit, the
+    /// new placement's, clear in every set (never hidden: what hides it is baked on request, <see cref="OcclusionBake"/>,
+    /// and applied by <see cref="ApplyOcclusion"/> later in the save), and every cell's far distances grow to reach its sphere.
     /// </summary>
-    private static void AppendPlanetEntry(Level level, TieAppendRequest request, ulong tuid, List<Source> sources, Source src,
+    private static void AppendPlanetEntry(Level level, TieAppendRequest request, ulong tuid, byte[] sphere, List<Source> sources, Source src,
         List<string> problems)
     {
         string fileName = $"{request.Region}/collision.dat";
         byte[]? file = level.Get(fileName);
         if (file == null) return;
-        var secs = IghwRelayout.Sections(file);
-        var table = IghwRelayout.Find(secs, 0x8200);
-        if (table == null) return;
-        byte[] p = file.AsSpan(table.Offset, table.Size).ToArray();
-        int W(int at) => BinaryPrimitives.ReadInt32LittleEndian(p.AsSpan(at));
-        int aOff = W(0x08), aCount = W(0x0C), bOff = W(0x10), bCount = W(0x14), cOff = W(0x18), cCount = W(0x1C);
-        int dOff = W(0x20), dCount = W(0x24), end = W(0x04), eCount = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(0x2C));
-        int total = BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(0x2A));
-        if (W(0) != 2 || aOff != 0x30 || bOff != aOff + 16 * aCount || cOff != bOff + 16 * bCount || dOff != cOff + 16 * cCount
-            || end != dOff + 16 * dCount || p.Length != end + 16 * eCount || total != aCount + bCount + cCount + dCount + eCount)
-            throw new Refusal($"{fileName} 0x8200 is not laid out as known, so the new placement can not be listed in it");
-        if (total >= 0xFFFF) throw new Refusal($"{fileName} 0x8200 is full");
+        var occlusion = PlanetOcclusion.Read(file, out string? why);
+        if (occlusion == null)
+        {
+            if (why != null) throw new Refusal($"{fileName}: {why}, so the new placement can not be listed in it");
+            return;
+        }
+        var (objects, grid) = occlusion.Value;
+        int total = objects.Total;
+        if (objects.Bits + 1 > PlanetOcclusion.NoIndex) throw new Refusal($"{fileName}: the occlusion table is full");
 
-        ulong Tuid(int k) => BinaryPrimitives.ReadUInt64BigEndian(p.AsSpan(bOff + 16 * k + 8));
+        var table = objects.Tables[PlanetOcclusion.TableB];
         var ofClass = sources.Select(s => s.Tuid).ToHashSet();
-        int copy = -1;
-        for (int k = 0; k < bCount && copy < 0; k++) if (Tuid(k) == src.Tuid) copy = k;
-        for (int k = 0; k < bCount && copy < 0; k++) if (ofClass.Contains(Tuid(k))) copy = k;
-        if (copy < 0) throw new Refusal($"{fileName} 0x8200 lists no placement of this class to copy");
+        var copy = table.Find(r => PlanetOcclusion.Objects.Tuid(r) == src.Tuid) ?? table.Find(r => ofClass.Contains(PlanetOcclusion.Objects.Tuid(r)))
+                   ?? table.FirstOrDefault() ?? new byte[16];
 
         // After the zone's run of records (its placements' TUIDs, the new one excepted).
         var pointers = Pointers(level.Files["assetlookup.dat"], ZonePointers);
@@ -637,33 +637,22 @@ public static partial class TieAppender
         var zoneTuids = new HashSet<ulong>();
         for (int i = 0; i < names.Count; i++) zoneTuids.Add(BinaryPrimitives.ReadUInt64BigEndian(blob[(names.Offset + 16 * i)..]));
         zoneTuids.Remove(tuid);
-        int at = bCount;
-        for (int k = 0; k < bCount; k++) if (zoneTuids.Contains(Tuid(k))) at = k + 1;
+        int at = table.Count;
+        for (int k = 0; k < table.Count; k++) if (zoneTuids.Contains(PlanetOcclusion.Objects.Tuid(table[k]))) at = k + 1;
 
-        byte[] record = p.AsSpan(bOff + 16 * copy, 16).ToArray();
-        BinaryPrimitives.WriteUInt16LittleEndian(record, (ushort)total);
+        byte[] record = (byte[])copy.Clone();
+        PlanetOcclusion.Objects.SetIndex(record, total);
+        PlanetOcclusion.Objects.SetHash(record, PlanetOcclusion.Hash(sphere));
         BinaryPrimitives.WriteUInt64BigEndian(record.AsSpan(8), tuid);
-        int insert = bOff + 16 * at;
-        byte[] q = Concat(p.AsSpan(0, insert), record, p.AsSpan(insert).ToArray());
-        void Put(int field, int value) => BinaryPrimitives.WriteInt32LittleEndian(q.AsSpan(field), value);
-        Put(0x14, bCount + 1); Put(0x18, cOff + 16); Put(0x20, dOff + 16); Put(0x04, end + 16);
-        BinaryPrimitives.WriteUInt16LittleEndian(q.AsSpan(0x2A), (ushort)(total + 1));
-        var payloads = new Dictionary<uint, byte[]> { [0x8200] = q };
+        table.Insert(at, record);
+        objects.Total = total + 1;
 
-        if (IghwRelayout.Find(secs, 0x8300) is { } grid)
-        {
-            byte[] g = file.AsSpan(grid.Offset, grid.Size).ToArray();
-            if (g.Length >= 0x24 && BinaryPrimitives.ReadInt32BigEndian(g.AsSpan(0x20)) == total + 1)
-            {
-                BinaryPrimitives.WriteInt32BigEndian(g.AsSpan(0x20), total + 2);
-                payloads[0x8300] = g;
-            }
-            else problems.Add($"Tie {request.Name}: {fileName} 0x8300 does not hold the object total where expected; left as it was");
-        }
-        byte[] newFile = IghwRelayout.Relayout(file, payloads);
+        var reach = new Vector4(F(sphere, 0), F(sphere, 4), F(sphere, 8), F(sphere, 12));
+        byte[] newGrid = PlanetOcclusion.Rewrite(grid, objects.Bits, k => k < total ? k : k + 1, [new PlanetOcclusion.Placed(total, reach)]);
+        byte[] newFile = PlanetOcclusion.Write(file, objects, newGrid);
         level.Set(fileName, newFile);
-        UpdateCollisionSize(level, file.Length, newFile.Length);
-        problems.Add($"Tie {request.Name}: planet collision table entry copied, untested");
+        UpdateCollisionSize(level, file.Length, newFile.Length, fileName);
+        problems.Add($"Tie {request.Name}: planet occlusion entry added (never hidden unless baked), untested in game");
     }
 
     private static Matrix4x4 PlacementMatrix(Level level, Source s)
