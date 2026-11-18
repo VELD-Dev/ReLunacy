@@ -17,13 +17,32 @@ public sealed class ImportImage
     public byte[] Bytes = [];
 
     public static ImportImage FromFile(string path) => new() { Name = Path.GetFileNameWithoutExtension(path), SourcePath = path, Bytes = File.ReadAllBytes(path) };
+
+    private int _longest = -1;
+
+    /// <summary>The longest side of the source image, read from its header; 0 when it cannot be read.</summary>
+    public int LongestSide
+    {
+        get
+        {
+            if (_longest >= 0) return _longest;
+            try
+            {
+                using var stream = new MemoryStream(Bytes);
+                var info = StbImageSharp.ImageInfo.FromStream(stream);
+                _longest = info is { } i ? Math.Max(i.Width, i.Height) : 0;
+            }
+            catch (Exception) { _longest = 0; }
+            return _longest;
+        }
+    }
 }
 
 /// <summary>How <see cref="TextureImporter"/> sizes and encodes an image.</summary>
 public sealed class TextureImportOptions
 {
     /// <summary>Longest side after the power-of-two resize.</summary>
-    public int MaxSize = 1024;
+    public int MaxSize = TextureImporter.SafeSize;
     /// <summary>Multiplies the albedo (the glTF base colour factor, linear).</summary>
     public Vector4 Factor = Vector4.One;
     /// <summary>Keep the alpha (BC3 when it is not all opaque): the albedo's, or the expensive texture's detail mask; false writes BC1.</summary>
@@ -61,12 +80,16 @@ public sealed class EncodedTexture
 /// Turns a PNG / JPEG into an <see cref="EncodedTexture"/>: decoded to RGBA8 (StbImageSharp, <see cref="Image"/>), resized to powers of
 /// two (the nearest in log scale, at most <see cref="TextureImportOptions.MaxSize"/>, at least 4), mips by 2x2 averaging (albedo in
 /// linear light, normals renormalised), then BC1 / BC3 (<see cref="BcEncoder"/>).
-/// Normal maps are written as retail Tie shaders read them: DXT5 with X in alpha and Y in green, R and B zero; the shader's CONTROL1
-/// 0x6AE0 presents (A, A, G, 1) (PROVEN: 197 of 197 DXT5 normal descriptors of great_clock_a). X and Y are the image's red and
-/// green, as the glTF exporter writes them back out (round trip); the green sign is INFERRED.
+/// Normal maps are written as retail Tie shaders read them: DXT5 with the partial derivatives dx = x / z in alpha and dy = y / z in
+/// green (clamped to -1..1, biased 0.5), R and B zero; the shader's CONTROL1 0x6AE0 presents (A, A, G, 1) (PROVEN: 197 of 197 DXT5
+/// normal descriptors of great_clock_a) and the renderer rebuilds normalize(dx, dy, 1). X and Y are the image's red and green, as the
+/// glTF exporter writes them back out (round trip); the green sign is INFERRED.
 /// </summary>
 public static class TextureImporter
 {
+    /// <summary>The largest side imports are scaled down to unless the user keeps the full size; larger textures may not load in game.</summary>
+    public const int SafeSize = 512;
+
     public static EncodedTexture Encode(ImportImage image, ImportTextureKind kind, TextureImportOptions? options = null) =>
         Encode(new Image(image.Bytes), kind, options);
 
@@ -177,6 +200,75 @@ public static class TextureImporter
         return new Image(w, h, data);
     }
 
+    /// <summary>
+    /// The expensive texture (slot 2) from one grayscale image per channel: R specular, G parallax height, B emissive, A detail mask.
+    /// A colour image gives its luminance; the images are resized to the largest. A missing channel is <paramref name="specular"/> (R),
+    /// 0 (G, B) or 1 (A).
+    /// </summary>
+    public static Image ComposeExpensiveChannels(Image? specular, Image? height, Image? emissive, Image? mask, float specularLevel, int fallbackSize = 4)
+    {
+        var parts = new[] { specular, height, emissive, mask };
+        int w = parts.Max(i => i?.Width) ?? fallbackSize, h = parts.Max(i => i?.Height) ?? fallbackSize;
+        var data = new byte[w * h * 4];
+        byte[] r = Luminance(specular, w, h, ToByte(specularLevel)), g = Luminance(height, w, h, 0), b = Luminance(emissive, w, h, 0), a = Luminance(mask, w, h, 255);
+        for (int i = 0; i < w * h; i++) { data[4 * i] = r[i]; data[4 * i + 1] = g[i]; data[4 * i + 2] = b[i]; data[4 * i + 3] = a[i]; }
+        return new Image(w, h, data);
+    }
+
+    /// <summary>
+    /// The detail texture (slot 3, A8R8G8B8 read as tex x 2 - 1) from its parts: RG the detail normal's partial derivatives (as the main
+    /// normal map, added to its own), B the albedo lift and A the specular add, both grayscale. A missing part is 128, the neutral
+    /// byte of the signed read (the normal's RG is then no perturbation).
+    /// </summary>
+    public static Image ComposeDetail(Image? normal, Image? albedo, Image? specular, bool flipNormalGreen, int fallbackSize = 4)
+    {
+        var parts = new[] { normal, albedo, specular };
+        int w = parts.Max(i => i?.Width) ?? fallbackSize, h = parts.Max(i => i?.Height) ?? fallbackSize;
+        var data = new byte[w * h * 4];
+        byte[] b = Luminance(albedo, w, h, 128), a = Luminance(specular, w, h, 128);
+        var n = normal == null ? null : ResizeRgba(normal, w, h);
+        for (int i = 0; i < w * h; i++)
+        {
+            byte dx = 128, dy = 128;
+            if (n != null)
+            {
+                float y = n[4 * i + 1] / 255f * 2f - 1f;
+                var v = new Vector3(n[4 * i] / 255f * 2f - 1f, flipNormalGreen ? -y : y, n[4 * i + 2] / 255f * 2f - 1f);
+                v = v.LengthSquared() < 1e-8f ? Vector3.UnitZ : Vector3.Normalize(v);
+                var (ddx, ddy) = Derivatives(new Vector4(v, 1f));
+                dx = ToByte(ddx * 0.5f + 0.5f); dy = ToByte(ddy * 0.5f + 0.5f);
+            }
+            data[4 * i] = dx; data[4 * i + 1] = dy; data[4 * i + 2] = b[i]; data[4 * i + 3] = a[i];
+        }
+        return new Image(w, h, data);
+    }
+
+    /// <summary>The image's luminance (Rec. 709 on the stored bytes) resized bilinearly to w x h; <paramref name="missing"/> everywhere for null.</summary>
+    private static byte[] Luminance(Image? image, int w, int h, byte missing)
+    {
+        var result = new byte[w * h];
+        if (image == null) { Array.Fill(result, missing); return result; }
+        var rgba = ResizeRgba(image, w, h);
+        for (int i = 0; i < result.Length; i++)
+            result[i] = ToByte((0.2126f * rgba[4 * i] + 0.7152f * rgba[4 * i + 1] + 0.0722f * rgba[4 * i + 2]) / 255f);
+        return result;
+    }
+
+    private static byte[] ResizeRgba(Image image, int w, int h)
+    {
+        if (image.Width == w && image.Height == h) return image.Data;
+        var src = new Vector4[image.Width * image.Height];
+        for (int i = 0; i < src.Length; i++) src[i] = new Vector4(image.Data[4 * i], image.Data[4 * i + 1], image.Data[4 * i + 2], image.Data[4 * i + 3]);
+        var level = Resample(src, image.Width, image.Height, w, h);
+        var result = new byte[w * h * 4];
+        for (int i = 0; i < level.Length; i++)
+        {
+            result[4 * i] = (byte)Math.Clamp((int)MathF.Round(level[i].X), 0, 255); result[4 * i + 1] = (byte)Math.Clamp((int)MathF.Round(level[i].Y), 0, 255);
+            result[4 * i + 2] = (byte)Math.Clamp((int)MathF.Round(level[i].Z), 0, 255); result[4 * i + 3] = (byte)Math.Clamp((int)MathF.Round(level[i].W), 0, 255);
+        }
+        return result;
+    }
+
     /// <summary>The nearest power of two in log scale.</summary>
     private static int PowerOfTwo(int v)
     {
@@ -244,7 +336,8 @@ public static class TextureImporter
                     break;
                 case ImportTextureKind.Normal:
                     // DXT5 X-in-alpha, Y-in-green: CONTROL1 0x6AE0 presents (A, A, G, 1).
-                    rgba[p] = 0; rgba[p + 1] = ToByte(v.Y * 0.5f + 0.5f); rgba[p + 2] = 0; rgba[p + 3] = ToByte(v.X * 0.5f + 0.5f);
+                    var (dx, dy) = Derivatives(v);
+                    rgba[p] = 0; rgba[p + 1] = ToByte(dy * 0.5f + 0.5f); rgba[p + 2] = 0; rgba[p + 3] = ToByte(dx * 0.5f + 0.5f);
                     break;
                 default:
                     rgba[p] = ToByte(v.X); rgba[p + 1] = ToByte(v.Y); rgba[p + 2] = ToByte(v.Z); rgba[p + 3] = ToByte(v.W);
@@ -252,6 +345,14 @@ public static class TextureImporter
             }
         }
         return rgba;
+    }
+
+    /// <summary>A unit tangent-space normal as the partial derivatives (x / z, y / z) the shaders read (normalize(dx, dy, 1)), clamped to
+    /// the texture's -1..1 range.</summary>
+    private static (float Dx, float Dy) Derivatives(Vector4 n)
+    {
+        float z = MathF.Max(n.Z, 0.05f);
+        return (Math.Clamp(n.X / z, -1f, 1f), Math.Clamp(n.Y / z, -1f, 1f));
     }
 
     private static void Renormalise(Vector4[] level)

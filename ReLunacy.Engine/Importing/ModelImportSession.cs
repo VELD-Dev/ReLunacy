@@ -313,7 +313,7 @@ public sealed class ModelImportSession
         {
             try
             {
-                model.OverlayMask = Encode(OverlayMask, ImportTextureKind.OverlayMask, new TextureImportOptions { MaxSize = 1024 });
+                model.OverlayMask = Encode(OverlayMask, ImportTextureKind.OverlayMask, new TextureImportOptions());
                 model.OverlayMaskId = Loading.IO.InsomniacCrc32.Compute($"relunacy/{TieShaderFactory.SafeName(name)}_mask");
             }
             catch (Exception e) when (e is ArgumentException or InvalidOperationException) { Problems.Add($"The overlay mask could not be read ({e.Message})."); return null; }

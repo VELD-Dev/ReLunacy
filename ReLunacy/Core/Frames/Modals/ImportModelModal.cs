@@ -336,18 +336,49 @@ public sealed class ImportModelModal : Modal
         }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_ClassTip"));
 
+        if (ImGui.RadioButton(LM.Get("GUI_ImportModel_SourceGltf"), !r.Manual) && r.Manual) { r.Manual = false; _buildDirty = true; }
+        ImGui.SameLine();
+        if (ImGui.RadioButton(LM.Get("GUI_ImportModel_SourceManual"), r.Manual) && !r.Manual) { r.Manual = true; _buildDirty = true; }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_SourceManualTip"));
+
         ImageSlot(LM.Get("GUI_ImportModel_SlotAlbedo"), "albedo", ref r.Albedo);
         ImageSlot(LM.Get("GUI_ImportModel_SlotNormal"), "normal", ref r.Normal);
-        ImageSlot(LM.Get("GUI_ImportModel_SlotExpensive"), "expensive", ref r.Expensive, LM.Get("GUI_ImportModel_SlotExpensiveTip"));
-        ImageSlot(LM.Get("GUI_ImportModel_SlotDetail"), "detail", ref r.Detail, LM.Get("GUI_ImportModel_SlotDetailTip"));
-        ImageSlot(LM.Get("GUI_ImportModel_SlotEmissive"), "emissive", ref r.Emissive, LM.Get("GUI_ImportModel_SlotEmissiveTip"));
+        if (r.Manual)
+        {
+            if (PackedToggle("expensiveMode", LM.Get("GUI_ImportModel_SlotExpensive"), ref r.ExpensiveSplit))
+                ImageSlot(LM.Get("GUI_ImportModel_SlotExpensive"), "expensive", ref r.Expensive, LM.Get("GUI_ImportModel_SlotExpensiveTip"));
+            else
+            {
+                ImageSlot(LM.Get("GUI_ImportModel_SlotExpSpecular"), "expR", ref r.ExpensiveSpecular);
+                ImageSlot(LM.Get("GUI_ImportModel_SlotExpHeight"), "expG", ref r.ExpensiveHeight);
+                ImageSlot(LM.Get("GUI_ImportModel_SlotExpEmissive"), "expB", ref r.ExpensiveEmissive, LM.Get("GUI_ImportModel_SlotExpEmissiveTip"));
+                ImageSlot(LM.Get("GUI_ImportModel_SlotExpMask"), "expA", ref r.ExpensiveMask, LM.Get("GUI_ImportModel_SlotExpMaskTip"));
+            }
+            if (PackedToggle("detailMode", LM.Get("GUI_ImportModel_SlotDetail"), ref r.DetailSplit))
+                ImageSlot(LM.Get("GUI_ImportModel_SlotDetail"), "detail", ref r.Detail, LM.Get("GUI_ImportModel_SlotDetailTip"));
+            else
+            {
+                ImageSlot(LM.Get("GUI_ImportModel_SlotDetailNormal"), "detN", ref r.DetailNormal, LM.Get("GUI_ImportModel_SlotDetailNormalTip"));
+                ImageSlot(LM.Get("GUI_ImportModel_SlotDetailAlbedo"), "detC", ref r.DetailAlbedo, LM.Get("GUI_ImportModel_SlotDetailGrayTip"));
+                ImageSlot(LM.Get("GUI_ImportModel_SlotDetailSpecular"), "detS", ref r.DetailSpecular, LM.Get("GUI_ImportModel_SlotDetailGrayTip"));
+            }
+        }
+        else
+        {
+            ImageSlot(LM.Get("GUI_ImportModel_SlotExpensive"), "expensive", ref r.Expensive, LM.Get("GUI_ImportModel_SlotExpensiveTip"));
+            ImageSlot(LM.Get("GUI_ImportModel_SlotDetail"), "detail", ref r.Detail, LM.Get("GUI_ImportModel_SlotDetailTip"));
+            ImageSlot(LM.Get("GUI_ImportModel_SlotEmissive"), "emissive", ref r.Emissive, LM.Get("GUI_ImportModel_SlotEmissiveTip"));
+        }
 
         ImGui.SetNextItemWidth(220f);
         ImGui.ColorEdit4(LM.Get("GUI_ImportModel_Factor"), ref r.AlbedoFactor);
         if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
-        ImGui.SetNextItemWidth(220f);
-        ImGui.ColorEdit3(LM.Get("GUI_ImportModel_EmissiveFactor"), ref r.EmissiveFactor, ImGuiColorEditFlags.Hdr | ImGuiColorEditFlags.Float);
-        if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
+        if (!r.Manual)
+        {
+            ImGui.SetNextItemWidth(220f);
+            ImGui.ColorEdit3(LM.Get("GUI_ImportModel_EmissiveFactor"), ref r.EmissiveFactor, ImGuiColorEditFlags.Hdr | ImGuiColorEditFlags.Float);
+            if (ImGui.IsItemDeactivatedAfterEdit()) _buildDirty = true;
+        }
         bool specular = r.Specular != null;
         if (ImGui.Checkbox(LM.Get("GUI_ImportModel_Specular"), ref specular)) { r.Specular = specular ? 0.25f : null; _buildDirty = true; }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_SpecularTip"));
@@ -379,6 +410,15 @@ public sealed class ImportModelModal : Modal
             ImGui.EndCombo();
         }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_MaxSizeTip"));
+        int largest = r.LargestSource;
+        if (largest > TextureImporter.SafeSize)
+        {
+            ImGui.TextColored(new Vector4(1f, 0.75f, 0.3f, 1f), LM.Get("GUI_ImportModel_LargeTexture", largest));
+            if (ImGui.RadioButton(LM.Get("GUI_ImportModel_Downscale"), !r.KeepFullSize)) { r.KeepFullSize = false; _buildDirty = true; }
+            ImGui.SameLine();
+            if (ImGui.RadioButton(LM.Get("GUI_ImportModel_KeepFullSize"), r.KeepFullSize)) { r.KeepFullSize = true; _buildDirty = true; }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_KeepFullSizeTip"));
+        }
 
         var templates = _session.ShaderTemplates.Where(t => t.Class == r.Class).ToList();
         var chosen = r.TemplateTuid == 0 ? null : templates.FirstOrDefault(t => t.Tuid == r.TemplateTuid);
@@ -411,7 +451,7 @@ public sealed class ImportModelModal : Modal
         }
     }
 
-    private static readonly int[] MaxSizes = [256, 512, 1024, 2048];
+    private static readonly int[] MaxSizes = [128, 256, 512];
 
     private static string AlphaName(ImportAlphaMode mode) => mode switch
     {
@@ -419,6 +459,21 @@ public sealed class ImportModelModal : Modal
         ImportAlphaMode.Blend => LM.Get("GUI_ImportModel_AlphaBlend"),
         _ => LM.Get("GUI_ImportModel_AlphaOpaque"),
     };
+
+    /// <summary>A map's label with Packed / Separate radios; returns true for packed.</summary>
+    private bool PackedToggle(string id, string label, ref bool split)
+    {
+        ImGui.PushID(id);
+        ImGui.TextUnformatted(label);
+        ImGui.SameLine(110f);
+        if (ImGui.RadioButton(LM.Get("GUI_ImportModel_Packed"), !split) && split) { split = false; _buildDirty = true; }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_PackedTip"));
+        ImGui.SameLine();
+        if (ImGui.RadioButton(LM.Get("GUI_ImportModel_Separate"), split) && !split) { split = true; _buildDirty = true; }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ImportModel_SeparateTip"));
+        ImGui.PopID();
+        return !split;
+    }
 
     private void ImageSlot(string label, string id, ref ImportImage? image, string? tip = null)
     {

@@ -29,6 +29,17 @@ public sealed class NewShaderRequest
     public ImportImage? Expensive;
     /// <summary>Slot 3, A8R8G8B8 read signed around 128: R / G perturb the normal, B the albedo, A the specular.</summary>
     public ImportImage? Detail;
+    /// <summary>Manual: the images below are picked per channel instead of taken from the glTF material; the emissive image and
+    /// colour are not used.</summary>
+    public bool Manual;
+    /// <summary>Manual: the expensive texture comes from the four channel images instead of the packed <see cref="Expensive"/>.</summary>
+    public bool ExpensiveSplit;
+    /// <summary>Manual, split expensive: grayscale R (specular), G (parallax height), B (emissive) and A (detail mask).</summary>
+    public ImportImage? ExpensiveSpecular, ExpensiveHeight, ExpensiveEmissive, ExpensiveMask;
+    /// <summary>Manual: the detail texture is built from the three images below instead of the packed <see cref="Detail"/>.</summary>
+    public bool DetailSplit;
+    /// <summary>Manual, split detail: a tangent-space normal map (RG), grayscale albedo lift (B) and specular add (A).</summary>
+    public ImportImage? DetailNormal, DetailAlbedo, DetailSpecular;
     /// <summary>The expensive texture's blue channel (emissive), as linear luminance x <see cref="EmissiveFactor"/>.</summary>
     public ImportImage? Emissive;
     /// <summary>Linear emissive colour (the glTF emissive factor); its luminance alone when there is no <see cref="Emissive"/> image.</summary>
@@ -41,17 +52,33 @@ public sealed class NewShaderRequest
     /// <summary>Shader +0x23 bit 0x02: no back-face culling.</summary>
     public bool DoubleSided;
     public bool FlipNormalGreen;
-    /// <summary>Longest texture side.</summary>
-    public int MaxSize = 1024;
+    /// <summary>Longest texture side, at most <see cref="TextureImporter.SafeSize"/> unless <see cref="KeepFullSize"/>.</summary>
+    public int MaxSize = TextureImporter.SafeSize;
+    /// <summary>Larger sources keep their size (up to 4096) instead of being scaled down to <see cref="MaxSize"/>.</summary>
+    public bool KeepFullSize;
+    public int EffectiveMaxSize => KeepFullSize ? 4096 : Math.Min(MaxSize, TextureImporter.SafeSize);
+
+    public IEnumerable<ImportImage> Images => new[] { Albedo, Normal, Expensive, Detail, ExpensiveSpecular, ExpensiveHeight, ExpensiveEmissive,
+        ExpensiveMask, DetailNormal, DetailAlbedo, DetailSpecular, Emissive }.OfType<ImportImage>();
+    /// <summary>The longest side among the source images.</summary>
+    public int LargestSource => Images.Select(i => i.LongestSide).DefaultIfEmpty(0).Max();
     /// <summary>ACiT +0x70: detail UVs = UV x this (retail 3 on 2750 of 2945); null keeps the template's.</summary>
     public float? DetailTiling;
     /// <summary>The shader to clone; 0 = <see cref="TieShaderFactory.Pick"/>.</summary>
     public ulong TemplateTuid;
 
     /// <summary>The request makes an emissive shader.</summary>
-    public bool IsEmissive => Emissive != null || EmissiveFactor != Vector3.Zero;
+    public bool IsEmissive => Manual ? ExpensiveSplit && ExpensiveEmissive != null : Emissive != null || EmissiveFactor != Vector3.Zero;
     /// <summary>The request writes slot 2.</summary>
-    public bool WritesExpensive => Expensive != null || IsEmissive || Specular != null;
+    public bool WritesExpensive => Manual && ExpensiveSplit
+        ? ExpensiveSpecular != null || ExpensiveHeight != null || ExpensiveEmissive != null || ExpensiveMask != null || Specular != null
+        : Expensive != null || IsEmissive || Specular != null;
+    /// <summary>The request writes slot 3.</summary>
+    public bool WritesDetail => Manual && DetailSplit ? DetailNormal != null || DetailAlbedo != null || DetailSpecular != null : Detail != null;
+    /// <summary>Slot 2 has an image of its own (not only constants); sets the expensive sampler's emissive bit.</summary>
+    internal bool ExpensiveHasImage => Manual && ExpensiveSplit
+        ? ExpensiveSpecular != null || ExpensiveHeight != null || ExpensiveEmissive != null || ExpensiveMask != null
+        : Expensive != null;
 
     /// <summary>Base colour, normal map, emissive, alpha mode and sidedness of a glTF material (metallic / roughness has no clear
     /// expensive-channel mapping and is not used).</summary>
@@ -307,20 +334,36 @@ public static class TieShaderFactory
         var textures = new List<(int Slot, PendingTexture Texture)>();
         try
         {
-            var o = new TextureImportOptions { MaxSize = request.MaxSize, Factor = request.AlbedoFactor, KeepAlpha = request.Alpha != ImportAlphaMode.Opaque, FlipNormalGreen = request.FlipNormalGreen };
+            var o = new TextureImportOptions { MaxSize = request.EffectiveMaxSize, Factor = request.AlbedoFactor, KeepAlpha = request.Alpha != ImportAlphaMode.Opaque, FlipNormalGreen = request.FlipNormalGreen };
             EncodedTexture albedo = request.Albedo != null ? encode(request.Albedo, ImportTextureKind.Albedo, o) : TextureImporter.Solid(LinearToSrgb(request.AlbedoFactor), ImportTextureKind.Albedo, o);
             textures.Add((0, Named(albedo, $"relunacy/{name}_c")));
             if (request.Normal != null) textures.Add((1, Named(encode(request.Normal, ImportTextureKind.Normal, o), $"relunacy/{name}_n")));
             if (request.WritesExpensive)
             {
                 // The detail mask (A) is only kept when a detail map reads it.
-                var eo = new TextureImportOptions { MaxSize = request.MaxSize, KeepAlpha = request.Detail != null };
-                var composed = TextureImporter.ComposeExpensive(request.Expensive is { } e ? new Image(e.Bytes) : null,
-                    request.Emissive is { } em ? new Image(em.Bytes) : null, request.EmissiveFactor, request.Specular ?? 0f);
+                var eo = new TextureImportOptions { MaxSize = request.EffectiveMaxSize, KeepAlpha = request.WritesDetail };
+                Image Compose()
+                {
+                    static Image? Load(ImportImage? i) => i == null ? null : new Image(i.Bytes);
+                    if (request.Manual && request.ExpensiveSplit)
+                        return TextureImporter.ComposeExpensiveChannels(Load(request.ExpensiveSpecular), Load(request.ExpensiveHeight),
+                            Load(request.ExpensiveEmissive), Load(request.ExpensiveMask), request.Specular ?? 0f);
+                    return TextureImporter.ComposeExpensive(Load(request.Expensive), request.Manual ? null : Load(request.Emissive),
+                        request.Manual ? Vector3.Zero : request.EmissiveFactor, request.Specular ?? 0f);
+                }
+                var composed = Compose();
                 textures.Add((2, Named(TextureImporter.Encode(composed, ImportTextureKind.Expensive, eo), $"relunacy/{name}_e")));
             }
-            if (request.Detail != null)
-                textures.Add((3, Named(encode(request.Detail, ImportTextureKind.Detail, new TextureImportOptions { MaxSize = Math.Min(request.MaxSize, 512) }), $"relunacy/{name}_d")));
+            if (request.WritesDetail)
+            {
+                var dopts = new TextureImportOptions { MaxSize = request.EffectiveMaxSize };
+                var detailTexture = request.Manual && request.DetailSplit
+                    ? TextureImporter.Encode(TextureImporter.ComposeDetail(
+                        request.DetailNormal is { } dn ? new Image(dn.Bytes) : null, request.DetailAlbedo is { } da ? new Image(da.Bytes) : null,
+                        request.DetailSpecular is { } ds ? new Image(ds.Bytes) : null, request.FlipNormalGreen), ImportTextureKind.Detail, dopts)
+                    : encode(request.Detail!, ImportTextureKind.Detail, dopts);
+                textures.Add((3, Named(detailTexture, $"relunacy/{name}_d")));
+            }
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or IOException)
         {
@@ -414,7 +457,7 @@ public static class TieShaderFactory
             {
                 0 => request.Alpha == ImportAlphaMode.Opaque ? 0xA9E4u : 0xAAE4u,
                 1 => 0x6AE0u,
-                2 => ShaderClasses.ExpensiveControl1(request.IsEmissive || request.Expensive != null, t.Format == 0x08),
+                2 => ShaderClasses.ExpensiveControl1(request.IsEmissive || request.ExpensiveHasImage, t.Format == 0x08),
                 3 => 0xAAE4u,
                 _ => BinaryPrimitives.ReadUInt32BigEndian(d[16..]),
             };
