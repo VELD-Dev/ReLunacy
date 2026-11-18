@@ -826,7 +826,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                     ImGui.EndTabItem();
                 }
 
-                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_FoliageTab")))
+                var foliageTabFlags = _revealFoliage != null ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_FoliageTab"), foliageTabFlags))
                 {
                     if (ImGui.BeginChild("asset_viewer_foliage_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
                     {
@@ -2373,6 +2374,16 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         catch (Exception e) { LunaLog.LogError($"[AssetViewer] preview resize failed: {e.Message}"); DisposePreview(); }
     }
 
+    private ulong? _revealFoliage;
+
+    /// <summary>Shows the Foliage tab with this card set open.</summary>
+    public bool SelectFoliage(ulong id)
+    {
+        if (LunaWindow.Instance.Level?.Foliages.Any(f => f.Id == id) != true) return false;
+        _revealFoliage = id;
+        return true;
+    }
+
     /// <summary>Foliage inspector. Read-only and deliberately raw: every number is either straight
     /// out of the file or one step from it, since foliage is still being reverse engineered.</summary>
     private void RenderFoliageList()
@@ -2390,6 +2401,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                 !(foliage.Name ?? "").Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            bool reveal = _revealFoliage == foliage.Id;
+            if (reveal) { ImGui.SetNextItemOpen(true); ImGui.SetScrollHereY(0.2f); _revealFoliage = null; }
             if (!ImGui.TreeNode($"{foliage.Name}##foliage{foliage.Id}")) continue;
 
             var meta = foliage.Metadata;

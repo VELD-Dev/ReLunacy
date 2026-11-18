@@ -63,6 +63,16 @@ public sealed class SoundBanksFrame : DockedFrame
         _reveal = true;
     }
 
+    /// <summary>Selects a sound by its name index (BankSound.NameIndex).</summary>
+    public void ShowSound(int nameIndex)
+    {
+        if (CurrentSounds() is not { } sounds) return;
+        _sounds = sounds;
+        _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == nameIndex);
+        _filter = "";
+        _reveal = true;
+    }
+
     private static LevelSounds? CurrentSounds() =>
         LunaWindow.Instance.fileManager is { } files ? SoundReader.For(files) : null;
 

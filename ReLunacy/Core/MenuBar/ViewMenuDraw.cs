@@ -91,6 +91,32 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>Every asset of the level in folders, opened in its viewer or dragged into the 3D view.</summary>
+    internal static void ShowAssetsBrowser()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<AssetsBrowserFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_AssetsBrowser"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<AssetsBrowserFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new AssetsBrowserFrame());
+    }
+
+    /// <summary>The graph of what uses an asset and what it uses.</summary>
+    internal static void ShowReferenceViewer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ReferenceViewerFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_ReferenceViewer"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ReferenceViewerFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new ReferenceViewerFrame());
+    }
+
     /// <summary>The level's Moby and Tie classes as 3D thumbnails, dragged into the 3D view to place them.</summary>
     internal static void ShowAssetExplorer()
     {
@@ -305,6 +331,12 @@ internal static class ViewMenuDraw
                 var assetExplorer = new AssetExplorerFrame();
                 window.AddFrame(assetExplorer);
                 return assetExplorer;
+
+            case nameof(AssetsBrowserFrame):
+                if (window.IsAnyFrameOpened<AssetsBrowserFrame>()) return window.GetFirstFrame<AssetsBrowserFrame>();
+                var assetsBrowser = new AssetsBrowserFrame();
+                window.AddFrame(assetsBrowser);
+                return assetsBrowser;
 
             case nameof(TexturesExplorer):
                 if (window.IsAnyFrameOpened<TexturesExplorer>()) return window.GetFirstFrame<TexturesExplorer>();

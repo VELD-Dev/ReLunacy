@@ -59,6 +59,15 @@ public sealed class AssetLibrary<T> where T : class
 
     public bool Contains(ulong id) => _pointers.ContainsKey(id) || _loaded.ContainsKey(id);
 
+    /// <summary>Where the class sits in its .dat file; false for one read up front (old engine) or not in the files yet.</summary>
+    public bool TryGetPointer(ulong id, out AssetPointer pointer) => _pointers.TryGetValue(id, out pointer);
+
+    /// <summary>A class the editor built that is not in the files yet.</summary>
+    public bool IsPending(ulong id)
+    {
+        lock (_lock) return _pending.ContainsKey(id);
+    }
+
     /// <summary>Adds a class that is not in the level's files yet (see <see cref="Packing.PendingTieClass"/>); listed, read and named
     /// like the level's own until the level is read again.</summary>
     public void AddPending(ulong id, T value)

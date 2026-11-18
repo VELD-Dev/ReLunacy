@@ -958,6 +958,8 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
             ImGui.Separator();
             ViewMenuDraw.ShowLevelData();
             ViewMenuDraw.ShowView3D();
+            ViewMenuDraw.ShowAssetsBrowser();
+            ViewMenuDraw.ShowReferenceViewer();
             ViewMenuDraw.ShowAssetViewer();
             ViewMenuDraw.ShowAssetExplorer();
             ViewMenuDraw.ShowTextureExplorer();

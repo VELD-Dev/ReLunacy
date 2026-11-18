@@ -29,6 +29,11 @@ public static class Icons
     public const string Folder = "\uf07b";
     public const string FolderOpen = "\uf07c";
     public const string File = "\uf15b";
+    public const string ArrowLeft = "\uf060";
+    public const string ArrowRight = "\uf061";
+    public const string ArrowUp = "\uf062";
+    public const string List = "\uf03a";
+    public const string Grid = "\uf00a";  // table-cells
 
     // View / visibility
     public const string Eye = "\uf06e";
@@ -46,6 +51,9 @@ public static class Icons
     public const string Map = "\uf279";  // level
     public const string MountainSun = "\ue52f";  // UFrags
     public const string Tree = "\uf1bb";  // foliage
+    public const string Seedling = "\uf4d8";  // shrubs
+    public const string VolumeHigh = "\uf028";  // sounds
+    public const string Font = "\uf031";  // text tables
     public const string CircleDot = "\uf192";  // bounding spheres
     public const string Filter = "\uf0b0";
     public const string BezierCurve = "\uf55b";  // paths

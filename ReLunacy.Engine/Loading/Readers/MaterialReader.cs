@@ -14,6 +14,11 @@ public sealed class MaterialReader
     private readonly Dictionary<ulong, Material> _materialCache = [];
     private readonly Dictionary<ulong, Texture> _textureCache = [];
     private readonly Dictionary<(ulong SourceId, OldTextureDescriptorState Descriptor), Texture> _newBindingTextureCache = [];
+    private readonly Dictionary<ulong, ulong> _bindingSources = [];
+
+    /// <summary>New engine: the texture each binding-specific wrapper (a texture under one shader's descriptor) was made from,
+    /// keyed by the wrapper's runtime id. Grows as classes are read.</summary>
+    public IReadOnlyDictionary<ulong, ulong> BindingSources => _bindingSources;
     private readonly Dictionary<uint, IMaterial> _foliageMaterialCache = [];
     private Material? _defaultMaterial;
 
@@ -206,6 +211,7 @@ public sealed class MaterialReader
             bound.Name = legacy.name;
             _textureCache[runtimeId] = bound;
             _newBindingTextureCache[bindingKey] = bound;
+            _bindingSources[runtimeId] = legacy.id;
             return bound;
         }
 

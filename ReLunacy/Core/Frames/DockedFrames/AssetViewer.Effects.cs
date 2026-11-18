@@ -47,6 +47,16 @@ public partial class AssetViewer
         return true;
     }
 
+    /// <summary>Selects an effect package and shows the Effects tab. False when the level's effects are not read yet.</summary>
+    public bool SelectEffectPackage(EffectPackage package)
+    {
+        RefreshEffectEntries();
+        if (_effectsListed == null || !_effectsListed.Library.Packages.Contains(package)) return false;
+        _revealEffectsTab = true;
+        SelectEffect(package);
+        return true;
+    }
+
     private ImGuiTabItemFlags RevealEffectsTab()
     {
         if (!_revealEffectsTab) return ImGuiTabItemFlags.None;

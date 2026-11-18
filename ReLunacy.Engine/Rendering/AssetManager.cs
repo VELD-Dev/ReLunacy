@@ -345,6 +345,45 @@ public sealed class AssetManager : IDisposable
         return Ties[tie.Id] = BuildModel(tie.Meshes);
     }
 
+    // While a LowResolutionBuilds scope is open: the largest side a texture built on demand loads at (0: its own).
+    private uint _onDemandCeiling;
+
+    /// <summary>Textures built on demand while the scope is open load at texture streaming's base size and stream up from
+    /// there like the level's own, rather than at full resolution (thumbnails). Nothing changes with streaming off.</summary>
+    public IDisposable LowResolutionBuilds()
+    {
+        uint previous = _onDemandCeiling;
+        if (TextureStreamer.Enabled) _onDemandCeiling = TextureStreamer.BaseDimension;
+        return new Scope(() => _onDemandCeiling = previous);
+    }
+
+    private sealed class Scope(Action end) : IDisposable
+    {
+        private Action? _end = end;
+        public void Dispose() { _end?.Invoke(); _end = null; }
+    }
+
+    /// <summary>Packed vertices, indices and material of each mesh, for one offscreen draw (thumbnails): neither cached
+    /// nor registered with <see cref="VulkanSceneCapture"/>, so the geometry goes when the caller drops it. Materials and
+    /// their textures are built as usual. Meshes without geometry are left out.</summary>
+    public List<(float[] Vertices, uint[] Indices, RenderMaterial Material)> BuildDetachedGeometry(IEnumerable<IMesh> meshes)
+    {
+        var built = new List<(float[], uint[], RenderMaterial)>();
+        foreach (var mesh in meshes)
+        {
+            var source = mesh.Material;
+            var twoLayer = mesh as Assets.Geometry.Mesh is { SecondMaterial: not null, BlendMask: not null } layered ? layered : null;
+            var material = twoLayer != null
+                ? GetOrBuildMaterial(source, Loading.Objects.UFragMetadata.NoLightmap, twoLayer.SecondMaterial, twoLayer.BlendMask)
+                : GetOrBuildMaterial(source);
+            var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
+            var indices = mesh.Geometry.GetIndices();
+            if (vertices.Length == 0 || indices.Length == 0) continue;
+            built.Add((Loading.PreparedGeometry.Interleaved(vertices, indices), indices, material));
+        }
+        return built;
+    }
+
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run
     /// concurrently: pixel data is already in memory, and the block decoders hold only readonly state.</summary>
     /// <param name="progress">The level load's bar. The texture count is only known once the working
@@ -1220,7 +1259,11 @@ public sealed class AssetManager : IDisposable
             // returns early, leaving data empty, when the highmips pointer's length is 0) - a real,
             // already-handled case in the loader, not a corrupt read. TextureUploadPreparer returns
             // null for that case and otherwise chooses authored-vs-generated mip handling centrally.
-            levels = TextureUploadPreparer.Prepare(texture, generateMipsWhenUnauthored: mipmap);
+            uint ceiling = _textureCap == 0 ? _onDemandCeiling : _onDemandCeiling == 0 ? _textureCap : Math.Min(_textureCap, _onDemandCeiling);
+            levels = ceiling != 0 && _onDemandCeiling != 0
+                // Decoded from the small mips only where the texture has them.
+                ? TextureUploadPreparer.Prepare(texture, mipmap, ceiling)
+                : TextureUploadPreparer.Prepare(texture, generateMipsWhenUnauthored: mipmap);
             if (_textureCap != 0) levels = levels?.LimitTo(_textureCap);
         }
 

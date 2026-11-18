@@ -624,7 +624,7 @@ public sealed class ImportModelModal : Modal
         if (tie == null) { _error = s.Problems.FirstOrDefault() ?? "The class could not be queued."; return; }
         ImportRecords.Record(ProjectSession.Current, s);
         EntityManager.StructureVersion++;
-        AssetExplorerFrame.Reveal(tie.Id, s.Built!.Name);
+        AssetsBrowserFrame.Reveal(new Engine.Assets.Browser.AssetKey(Engine.Assets.Browser.AssetKind.Tie, tie.Id));
         if (_place && LunaWindow.Instance.IsAnyFrameOpened<View3D>())
         {
             var focus = window.GetFirstFrame<View3D>().CentrePlacement().Point;
