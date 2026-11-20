@@ -79,6 +79,12 @@
   <ItemGroup>
     <!-- Window creation and input. Came in transitively through Bliss until its host layer was
          replaced (see Utility/Host); referenced directly now. -->
+    <PackageReference Include="NAudio.Core" Version="3.4.0-preview.1" />
+    <PackageReference Include="NAudio.Flac" Version="1.0.5702.29018" />
+    <PackageReference Include="NAudio.Flac.Unknown" Version="1.0.4" />
+    <PackageReference Include="NAudio.Lame" Version="2.1.0" />
+    <PackageReference Include="NAudio.SoundFile" Version="3.4.0-preview.1" />
+    <PackageReference Include="NAudio.Vorbis" Version="3.0.0" />
     <PackageReference Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageReference Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <PackageReference Include="Hexa.NET.ImGui" Version="2.2.10-prerelease" />
