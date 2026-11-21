@@ -66,7 +66,7 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
         var level = LunaWindow.Instance.Level;
         _shader = level != null && level.Shaders.TryGetValue(_tuid, out var shader) ? shader : null;
         _crackInTime = level?.GameDefinition?.Id == Engine.Games.GameId.ACrackInTime;
-        _material = _shader != null ? FindMaterial(_tuid) : null;
+        _material = _shader != null ? LunaWindow.Instance.Reader?.FindShaderMaterial(_tuid) : null;
         _renderMaterial = null;
         _programs = null;
         _graphDirty = true;
@@ -102,28 +102,6 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
     }
 
     public void OnLevelLoaded() => Bind();
-
-    /// <summary>The source material a loaded Moby, Tie or UFrag draws this shader with; null when nothing loaded uses it.</summary>
-    private static IMaterial? FindMaterial(ulong tuid)
-    {
-        var level = LunaWindow.Instance.Level;
-        if (level == null) return null;
-        foreach (var moby in level.Mobys.Values)
-            foreach (var bangle in moby.Bangles)
-                foreach (var mesh in bangle.Meshes)
-                {
-                    if (mesh.Material.Id == tuid) return mesh.Material;
-                    foreach (var variant in mesh.MaterialVariants)
-                        if (variant.Id == tuid) return variant;
-                }
-        foreach (var tie in level.Ties.Values)
-            foreach (var mesh in tie.Meshes)
-                if (mesh.Material.Id == tuid) return mesh.Material;
-        foreach (var zone in level.Zones.Values)
-            foreach (var ufrag in zone.UFrags)
-                if (ufrag.Material.Id == tuid) return ufrag.Material;
-        return null;
-    }
 
     private RenderMaterial? EnsureRenderMaterial()
     {

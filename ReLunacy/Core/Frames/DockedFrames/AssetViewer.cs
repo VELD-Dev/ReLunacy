@@ -145,7 +145,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     private bool _previewPoseDirty;
     private int _lastPreviewAnimationFrame = -1;
     private bool _animationAutoplay = true;
-    private IMaterial? _selectedInlineMaterial;
 
     // Picking granularity for this viewport only (never fed into the shared scene-picking used
     // by View3D) - reuses local (bangleIndex, meshIndex) as the picking ID directly instead of
@@ -378,7 +377,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
 
     private void RebuildSelectedAssetMaterials()
     {
-        _selectedInlineMaterial = null;
+        ResetShaderSwaps();
         selectedMobyMaterialsByBangle.Clear();
         selectedTieMaterials.Clear();
         mobyUsageResults = null;
@@ -681,29 +680,29 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    // Shader preview uses the material's albedo texture - same convention as the Shader Browser's
-    // own texture-reference thumbnails - since a shader has no rendering of its own worth showing.
-    private void RenderShaderGrid(IReadOnlyList<IMaterial> materials, string columnsId)
+    private void RenderShaderGrid(IReadOnlyList<IMaterial> materials, string columnsId, int bangleIndex = 0)
     {
         int columns = Math.Max(1, (int)ImGui.GetContentRegionAvail().X / 92);
         ImGui.Columns(columns, columnsId, false);
         foreach (var mat in materials)
         {
-            bool selected = _selectedInlineMaterial?.Id == mat.Id;
-            if (mat.AlbedoTexture != null && assetManager != null && assetManager.BuiltTextures.TryGetValue(mat.AlbedoTexture.Id, out var tex2D))
+            var slot = (bangleIndex, mat.Id);
+            var shown = _shaderSwaps.GetValueOrDefault(slot) ?? mat;
+            bool selected = _selectedShaderSlot == slot;
+            if (shown.AlbedoTexture != null && assetManager != null && assetManager.BuiltTextures.TryGetValue(shown.AlbedoTexture.Id, out var tex2D))
             {
                 var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, tex2D.DeviceTexture);
                 ImGui.Image(ptr, new Vector2(72, 72), Vector2.UnitY, Vector2.UnitX);
                 if (ImGui.IsItemClicked())
-                    _selectedInlineMaterial = mat;
+                    SelectShaderSlot(slot, mat);
             }
             else
             {
                 ImGui.Dummy(new Vector2(72, 72));
             }
 
-            if (ImGui.Selectable($"{mat.Name ?? mat.Id.ToString("X")}##shader_grid_{mat.Id:X}", selected))
-                _selectedInlineMaterial = mat;
+            if (ImGui.Selectable($"{shown.Name ?? shown.Id.ToString("X")}##shader_grid_{mat.Id:X}", selected))
+                SelectShaderSlot(slot, mat);
             ImGui.NextColumn();
         }
         ImGui.Columns(1);
@@ -711,12 +710,13 @@ public partial class AssetViewer : DockedFrame, ILevelListener
 
     private void RenderInlineMaterialDetails()
     {
-        if (_selectedInlineMaterial is not { } mat)
+        if (_selectedShaderSlot is not { } slot || _originalShader is not { } original)
         {
             ImGui.TextDisabled("Select a shader/material above to inspect it here.");
             return;
         }
 
+        var mat = _shaderSwaps.GetValueOrDefault(slot) ?? original;
         ImGui.SeparatorText("Selected shader");
         ImGui.TextUnformatted(mat.Name ?? $"Shader_{mat.Id:X}");
         ImGui.TextDisabled($"0x{mat.Id:X}");
@@ -731,6 +731,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
 
         if (ImGui.Button("Open full Shader Browser"))
             OpenShaderInBrowser(mat.Id);
+        DrawShaderSwapControls(slot, original, mat);
     }
 
     protected override void Render(double deltaTime)
@@ -741,6 +742,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             DisposePreview();
         }
 
+        DrawShaderPicker();
         Vector2 totalAvail = ImGui.GetContentRegionAvail();
         treeListWidth = Math.Clamp(treeListWidth, 150f, Math.Max(150f, totalAvail.X - 200f));
 
@@ -871,13 +873,14 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             Camera.FarPlane = Program.Settings.AssetViewerFarPlane;
             Camera.Update();
 
-            if (previewDirty)
+            if (previewDirty || ShaderSwapTexturesChanged())
             {
                 RebuildPreview();
                 previewDirty = false;
             }
 
-            if (_vkPreview != null)
+            if (assetManager?.HasPendingUploads != true) _shaderSwapAwaitingUploads = false;
+            if (_vkPreview != null && !_shaderSwapAwaitingUploads)
             {
                 _debugLines.Clear();
                 if (showSkeleton && selectedMobyAsset?.Moby.Skeleton is { } skeleton)
@@ -915,7 +918,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                 catch (Exception e) { LunaLog.LogError($"[AssetViewer] preview frame failed: {e.Message}"); DisposePreview(); }
             }
 
-            if (_vkPreview != null)
+            if (_vkPreview != null && !_shaderSwapAwaitingUploads)
                 _viewport.DrawImage(LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, _vkPreview.ColorTexture));
             else
                 _viewport.DrawEmpty();
@@ -924,7 +927,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             // one): TryConsumeClick answers true only for a click the toolbar did not want.
             DrawPreviewOverlay();
 
-            if (_viewport.TryConsumeClick() && _selectedEffect == null)
+            if (!_shaderSwapAwaitingUploads && _viewport.TryConsumeClick() && _selectedEffect == null)
             {
                 if (vertexEditMode && selectedMesh != null)
                     PickVertexUnderCursor();
@@ -1051,7 +1054,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             {
                 if (ImGui.TreeNodeEx($"Bangle_{bangleIndex}##moby_shader_bangle_{bangleIndex}", ImGuiTreeNodeFlags.DefaultOpen))
                 {
-                    RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}");
+                    RenderShaderGrid(materials, $"moby_shader_grid_{bangleIndex}", bangleIndex);
                     ImGui.TreePop();
                 }
             }
@@ -1920,6 +1923,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     {
         _vkPreview?.Dispose();
         _vkPreview = null;
+        _swapTextures.Clear();
+        _shaderSwapAwaitingUploads = false;
     }
 
     /// <summary>Rebuilds the preview scene when the selection or its visible meshes change.</summary>
@@ -1939,14 +1944,25 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         void Add(RenderMesh mesh, Matrix4x4 world, uint pickId)
         {
             if (!VulkanSceneCapture.TryGet(mesh, out int gi)) return;
-            if (!geoRemap.TryGetValue(gi, out int geoSlot))
+            var material = mesh.Material;
+            int geoSlot;
+            if (TryBuildShaderSwap(pickId) is { } swap)
+            {
+                geoSlot = verts.Count;
+                verts.Add(swap.Vertices);
+                idx.Add(swap.Indices);
+                material = swap.Material;
+                foreach (var map in material.GetMaterialMaps())
+                    if (map.Texture is { } gpu)
+                        _swapTextures[gpu] = gpu.DeviceTexture;
+            }
+            else if (!geoRemap.TryGetValue(gi, out geoSlot))
             {
                 geoSlot = verts.Count;
                 verts.Add(VulkanSceneCapture.VertexData[gi]);
                 idx.Add(VulkanSceneCapture.Indices[gi]);
                 geoRemap[gi] = geoSlot;
             }
-            var material = mesh.Material;
             if (!matRemap.TryGetValue(material, out int matSlot))
             {
                 matSlot = materials.Count;
@@ -1957,16 +1973,15 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             instances.Add((geoSlot, matSlot, world, new Vector4(0f, 0f, 0f, 1e9f), moby != null ? MobyPreviewOwner : null!, -1f, pickId));
         }
 
-        ForEachPreviewMesh(Add);
-
-        if (instances.Count == 0) return;
-
         // Null when no level is loaded (the placeholder case) - the renderer falls back to a neutral
         // 1x1 cube, which contributes nothing because EnvironmentIntensity is 0 without a level.
         var envCube = assetManager?.EnvironmentCubemapView?.Target;
 
         try
         {
+            ForEachPreviewMesh(Add);
+            if (instances.Count == 0) return;
+            _shaderSwapAwaitingUploads = _swapTextures.Count != 0 && assetManager?.HasPendingUploads == true;
             // Use the level's shader table and engine flag so Moby draws select the same
             // material permutations as the 3D View.
             _vkPreview = new Engine.Rendering.Vulkan.VulkanRenderer(

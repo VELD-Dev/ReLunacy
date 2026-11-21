@@ -370,18 +370,21 @@ public sealed class AssetManager : IDisposable
     {
         var built = new List<(float[], uint[], RenderMaterial)>();
         foreach (var mesh in meshes)
-        {
-            var source = mesh.Material;
-            var twoLayer = mesh as Assets.Geometry.Mesh is { SecondMaterial: not null, BlendMask: not null } layered ? layered : null;
-            var material = twoLayer != null
-                ? GetOrBuildMaterial(source, Loading.Objects.UFragMetadata.NoLightmap, twoLayer.SecondMaterial, twoLayer.BlendMask)
-                : GetOrBuildMaterial(source);
-            var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
-            var indices = mesh.Geometry.GetIndices();
-            if (vertices.Length == 0 || indices.Length == 0) continue;
-            built.Add((Loading.PreparedGeometry.Interleaved(vertices, indices), indices, material));
-        }
+            if (BuildDetachedMesh(mesh, mesh.Material) is { } part)
+                built.Add(part);
         return built;
+    }
+
+    /// <summary>Packs a mesh with a preview material while retaining any secondary layer and blend mask.</summary>
+    public (float[] Vertices, uint[] Indices, RenderMaterial Material)? BuildDetachedMesh(IMesh mesh, IMaterial material)
+    {
+        var twoLayer = mesh is Assets.Geometry.Mesh { SecondMaterial: not null, BlendMask: not null } layered ? layered : null;
+        var vertices = ConvertGeometryToVertices(mesh.Geometry, material.UsesVertexAlpha || twoLayer != null);
+        var indices = mesh.Geometry.GetIndices();
+        if (vertices.Length == 0 || indices.Length == 0) return null;
+        var renderMaterial = GetOrBuildMaterial(material, Loading.Objects.UFragMetadata.NoLightmap,
+            twoLayer?.SecondMaterial, twoLayer?.BlendMask);
+        return (Loading.PreparedGeometry.Interleaved(vertices, indices), indices, renderMaterial);
     }
 
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run

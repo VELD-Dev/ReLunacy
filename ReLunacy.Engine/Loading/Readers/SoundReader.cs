@@ -8,8 +8,9 @@ using ReLunacy.Engine.Loading.IO;
 namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>
-/// Reads the sounds a level can play (A Crack in Time; docs/reverse/acit_audio.md): SoundSpecs id -> sound effect of
-/// fxconduit_packed.dat -> name and bank entry of resident_sound.dat. Only the tables are read (a few hundred
+/// Reads the per-level banks in Tools of Destruction, Quest for Booty and A Crack in Time.
+/// SoundSpecs ids resolve through fxconduit_packed.dat into resident_sound.dat's name table.
+/// Only the tables are read up front (a few hundred
 /// kilobytes of files of 10-35 MB); samples are read and decoded when played. Read in the background on first use,
 /// once per opened level.
 /// </summary>
@@ -90,16 +91,14 @@ public static partial class SoundReader
 
     public static LevelSounds? Read(FileManager fileManager, string? gameFolder)
     {
-        if (fileManager.Locate("fxconduit_packed.dat") is not { } conduitFile || fileManager.Locate("resident_sound.dat") is not { } residentFile)
-            return null;
-        return Read(conduitFile, residentFile, fileManager.Locate("streaming_sound.dat"), gameFolder);
+        if (fileManager.Locate("resident_sound.dat") is not { } residentFile) return null;
+        return Read(fileManager.Locate("fxconduit_packed.dat"), residentFile, fileManager.Locate("streaming_sound.dat"), gameFolder);
     }
 
-    private static LevelSounds? Read((string ArchivePath, string EntryPath) conduitFile,
+    private static LevelSounds? Read((string ArchivePath, string EntryPath)? conduitFile,
         (string ArchivePath, string EntryPath) residentFile, (string ArchivePath, string EntryPath)? streamingFile, string? gameFolder)
     {
-        var conduit = ReadWhole(conduitFile);
-        if (conduit == null) return null;
+        var conduit = conduitFile is { } file ? ReadWhole(file) : null;
         var specNames = gameFolder != null ? ReadEnum(gameFolder, "soundspecs.lua", SpecLine()) : new Dictionary<int, string>();
 
         // resident_sound.dat: the section table, then each table section; the samples stay where they are.
@@ -110,6 +109,7 @@ public static partial class SoundReader
             : [];
         var nameTable = Section(Names);
         var map = Section(BankMap);
+        if (nameTable.Length < 64 || map.Length < 16) return null;
         var names = new string[nameTable.Length / 64];
         for (int i = 0; i < names.Length; i++)
         {
@@ -117,7 +117,7 @@ public static partial class SoundReader
             int end = raw.IndexOf((byte)0);
             names[i] = Encoding.ASCII.GetString(end < 0 ? raw : raw[..end]);
         }
-        int mapped = map.Length >= 16 ? (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(map), (uint)(map.Length - 16) / 4) : 0;
+        int mapped = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(map), (uint)(map.Length - 16) / 4);
 
         var scream = sections.TryGetValue(Bank, out var bank) ? ReadBank(residentFile, bank.Offset) : null;
         var resident = scream?.FirstTones().ToDictionary(t => t.Sound, t => t.Sample) ?? [];
@@ -125,51 +125,82 @@ public static partial class SoundReader
             ? ReadStreamTable(Section(Streams), streams.Offset)
             : ([], [], []);
 
-        // fxconduit_packed.dat (IGHW 0.2, pointers are file offsets): the root, its effects and the id table.
-        if (BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(0x10)) != ConduitRoot) return null;
-        int rootSection = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(0x14));
-        int root = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(rootSection + 8));
-        int effectCount = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(root + 0x24));
-        int effects = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(root + 0x28));
-        int table = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(root + 0x2C));
-        int last = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(table));
-        int idBase = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(table + 4));
-
         SoundBank BankOf(int nameIndex) => nameIndex < mapped && BinaryPrimitives.ReadUInt32BigEndian(map.AsSpan(16 + nameIndex * 4)) >> 16 != 0
             ? SoundBank.Streamed : SoundBank.Resident;
         int IndexOf(int nameIndex) => nameIndex < mapped ? (int)(BinaryPrimitives.ReadUInt32BigEndian(map.AsSpan(16 + nameIndex * 4)) & 0xFFFF) : 0;
         var sounds = new List<LevelSound>();
-        for (int slot = 0; slot <= last && table + 8 + slot * 4 + 4 <= conduit.Length; slot++)
-        {
-            int effect = BinaryPrimitives.ReadInt32BigEndian(conduit.AsSpan(table + 8 + slot * 4));
-            if (effect < 0 || effect >= effectCount) continue;
-            int id = slot < idBase ? slot : slot - idBase + 10000;
-            int record = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(effects + effect * 4));
-            if (record <= 0 || record + 0x20 > conduit.Length) continue;
-            int nameIndex = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(record + 0x18));
-            int group = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(record + 0x1C));
-            if (nameIndex < 0 || nameIndex >= names.Length) continue;
-            sounds.Add(new LevelSound(id, specNames.GetValueOrDefault(id, ""), names[nameIndex], BankOf(nameIndex), IndexOf(nameIndex), group, nameIndex));
-        }
-        sounds.Sort((a, b) => a.Id.CompareTo(b.Id));
-
-        // Every bank sound, reached by an id or not, with the mixer group of the effect an id plays (else of the
-        // first effect naming it).
         var groups = new Dictionary<int, int>();
-        foreach (var sound in sounds) groups.TryAdd(sound.NameIndex, sound.Group);
-        for (int effect = 0; effect < effectCount && effects + effect * 4 + 4 <= conduit.Length; effect++)
+        if (conduit != null && ReadConduit(conduit) is { } lookup)
         {
-            int record = (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(effects + effect * 4));
-            if (record <= 0 || record + 0x20 > conduit.Length) continue;
-            groups.TryAdd((int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(record + 0x18)),
-                (int)BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(record + 0x1C)));
+            foreach (var (id, effect) in lookup.Ids)
+            {
+                var (nameIndex, group) = lookup.Effects[effect];
+                if ((uint)nameIndex >= names.Length) continue;
+                sounds.Add(new LevelSound(id, specNames.GetValueOrDefault(id, ""), names[nameIndex],
+                    BankOf(nameIndex), IndexOf(nameIndex), group, nameIndex));
+                groups.TryAdd(nameIndex, group);
+            }
+            // Include mixer groups from effects that aren't reachable by a SoundSpecs id.
+            foreach (var (nameIndex, group) in lookup.Effects)
+                if ((uint)nameIndex < names.Length)
+                    groups.TryAdd(nameIndex, group);
         }
+
         var bankSounds = new List<BankSound>(names.Length);
         for (int i = 0; i < names.Length; i++)
             bankSounds.Add(new BankSound(i, names[i], BankOf(i), IndexOf(i), groups.GetValueOrDefault(i, -1)));
         var groupNames = gameFolder != null ? ReadEnum(gameFolder, "soundgroups.lua", GroupLine()) : new Dictionary<int, string>();
         return new LevelSounds(sounds, specNames, scream, resident, streamOffsets, residentFile,
             streamingFile, bankSounds, groupNames, streamContinuations, streamLoops);
+    }
+
+    /// <summary>The IGHW 0.2 conduit has a 0x12000 section whose sound descriptor differs by engine.</summary>
+    private static ((int NameIndex, int Group)[] Effects, List<(int Id, int Effect)> Ids)? ReadConduit(byte[] data)
+    {
+        if (data.Length < 0x10 || !data.AsSpan(0, 8).SequenceEqual("IGHW\0\0\0\x02"u8)) return null;
+
+        int Word(int at) => BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(at));
+        bool Fits(int at, long size) => at >= 0 && size >= 0 && at + size <= data.Length;
+
+        int count = Word(8);
+        if (!Fits(0x10, count * 16L)) return null;
+        for (int entry = 0x10; entry < 0x10 + count * 16; entry += 16)
+        {
+            if (Word(entry) != ConduitRoot) continue;
+            int root = Word(entry + 4), size = Word(entry + 8);
+            if (size is not (0x14 or 0x20) || !Fits(root, size)) continue;
+            bool legacy = size == 0x14;
+
+            // ToD/QfB put the sound tables in the second descriptor. ACiT uses the third.
+            int descriptor = Word(root + (legacy ? 0x04 : 0x08));
+            int fields = legacy ? 0 : 0x20;
+            if (!Fits(descriptor, fields + 0x10)) continue;
+            int effectCount = Word(descriptor + fields + 0x04);
+            int effectTable = Word(descriptor + fields + 0x08);
+            int idTable = Word(descriptor + fields + 0x0C);
+            if (!Fits(effectTable, effectCount * 4L) || !Fits(idTable, 8)) continue;
+            int lastIdSlot = Word(idTable), builtins = Word(idTable + 4);
+            if (lastIdSlot < 0 || builtins < 0 || !Fits(idTable + 8, (lastIdSlot + 1L) * 4)) continue;
+
+            var effects = new (int NameIndex, int Group)[effectCount];
+            for (int i = 0; i < effectCount; i++)
+            {
+                int record = Word(effectTable + i * 4);
+                effects[i] = record > 0 && Fits(record, legacy ? 0x34 : 0x20)
+                    ? (Word(record + 0x18), Word(record + (legacy ? 0x30 : 0x1C)))
+                    : (-1, -1);
+            }
+
+            var ids = new List<(int Id, int Effect)>();
+            for (int slot = 0; slot <= lastIdSlot; slot++)
+            {
+                int effect = Word(idTable + 8 + slot * 4);
+                if ((uint)effect >= effectCount) continue;
+                ids.Add((slot < builtins ? slot : slot - builtins + 10000, effect));
+            }
+            return (effects, ids);
+        }
+        return null;
     }
 
     /// <summary>A sound to play: a resident sound runs its Scream grains (a new random take each time), a stream

@@ -14,7 +14,7 @@ using ReLunacy.Utility.Localization;
 namespace ReLunacy.Core.Frames.DockedFrames;
 
 /// <summary>
-/// View > Sound Banks: the level's sounds (A Crack in Time's resident and streamed banks; docs/reverse/acit_audio.md),
+/// View > Sound Banks: the level's resident and streamed sounds (Tools of Destruction, Quest for Booty and A Crack in Time),
 /// grouped by bank, mixer group or name prefix. The selected sound shows the SoundSpecs ids that play it (what a
 /// settings field holds), its sample, its Scream grains and the instances whose sound fields name it; Play renders a
 /// new take, drawn as a waveform with a cursor, levels and a spectrum.
@@ -128,7 +128,7 @@ public sealed class SoundBanksFrame : DockedFrame
         {
             _bankFiles = files;
             SelectBank(null);
-            _gameFolder = files != null && window.Level?.GameDefinition?.Id == GameId.ACrackInTime
+            _gameFolder = files != null && window.Level?.GameDefinition?.Id is GameId.ToolsOfDestruction or GameId.QuestForBooty or GameId.ACrackInTime
                 ? GameConfigs.GameFolderFor(files.SourcePath) : null;
             _bankDiscovery = _gameFolder is { } gameFolder ? Task.Run(() => SoundReader.ListLevelBanks(gameFolder)) : null;
         }

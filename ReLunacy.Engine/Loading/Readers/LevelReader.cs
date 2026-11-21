@@ -58,6 +58,15 @@ public sealed class LevelReader
         _debugReader = new DebugReader(fileManager);
     }
 
+    /// <summary>Resolves a loaded shader even when no loaded mesh uses it.</summary>
+    public Assets.Interfaces.IMaterial? FindShaderMaterial(ulong tuid)
+    {
+        lock (_fileLock)
+            return _textureShaderLoader.Shaders.ContainsKey(tuid)
+                ? _materialReader.GetMaterialByTuid(tuid)
+                : null;
+    }
+
     /// <summary>The level's regions, in gameplay.dat's order (bit N of the assetlookup region masks is
     /// region N). Empty on the old engine, whose one region has no name.</summary>
     public IReadOnlyList<string> RegionNames => _regionNames;
