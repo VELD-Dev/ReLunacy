@@ -103,7 +103,8 @@ public sealed class LevelReader
         // New engine: only the tables - each class is read when a region places it. Old engine: all
         // of them, the only way its index- and offset-keyed instances can be resolved.
         progress?.Begin(LoadPhase.Mobys);
-        _mobys = new MobyReader(_fileManager, _materialReader, _debugReader, animationReader).CreateLibrary(_fileLock, progress);
+        _mobys = new MobyReader(_fileManager, _materialReader, _debugReader, animationReader) { ReadCollision = crackInTime }
+            .CreateLibrary(_fileLock, progress);
         progress?.Begin(LoadPhase.Ties);
         _ties = new TieReader(_fileManager, _materialReader, _debugReader) { CrackInTimeLayout = crackInTime }
             .CreateLibrary(_fileLock, progress);
@@ -294,7 +295,12 @@ public sealed class LevelReader
             gameDefinition: _gameDefinition,
             levelFog: _levelFog,
             collisionByRegion: collisionByRegion,
-            regionNames: _regionNames);
+            regionNames: _regionNames)
+        {
+            TextureBindingSources = _materialReader.BindingSources,
+            PatchLayerTextures = _textureShaderLoader.PatchLayerTextures,
+            PatchLayerShaders = _textureShaderLoader.PatchLayerShaders,
+        };
     }
 
     /// <summary>A class the editor built (not in the files yet) as a Tie asset, in the level's Tie library: listed and read like the
@@ -373,6 +379,14 @@ public sealed class LevelData
     /// <summary>Every texture read from textures.dat/highmips.dat, including ones unreferenced
     /// by any loaded material.</summary>
     public IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture> AllTextures { get; }
+
+    /// <summary>New engine: the texture of <see cref="AllTextures"/> each binding-specific wrapper was made from, keyed by
+    /// the wrapper's id (MaterialReader.BindingSources). Grows as classes are read; empty on the old engine.</summary>
+    public IReadOnlyDictionary<ulong, ulong> TextureBindingSources { get; init; } = new Dictionary<ulong, ulong>();
+
+    /// <summary>New engine: textures and shaders a patch layer replaced or added.</summary>
+    public IReadOnlySet<ulong> PatchLayerTextures { get; init; } = new HashSet<ulong>();
+    public IReadOnlySet<ulong> PatchLayerShaders { get; init; } = new HashSet<ulong>();
 
     /// <summary>Every shader parsed from shaders.dat/main.dat, keyed by TUID, including
     /// unreferenced ones. Raw Shader, not the IMaterial wrapper - used by the Shader Browser to

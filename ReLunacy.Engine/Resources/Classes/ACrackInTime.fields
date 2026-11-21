@@ -255,6 +255,11 @@ class 0x12E ClueSwingshotEquip : 0x11D
 class 0x130 ClueHudMap : 0x11D
 {
     [0x18, Volume] = "";
+    [0x34, Area] Map Clue area = "";
+    [0x38, u32] width? = "";
+    [0x3C, u32] = "";
+    [0x40, u32] height? = "";
+    [0x44, u32] = "";
 }
 
 class 0x13A AlarmController : 0xCF
@@ -489,14 +494,14 @@ class 0x21D PlatformBuoyant : 0x201
 
 class 0x220 VendorBase : 0x47
 {
-    [0xC0, float] = "";
-    [0xC4, float] = "";
+    [0xC0, float] Open range = "";
+    [0xC4, float] Close range = "";
     [0xC8, float] = "";
     [0x1C0, component(0x98)] Prompt = "The prompt shown near the object.";
     [0x218, text] Prompt text = "Text of the prompt.";
     [0x21C, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0x224, float] Prompt range = "The prompt shows within this distance.";
-    [0x238, u32] Prompt value A = "";
+    [0x238, u32] Prompt appear range = "";
     [0x248, float] Prompt value B = "";
     [0x254, u8, runtime] Prompt 3D distance = "";
     [0x255, u8, runtime] Prompt enabled = "";
@@ -885,7 +890,7 @@ class 0x3A7 PromptTeleporter : 0x47
 class 0x3B0 PadFling : 0x2B6
 {
     [0xBC, text] Prompt text = "";
-    [0xC0, Volume] Trigger volume = "";
+    [0xC0, Volume] Land volume = "";
     [0xC4, Path] Flight path = "";
     [0xC8, Controller] Camera during the flight = "";
     [0xCC, float] Flight tuning = "";
@@ -1079,7 +1084,7 @@ class 0x4C2 SpacePlanet : 0x11D
     [0xC8, Level] Destination level = "The level the ship loads when it lands here.";
     [0xCC, text] Planet name = "Name shown on the HUD and the map.";
     [0xD0, text] Barrier name = "Name of the barrier around the planet, when it has one.";
-    [0xD4, Volume] Location volume = "The ship can land while it is inside.";
+    [0xD4, Volume] Location volume = "Unknown usage but seems required";
     [0xD8, Volume] Barrier outer volume = "";
     [0xDC, Volume] Barrier inner volume = "";
     [0xE8, float, runtime] Barrier spacing = "";
@@ -1311,7 +1316,7 @@ class 0x590 Agorian battlebot : 0x181
 class 0x591 GenericPrompt : 0x47
 {
     [0x60, component(0x98)] Prompt = "The prompt shown near the object.";
-    [0xB8, text] Prompt text = "Text of the prompt.";
+    [0xB8, text] Prompt text = "Text of the prompt.\nCan be set with script function prompt_set_tag\nHence tags might not always be valid in this field.";
     [0xBC, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0xC4, float] Prompt range = "The prompt shows within this distance.";
     [0xD8, u32] Prompt value A = "";
@@ -1661,6 +1666,26 @@ class 0x699 Nefarious swarmer : 0x181
 
 class 0x69A Nefarious trooper : 0x181
 {
+    [0x920, u32] 409 = "409 on all enemies it seems";
+    [0xB74, float] = "";
+    [0xB78, float] = "";
+    [0xB7C, float] = "";
+    [0xB80, float] = "";
+    [0xB84, float] = "";
+    [0xB88, float] = "";
+    [0xB8C, float] = "";
+    [0xB94, float] = "";
+    [0xB98, float] = "";
+    [0xBF0, u32] 322 = "322 on all NPCs with an AI";
+    [0xE44, float] = "";
+    [0xE48, float] = "";
+    [0xE4C, float] = "";
+    [0xE50, float] = "";
+    [0xE54, float] = "";
+    [0xE58, float] = "";
+    [0xE5C, float] = "";
+    [0xE64, float] = "";
+    [0xE68, float] = "";
 }
 
 class 0x69D EnemyStateFollowTarget_DebugData : 0x3ED

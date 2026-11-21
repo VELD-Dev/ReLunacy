@@ -14,6 +14,7 @@ using ReLunacy.MenuBar;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using NeoVeldrid;
+using ReLunacy.Engine.Games;
 
 namespace ReLunacy.Core;
 
@@ -52,6 +53,11 @@ public class LunaWindow : IDisposable
     public FileManager? fileManager { get; private set; }
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
+    
+    /// <summary>
+    /// The currently loaded level.
+    /// </summary>
+    public Level? LevelMetadata { get; set; }
 
     /// <summary>The loaded level is an A Crack in Time space sector: the moon tools exist only there, until custom levels do.</summary>
     public static bool IsSpaceSector => Instance.Level != null && ConfigDocument.LevelName.StartsWith("space_sector", StringComparison.OrdinalIgnoreCase);
@@ -531,6 +537,7 @@ public class LunaWindow : IDisposable
         // just closes file handles, not GPU state, so it stays synchronous.
         _pendingWipeAssetManager = AssetManager;
         Level = null;
+        LevelMetadata = null;
         AssetManager = null;
         if (!keepFiles)
         {
@@ -958,6 +965,8 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
             ImGui.Separator();
             ViewMenuDraw.ShowLevelData();
             ViewMenuDraw.ShowView3D();
+            ViewMenuDraw.ShowAssetsBrowser();
+            ViewMenuDraw.ShowReferenceViewer();
             ViewMenuDraw.ShowAssetViewer();
             ViewMenuDraw.ShowAssetExplorer();
             ViewMenuDraw.ShowTextureExplorer();
@@ -1099,6 +1108,11 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
         // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
         // called for it.
         RememberDockIdsBeforeClosing();
+        // A closing frame that owns GPU resources frees them here: the previous frame, the last one that drew its
+        // window, has been presented by now.
+        foreach (var frame in openFrames)
+            if (!frame.isOpen && frame is IDisposable disposable)
+                disposable.Dispose();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)

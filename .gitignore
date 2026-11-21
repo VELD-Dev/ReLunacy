@@ -21,3 +21,6 @@ local-packages/
 .claude/
 dev/
 /nuget.config
+
+# Local TODO lists
+docs/TODO_*.md

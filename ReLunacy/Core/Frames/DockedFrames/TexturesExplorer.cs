@@ -368,13 +368,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         return true;
     }
 
-    // Texture names come straight from the game's own string tables, which for some formats
-    // (e.g. new-engine shader-referenced texture names) are full slash-delimited asset paths,
-    // not bare filenames - writing that as-is into Path.Combine either creates unwanted nested
-    // directories under Extracted/ or fails outright. Keep only the last path segment, and fall
-    // back to the texture's index (not e.g. "unnamed") when it has no name at all.
-    private static string GetExportFileName(string? textureName, int index) =>
-        string.IsNullOrEmpty(textureName) ? $"Tex_{index}" : textureName.Split('/')[^1];
+    private static string GetExportFileName(string? textureName, int index) => TextureTools.ExportFileName(textureName, index);
 
     private static bool MaterialUsesTexture(IMaterial mat, ulong textureId) =>
         mat.AlbedoTexture?.Id == textureId ||
@@ -626,25 +620,12 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 ImGui.EndGroup();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportRaw")))
                 {
-                    var path = Path.Combine(Program.EditorPath, "Extracted");
-                    if (!Directory.Exists(path))
-                        Directory.CreateDirectory(path);
-
-                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".raw"), selection.Texture.GetPixelData());
+                    TextureTools.ExportRaw(selection.Texture, GetExportFileName(selection.TextureName, selection.Index));
                 }
                 ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
                 {
-                    var path = Path.Combine(Program.EditorPath, "Extracted");
-                    if (!Directory.Exists(path))
-                        Directory.CreateDirectory(path);
-
-                    // Re-decoded from the source texture rather than read back off the GPU one: the
-                    // GPU copy has a mip chain and no CPU-side pixels, and this is the same decode
-                    // every other view in this frame does.
-                    byte[]? pixels = ReLunacy.Engine.Rendering.TextureUtils.DecodeToRgba8888(selection.Texture, out int pw, out int ph);
-                    if (pixels != null)
-                        new Image(pw, ph, pixels).SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".png"));
+                    TextureTools.ExportPng(selection.Texture, GetExportFileName(selection.TextureName, selection.Index));
                 }
                 ImGui.Separator();
                 if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindUsages")))

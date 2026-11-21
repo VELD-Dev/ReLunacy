@@ -1,4 +1,6 @@
 using System.Numerics;
+using NativeFileDialogSharp;
+using NAudio.SoundFile;
 using ReLunacy.Engine.Assets.Audio;
 using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Engine.Loading.Readers;
@@ -48,6 +50,33 @@ public sealed class SoundBanksFrame : DockedFrame
     private readonly float[] _meterHold = new float[2];
     private readonly float[] _bands = new float[Bands];
 
+    private readonly string[] _exportFormats = new[]
+    {
+        ".wav",
+        ".aif",
+        ".snd",
+        ".caf",
+        ".w64",
+        ".pcm",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".mp3"
+    };
+    private int _selectedExportFormat = 0;
+    private bool _exportAsSoundtrack = false;
+    private bool _hasExportedTrack = false;
+    private string _exportedPath = "";
+    private double _exportedSince = 0.0;
+
+    private readonly KeyValuePair<string, float>[] _exportCompressionLevels = new[]
+    {
+        new KeyValuePair<string, float>("GUI_SoundBanks_Compression_FAST", 0f),
+        new("GUI_SoundBanks_Compression_BALANCED", 0.625f),
+        new("GUI_SoundBanks_Compression_SLOW", 1.0f)
+    };
+    private int _exportCompression = 0;
+    
     public SoundBanksFrame()
     {
         FrameName = LM.Get("GUI_Frame_SoundBanks");
@@ -59,6 +88,16 @@ public sealed class SoundBanksFrame : DockedFrame
         if (CurrentSounds() is not { } sounds || sounds.Find(id) is not { } sound) return;
         _sounds = sounds;
         _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == sound.NameIndex);
+        _filter = "";
+        _reveal = true;
+    }
+
+    /// <summary>Selects a sound by its name index (BankSound.NameIndex).</summary>
+    public void ShowSound(int nameIndex)
+    {
+        if (CurrentSounds() is not { } sounds) return;
+        _sounds = sounds;
+        _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == nameIndex);
         _filter = "";
         _reveal = true;
     }
@@ -190,7 +229,7 @@ public sealed class SoundBanksFrame : DockedFrame
 
         ImGui.TextUnformatted(sound.Name);
         RenderPlayer(sounds, sound);
-        ImGui.Separator();
+        ImGui.SeparatorText(LM.Get("GUI_SoundBanks_Details"));
 
         if (ImGui.BeginTable("##details", 2, ImGuiTableFlags.SizingStretchProp))
         {
@@ -222,7 +261,14 @@ public sealed class SoundBanksFrame : DockedFrame
 
             Row(sound.Bank == SoundBank.Resident ? "GUI_SoundBanks_FirstTone" : "GUI_SoundBanks_Format");
             if (_format is { } f)
-                ImGui.TextUnformatted(LM.Get("GUI_SoundBanks_FormatValue", f.SampleRate, f.Channels, f.Seconds.ToString("0.00")));
+            {
+                ImGui.TextUnformatted(LM.Get(
+                    "GUI_SoundBanks_FormatValue",
+                    f.SampleRate,
+                    f.Channels,
+                    FormatTimecode(f.Seconds)
+                ));
+            }
             else ImGui.TextDisabled("-");
 
             if (_summary is { } summary)
@@ -273,6 +319,87 @@ public sealed class SoundBanksFrame : DockedFrame
             }
             ImGui.EndTable();
         }
+        
+        ImGui.SeparatorText(LM.Get("GUI_SoundBanks_ExportSection"));
+        if(ImGui.BeginTable("###export", 2, ImGuiTableFlags.SizingStretchProp))
+        {
+            void Row(string label)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.Text(LM.Get(label));
+                ImGui.TableNextColumn();
+            }
+            
+            Row("GUI_SoundBanks_ExportAsSoundtrack");
+            ImGui.Checkbox("##export_as_soundtrack", ref _exportAsSoundtrack);
+            ImGui.SameLine();
+            ImGuiPlus.HelpMarker(LM.Get("GUI_SoundBanks_ExportAsSoundtrackHelp"));
+            Row("GUI_SoundBanks_ExportType");
+            ImGui.Combo("##export_type_combo", ref _selectedExportFormat, _exportFormats.Stringify("\0"));
+            Row("GUI_SoundBanks_ExportCompression");
+            if (ImGui.BeginCombo("##export_compression", LM.Get(_exportCompressionLevels[_exportCompression].Key)))
+            {
+                for(int i = 0; i < _exportCompressionLevels.Length; i++)
+                {
+                    var complvl =  _exportCompressionLevels[i];
+                    if (ImGui.Selectable(LM.Get(complvl.Key) + "##compresssion_" + i,
+                            i == _exportCompression))
+                    {
+                        _exportCompression = i;
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.SameLine();
+            ImGuiPlus.HelpMarker(LM.Get("GUI_SoundBanks_Compression_Help"));
+            ImGui.EndTable();
+        }
+        
+        if (ImGui.Button(LM.Get("GUI_SoundBanks_ExportButton")))
+        {
+            _exportedPath = Path.Combine(Program.EditorPath, "Extracted", "Audio", LunaWindow.Instance.LevelMetadata.Name, sound.Name + _exportFormats[_selectedExportFormat]);
+            
+            Task.Run(() => SoundExporter.ExportSoundAsFormat(
+                _exportedPath,
+                sounds,
+                sound,
+                (SoundFileMajorFormat)_selectedExportFormat,
+                LunaWindow.Instance.LevelMetadata,
+                _exportAsSoundtrack,
+                _exportCompressionLevels[_exportCompression].Value
+            ));
+            _hasExportedTrack = true;
+        }
+
+        if (_hasExportedTrack)
+        {
+            ImGui.TextColored(new Vector4(25, 255, 25, 255) / 255, LM.Get("GUI_SoundBanks_ExportedTrackLabel", _exportedPath));
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(25, 180, 25, 255) / 255);
+            if (ImGui.Button(LM.Get("GUI_SoundBanks_ExportedOpenFolder")))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo()
+                    {
+                        FileName = Path.GetFullPath(Path.GetDirectoryName(_exportedPath)),
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception e)
+                {
+                    LunaLog.LogError("An error occurred when trying to open exportation folder.");
+                }
+            }
+            ImGui.PopStyleColor();
+
+            _exportedSince += Time.Delta;
+            if (_exportedSince >= 10.0f)
+            {
+                _hasExportedTrack = false;
+                _exportedSince = 0;
+            }
+        }
     }
 
     /// <summary>Every Clue, controller and Moby of the loaded regions whose documented sound fields hold one of the
@@ -314,6 +441,15 @@ public sealed class SoundBanksFrame : DockedFrame
     private void RenderPlayer(LevelSounds sounds, BankSound sound)
     {
         var take = ReferenceEquals(_takeOf, sound) ? _take : null;
+        if (take == null)
+        {
+            var source = SoundReader.Open(sounds, sound.Bank, sound.BankIndex);
+            _take = source == null
+                ? null
+                : new SoundTake(source, source is PcmSource ? 900.0 : WindowSeconds, WindowSeconds * 2.0);
+            _takeOf = sound;
+            take = _take;
+        }
         var (key, queued) = SoundPlayer.Status;
         bool playing = take != null && ReferenceEquals(key, take);
         bool rendering = ReferenceEquals(_rendering, sound);
@@ -331,8 +467,15 @@ public sealed class SoundBanksFrame : DockedFrame
         if (rendering) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Rendering"));
         else if (ReferenceEquals(_unplayable, sound)) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Unplayable"));
         else if (take != null)
-            ImGui.TextDisabled(LM.Get(take.Complete ? "GUI_SoundBanks_TakeLength" : "GUI_SoundBanks_TakeLooping",
-                (take.Written / (double)take.SampleRate).ToString("0.00"), take.SampleRate, take.Channels));
+        {
+            var duration = TimeSpan.FromSeconds(take.Written / (double)take.SampleRate);
+            ImGui.TextDisabled(LM.Get(
+                take.Complete ? "GUI_SoundBanks_TakeLength" : "GUI_SoundBanks_TakeLooping",
+                FormatTimecode(duration),
+                take.SampleRate,
+                take.Channels
+            ));
+        }
 
         if (take == null) return;
         long cursor = playing ? Math.Max(0, take.Served - queued) : -1;
@@ -386,7 +529,8 @@ public sealed class SoundBanksFrame : DockedFrame
             long from = start + window * x / columns, to = Math.Max(from + 1, start + window * (x + 1) / columns);
             if (from >= written) break;
             var (min, max) = take.Range(from, to);
-            float top = mid - Math.Clamp(max, -1f, 1f) * half, bottom = mid - Math.Clamp(min, -1f, 1f) * half;
+            float top = mid - Math.Clamp(max, -1f, 1f) * half,
+                bottom = mid - Math.Clamp(min, -1f, 1f) * half;
             draw.AddLine(new Vector2(origin.X + x + 0.5f, top), new Vector2(origin.X + x + 0.5f, MathF.Max(bottom, top + 1f)),
                 cursor < 0 || from < cursor ? played : ahead);
         }
@@ -396,12 +540,12 @@ public sealed class SoundBanksFrame : DockedFrame
             draw.AddLine(new Vector2(cx, origin.Y), new Vector2(cx, origin.Y + size.Y), ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.3f, 1f)), 1.5f);
         }
         uint text = ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.5f));
-        string left = $"{start / (double)take.SampleRate:0.00} s", right = $"{(start + window) / (double)take.SampleRate:0.00} s";
+        string left = $"{FormatTimecode(start / (double)take.SampleRate)}", right = $"{FormatTimecode((start + window) / (double)take.SampleRate)}";
         draw.AddText(origin + new Vector2(4f, 2f), text, left);
         draw.AddText(origin + new Vector2(size.X - ImGui.CalcTextSize(right).X - 4f, 2f), text, right);
         if (cursor >= 0)
         {
-            string now = $"{cursor / (double)take.SampleRate:0.00} s";
+            string now = $"{FormatTimecode(cursor / (double)take.SampleRate)}";
             draw.AddText(origin + new Vector2((size.X - ImGui.CalcTextSize(now).X) * 0.5f, 2f), ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.3f, 1f)), now);
         }
     }
@@ -510,4 +654,16 @@ public sealed class SoundBanksFrame : DockedFrame
             }
         }
     }
+
+    /// <summary>
+    /// Turns seconds into a properly formatted x:xx.xx time.
+    /// </summary>
+    /// <param name="seconds"></param>
+    /// <returns></returns>
+    private static string FormatTimecode(in double seconds) =>
+        seconds >= 60
+            ? Math.Floor(seconds / 60) + ":" + (seconds % 60).ToString("00.00")
+            : seconds.ToString("00:00.00") ;
+    
+    private static string FormatTimecode(in TimeSpan timespan) => FormatTimecode(timespan.TotalSeconds);
 }

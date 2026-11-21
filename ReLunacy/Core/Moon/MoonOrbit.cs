@@ -59,10 +59,12 @@ public sealed class MoonOrbit
         Apply(camera);
     }
 
-    /// <summary>Changes the distance from the centre by mouse wheel steps, never closer than just over the surface.</summary>
-    public void Zoom(EditorCamera camera, float steps)
+    /// <summary>Changes the distance from the centre: <paramref name="up"/> is -1..1, <paramref name="speed"/> in units a second; never
+    /// closer than just over the surface.</summary>
+    public void Climb(EditorCamera camera, float up, float speed, float seconds)
     {
-        float altitude = MathF.Max(_distance - MoonMode.Radius, MinAltitude) * MathF.Pow(0.88f, steps);
+        if (up == 0f) return;
+        float altitude = MathF.Max(_distance - MoonMode.Radius, MinAltitude) + up * speed * seconds;
         _distance = MoonMode.Radius + Math.Clamp(altitude, MinAltitude, MoonMode.AreaRadius);
         Apply(camera);
     }

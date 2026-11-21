@@ -85,15 +85,6 @@ public static class RenameActions
         return true;
     }
 
-    public static bool RenameClue(EntityRegion region, EntityVolume volume, string name)
-    {
-        if (volume.BaseVolume.Clue is not { } clue || clue.Name == name || region.ClueRenameProblem(volume, name) != null) return false;
-        string old = clue.Name;
-        region.SetClueName(volume, name);
-        UndoManager.Singleton.Push(LM.Get("GUI_Undo_Rename"), () => region.SetClueName(volume, old), () => region.SetClueName(volume, name));
-        return true;
-    }
-
     public static bool RenameScent(EntityRegion region, int handle, string name)
     {
         if (handle < 0 || handle >= region.ScentNames.Count || region.ScentNames[handle] == name || region.ScentRenameProblem(handle, name) != null) return false;

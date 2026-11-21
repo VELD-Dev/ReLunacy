@@ -15,9 +15,11 @@ public sealed class ImportPart
     /// <summary>xyz = tangent, w = +1 or -1, the sign of the bitangent (B = w * cross(N, T)) in the stored UV space.</summary>
     public Vector4[] Tangents = [];
     public Vector2[] Uv0 = [];
-    /// <summary>Lightmap unwrap. Carried through the split for the later baking step; the class builder does not write it yet.</summary>
+    /// <summary>Lightmap unwrap (glTF TEXCOORD_1): the class's Half2 lightmap array for the parts of a lightmapped slot, and the space the
+    /// overlay mask is painted in.</summary>
     public Vector2[]? Uv1;
-    /// <summary>RGBA; only alpha is written (the per-vertex alpha of transparent materials). Null = opaque.</summary>
+    /// <summary>RGBA; only alpha is written (vertex position w: the per-vertex alpha of transparent materials, and an overlay
+    /// primitive's layer weight, |w| &amp; 0x7F / 127). Null = opaque.</summary>
     public Vector4[]? Colors;
     /// <summary>Triangle list into the vertex arrays; the winding is kept.</summary>
     public int[] Indices = [];
@@ -30,15 +32,21 @@ public sealed class ImportMaterialSlot
 {
     public string Name = "";
     public ulong ShaderTuid;
-    /// <summary>The primitive's lightmap gate (+0x0E bit 0). It orders and batches primitives, but the builder only writes
-    /// unlit primitives until a lightmap unwrap exists, so a true value is a problem there.</summary>
+    /// <summary>The primitive's lightmap gate (+0x0E bit 0): its parts need <see cref="ImportPart.Uv1"/>, written to the class's lightmap
+    /// array; each placement then needs a lightmap pair (TieAppender writes a neutral one).</summary>
     public bool Lightmapped;
     /// <summary>ACiT feature mask (primitive +0x24): 0x1D on 97% of retail primitives.</summary>
     public byte FeatureMask = 0x1D;
     /// <summary>Fades (primitive +0x30..+0x36: normal map, reflection, detail, 1): (35, 120, 8, 1) on 73% of retail primitives.</summary>
     public short[] Fades = [35, 120, 8, 1];
-    /// <summary>Primitive +0x0A, the blend-mask index; 0xFFFF = single layer. Part of the batch key.</summary>
+    /// <summary>Primitive +0x0A, the blend-mask index; 0xFFFF = single layer, 0 = the class's overlay mask (retail: every overlay
+    /// primitive, 129 / 129 sampled). Part of the batch key.</summary>
     public ushort BlendMask = 0xFFFF;
+    /// <summary>The overlay layer: the index in <see cref="ImportModel.Slots"/> of the second material (primitive +0x22 / +0x2B), -1 for
+    /// none. Needs <see cref="Lightmapped"/>, <see cref="BlendMask"/> 0 and <see cref="ImportModel.OverlayMask"/>.</summary>
+    public int OverlaySlot = -1;
+    /// <summary>The overlay layer's UVs (the class's second Half2 run): UV0 x scale + offset.</summary>
+    public Vector2 OverlayUvScale = Vector2.One, OverlayUvOffset = Vector2.Zero;
     /// <summary>0x3500 record: UV units per world unit on u and v. Null = measured from the parts that use the slot.</summary>
     public Vector2? UvDensity;
 }
@@ -50,4 +58,8 @@ public sealed class ImportModel
     public string Name = "";
     public List<ImportPart> Parts = [];
     public List<ImportMaterialSlot> Slots = [];
+    /// <summary>The overlay mask (DXT1, one mip, square 128..1024), painted in lightmap UV space: the class's 0x5800 texels.</summary>
+    public EncodedTexture? OverlayMask;
+    /// <summary>The mask's id (0x5900 +0x00).</summary>
+    public uint OverlayMaskId;
 }

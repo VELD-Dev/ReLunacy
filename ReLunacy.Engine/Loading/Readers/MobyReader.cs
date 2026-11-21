@@ -14,6 +14,10 @@ public sealed class MobyReader
     private readonly DebugReader _debugReader;
     private readonly AnimationReader _animationReader;
 
+    /// <summary>A Crack in Time: read each class's own collision (<see cref="Assets.Collision.MobyCollision"/>).
+    /// Set from the level's game.</summary>
+    public bool ReadCollision { get; init; }
+
     public MobyReader(FileManager fileManager, MaterialReader materialReader, DebugReader debugReader, AnimationReader animationReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
@@ -62,7 +66,7 @@ public sealed class MobyReader
             using var mobyms = new MemoryStream(mobydat, writable: false);
             using var streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);
             var legacyMoby = new Objects.Moby(streamHelper, _fileManager);
-            mobys.Add(mobyPtrs[i].TUID, ConvertMoby(legacyMoby, mobyPtrs[i].TUID));
+            mobys.Add(mobyPtrs[i].TUID, ConvertMoby(legacyMoby, mobyPtrs[i].TUID, mobydat));
         }
         return mobys;
     }
@@ -84,7 +88,7 @@ public sealed class MobyReader
             byte[] mobydat = ReadRawAsset(stream, pointer.offset, pointer.length);
             using var mobyms = new MemoryStream(mobydat, writable: false);
             using var streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);
-            return ConvertMoby(new Objects.Moby(streamHelper, _fileManager), pointer.TUID);
+            return ConvertMoby(new Objects.Moby(streamHelper, _fileManager), pointer.TUID, mobydat);
         }, pointer => _debugReader.GetMobyPrototypeName(pointer.TUID) ?? ReadNewMobyName(stream, pointer), fileLock);
     }
 
@@ -98,7 +102,8 @@ public sealed class MobyReader
         return nameSection.id == 0xD200 ? igFile.sh.ReadString(nameSection.offset) : null;
     }
 
-    private Assets.Mobys.Moby ConvertMoby(Objects.Moby legacyMoby, ulong tuid)
+    /// <param name="container">New engine: the class's container, which the collision is read from.</param>
+    private Assets.Mobys.Moby ConvertMoby(Objects.Moby legacyMoby, ulong tuid, byte[]? container = null)
     {
         ReadMobyBanglesMeshes(legacyMoby);
         var bangles = new List<Bangle>();
@@ -126,7 +131,23 @@ public sealed class MobyReader
             name: name,
             boundingSphereCalculator: () => (boundingCenter, boundingRadius),
             skeleton: ConvertSkeleton(legacyMoby.Skeleton),
-            animationSet: animationSet);
+            animationSet: animationSet)
+        {
+            Collision = ReadCollision && container != null && !legacyMoby.IsOld ? ReadClassCollision(container, legacyMoby, tuid) : null,
+        };
+    }
+
+    private static Assets.Collision.MobyCollision? ReadClassCollision(byte[] container, Objects.Moby legacyMoby, ulong tuid)
+    {
+        try
+        {
+            return Assets.Collision.MobyCollision.Read(container, legacyMoby.Skeleton is { } s && s.numBones > 0 ? s.tms0 : null);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to read collision for moby {tuid:X}: {ex.Message}");
+            return null;
+        }
     }
 
     private static Assets.Interfaces.ISkeleton? ConvertSkeleton(MobySkeleton? raw)

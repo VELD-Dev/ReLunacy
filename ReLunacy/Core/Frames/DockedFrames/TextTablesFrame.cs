@@ -66,6 +66,14 @@ public sealed class TextTablesFrame : DockedFrame
         _scrollTo = id;
     }
 
+    /// <summary>Shows a language's column, by its code (us, fr...).</summary>
+    public void ShowLanguage(string code)
+    {
+        Scan();
+        foreach (var language in _languages)
+            if (string.Equals(language.Source.Language, code, StringComparison.OrdinalIgnoreCase)) language.Shown = true;
+    }
+
     private void Scan()
     {
         // Again when the project changes: its strings are what the tables show.

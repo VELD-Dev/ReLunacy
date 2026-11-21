@@ -833,7 +833,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 _instCube[i] = (byte)Math.Min(cubeResource, byte.MaxValue);
             instanceLights[i] = owner switch
             {
-                Scene.EntityMoby => VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, world.Translation), _oldEngineMobys),
+                Scene.EntityMoby or SceneEntityKind.Moby => VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, world.Translation), _oldEngineMobys),
                 Scene.EntityTie { OldBakedLightScale: { } tieScale } when float.IsFinite(tieScale) => VkInstanceLight.ForOldTie(tieScale),
                 Scene.EntityTie { NewEngineBakedLight: { } tieBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(tieBake)),
                 Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(ufragBake)),
@@ -847,6 +847,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 Scene.EntityTie => SceneEntityKind.Tie,
                 Scene.EntityUFrag => SceneEntityKind.UFrag,
                 Scene.EntityFoliage => SceneEntityKind.Foliage,
+                // A preview with no entity behind it (the Shader Viewer's sphere) names the kind it draws as.
+                SceneEntityKind kind => kind,
                 _ => SceneEntityKind.Other,
             });
             _instDisplayDist[i] = displayDistance;

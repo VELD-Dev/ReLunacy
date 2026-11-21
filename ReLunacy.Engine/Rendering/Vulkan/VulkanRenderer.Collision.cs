@@ -92,7 +92,8 @@ void main()
     vSelected = uParams.z > 0.5 && ((inAttr & 0x10000u) != 0u || (inInstance & 2u) != 0u) ? 1.0 : 0.0;
 
     uint mode = uFlags.y;
-    if (mode == 1u)      vColor = kind == 0u ? idColour(inAttr & 0xFFu) : vec3(0.5);
+    // Bit 17: a primitive that carries a material (a Moby's, see MobyCollisionGeometry).
+    if (mode == 1u)      vColor = kind == 0u || (inAttr & 0x20000u) != 0u ? idColour(inAttr & 0xFFu) : vec3(0.5);
     else if (mode == 2u) vColor = kind == 0u ? flagColour((inAttr >> 8) & 0x1Fu) : vec3(0.5);
     else if (mode == 3u) vColor = idColour(inInstance >> 16);
     else                 vColor = typeColour(kind, tie);

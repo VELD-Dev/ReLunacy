@@ -71,6 +71,12 @@ public class GizmoController
     private Core.Undo.UndoManager.Session? _hovered;
     private Core.Undo.UndoManager.Session? _drag;
 
+    // Moon space: the handle under the cursor when the drag began (which of east / up / north it may move along), and
+    // the frame carried along the drag by the smallest turn between radials, so it never flips near a pole.
+    private Vector3 _moonAxes = Vector3.One;
+    private Quaternion? _moonDragFrame;
+    private Vector3 _moonDragUp;
+
     private void EnsureInitialized()
     {
         if (_initialized) return;
@@ -119,6 +125,7 @@ public class GizmoController
             _hovered = null;
             return false;
         }
+        if (!_wasUsing) _moonAxes = HoveredAxes();
         if (!_wasUsing && ImGuizmo.IsOver())
             _hovered ??= Core.Undo.UndoManager.Singleton.Begin([entity, .. others]);
         else if (!_wasUsing)
@@ -153,7 +160,9 @@ public class GizmoController
         Quaternion moonFrame = default;
         if (moon)
         {
-            moonFrame = Core.Moon.MoonMode.TangentFrame(transform.Translation);
+            moonFrame = _wasUsing && _moonDragFrame is { } carried ? Carry(carried, _moonDragUp, transform.Translation) : Core.Moon.MoonMode.TangentFrame(transform.Translation);
+            _moonDragFrame = moonFrame;
+            _moonDragUp = Core.Moon.MoonMode.Radial(transform.Translation);
             matrix = Matrix4x4.CreateFromQuaternion(moonFrame) * Matrix4x4.CreateTranslation(transform.Translation);
         }
 
@@ -179,10 +188,10 @@ public class GizmoController
         bool using_ = ImGuizmo.IsUsingAny();
         if (using_ && !_wasUsing) _drag = _hovered ?? Core.Undo.UndoManager.Singleton.Begin([entity, .. others]);
         _wasUsing = using_;
-        if (!using_) EndDrag();
+        if (!using_) { EndDrag(); _moonDragFrame = null; }
         if (!using_ || !Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation))
             return false;
-        if (moon) return ApplyMoon(entity, others, transform.Translation, moonFrame, rotation, translation, CurrentOperation == ImGuizmoOperation.Rotate);
+        if (moon) return ApplyMoon(entity, others, transform.Translation, moonFrame, rotation, translation, CurrentOperation == ImGuizmoOperation.Rotate, _moonAxes);
         if (pathPart != null) translation = matrix.Translation;
         if (pathPart != null) { rotation = Quaternion.Identity; scale = Vector3.One; matrix = Matrix4x4.CreateTranslation(translation); before = Matrix4x4.CreateTranslation(transform.Translation); }
         if (entity is EntityVolume active) active.SetMatrix(matrix);
@@ -205,7 +214,7 @@ public class GizmoController
     /// <summary>A drag in Moon space. The tangent axes carry the object over the sphere and the radial one changes its
     /// altitude; a turn is about the radial axis. Either is one rotation about the moon's centre (which keeps every
     /// object's up along its radius) and a radial shift, applied to the rest of the selection as well.</summary>
-    private static bool ApplyMoon(Entity entity, IReadOnlyList<Entity> others, Vector3 position, Quaternion frame, Quaternion draggedFrame, Vector3 draggedPosition, bool rotating)
+    private static bool ApplyMoon(Entity entity, IReadOnlyList<Entity> others, Vector3 position, Quaternion frame, Quaternion draggedFrame, Vector3 draggedPosition, bool rotating, Vector3 axes)
     {
         var moonRotation = Quaternion.Identity;
         float altitude = 0f;
@@ -217,8 +226,9 @@ public class GizmoController
             var delta = draggedPosition - position;
             var east = Vector3.Transform(Vector3.UnitX, frame);
             var north = Vector3.Transform(Vector3.UnitZ, frame);
-            float de = Vector3.Dot(delta, east), dn = Vector3.Dot(delta, north);
-            altitude = Vector3.Dot(delta, up);
+            // ImGuizmo keeps a plane drag on the plane it started on, which leaves the sphere: only the handle's axes count.
+            float de = Vector3.Dot(delta, east) * axes.X, dn = Vector3.Dot(delta, north) * axes.Z;
+            altitude = Vector3.Dot(delta, up) * axes.Y;
             float along = MathF.Sqrt(de * de + dn * dn);
             float radius = (position - Core.Moon.MoonMode.Centre).Length();
             if (along > 1e-6f && radius > 1e-3f)
@@ -244,6 +254,29 @@ public class GizmoController
                 target.Transform = new Transform { Translation = t, Rotation = r, Scale = Uniform(target, s, target.Transform.Scale) };
         }
         return true;
+    }
+
+    /// <summary>The frame axes (east, up, north) the translate handle under the cursor moves along. The centre square moves
+    /// over the surface.</summary>
+    private static Vector3 HoveredAxes()
+    {
+        if (ImGuizmo.IsOver(ImGuizmoOperation.TranslateX)) return Vector3.UnitX;
+        if (ImGuizmo.IsOver(ImGuizmoOperation.TranslateY)) return Vector3.UnitY;
+        if (ImGuizmo.IsOver(ImGuizmoOperation.TranslateZ)) return Vector3.UnitZ;
+        // No single axis is hovered, so a two-axis test can only be its plane.
+        if (ImGuizmo.IsOver(ImGuizmoOperation.TranslateX | ImGuizmoOperation.TranslateY)) return new Vector3(1f, 1f, 0f);
+        if (ImGuizmo.IsOver(ImGuizmoOperation.TranslateY | ImGuizmoOperation.TranslateZ)) return new Vector3(0f, 1f, 1f);
+        return new Vector3(1f, 0f, 1f);
+    }
+
+    /// <summary><paramref name="frame"/> turned by the smallest rotation from <paramref name="up"/> to the radial at <paramref name="point"/>.</summary>
+    private static Quaternion Carry(Quaternion frame, Vector3 up, Vector3 point)
+    {
+        var to = Core.Moon.MoonMode.Radial(point);
+        var axis = Vector3.Cross(up, to);
+        float sin = axis.Length(), cos = Vector3.Dot(up, to);
+        if (sin < 1e-7f) return frame;
+        return Quaternion.Normalize(Quaternion.Concatenate(frame, Quaternion.CreateFromAxisAngle(axis / sin, MathF.Atan2(sin, cos))));
     }
 
     /// <summary>The turn about the frame's own up that a rotate drag made: <paramref name="dragged"/> is the frame after

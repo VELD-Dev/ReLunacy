@@ -162,7 +162,7 @@ public static partial class TieAppender
         if (pending.Collision is { Chunks.Count: > 0 })
             foreach (string region in regions)
                 if (RegisterCollision(level, region, pending, problems) is { } rc) collision[region] = rc;
-        return new RegisteredTieClass(tuid, pending.Name, render.VertexCount, render.Sphere, collision);
+        return new RegisteredTieClass(tuid, pending.Name, render.VertexCount, render.Sphere, collision, render.LightmappedPrimitives, render.PrimitiveCount);
     }
 
     private static ulong[] TuidList(byte[] file, uint id)

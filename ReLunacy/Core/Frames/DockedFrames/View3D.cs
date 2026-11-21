@@ -1037,8 +1037,6 @@ public class View3D : DockedFrame
         {
             if (!Core.LunaWindow.IsSpaceSector) { ExitMoonMode(); GizmoController.SetMoonSpace(false); }
             else if (!EntityManager.Singleton.Regions.Contains(MoonMode.Region!)) ExitMoonMode();
-            else if (_viewport.AllowCameraInput && Input.IsMouseScrolling(out var wheel) && wheel.Y != 0f)
-                _moonOrbit.Zoom(Camera, wheel.Y);
         }
         bool isRotating = CheckRotationInput(_viewport.AllowCameraInput);
 
@@ -1288,7 +1286,9 @@ public class View3D : DockedFrame
         {
             float ahead = (Input.IsKeyDown(KeyboardKey.W) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.S) ? 1f : 0f);
             float side = (Input.IsKeyDown(KeyboardKey.D) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.A) ? 1f : 0f);
+            float up = (Input.IsKeyDown(KeyboardKey.E) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.Q) ? 1f : 0f);
             _moonOrbit.Move(Camera, ahead, side, moveSpeed, (float)deltaTime);
+            _moonOrbit.Climb(Camera, up, moveSpeed, (float)deltaTime);
             return;
         }
         Vector3 deltaPosition = GetInputAxes();

@@ -128,6 +128,9 @@ internal class EditorSettingsFrame : Frame
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_NavmeshColor"), ref Program.Settings.NavmeshColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_SelectionOutlineColor"), ref Program.Settings.SelectionOutlineColor);
+                if (ImGui.Button(LM.Get("GUI_Frame_EditorSettings_ClearThumbnails"))) Placement.ThumbnailService.Singleton.ClearCache();
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_ClearThumbnailsHelp"));
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }

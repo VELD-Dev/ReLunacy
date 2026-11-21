@@ -440,7 +440,8 @@ public static class CollisionGeometry
         }
     }
 
-    private static void AppendPrimitive(List<CollisionVertex> vertices, CollisionPrimitive p, uint attributes)
+    /// <summary>Tessellates one primitive into unshared triangles, each corner with <paramref name="attributes"/>.</summary>
+    public static void AppendPrimitive(List<CollisionVertex> vertices, CollisionPrimitive p, uint attributes)
     {
         void Triangle(Vector3 a, Vector3 b, Vector3 c)
         {
