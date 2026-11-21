@@ -80,7 +80,30 @@ public static class SoundPlayer
             int generation = ++_generation;
             Feed(generation);
             SDL.ResumeAudioStreamDevice(_stream);
-            new Thread(() => Run(generation)) { IsBackground = true, Name = "Sound" }.Start();
+            StartFeeder(generation);
+            return true;
+        }
+    }
+
+    /// <summary>Jumps to a buffered frame, starting playback if this take is idle.</summary>
+    public static bool TrySeek(SoundTake take, long frame)
+    {
+        lock (Lock)
+        {
+            if (!take.TrySeek(frame)) return false;
+            if (!ReferenceEquals(_source, take)) return Play(take, take);
+
+            // The queue still contains PCM from the old position, and the feeder may already
+            // have reached the end of the source while that PCM is playing.
+            if (!SDL.ClearAudioStream(_stream))
+            {
+                StopLocked();
+                return false;
+            }
+            bool restartFeeder = _ended;
+            int generation = restartFeeder ? ++_generation : _generation;
+            _ended = _stopping = false;
+            if (Feed(generation) && restartFeeder) StartFeeder(generation);
             return true;
         }
     }
@@ -98,6 +121,9 @@ public static class SoundPlayer
             }
         }
     }
+
+    private static void StartFeeder(int generation) =>
+        new Thread(() => Run(generation)) { IsBackground = true, Name = "Sound" }.Start();
 
     private static void Run(int generation)
     {

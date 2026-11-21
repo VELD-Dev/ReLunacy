@@ -24,11 +24,17 @@ public sealed record LevelSound(int Id, string SpecName, string Name, SoundBank 
 public sealed record BankSound(int NameIndex, string Name, SoundBank Bank, int BankIndex, int Group);
 
 /// <summary>Where a resident sound's first tone is in resident_sound.dat, and its rate.</summary>
-public readonly record struct ResidentSample(long Offset, int Size, int SampleRate);
+public readonly record struct ResidentSample(long Offset, int Size, int SampleRate, ushort Flags = 0);
+
+public enum SoundPartKind { Intro, Loop, Outro, Segment }
+
+/// <summary>A section of a decoded song, measured in sample frames across all channels.</summary>
+public readonly record struct SoundPart(SoundPartKind Kind, int StartFrame, int FrameCount);
 
 /// <summary>Decoded audio: 16-bit samples, channels interleaved.</summary>
 public sealed record PcmSound(short[] Samples, int Channels, int SampleRate)
 {
+    public IReadOnlyList<SoundPart> Parts { get; init; } = [];
     public double Seconds => Samples.Length / (double)Math.Max(1, Channels) / Math.Max(1, SampleRate);
 }
 
@@ -45,7 +51,8 @@ public sealed class LevelSounds
     public LevelSounds(IReadOnlyList<LevelSound> sounds, IReadOnlyDictionary<int, string> specNames,
         ScreamBank? scream, IReadOnlyDictionary<int, ResidentSample> resident, IReadOnlyList<long> streamOffsets,
         (string Archive, string Entry)? residentFile, (string Archive, string Entry)? streamingFile,
-        IReadOnlyList<BankSound>? bankSounds = null, IReadOnlyDictionary<int, string>? groupNames = null)
+        IReadOnlyList<BankSound>? bankSounds = null, IReadOnlyDictionary<int, string>? groupNames = null,
+        IReadOnlySet<int>? streamContinuations = null, IReadOnlySet<int>? streamLoops = null)
     {
         Sounds = sounds;
         _byId = sounds.ToDictionary(s => s.Id);
@@ -56,6 +63,8 @@ public sealed class LevelSounds
         Scream = scream;
         Resident = resident;
         StreamOffsets = streamOffsets;
+        StreamContinuations = streamContinuations ?? new HashSet<int>();
+        StreamLoops = streamLoops ?? new HashSet<int>();
         ResidentFile = residentFile;
         StreamingFile = streamingFile;
     }
@@ -69,6 +78,8 @@ public sealed class LevelSounds
     /// <summary>Each resident sound's first tone.</summary>
     public IReadOnlyDictionary<int, ResidentSample> Resident { get; }
     public IReadOnlyList<long> StreamOffsets { get; }
+    internal IReadOnlySet<int> StreamContinuations { get; }
+    internal IReadOnlySet<int> StreamLoops { get; }
     public (string Archive, string Entry)? ResidentFile { get; }
     public (string Archive, string Entry)? StreamingFile { get; }
 

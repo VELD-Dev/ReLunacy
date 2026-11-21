@@ -26,7 +26,6 @@ public static class GltfExporter
     public static void Export(string filePath, string modelName, IReadOnlyList<MeshGroup> groups, ISkeleton? skeleton = null, Action<float>? onProgress = null)
     {
         var (model, _) = BuildModel(modelName, groups, skeleton, onProgress);
-        LunaLog.LogInfo("Exporting glb file");
         model.SaveGLB(filePath);
     }
 
@@ -105,11 +104,9 @@ public static class GltfExporter
         // A single-bone skeleton has no real hierarchy, so it's treated as unskinned.
         bool hasRealSkeleton = skeleton != null && skeleton.Bones.Count > 1;
 
-        LunaLog.LogInfo("Building bones nodes");
         // Shared bind-pose joint hierarchy, reused across every group.
         (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]? jointBindings = hasRealSkeleton ? BuildSkinnedJoints(skeleton!) : null;
 
-        LunaLog.LogInfo("Building vertex groups for bones");
         foreach (var group in groups)
         {
             string name = string.IsNullOrEmpty(group.Name) ? modelName : group.Name;
@@ -117,13 +114,11 @@ public static class GltfExporter
 
             if (hasRealSkeleton && jointBindings != null)
             {
-                LunaLog.LogInfo($"Trying to build skinned messh for {name}");
                 var meshBuilder = BuildSkinnedMeshBuilder(name, group.Meshes, materialCache, skeleton!.RootBoneIndex, textureNames, ReportProgress);
                 sceneBuilder.AddSkinnedMesh(meshBuilder, jointBindings);
             }
             else
             {
-                LunaLog.LogInfo($"Trying to build rigid mesh for {name}");
                 var meshBuilder = BuildMeshBuilder(name, group.Meshes, materialCache, textureNames, ReportProgress);
                 sceneBuilder.AddRigidMesh(meshBuilder, Matrix4x4.Identity);
             }
@@ -210,7 +205,6 @@ public static class GltfExporter
                 var uv = new Vector2(uvs[i * 2], uvs[i * 2 + 1]);
                 var joints = BuildJoints(jointIndices, jointWeights, i, rootBoneIndex);
 
-                LunaLog.LogInfo($"Building skinned vertex {i}, mesh {mesh.Name}");
                 vertices[i] = new SkinnedVertex(new VertexPositionNormalTangent(position, normal, tangent), new VertexTexture1(uv), joints);
             }
 
@@ -258,7 +252,6 @@ public static class GltfExporter
             // child's local transform relative to that exported basis to keep its bind position.
             var local = EnsureAffine(bone.WorldBindPose) * parentInverseBind;
             node.LocalTransform = ToJointTransform(local);
-            LunaLog.LogInfo($"Building bone node {index} with matrix: {local}");
 
             // The original inverse bind would deform the mesh at rest after removing shear.
             if (!Matrix4x4.Invert(node.WorldMatrix, out var inverseBind))

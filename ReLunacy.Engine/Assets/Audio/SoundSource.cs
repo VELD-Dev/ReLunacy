@@ -20,6 +20,7 @@ public sealed class PcmSource(PcmSound sound) : ISoundSource
 
     public int Channels => sound.Channels;
     public int SampleRate => sound.SampleRate;
+    internal IReadOnlyList<SoundPart> Parts => sound.Parts;
 
     public int Read(Span<short> buffer)
     {

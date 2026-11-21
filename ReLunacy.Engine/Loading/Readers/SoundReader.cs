@@ -27,15 +27,7 @@ public static partial class SoundReader
         var task = Loads.GetValue(fileManager, fm =>
         {
             string source = fm.SourcePath;
-            return Task.Run(() =>
-            {
-                try { return Read(fm, Config.GameConfigs.GameFolderFor(source)); }
-                catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or IndexOutOfRangeException)
-                {
-                    Console.WriteLine($"Sounds: {e.Message}");
-                    return null;
-                }
-            });
+            return Task.Run(() => ReadSafely(() => Read(fm, Config.GameConfigs.GameFolderFor(source))));
         });
         return task.IsCompletedSuccessfully ? task.Result : null;
     }
@@ -44,10 +36,68 @@ public static partial class SoundReader
     public static bool Pending(FileManager fileManager) =>
         Loads.TryGetValue(fileManager, out var task) ? !task.IsCompleted : For(fileManager) == null;
 
+    public sealed record LevelBankArchive(string LevelName, string ArchivePath);
+
+    /// <summary>The installed per-level banks, including the front-end bank when it lives in global_cached.</summary>
+    public static IReadOnlyList<LevelBankArchive> ListLevelBanks(string gameFolder)
+    {
+        string levels = Path.Combine(Path.GetDirectoryName(gameFolder)!, "levels");
+        var found = new List<LevelBankArchive>();
+        if (Directory.Exists(levels))
+        {
+            foreach (string directory in Directory.EnumerateDirectories(levels))
+            {
+                string archive = Path.Combine(directory, "level_cached.psarc");
+                if (HasArchiveEntry(archive, "resident_sound.dat"))
+                    found.Add(new LevelBankArchive(Path.GetFileName(directory), archive));
+            }
+        }
+
+        string global = Path.Combine(gameFolder, "global_cached.psarc");
+        if (!found.Any(bank => bank.LevelName.Equals("front_end", StringComparison.OrdinalIgnoreCase)) &&
+            HasArchiveEntry(global, "built/levels/front_end/resident_sound.dat"))
+            found.Add(new LevelBankArchive("front_end", global));
+        return found.OrderBy(bank => bank.LevelName, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    /// <summary>Opens the audio tables of another level without loading its scene or other assets.</summary>
+    public static LevelSounds? ReadLevelBank(LevelBankArchive bank, string gameFolder) => ReadSafely(() =>
+    {
+        string archive = bank.ArchivePath;
+        string uncached = Path.Combine(Path.GetDirectoryName(archive)!, "level_uncached.psarc");
+        string prefix = Path.GetFileName(archive) == "global_cached.psarc" ? $"built/levels/{bank.LevelName}/" : "";
+        var streaming = HasArchiveEntry(archive, prefix + "streaming_sound.dat")
+            ? (archive, prefix + "streaming_sound.dat")
+            : HasArchiveEntry(uncached, "streaming_sound.dat") ? (uncached, "streaming_sound.dat") : ((string, string)?)null;
+        return Read((archive, prefix + "fxconduit_packed.dat"), (archive, prefix + "resident_sound.dat"), streaming, gameFolder);
+    });
+
+    private static bool HasArchiveEntry(string archive, string entry)
+    {
+        try { return File.Exists(archive) && PsarcRanges.Size(archive, entry) >= 0; }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { return false; }
+    }
+
+    private static LevelSounds? ReadSafely(Func<LevelSounds?> read)
+    {
+        try { return read(); }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or IndexOutOfRangeException)
+        {
+            Console.WriteLine($"Sounds: {e.Message}");
+            return null;
+        }
+    }
+
     public static LevelSounds? Read(FileManager fileManager, string? gameFolder)
     {
         if (fileManager.Locate("fxconduit_packed.dat") is not { } conduitFile || fileManager.Locate("resident_sound.dat") is not { } residentFile)
             return null;
+        return Read(conduitFile, residentFile, fileManager.Locate("streaming_sound.dat"), gameFolder);
+    }
+
+    private static LevelSounds? Read((string ArchivePath, string EntryPath) conduitFile,
+        (string ArchivePath, string EntryPath) residentFile, (string ArchivePath, string EntryPath)? streamingFile, string? gameFolder)
+    {
         var conduit = ReadWhole(conduitFile);
         if (conduit == null) return null;
         var specNames = gameFolder != null ? ReadEnum(gameFolder, "soundspecs.lua", SpecLine()) : new Dictionary<int, string>();
@@ -71,7 +121,9 @@ public static partial class SoundReader
 
         var scream = sections.TryGetValue(Bank, out var bank) ? ReadBank(residentFile, bank.Offset) : null;
         var resident = scream?.FirstTones().ToDictionary(t => t.Sound, t => t.Sample) ?? [];
-        var streamOffsets = sections.TryGetValue(Streams, out var streams) ? ReadStreamOffsets(Section(Streams), streams.Offset) : [];
+        var (streamOffsets, streamContinuations, streamLoops) = sections.TryGetValue(Streams, out var streams)
+            ? ReadStreamTable(Section(Streams), streams.Offset)
+            : ([], [], []);
 
         // fxconduit_packed.dat (IGHW 0.2, pointers are file offsets): the root, its effects and the id table.
         if (BinaryPrimitives.ReadUInt32BigEndian(conduit.AsSpan(0x10)) != ConduitRoot) return null;
@@ -117,7 +169,7 @@ public static partial class SoundReader
             bankSounds.Add(new BankSound(i, names[i], BankOf(i), IndexOf(i), groups.GetValueOrDefault(i, -1)));
         var groupNames = gameFolder != null ? ReadEnum(gameFolder, "soundgroups.lua", GroupLine()) : new Dictionary<int, string>();
         return new LevelSounds(sounds, specNames, scream, resident, streamOffsets, residentFile,
-            fileManager.Locate("streaming_sound.dat") is { } streaming ? streaming : null, bankSounds, groupNames);
+            streamingFile, bankSounds, groupNames, streamContinuations, streamLoops);
     }
 
     /// <summary>A sound to play: a resident sound runs its Scream grains (a new random take each time), a stream
@@ -128,73 +180,128 @@ public static partial class SoundReader
     {
         if (bankOf == SoundBank.Resident)
         {
-            if (sounds.Scream is not { } bank || index >= bank.SoundCount) return null;
+            if (sounds.Scream is not { } bank || (uint)index >= bank.SoundCount) return null;
             var playing = new ScreamSound(bank, index);
             return playing.Finished ? null : playing;
         }
         return Decode(sounds, bankOf, index) is { Samples.Length: > 0 } pcm ? new PcmSource(pcm) : null;
     }
 
-    /// <summary>A sample's format from its header alone: a resident sound's first tone, or a stream.</summary>
+    /// <summary>A resident sound's first tone or a streamed sound's complete first play, from its headers.</summary>
     public static (int SampleRate, int Channels, double Seconds)? Format(LevelSounds sounds, SoundBank bank, int index)
     {
         if (bank == SoundBank.Resident)
-            return sounds.Resident.TryGetValue(index, out var tone) && tone.SampleRate > 0
-                ? (tone.SampleRate, 1, Math.Max(0, tone.Size - 16) / 16 * 28.0 / tone.SampleRate) : null;
-        if (sounds.StreamingFile is not { } streaming || index >= sounds.StreamOffsets.Count) return null;
-        var header = PsarcRanges.Read(streaming.Archive, streaming.Entry, sounds.StreamOffsets[index], 0x200);
-        if (header == null || header.Length < 0x40) return null;
-        if (header.AsSpan(0, 4).SequenceEqual("VAGp"u8))
         {
-            int rate = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(0x10));
-            return rate > 0 ? (rate, 1, BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(0x0C)) / 16 * 28.0 / rate) : null;
+            if (!sounds.Resident.TryGetValue(index, out var tone) || tone.SampleRate <= 0) return null;
+            int bytes = Math.Max(0, tone.Size - 16);
+            int frames = (tone.Flags & 0x80) != 0 ? bytes / 2 : bytes / 16 * 28;
+            if ((tone.Flags & 0xC0) == 0xC0 && sounds.ResidentFile is { } file &&
+                PsarcRanges.Read(file.Archive, file.Entry, tone.Offset, 8) is { Length: 8 } header)
+                frames = (int)Math.Min((uint)frames, BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(4)));
+            return (tone.SampleRate, 1, frames / (double)tone.SampleRate);
         }
-        int fmat = header.AsSpan().IndexOf("fmat"u8);
-        if (!header.AsSpan(0, 4).SequenceEqual("XVAG"u8) || fmat < 0 || fmat + 0x24 > header.Length) return null;
-        int channels = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x08));
-        int xrate = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x1C));
-        uint size = BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x20));
-        return xrate > 0 && channels > 0 ? (xrate, channels, size / 16 / channels * 28.0 / xrate) : null;
+        if (sounds.StreamingFile is not { } streaming || ReadStreamChain(sounds, streaming, index) is not { } chain)
+            return null;
+        return (chain[0].Rate, chain[0].Channels, chain.Sum(part => (long)part.Frames) / (double)chain[0].Rate);
     }
 
-    /// <summary>Reads and decodes a sound's sample: a resident sound's first tone, or a stream (VAGp or XVAG). Null
-    /// when it cannot be found.</summary>
+    /// <summary>Decodes a resident sound's first tone, or one complete pass of a streamed sound.</summary>
     public static PcmSound? Decode(LevelSounds sounds, LevelSound sound) => Decode(sounds, sound.Bank, sound.BankIndex);
 
-    public static PcmSound? Decode(LevelSounds sounds, SoundBank bank, int index)
+    /// <summary>Decodes the requested zero-based stream parts in source order, or the full sound when no selection is supplied.</summary>
+    public static PcmSound? Decode(LevelSounds sounds, SoundBank bank, int index, IReadOnlySet<int>? selectedParts = null)
     {
         if (bank == SoundBank.Resident)
         {
-            if (sounds.ResidentFile is not { } file || !sounds.Resident.TryGetValue(index, out var sample)) return null;
-            var data = PsarcRanges.Read(file.Archive, file.Entry, sample.Offset, sample.Size);
-            return data == null ? null : new PcmSound(PsAdpcm.Decode(data), 1, sample.SampleRate);
+            if (selectedParts != null || sounds.ResidentFile is not { } file ||
+                !sounds.Resident.TryGetValue(index, out var sample) ||
+                ScreamBank.ReadSample(file, sample.Offset, sample.Size, sample.Flags) is not { } tone)
+                return null;
+            return new PcmSound(tone.Pcm, 1, sample.SampleRate);
         }
-        if (sounds.StreamingFile is not { } streaming || index >= sounds.StreamOffsets.Count) return null;
-        long at = sounds.StreamOffsets[index];
-        var header = PsarcRanges.Read(streaming.Archive, streaming.Entry, at, 0x200);
-        if (header == null || header.Length < 0x40) return null;
-        if (header.AsSpan(0, 4).SequenceEqual("VAGp"u8))
+
+        if (sounds.StreamingFile is not { } streaming || ReadStreamChain(sounds, streaming, index) is not { } chain)
+            return null;
+        if (selectedParts != null && (selectedParts.Count == 0 || selectedParts.Any(part => (uint)part >= chain.Count)))
+            return null;
+
+        int channels = chain[0].Channels;
+        int rate = chain[0].Rate;
+        var samples = new List<short[]>(chain.Count);
+        var parts = new List<SoundPart>(chain.Count);
+        int total = 0;
+        for (int i = 0; i < chain.Count; i++)
         {
-            int size = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(0x0C)), 64u << 20);
-            int rate = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(0x10));
-            var data = PsarcRanges.Read(streaming.Archive, streaming.Entry, at + 0x40, size);
-            return data == null ? null : new PcmSound(PsAdpcm.Decode(data), 1, rate);
+            if (selectedParts != null && !selectedParts.Contains(i)) continue;
+
+            var part = chain[i];
+            var data = PsarcRanges.Read(streaming.Archive, streaming.Entry, part.Offset, part.Size);
+            if (data?.Length != part.Size) return null;
+            var decoded = PsAdpcm.Decode(data, channels);
+            int wanted = part.Frames * channels;
+            if (decoded.Length > wanted) Array.Resize(ref decoded, wanted);
+            if (decoded.Length == 0) return null;
+
+            if (chain.Count > 1)
+            {
+                var kind = part.Loops ? SoundPartKind.Loop : i == 0 ? SoundPartKind.Intro :
+                    i == chain.Count - 1 ? SoundPartKind.Outro : SoundPartKind.Segment;
+                parts.Add(new SoundPart(kind, total / channels, decoded.Length / channels));
+            }
+            samples.Add(decoded);
+            total = checked(total + decoded.Length);
         }
-        if (header.AsSpan(0, 4).SequenceEqual("XVAG"u8))
+        if (samples.Count == 1) return new PcmSound(samples[0], channels, rate) { Parts = parts };
+
+        var result = new short[total];
+        int position = 0;
+        foreach (var part in samples)
         {
-            int headerSize = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(4));
-            int fmat = header.AsSpan().IndexOf("fmat"u8);
-            if (fmat < 0 || fmat + 0x24 > header.Length) return null;
-            int channels = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x08));
-            int codec = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x0C));
-            int rate = (int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x1C));
-            int size = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(fmat + 0x20)), 64u << 20);
-            // Codec 6 is PS-ADPCM, the channels alternating every frame; the others (MPEG, ATRAC) are not decoded.
-            if (codec != 6 || channels is < 1 or > 8) return null;
-            var data = PsarcRanges.Read(streaming.Archive, streaming.Entry, at + headerSize, size);
-            return data == null ? null : new PcmSound(PsAdpcm.Decode(data, channels), channels, rate);
+            part.CopyTo(result, position);
+            position += part.Length;
+        }
+        return new PcmSound(result, channels, rate) { Parts = parts };
+    }
+
+    private readonly record struct StreamPart(long Offset, int Size, int Rate, int Channels, int Frames, bool Loops = false);
+
+    private static List<StreamPart>? ReadStreamChain(LevelSounds sounds, (string Archive, string Entry) file, int index)
+    {
+        var chain = new List<StreamPart>();
+        while ((uint)index < sounds.StreamOffsets.Count)
+        {
+            if (ReadStreamPart(file, sounds.StreamOffsets[index]) is not { } part ||
+                chain.Count > 0 && (part.Rate != chain[0].Rate || part.Channels != chain[0].Channels))
+                return null;
+            chain.Add(part with { Loops = sounds.StreamLoops.Contains(index) });
+            if (!sounds.StreamContinuations.Contains(index)) return chain;
+            index++;
         }
         return null;
+    }
+
+    private static StreamPart? ReadStreamPart((string Archive, string Entry) file, long offset)
+    {
+        const int maxSize = 64 << 20;
+        var header = PsarcRanges.Read(file.Archive, file.Entry, offset, 0x200);
+        if (header == null || header.Length < 0x40) return null;
+        uint Word(int at) => BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(at));
+        if (header.AsSpan(0, 4).SequenceEqual("VAGp"u8))
+        {
+            uint size = Word(0x0C), rate = Word(0x10);
+            return size is >= 16 and <= maxSize && rate is > 0 and <= int.MaxValue
+                ? new StreamPart(offset + 0x40, (int)size, (int)rate, 1, (int)size / 16 * 28) : null;
+        }
+        if (!header.AsSpan(0, 4).SequenceEqual("XVAG"u8)) return null;
+        int fmat = header.AsSpan().IndexOf("fmat"u8);
+        uint dataOffset = Word(4);
+        if (fmat < 0 || fmat + 0x24 > header.Length || dataOffset < fmat + 0x24 || dataOffset > int.MaxValue ||
+            Word(fmat + 0x0C) != 6) return null;
+        uint channels = Word(fmat + 0x08), sampleRate = Word(fmat + 0x1C), encodedSize = Word(fmat + 0x20);
+        if (channels is < 1 or > 8 || sampleRate is 0 or > int.MaxValue ||
+            encodedSize > maxSize || encodedSize < 16 * channels) return null;
+        uint frames = Math.Min(Word(fmat + 0x10), encodedSize / 16 / channels * 28);
+        return frames > 0 ? new StreamPart(offset + dataOffset, (int)encodedSize, (int)sampleRate, (int)channels, (int)frames) : null;
     }
 
     // ---------------------------------------------------------------- the pieces
@@ -237,17 +344,35 @@ public static partial class SoundReader
         return new ScreamBank(s, dataOffset, file);
     }
 
-    /// <summary>Section 0x21100: at +0x80 pointers (file offsets) A and B; A..B is each stream's offset in
-    /// streaming_sound.dat.</summary>
-    private static List<long> ReadStreamOffsets(byte[] section, long sectionOffset)
+    /// <summary>Section 0x21100 stores file pointers to the stream offsets, loop bits and continuation bits.</summary>
+    private static (List<long> Offsets, HashSet<int> Continues, HashSet<int> Loops) ReadStreamTable(byte[] section, long sectionOffset)
     {
         var offsets = new List<long>();
-        if (section.Length < 0x88) return offsets;
-        long a = BinaryPrimitives.ReadUInt32BigEndian(section.AsSpan(0x80)) - sectionOffset;
-        long b = BinaryPrimitives.ReadUInt32BigEndian(section.AsSpan(0x84)) - sectionOffset;
-        for (long at = a; at >= 0 && at + 4 <= b && at + 4 <= section.Length; at += 4)
+        if (section.Length < 0x88) return (offsets, [], []);
+        long RelativePointer(int at) => BinaryPrimitives.ReadUInt32BigEndian(section.AsSpan(at)) - sectionOffset;
+        long start = RelativePointer(0x80), loopStart = RelativePointer(0x84);
+        for (long at = start; at >= 0 && at + 4 <= loopStart && at + 4 <= section.Length; at += 4)
             offsets.Add(BinaryPrimitives.ReadUInt32BigEndian(section.AsSpan((int)at)));
-        return offsets;
+
+        if (section.Length < 0x8C || loopStart < 0) return (offsets, [], []);
+        long continuation = RelativePointer(0x88);
+        if (continuation < loopStart) return (offsets, [], []);
+        return (offsets,
+            ReadStreamMask(continuation, section.Length, offsets.Count - 1),
+            ReadStreamMask(loopStart, continuation, offsets.Count));
+
+        HashSet<int> ReadStreamMask(long table, long end, int count)
+        {
+            var flags = new HashSet<int>();
+            for (int i = 0; i < count; i++)
+            {
+                long at = table + i / 32 * 4;
+                if (at + 4 > end || at + 4 > section.Length) break;
+                uint word = BinaryPrimitives.ReadUInt32BigEndian(section.AsSpan((int)at));
+                if ((word & (1u << (i & 31))) != 0) flags.Add(i);
+            }
+            return flags;
+        }
     }
 
     /// <summary>An enum script of global_cached (/scripts/soundspecs.lua, /scripts/soundgroups.lua): id -> name.</summary>
