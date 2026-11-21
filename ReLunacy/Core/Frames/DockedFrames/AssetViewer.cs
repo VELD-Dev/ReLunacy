@@ -14,6 +14,8 @@ using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using NeoVeldrid;
 using IMesh = ReLunacy.Engine.Assets.Interfaces.IMesh;
+using SceneEntityKind = ReLunacy.Engine.Rendering.Vulkan.SceneEntityKind;
+using VulkanSceneCapture = ReLunacy.Engine.Rendering.Vulkan.VulkanSceneCapture;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
@@ -137,7 +139,10 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     private int _selectedAnimationIndex = -1;
     private string _animationSearch = "";
     private string? _animationError;
+    // A single boxed draw kind gives every bangle the same palette owner by reference.
+    private static readonly object MobyPreviewOwner = SceneEntityKind.Moby;
     private Matrix4x4[]? _animationSkinMatrices;
+    private bool _previewPoseDirty;
     private int _lastPreviewAnimationFrame = -1;
     private bool _animationAutoplay = true;
     private IMaterial? _selectedInlineMaterial;
@@ -189,7 +194,14 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedMobyAsset = value;
-            if (value != null) { selectedTieAsset = null; ClearEffect(); }
+            if (value is { } asset)
+            {
+                selectedTieAsset = null;
+                selectedUFragAsset = null;
+                _selectedUFragMesh = null;
+                ClearEffect();
+                FrameMobyInPreview(asset.Moby);
+            }
             ResetAnimationPreview();
             selectedMesh = null;
             exportNameOverride = "";
@@ -875,6 +887,14 @@ public partial class AssetViewer : DockedFrame, ILevelListener
 
                 try
                 {
+                    if (_previewPoseDirty)
+                    {
+                        if (_animationSkinMatrices is { } pose)
+                            _vkPreview.TrySetAnimatedInstance(MobyPreviewOwner, pose);
+                        else
+                            _vkPreview.ClearAnimatedInstance(MobyPreviewOwner);
+                        _previewPoseDirty = false;
+                    }
                     _vkPreview.ClearColour = Program.Settings.AssetViewerBackground;
                     UpdateEffectPreview(deltaTime);
                     _vkPreview.SetDebugLines(_debugLines);
@@ -995,7 +1015,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             ImGui.SeparatorText("Asset information");
             ImGui.Text($"Id: 0x{moby.Id:X}");
             ImGui.Text($"Name: {moby.Name ?? "-"}");
-            ImGui.Text($"Scale: {moby.Scale:0.###}");
+            ImGui.Text($"Scale: {moby.Scale:G}");
             ImGui.Text($"Bangles: {moby.Bangles.Count}");
             ImGui.Text($"Vertices: {asset.verticesCount}");
             ImGui.Text(moby.Skeleton != null
@@ -1142,6 +1162,16 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     private static RenderMesh? ResolveUFragMesh(UFragAsset asset) =>
         EntityManager.Singleton.AllEntities().OfType<EntityUFrag>()
             .FirstOrDefault(e => ReferenceEquals(e.UFrag, asset.UFrag))?.UFragMesh;
+
+    private void FrameMobyInPreview(Moby moby)
+    {
+        var (center, radius) = moby.GetBoundingSphere();
+        float halfFovTangent = MathF.Tan(float.DegreesToRadians(Camera.Fov) * 0.5f)
+            * MathF.Min(Camera.AspectRatio, 1f);
+        float distance = MathF.Max(radius, 0.01f) * 1.2f / MathF.Sin(MathF.Atan(halfFovTangent));
+        Camera.Target = center;
+        Camera.Position = center + new Vector3(0f, 0f, -distance);
+    }
 
     /// <summary>Pulls the camera back far enough to frame the selected UFrag. UFrags vary widely in
     /// size, so a fixed distance would show either a speck or the inside of a wall. Clamped under
@@ -1892,9 +1922,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         _vkPreview = null;
     }
 
-    /// <summary>Rebuilds the preview scene from the current selection. The whole renderer is recreated
-    /// rather than patched: a selection change replaces every mesh and material in it, and it only
-    /// happens when the user clicks an asset.</summary>
+    /// <summary>Rebuilds the preview scene when the selection or its visible meshes change.</summary>
     private void RebuildPreview()
     {
         DisposePreview();
@@ -1903,17 +1931,19 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         var idx = new List<uint[]>();
         var materials = new List<Engine.Rendering.Vulkan.VkMaterialDesc>();
         var instances = new List<(int, int, Matrix4x4, Vector4, object, float, uint)>();
+        var moby = selectedMobyAsset?.Moby;
+        int boneCount = moby?.Skeleton?.Bones.Count ?? 0;
         var geoRemap = new Dictionary<int, int>();
         var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
 
         void Add(RenderMesh mesh, Matrix4x4 world, uint pickId)
         {
-            if (!Engine.Rendering.Vulkan.VulkanSceneCapture.TryGet(mesh, out int gi)) return;
+            if (!VulkanSceneCapture.TryGet(mesh, out int gi)) return;
             if (!geoRemap.TryGetValue(gi, out int geoSlot))
             {
                 geoSlot = verts.Count;
-                verts.Add(BuildPreviewVertexData(mesh, pickId, Engine.Rendering.Vulkan.VulkanSceneCapture.VertexData[gi]));
-                idx.Add(Engine.Rendering.Vulkan.VulkanSceneCapture.Indices[gi]);
+                verts.Add(VulkanSceneCapture.VertexData[gi]);
+                idx.Add(VulkanSceneCapture.Indices[gi]);
                 geoRemap[gi] = geoSlot;
             }
             var material = mesh.Material;
@@ -1923,10 +1953,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                 materials.Add(Engine.Rendering.Vulkan.VkMaterialBuilder.Build(material, assetManager));
                 matRemap[material] = matSlot;
             }
-            // A bounding sphere big enough that the renderer's frustum cull never drops preview
-            // geometry: the camera is framed on the asset by FrameAssetInPreview, and a preview that
-            // culls what it is previewing is never what the user wants.
-            instances.Add((geoSlot, matSlot, world, new Vector4(0f, 0f, 0f, 1e9f), null!, -1f, pickId));
+            // Keep preview geometry in the frustum even when its pose extends beyond the bind bounds.
+            instances.Add((geoSlot, matSlot, world, new Vector4(0f, 0f, 0f, 1e9f), moby != null ? MobyPreviewOwner : null!, -1f, pickId));
         }
 
         ForEachPreviewMesh(Add);
@@ -1939,16 +1967,16 @@ public partial class AssetViewer : DockedFrame, ILevelListener
 
         try
         {
-            // The scene renderer's own shader table and engine flag, not the constructor defaults: without
-            // standardShaders the preview never selects a retail shader (RsxShaders bails on a null table),
-            // so it shaded everything generically and applied vertex alpha where the 3D view, on the retail
-            // permutation, did not. oldEngineMobys defaults to true, which is wrong for a new-engine level.
-            // Its clear colour is the overlay's background setting, pushed every frame.
+            // Use the level's shader table and engine flag so Moby draws select the same
+            // material permutations as the 3D View.
             _vkPreview = new Engine.Rendering.Vulkan.VulkanRenderer(
                 graphicsDevice, verts, idx, materials, instances, null, envCube, previewTexWidth, previewTexHeight,
                 oldEngineMobys: assetManager?.OldEngineMobys ?? true,
                 cubeResources: assetManager?.EnvironmentCubeResources,
-                standardShaders: assetManager?.StandardShaders);
+                standardShaders: assetManager?.StandardShaders,
+                maxSkeletonBones: boneCount,
+                maxConcurrentAnimated: boneCount > 0 ? 1 : 0);
+            _previewPoseDirty = true;
         }
         catch (Exception e)
         {
@@ -2087,20 +2115,17 @@ public partial class AssetViewer : DockedFrame, ILevelListener
 
     private void RefreshAnimationPose()
     {
+        _previewPoseDirty = true;
         _animationError = null;
         _animationSkinMatrices = null;
         var moby = selectedMobyAsset?.Moby;
         if (moby?.Skeleton == null || _animationPlayer.Clip == null)
-        {
-            previewDirty = true;
             return;
-        }
 
         if (!_animationPlayer.CanSamplePose)
         {
             _animationError = _animationPlayer.UnsupportedReason;
             _lastPreviewAnimationFrame = _animationPlayer.CurrentFrame;
-            previewDirty = true;
             return;
         }
 
@@ -2113,9 +2138,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         {
             _animationError = ex.Message;
             _animationPlayer.Pause();
-            _animationSkinMatrices = null;
         }
-        previewDirty = true;
     }
 
     private void RenderAnimationPanel(Moby moby)
@@ -2259,62 +2282,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             }
             ImGui.TreePop();
         }
-    }
-
-    private float[] BuildPreviewVertexData(RenderMesh renderMesh, uint pickId, float[] captured)
-    {
-        if (_animationSkinMatrices == null || selectedMobyAsset == null)
-            return captured;
-
-        int bangleIndex = (int)(pickId >> 16);
-        int meshIndex = (int)(pickId & 0xFFFF);
-        var moby = selectedMobyAsset.Value.Moby;
-        if ((uint)bangleIndex >= (uint)moby.Bangles.Count || (uint)meshIndex >= (uint)moby.Bangles[bangleIndex].Meshes.Count)
-            return captured;
-
-        var geometry = moby.Bangles[bangleIndex].Meshes[meshIndex].Geometry;
-        int[]? joints = geometry.GetJointIndices();
-        float[]? weights = geometry.GetJointWeights();
-        if (joints == null || weights == null) return captured;
-
-        const int stride = 18;
-        int vertexCount = Math.Min(captured.Length / stride, Math.Min(joints.Length, weights.Length) / 4);
-        var result = (float[])captured.Clone();
-
-        for (int v = 0; v < vertexCount; v++)
-        {
-            int o = v * stride;
-            Vector3 sourcePosition = new(captured[o + 0], captured[o + 1], captured[o + 2]);
-            Vector3 sourceNormal = new(captured[o + 5], captured[o + 6], captured[o + 7]);
-            Vector3 sourceTangent = new(captured[o + 8], captured[o + 9], captured[o + 10]);
-            Vector3 position = Vector3.Zero, normal = Vector3.Zero, tangent = Vector3.Zero;
-            float totalWeight = 0f;
-
-            for (int slot = 0; slot < 4; slot++)
-            {
-                int binding = v * 4 + slot;
-                int joint = joints[binding];
-                float weight = weights[binding];
-                if (joint < 0 || joint >= _animationSkinMatrices.Length || weight <= 0f) continue;
-                Matrix4x4 skin = _animationSkinMatrices[joint];
-                position += Vector3.Transform(sourcePosition, skin) * weight;
-                normal += Vector3.TransformNormal(sourceNormal, skin) * weight;
-                tangent += Vector3.TransformNormal(sourceTangent, skin) * weight;
-                totalWeight += weight;
-            }
-
-            if (totalWeight <= 1e-6f) continue;
-            position /= totalWeight;
-            normal /= totalWeight;
-            tangent /= totalWeight;
-            if (normal.LengthSquared() > 1e-12f) normal = Vector3.Normalize(normal);
-            if (tangent.LengthSquared() > 1e-12f) tangent = Vector3.Normalize(tangent);
-
-            result[o + 0] = position.X; result[o + 1] = position.Y; result[o + 2] = position.Z;
-            result[o + 5] = normal.X; result[o + 6] = normal.Y; result[o + 7] = normal.Z;
-            result[o + 8] = tangent.X; result[o + 9] = tangent.Y; result[o + 10] = tangent.Z;
-        }
-        return result;
     }
 
     private void AppendSkeleton(ISkeleton skeleton)

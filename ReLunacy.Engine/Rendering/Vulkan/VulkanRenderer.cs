@@ -101,8 +101,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     private const float NonOpaqueSlopeScaledDepthBias = -0.33972f;
 
     // uBoneBase[gl_InstanceIndex] is the skinned instance's bone-palette region offset (see
-    // TrySetAnimatedInstance); 0 for every non-animating instance, which is the shared identity
-    // region, so skinning is a no-op unless an animation is actually playing.
+    // TrySetAnimatedInstance). Base 0 draws the decoded bind pose without reading the palette.
     private const string SkinningGlsl = @"
 layout(set = 0, binding = 9) readonly buffer BonePalette { mat4 uBones[]; };
 layout(set = 0, binding = 11) readonly buffer BoneBase { int uBoneBase[]; };
@@ -113,6 +112,7 @@ void computeSkin(vec3 pos, vec3 nrm, vec3 tan) {
     vec3 p = vec3(0.0), n = vec3(0.0), t = vec3(0.0);
     float totalWeight = 0.0;
     int base = uBoneBase[gl_InstanceIndex];
+    if (base == 0) { skinnedPosition = pos; skinnedNormal = nrm; skinnedTangent = tan; return; }
     for (int slot = 0; slot < 4; slot++) {
         float w = inWeights[slot];
         if (w <= 0.0) continue;
