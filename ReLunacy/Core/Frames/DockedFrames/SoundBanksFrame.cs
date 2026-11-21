@@ -15,7 +15,7 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 /// <summary>
 /// View > Sound Banks: the level's resident and streamed sounds (Tools of Destruction, Quest for Booty and A Crack in Time),
-/// grouped by bank, mixer group or name prefix. The selected sound shows the SoundSpecs ids that play it (what a
+/// grouped by bank and mixer group, mixer group alone or name prefix. The selected sound shows the SoundSpecs ids that play it (what a
 /// settings field holds), its sample, its Scream grains and the instances whose sound fields name it; Play renders a
 /// new take, drawn as a waveform with a cursor, levels and a spectrum.
 /// </summary>
@@ -43,7 +43,8 @@ public sealed class SoundBanksFrame : DockedFrame
     private bool _reveal, _treeChanged;
 
     private (LevelSounds Sounds, GroupMode Mode, string Filter)? _treeFor;
-    private List<(string Key, string Label, List<BankSound> Sounds)> _tree = [];
+    private sealed record SoundGroup(string Key, string Label, List<BankSound> Sounds);
+    private List<(SoundBank? Bank, List<SoundGroup> Groups)> _tree = [];
 
     // The selected sound's details, read once.
     private BankSound? _detailsOf;
@@ -226,59 +227,86 @@ public sealed class SoundBanksFrame : DockedFrame
             _tree = BuildTree(sounds);
             _treeFor = (sounds, _mode, _filter);
         }
-        ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Count", _tree.Sum(g => g.Sounds.Count), sounds.BankSounds.Count));
+        ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Count", _tree.Sum(bank => bank.Groups.Sum(group => group.Sounds.Count)), sounds.BankSounds.Count));
         ImGui.Separator();
 
         if (!ImGui.BeginChild("##soundlist", Vector2.Zero)) { ImGui.EndChild(); return; }
-        foreach (var (key, label, members) in _tree)
+        foreach (var (bank, groups) in _tree)
         {
-            bool holdsSelected = _selected != null && members.Contains(_selected);
-            if (_treeChanged && _filter.Length > 0) ImGui.SetNextItemOpen(true);
-            else if (_reveal && holdsSelected) ImGui.SetNextItemOpen(true);
-            if (!ImGui.TreeNodeEx($"{label}  ({members.Count})##{key}", ImGuiTreeNodeFlags.SpanAvailWidth)) continue;
-            foreach (var sound in members)
+            if (bank is { } kind && !OpenSoundTreeNode(
+                    BankLabel(kind), $"bank_{kind}", groups.Sum(g => g.Sounds.Count),
+                    _selected != null && groups.Any(g => g.Sounds.Contains(_selected))))
+                continue;
+
+            foreach (var (key, label, members) in groups)
             {
-                var ids = sounds.IdsOf(sound).ToList();
-                bool reached = ids.Count > 0;
-                if (!reached) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-                bool selected = ReferenceEquals(sound, _selected);
-                if (ImGui.Selectable($"{sound.Name}##{sound.NameIndex}", selected)) _selected = sound;
-                if (!reached) ImGui.PopStyleColor();
-                if (selected && _reveal) { ImGui.SetScrollHereY(0.5f); _reveal = false; }
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(reached ? string.Join("\n", ids.Select(i => $"{i.Id}  {i.SpecName}")) : LM.Get("GUI_SoundBanks_NoIds"));
+                if (!OpenSoundTreeNode(label, key, members.Count, _selected != null && members.Contains(_selected)))
+                    continue;
+                foreach (var sound in members)
+                {
+                    var ids = sounds.IdsOf(sound).ToList();
+                    bool reached = ids.Count > 0;
+                    if (!reached) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+                    bool selected = ReferenceEquals(sound, _selected);
+                    if (ImGui.Selectable($"{sound.Name}##{sound.NameIndex}", selected)) _selected = sound;
+                    if (!reached) ImGui.PopStyleColor();
+                    if (selected && _reveal) { ImGui.SetScrollHereY(0.5f); _reveal = false; }
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(reached ? string.Join("\n", ids.Select(i => $"{i.Id}  {i.SpecName}")) : LM.Get("GUI_SoundBanks_NoIds"));
+                }
+                ImGui.TreePop();
             }
-            ImGui.TreePop();
+
+            if (bank != null) ImGui.TreePop();
         }
         _treeChanged = false;
         ImGui.EndChild();
     }
 
-    private List<(string, string, List<BankSound>)> BuildTree(LevelSounds sounds)
+    private bool OpenSoundTreeNode(string label, string key, int count, bool holdsSelected)
+    {
+        if (_treeChanged && _filter.Length > 0 || _reveal && holdsSelected)
+            ImGui.SetNextItemOpen(true);
+        return ImGui.TreeNodeEx($"{label}  ({count})###{key}", ImGuiTreeNodeFlags.SpanAvailWidth);
+    }
+
+    private List<(SoundBank? Bank, List<SoundGroup> Groups)> BuildTree(LevelSounds sounds)
     {
         bool Matches(BankSound s)
         {
-            if (_filter.Length == 0 || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)) return true;
+            if (_filter.Length == 0 || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || BankLabel(s.Bank).Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || GroupName(sounds, s.Group).Contains(_filter, StringComparison.OrdinalIgnoreCase))
+                return true;
             foreach (var id in sounds.IdsOf(s))
                 if (id.SpecName.Contains(_filter, StringComparison.OrdinalIgnoreCase) || id.Id.ToString().StartsWith(_filter, StringComparison.Ordinal))
                     return true;
             return false;
         }
-        (string Key, string Label) GroupOf(BankSound s) => _mode switch
+        (string Key, string Label) GroupOf(BankSound s)
         {
-            GroupMode.Bank => s.Bank == SoundBank.Resident ? ("0", LM.Get("GUI_SoundBanks_Resident")) : ("1", LM.Get("GUI_SoundBanks_Streamed")),
-            GroupMode.Group => s.Group < 0 ? ("~", LM.Get("GUI_SoundBanks_NoGroup")) : (s.Group.ToString("D6"), GroupName(sounds, s.Group)),
-            _ => s.Name.IndexOf('_') is > 0 and var cut ? (s.Name[..cut].ToLowerInvariant(), s.Name[..cut].ToLowerInvariant() + "_") : ("~", s.Name),
-        };
+            if (_mode != GroupMode.Prefix)
+                return (s.Group < 0 ? "~" : s.Group.ToString("D6"), GroupName(sounds, s.Group));
+            return s.Name.IndexOf('_') is > 0 and var cut
+                ? (s.Name[..cut].ToLowerInvariant(), s.Name[..cut].ToLowerInvariant() + "_")
+                : (s.Name, s.Name);
+        }
         return sounds.BankSounds.Where(Matches)
-            .GroupBy(GroupOf)
-            .OrderBy(g => _mode == GroupMode.Group ? g.Key.Key : g.Key.Label, StringComparer.OrdinalIgnoreCase)
-            .Select(g => (g.Key.Key, g.Key.Label, g.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+            .GroupBy(s => _mode == GroupMode.Bank ? (SoundBank?)s.Bank : null)
+            .OrderBy(bank => bank.Key)
+            .Select(bank => (bank.Key, bank.GroupBy(GroupOf)
+                .OrderBy(group => group.Key.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new SoundGroup(group.Key.Key, group.Key.Label,
+                    group.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+                .ToList()))
             .ToList();
     }
 
+    private static string BankLabel(SoundBank bank) =>
+        LM.Get(bank == SoundBank.Resident ? "GUI_SoundBanks_Resident" : "GUI_SoundBanks_Streamed");
+
     private static string GroupName(LevelSounds sounds, int group) =>
-        sounds.GroupNames.TryGetValue(group, out var name) ? (name.StartsWith("SOUND_GROUP_EX_") ? name[15..] : name) : group.ToString();
+        sounds.GroupLabel(group, LM.Get("GUI_SoundBanks_NoGroup"));
 
     // ---------------------------------------------------------------- details
 
@@ -319,7 +347,7 @@ public sealed class SoundBanksFrame : DockedFrame
             Row("GUI_SoundBanks_Bank");
             ImGui.TextUnformatted(LM.Get(sound.Bank == SoundBank.Resident ? "GUI_SoundBanks_BankResident" : "GUI_SoundBanks_BankStreamed", sound.BankIndex));
             Row("GUI_SoundBanks_Group");
-            ImGui.TextUnformatted(sound.Group < 0 ? LM.Get("GUI_SoundBanks_NoGroup") : GroupName(sounds, sound.Group));
+            ImGui.TextUnformatted(GroupName(sounds, sound.Group));
 
             Row("GUI_SoundBanks_Ids");
             if (ids.Count == 0) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_NoIds"));

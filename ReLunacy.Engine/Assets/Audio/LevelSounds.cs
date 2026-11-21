@@ -89,6 +89,15 @@ public sealed class LevelSounds
     /// <summary>The SoundGroups enum of /scripts/soundgroups.lua: id -> name.</summary>
     public IReadOnlyDictionary<int, string> GroupNames { get; }
 
+    public string GroupLabel(int group, string noGroup = "No group")
+    {
+        if (group < 0) return noGroup;
+        if (!GroupNames.TryGetValue(group, out var name)) return group.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (name.StartsWith("SOUND_GROUP_EX_", StringComparison.Ordinal)) return name["SOUND_GROUP_EX_".Length..];
+        if (name.StartsWith("SOUND_GROUP_", StringComparison.Ordinal)) return name["SOUND_GROUP_".Length..];
+        return name;
+    }
+
     public LevelSound? Find(int id) => _byId.GetValueOrDefault(id);
 
     /// <summary>Every SoundSpecs id of the level that plays a bank sound, by id.</summary>
