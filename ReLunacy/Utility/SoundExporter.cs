@@ -10,55 +10,87 @@ namespace ReLunacy.Utility;
 
 public static class SoundExporter
 {
-    public static IWaveProvider? GetWaveFromSourceAudio(LevelSounds sounds, BankSound sound, IProgress<float> progress)
+    public sealed class Pcm16WaveProvider(short[] samples, int sampleRate, int channels) : IWaveProvider
+    {
+        private readonly byte[] _bytes = [.. MemoryMarshal.AsBytes(samples.AsSpan())];
+        private int _position;
+
+        public WaveFormat WaveFormat { get; } = new WaveFormat(sampleRate, 16, channels);
+        
+        public int Read(Span<byte> buffer)
+        {
+            var remaining = _bytes.Length - _position;
+            if (remaining <= 0)
+            {
+                return 0;
+            }
+
+            var toCopy = Math.Min(remaining, buffer.Length);
+            // Align to sample frame size (2 bytes per sample * channels)
+            var frameSize = WaveFormat.BlockAlign;
+            toCopy -= toCopy % frameSize;
+            if (toCopy <= 0)
+            {
+                return 0;
+            }
+
+            _bytes.AsSpan(_position, toCopy).CopyTo(buffer);
+            _position += toCopy;
+            return toCopy;
+        }
+    }
+    
+    public static IWaveProvider? GetWaveFromSourceAudio(LevelSounds sounds, BankSound sound)
     {
         var pcm = SoundReader.Decode(sounds, sound.Bank, sound.BankIndex);
         if (pcm is null)
         {
-            progress.Report(1);
             return null;
         }
         
-        // samplerate * channels * bits per sample / 8 (bits per byte)
-        var avgbps = pcm.SampleRate * pcm.Channels * 16 / 8;
-        
-        var wav = new BufferedWaveProvider(WaveFormat.CreateCustomFormat(
-            WaveFormatEncoding.Pcm,
-            pcm.SampleRate,
-            pcm.Channels, 
-            avgbps, 
-            2 * pcm.Channels, 
-            16
-        ));
-        
-        wav.AddSamples(MemoryMarshal.Cast<short, byte>(pcm.Samples.AsSpan()));
-        wav.CompleteAdding();
-        progress.Report(1);
+        var wav = new Pcm16WaveProvider(pcm.Samples, pcm.SampleRate, pcm.Channels);
         return wav;
     }
 
-    public static void ExportSoundAsFormat(LevelSounds sounds, BankSound sound, SoundFileMajorFormat format,
-        IProgress<float> progress, Level level, bool isSoundtrack, double compressionLevel = 0)
+    public static void ExportSoundAsFormat(string filepath, LevelSounds sounds, BankSound sound, SoundFileMajorFormat format,
+        Level? level, bool isSoundtrack, double compressionLevel = 0)
     {
-        var wave = GetWaveFromSourceAudio(sounds, sound, progress);
+        var wave = GetWaveFromSourceAudio(sounds, sound);
         if (wave is null) return;
         
-        SoundFileWriter.CreateSoundFile(sound.Name, wave, format, new()
+        if(!Directory.Exists(Path.GetDirectoryName(filepath)))
+            Directory.CreateDirectory(Path.GetDirectoryName(filepath));
+        
+        LunaLog.LogDebug($"[sound-exporter] Exporting sound as {format}");
+        SoundFileWriter.CreateSoundFile(filepath, wave, format, new()
         {
-            CompressionLevel = compressionLevel,
+            CompressionLevel = format switch
+            {
+                SoundFileMajorFormat.Flac => compressionLevel,
+                _ => 0
+            },
+            VbrQuality = format switch
+            {
+                SoundFileMajorFormat.Mp3
+                or SoundFileMajorFormat.OggVorbis
+                or SoundFileMajorFormat.Opus => 0.0,
+                _ => 0
+            },
             Clipping = false,
             Subtype = SoundFileSubtype.Default,
-            Tags = isSoundtrack ? new()
+            Tags = isSoundtrack && level is {} l and not { Game: null } ? new()
             {
-                Artist = level.Game.Id is GameId.ToolsOfDestruction or GameId.QuestForBooty or GameId.RFallOfMan  ? "David Bergeaud"
-                    : level.Game.Id is GameId.ACrackInTime ? "Boris Salchow"
-                    : level.Game.Id is GameId.All4One or GameId.IntoTheNexus or GameId.FullFrontalAssault ? "Michael Bross"
-                    : "Unknown",
+                Artist = l.Game.Id switch
+                {
+                    GameId.ToolsOfDestruction or GameId.QuestForBooty or GameId.RFallOfMan => "David Bergeaud",
+                    GameId.ACrackInTime => "Boris Salchow",
+                    GameId.All4One or GameId.IntoTheNexus or GameId.FullFrontalAssault => "Michael Bross",
+                    _ => "Unknown"
+                },
                 Title = sound.Name,
-                Album = level.Game.DisplayName + " OST",
+                Album = l.Game.DisplayName + " OST",
                 Copyright = "Sony Computer Entertainment Inc."
             } : null,
-            VbrQuality = 1.0
         });
     }
 }

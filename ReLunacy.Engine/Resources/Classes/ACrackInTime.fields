@@ -255,6 +255,11 @@ class 0x12E ClueSwingshotEquip : 0x11D
 class 0x130 ClueHudMap : 0x11D
 {
     [0x18, Volume] = "";
+    [0x34, Area] Map Clue area = "";
+    [0x38, u32] width? = "";
+    [0x3C, u32] = "";
+    [0x40, u32] height? = "";
+    [0x44, u32] = "";
 }
 
 class 0x13A AlarmController : 0xCF
@@ -489,14 +494,14 @@ class 0x21D PlatformBuoyant : 0x201
 
 class 0x220 VendorBase : 0x47
 {
-    [0xC0, float] = "";
-    [0xC4, float] = "";
+    [0xC0, float] Open range = "";
+    [0xC4, float] Close range = "";
     [0xC8, float] = "";
     [0x1C0, component(0x98)] Prompt = "The prompt shown near the object.";
     [0x218, text] Prompt text = "Text of the prompt.";
     [0x21C, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0x224, float] Prompt range = "The prompt shows within this distance.";
-    [0x238, u32] Prompt value A = "";
+    [0x238, u32] Prompt appear range = "";
     [0x248, float] Prompt value B = "";
     [0x254, u8, runtime] Prompt 3D distance = "";
     [0x255, u8, runtime] Prompt enabled = "";
@@ -1311,7 +1316,7 @@ class 0x590 Agorian battlebot : 0x181
 class 0x591 GenericPrompt : 0x47
 {
     [0x60, component(0x98)] Prompt = "The prompt shown near the object.";
-    [0xB8, text] Prompt text = "Text of the prompt.";
+    [0xB8, text] Prompt text = "Text of the prompt.\nCan be set with script function prompt_set_tag\nHence tags might not always be valid in this field.";
     [0xBC, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
     [0xC4, float] Prompt range = "The prompt shows within this distance.";
     [0xD8, u32] Prompt value A = "";

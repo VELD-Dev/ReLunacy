@@ -144,6 +144,12 @@ internal static class ProjectSession
         LunaWindow.Instance.LoadLevelDataAsync(path, loadingFrame, debugDatPath);
     });
 
+    public static void LoadLevel(Level level) => Guard(() =>
+    {
+        LunaWindow.Instance.LevelMetadata = level;
+        LoadLevel(level.SourcePath, level.DebugDatPath);
+    });
+
     /// <summary>Puts a project first in File > Recent Projects.</summary>
     private static void Remember(string path)
     {

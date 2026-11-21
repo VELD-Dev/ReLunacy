@@ -208,7 +208,7 @@ public class GameBrowserFrame : DockedFrame
         }
     }
 
-    private static void LoadLevel(Level level) => Project.ProjectSession.LoadLevel(level.SourcePath, level.DebugDatPath);
+    private static void LoadLevel(Level level) => Project.ProjectSession.LoadLevel(level);
 
     public override void RenderAsWindow(double deltaTime)
     {

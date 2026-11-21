@@ -18,6 +18,11 @@ public static class GameLibraryScanner
         levels.AddRange(ScanPsarcLevels(rootPath));
 
         var game = MatchGame(levels.Select(l => l.Name));
+        if (game is { } g)
+        {
+            foreach (var l in levels)
+                l.Game = g;
+        }
         return new GameLibrary(game, rootPath, levels);
     }
 
