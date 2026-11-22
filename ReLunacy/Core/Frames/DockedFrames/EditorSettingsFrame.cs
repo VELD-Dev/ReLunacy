@@ -101,6 +101,15 @@ internal class EditorSettingsFrame : Frame
                 ImGuiPlus.HelpMarker(LM.Get(prereleaseForced
                     ? "GUI_Frame_EditorSettings_IncludePrereleasesForced"
                     : "GUI_Frame_EditorSettings_IncludePrereleasesHelp"));
+                
+                ImGui.Spacing();    
+                if (ImGui.Button(LM.Get("GUI_Frame_EditorSettings_CreateDesktopShortcut")))
+                {
+                    DesktopShortcutUtils.CreateDesktopShortcut();
+                }
+                
+                ImGui.Spacing();
+                
                 if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
                 {
                     ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));

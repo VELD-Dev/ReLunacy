@@ -201,6 +201,8 @@ public class EditorSettings
     // Clear colour of the asset viewer's preview, set from its overlay toolbar.
     public Vector4 AssetViewerBackground;
 
+    public bool HideStartupConfigMessage;
+
     [JsonIgnore]
     public static readonly Vector4 DefaultAssetViewerBackground = new(0.68f, 0.85f, 0.90f, 1f);
 
@@ -289,6 +291,7 @@ public class EditorSettings
         CustomShaders = [];
         SavedLayouts = [];
         ActiveLayoutName = null;
+        HideStartupConfigMessage = false;
     }
 
     public void SaveSettingsToFile()
