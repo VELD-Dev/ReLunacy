@@ -9,6 +9,16 @@
     <!--<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>-->
     <ApplicationIcon>Assets\logo.ico</ApplicationIcon>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <!-- ProgramInfo.cs applies this attribute itself, from the same const the app and UpdateChecker
+         read, so the version is written once. Without this the SDK emits its own copy from
+         $(Version) into obj/*/ReLunacy.AssemblyInfo.cs and the two collide (CS0579). -->
+    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
+    <!-- A level load decodes thousands of textures on every core at once, each allocating its pixels:
+         the workstation collector serialises those threads, the server one gives each core its own heap
+         (krell_canyon's texture decode 0.9 s -> 0.6 s, a creature_collector region 0.48 -> 0.23 s,
+         dev/tools/decodeprobe). .NET 10 sizes the server heaps to the load (DATAS), so an idle editor
+         does not hold one heap per core. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +27,7 @@
 
   <ItemGroup>
     <Content Include="Assets\logo.ico" />
+    <Content Include="Assets\logo.svg" CopyToOutputDirectory="PreserveNewest"/>
     <Content Include="Shaders\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Shaders\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -24,9 +35,17 @@
   </ItemGroup>
   
   <ItemGroup>
+    <Content Include="Assets\ReLunacyCamera.obj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets\ReLunacyCamera.obj</Link>
+    </Content>
     <Content Include="Assets\Fonts\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Assets\Fonts\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="Assets\Icons\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets\Icons\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
   </ItemGroup>
 
@@ -56,31 +75,31 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\logo.ico" />
+    <EmbeddedResource Include="Assets\logo.png" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Window creation and input. Came in transitively through Bliss until its host layer was
-         replaced (see Utility/Host); referenced directly now. -->
+    <PackageReference Include="NAudio.Core" Version="3.4.0-preview.1" />
+    <PackageReference Include="NAudio.Flac" Version="1.0.5702.29018" />
+    <PackageReference Include="NAudio.Flac.Unknown" Version="1.0.4" />
+    <PackageReference Include="NAudio.Lame" Version="2.1.0" />
+    <PackageReference Include="NAudio.Lame.CrossPlatform" Version="2.2.1" />
+    <PackageReference Include="NAudio.SoundFile" Version="3.4.0-preview.1" />
+    <PackageReference Include="NAudio.Vorbis" Version="3.0.0" />
     <PackageReference Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageReference Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <PackageReference Include="Hexa.NET.ImGui" Version="2.2.10-prerelease" />
     <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.2.10-prerelease" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
+    <PackageReference Include="Newtonsoft.Json" Version="14.0.1-beta2" />
     <PackageReference Include="NativeFileDialogSharp" Version="0.6.0-alpha" />
-    <!-- PNG/JPEG/etc decode and encode. Same two libraries Bliss used underneath its own Image type,
-         referenced directly now. -->
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
-    <!-- Was Veldrith (Stellution-Studios), a single-maintainer fork - moved to NeoVeldrid, the
-         actively-maintained Silk.NET-based continuation of Veldrid. See ReLunacy.Engine.csproj's
-         comment for why, and EditorWindow.cs for the Direct3D12/Metal backend removal that came with it. -->
     <PackageReference Include="NeoVeldrid" Version="1.2.1" />
-    <!-- GLSL to SPIR-V, for the ImGui shaders and the fullscreen blit. Came in through Bliss. -->
     <PackageReference Include="NeoVeldrid.SPIRV" Version="1.2.1" />
-    <!-- Native libraries CreateFromSpirv needs at runtime - see ReLunacy.Engine.csproj's comment. -->
     <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
     <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
+    <PackageReference Include="WindowsShortcutFactory" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup>

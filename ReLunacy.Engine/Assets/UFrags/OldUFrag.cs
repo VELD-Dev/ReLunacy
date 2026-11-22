@@ -20,6 +20,8 @@ public sealed class OldUFrag : IUFrag
     public bool IsLoaded { get; private set; }
     public IMaterial Material { get; init; }
     public bool IsOldEngine => true;
+    public Lighting.FallOfManBake? FallOfManBake { get; init; }
+    public byte? FallOfManCubeIndex { get; init; }
 
     private readonly float[] _positions;
     private readonly float[] _uvs;
@@ -29,6 +31,9 @@ public sealed class OldUFrag : IUFrag
     private readonly float[]? _vertexAlpha;
     private readonly uint[] _indices;
     private readonly Vector3 _anchor;
+
+    /// <summary>See <see cref="IUFrag.SourceOffset"/>.</summary>
+    public long SourceOffset { get; set; } = -1;
     private readonly Vector3 _boundingCenter;
     private readonly float _boundingRadius;
     private readonly UFragVertex[] _rawVertices;

@@ -6,33 +6,54 @@ using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Objects;
 using ReLunacy.Engine.Loading.Objects.Instances;
 using Volume = ReLunacy.Engine.Assets.LevelElements.Volume;
+using VolumeShape = ReLunacy.Engine.Assets.LevelElements.VolumeShape;
+using PathRoles = ReLunacy.Engine.Assets.LevelElements.PathRoles;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
 public sealed class RegionReader
 {
     private readonly FileManager _fileManager;
-    private readonly Dictionary<ulong, Assets.Mobys.Moby> _mobys;
+    private readonly AssetLibrary<Assets.Mobys.Moby> _mobys;
     private readonly Dictionary<ulong, Assets.Levels.Zone> _zones;
     private readonly DebugReader _debugReader;
+    private readonly FallOfManGameplayReader? _fallOfManGameplay;
 
-    public RegionReader(FileManager fileManager, Dictionary<ulong, Assets.Mobys.Moby> mobys, Dictionary<ulong, Assets.Levels.Zone> zones, DebugReader debugReader)
+    /// <param name="mobys">The level's Moby classes; the ones a region places are read from it.</param>
+    /// <param name="zones">The zones read so far; a region keeps those of its own list that are among them.</param>
+    public RegionReader(FileManager fileManager, AssetLibrary<Assets.Mobys.Moby> mobys, Dictionary<ulong, Assets.Levels.Zone> zones, DebugReader debugReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
         _mobys = mobys ?? throw new ArgumentNullException(nameof(mobys));
         _zones = zones ?? throw new ArgumentNullException(nameof(zones));
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
+        if (fileManager.IsFallOfMan && fileManager.igfiles.GetValueOrDefault("gameplay.dat") is { } gameplay)
+        {
+            var debug = fileManager.igfiles.GetValueOrDefault("debug.dat");
+            if (debug?.QuerySection(FallOfManGameplayReader.DebugSection).id != FallOfManGameplayReader.DebugSection)
+                debug = fileManager.OriginalDebugFile;
+            _fallOfManGameplay = new FallOfManGameplayReader(gameplay, debug);
+        }
     }
 
     public Assets.Levels.Region ReadRegion() => ReadAllRegions()[0];
 
     private Assets.Levels.Region ReadRegionOld(LevelLoadProgress? progress = null)
     {
-        IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
-
         progress?.SetTotal(1);
-        var mobyInstances = ReadMobyInstancesOld(gameplayFile);
+        if (_fileManager.IsFallOfMan)
+        {
+            var region = ReadFallOfManRegion(null);
+            progress?.Advance();
+            return region;
+        }
+
+        IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
+        var gameplay = new OldGameplayReader(gameplayFile, _debugReader, Game);
+        var mobyInstances = ReadMobyInstancesOld(gameplayFile, gameplay);
         var volumes = ReadVolumesOld(gameplayFile, _debugReader);
+        // Clues, Areas and Scents go onto the volumes; paths, controllers and Pods are the region's.
+        var old = gameplay.Read(volumes);
 
         progress?.Advance();
         return new Assets.Levels.Region(
@@ -41,7 +62,34 @@ public sealed class RegionReader
             volumes: volumes,
             zones: null, // Old engine has no zones in regions
             isOldEngine: true,
-            name: "OldRegion");
+            name: "OldRegion")
+        {
+            Game = Game,
+            Controllers = old.Controllers,
+            Paths = old.Paths,
+            Pods = old.Pods,
+            References = old.References,
+        };
+    }
+
+    internal List<string> ReadFallOfManGroupNames() => _fallOfManGameplay?.Groups.Select(group => group.Name).ToList() ?? [];
+
+    internal Assets.Levels.Region ReadFallOfManRegion(string? name)
+    {
+        if (_fallOfManGameplay is not { Groups.Count: > 0 } source)
+            return new Assets.Levels.Region(0, [], [], null, true, "OldRegion") { Game = Game };
+
+        var group = source.Groups.FirstOrDefault(group => group.Name == (name ?? "default"));
+        if (group.Offset == 0) group = source.Groups[0];
+        var data = source.Read(group);
+        var instances = FallOfManGeometry.ReadMobyInstances(_fileManager.igfiles["gameplay.dat"]!, group.Offset, _mobys,
+            data.MobyNames, group == source.Groups[0] ? _debugReader : null);
+        return new Assets.Levels.Region(0, instances, data.Volumes, null, true, group.Name)
+        {
+            Game = Game,
+            Paths = data.Paths,
+            Controllers = data.Controllers,
+        };
     }
 
     /// <summary>Every region of the level, in the order gameplay.dat's name table lists them. New-engine
@@ -89,7 +137,9 @@ public sealed class RegionReader
         return regions;
     }
 
-    private Assets.Levels.Region? ReadOneRegionNew(string regionName, ulong id)
+    /// <summary>One new-engine region: its Moby instances, volumes and the zones of its list that have
+    /// been read. <paramref name="id"/> is its position in gameplay.dat's list, plus one.</summary>
+    public Assets.Levels.Region? ReadOneRegionNew(string regionName, ulong id)
     {
         var prius = _fileManager.GetOrLoadIGFile($"{regionName}/gp_prius.dat");
         var region = _fileManager.GetOrLoadIGFile($"{regionName}/region.dat");
@@ -100,13 +150,27 @@ public sealed class RegionReader
             return null;
         }
 
-        return new Assets.Levels.Region(
+        var newRegion = new Assets.Levels.Region(
             id: id,
             mobyInstances: ReadMobyInstancesNew(prius, region),
-            volumes: ReadVolumesNew(prius),
+            volumes: ReadVolumesNew(prius, Game),
             zones: ReadZoneList(region),
             isOldEngine: false,
-            name: regionName);
+            name: regionName)
+        {
+            Game = Game,
+            Controllers = GameplayGroupReader.ReadControllers(prius, Game),
+            Paths = GameplayGroupReader.ReadPaths(prius),
+            Pods = GameplayGroupReader.ReadPods(prius),
+            Squadrons = GameplayGroupReader.ReadSquadrons(prius),
+            Layers = GameplayGroupReader.ReadLayers(prius),
+            References = GameplayGroupReader.ReadReferences(prius),
+        };
+        PathRoles.Assign(newRegion.Paths, newRegion.Volumes, newRegion.Controllers,
+            newRegion.MobyInstances.OfType<PlacedInstance<IMoby>>().Where(m => m.References.Count > 0)
+                .Select(m => (m.Name, m.Asset.Name?.Split('/')[^1].Split('.')[0] ?? "Moby", m.References)));
+        Assets.LevelElements.ClueClasses.AssignVolumeRoles(newRegion.Volumes, Game, newRegion.Controllers);
+        return newRegion;
     }
 
     /// <summary>
@@ -134,6 +198,19 @@ public sealed class RegionReader
         return names;
     }
 
+    /// <summary>The TUIDs of the zones a new-engine region lists (region.dat 0x1C010), read or not; null
+    /// when its region.dat does not open.</summary>
+    public List<ulong>? ReadZoneTuids(string regionName)
+    {
+        if (_fileManager.GetOrLoadIGFile($"{regionName}/region.dat") is not { } region) return null;
+        var section = region.QuerySection(0x1C010);
+        var tuids = new List<ulong>((int)section.count);
+        region.sh.Seek(section.offset);
+        for (int i = 0; i < section.count; i++)
+            tuids.Add(region.sh.ReadUInt64());
+        return tuids;
+    }
+
     private List<IZone> ReadZoneList(IGFile region)
     {
         var zoneList = new List<IZone>();
@@ -150,7 +227,7 @@ public sealed class RegionReader
         return zoneList;
     }
 
-    private List<IPlacedInstance<IMoby>> ReadMobyInstancesOld(IGFile gameplayFile)
+    private List<IPlacedInstance<IMoby>> ReadMobyInstancesOld(IGFile gameplayFile, OldGameplayReader gameplay)
     {
         var mobyInstances = new List<IPlacedInstance<IMoby>>();
         var mobyInstanceSection = gameplayFile.QuerySection(MobyInstanceOld.ID);
@@ -158,12 +235,13 @@ public sealed class RegionReader
         if (mobyInstanceSection.count == 0)
             return mobyInstances;
 
-        gameplayFile.sh.Seek(mobyInstanceSection.offset);
         for (int i = 0; i < mobyInstanceSection.count; i++)
         {
+            long record = mobyInstanceSection.offset + (long)i * mobyInstanceSection.length;
+            gameplayFile.sh.Seek(record);
             var legacyInstance = MobyInstanceOld.Read(gameplayFile.sh);
 
-            if (_mobys.TryGetValue(legacyInstance.mobyIndex, out var moby))
+            if (_mobys.Get(legacyInstance.mobyIndex) is { } moby)
             {
                 var transform = new Transform3D(legacyInstance.position, legacyInstance.rotation, legacyInstance.scale);
                 // debug.dat instance names (when present) are matched by array position, not by tuid.
@@ -172,7 +250,14 @@ public sealed class RegionReader
                 // ever need to check "< 0 = unlimited".
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
                 float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance, updateDistance));
+                // The class struct and the instances it names, read only: no old-engine save writes them.
+                var (settings, references) = gameplay.ReadMobySettings(record);
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, (ulong)i, 0, name, displayDistance, updateDistance)
+                {
+                    Settings = settings,
+                    References = references,
+                    GameplayIndex = i,
+                });
             }
         }
 
@@ -213,9 +298,13 @@ public sealed class RegionReader
             }
         }
 
+        // Read before the records: it seeks around the file.
+        var settings = GameplayGroupReader.ReadMobySettings(prius);
+
         prius.sh.Seek(mobyInstanceSection.offset);
         for (int i = 0; i < mobyInstanceSection.count; i++)
         {
+            prius.sh.Seek(mobyInstanceSection.offset + (long)i * MobyInstanceNew.Size);
             var legacyInstance = MobyInstanceNew.Read(prius.sh);
 
             IMoby? moby = null;
@@ -223,8 +312,7 @@ public sealed class RegionReader
             {
                 region.sh.Seek(mobyLookupSection.offset + 0x08 * legacyInstance.mobyIndex);
                 ulong mobyTUID = region.sh.ReadUInt64();
-                _mobys.TryGetValue(mobyTUID, out var resolvedMoby);
-                moby = resolvedMoby;
+                moby = _mobys.Get(mobyTUID);
             }
 
             if (moby != null)
@@ -239,7 +327,13 @@ public sealed class RegionReader
 
                 float displayDistance = legacyInstance.displayDist <= 0 ? -1f : legacyInstance.displayDist;
                 float updateDistance = legacyInstance.updateDist <= 0 ? -1f : legacyInstance.updateDist;
-                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance, updateDistance));
+                mobyInstances.Add(new PlacedInstance<IMoby>(moby, transform, instanceTUID, group, name, displayDistance, updateDistance)
+                {
+                    Settings = i < settings.Count ? settings[i].Struct : [],
+                    References = i < settings.Count ? settings[i].References : [],
+                    SharedSettings = i < settings.Count && settings[i].Shared,
+                    GameplayIndex = i,
+                });
             }
         }
 
@@ -263,12 +357,23 @@ public sealed class RegionReader
             // not 0x40, or entries decode starting inside the previous entry's trailing bytes.
             gameplayFile.sh.Seek(volumeSection.offset + i * 0x90);
             string name = debugReader.GetVolumeName(i) ?? $"Volume_{i}";
-            volumes[i] = new Volume((ulong)i, ReadMatrix4x4(gameplayFile.sh), name);
+            var matrix = ReadMatrix4x4(gameplayFile.sh);
+            // Primitive selector at +0x80 (0 box, 1 cylinder, 2 sphere, 3 capsule): the byte the
+            // retail containment routine 0x00676468 switches on; present on all 6,807 ToD volumes.
+            gameplayFile.sh.Seek(volumeSection.offset + i * 0x90 + 0x80);
+            byte raw = gameplayFile.sh.ReadByte();
+            var shape = raw <= (byte)VolumeShape.Capsule ? (VolumeShape)raw : VolumeShape.Box;
+            // Index is the table position, which handles and instances.lua number by. Only the new engine's gp_prius writers
+            // treat it as a slot of their table, and a save never runs them on an old level (GameplayWriter.Build).
+            volumes[i] = new Volume((ulong)i, matrix, name, 0, shape) { Index = i };
         }
         return [.. volumes];
     }
 
-    private static List<Volume> ReadVolumesNew(IGFile prius)
+    /// <summary>The level's game, for the class tables only that game's EBOOT gives (GameClassNames).</summary>
+    private Games.GameId? Game => _fileManager.GameDefinition?.Id;
+
+    private static List<Volume> ReadVolumesNew(IGFile prius, Games.GameId? game)
     {
         // Volumes and their names live in gp_prius.dat, not region.dat. Metadata is read first
         // into arrays (Volume.Id is init-only, so it must be known before construction).
@@ -297,14 +402,21 @@ public sealed class RegionReader
         for (int i = 0; i < volumeSection.count; i++)
         {
             var transform = ReadMatrix4x4(prius.sh);
+            // The last word is not part of the matrix: its top byte is the shape (0 box, 1 cylinder,
+            // 2 sphere, 3 capsule over every level of the four games), the rest zero. Read as a float it
+            // is a denormal, which is how it hid.
+            var shape = (VolumeShape)(BitConverter.SingleToUInt32Bits(transform.M44) >> 24);
+            if (!Enum.IsDefined(shape)) shape = VolumeShape.Box;
+            transform.M44 = 1f;
             ulong tuid = i < metadatas.Length ? metadatas[i].TUID : (ulong)i;
             ushort group = i < metadatas.Length ? metadatas[i].group : (ushort)0;
             string name = i < metadataNames.Length && metadataNames[i] != null
                 ? metadataNames[i]!
                 : $"Volume_{i}";
-            volumes[i] = new Volume(tuid, transform, name, group);
+            volumes[i] = new Volume(tuid, transform, name, group, shape) { Index = i };
         }
 
+        GameplayGroupReader.Annotate(prius, volumes, [.. volumes.Select(v => v.group)], game);
         return [.. volumes];
     }
 }

@@ -18,6 +18,7 @@ public static class Icons
     public const string Plus = "\uf067";
     public const string Minus = "\uf068";
     public const string Trash = "\uf1f8";
+    public const string Star = "\uf005";
     public const string Download = "\uf019";
     public const string Upload = "\uf093";
     public const string Refresh = "\uf021";  // arrows-rotate
@@ -28,6 +29,11 @@ public static class Icons
     public const string Folder = "\uf07b";
     public const string FolderOpen = "\uf07c";
     public const string File = "\uf15b";
+    public const string ArrowLeft = "\uf060";
+    public const string ArrowRight = "\uf061";
+    public const string ArrowUp = "\uf062";
+    public const string List = "\uf03a";
+    public const string Grid = "\uf00a";  // table-cells
 
     // View / visibility
     public const string Eye = "\uf06e";
@@ -45,12 +51,24 @@ public static class Icons
     public const string Map = "\uf279";  // level
     public const string MountainSun = "\ue52f";  // UFrags
     public const string Tree = "\uf1bb";  // foliage
+    public const string Seedling = "\uf4d8";  // shrubs
+    public const string VolumeHigh = "\uf028";  // sounds
+    public const string Font = "\uf031";  // text tables
+    public const string CircleDot = "\uf192";  // bounding spheres
+    public const string Filter = "\uf0b0";
+    public const string BezierCurve = "\uf55b";  // paths
     public const string Droplet = "\uf043";
     public const string LayerGroup = "\uf5fd";
+    public const string Route = "\uf4d7";  // navmesh
+    public const string DrawPolygon = "\uf5ee";  // collision
+    public const string Fire = "\uf06d";  // effects
+    public const string Globe = "\uf0ac";  // sector boundary
+    public const string Plane = "\uf072";  // fly height
 
     // Lighting
     public const string Lightbulb = "\uf0eb";
     public const string Sun = "\uf185";
+    public const string Microchip = "\uf2db";  // RSX (game) shaders
 
     // Debug / dev
     public const string Bug = "\uf188";

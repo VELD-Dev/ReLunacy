@@ -35,6 +35,13 @@ public sealed class Viewport3D
     /// panel drawn on top of the viewport blocks it).</summary>
     public bool IsHovered { get; private set; }
 
+    /// <summary>The drag-drop payload type the image accepts; null accepts none.</summary>
+    public string? DropType { get; set; }
+
+    /// <summary>A payload of <see cref="DropType"/> held over the image this frame: its bytes, and whether the button was
+    /// released on it. Null otherwise. Set by <see cref="DrawImage"/> and <see cref="DrawEmpty"/>.</summary>
+    public (byte[] Data, bool Released)? Drop { get; private set; }
+
     /// <summary>Whether the frame's own camera controls should react to the mouse this frame.</summary>
     public bool AllowCameraInput => IsHovered;
 
@@ -105,6 +112,7 @@ public sealed class Viewport3D
         if (!HasArea) return;
         ImGui.SetCursorScreenPos(ScreenPos);
         ImGui.Image(binding, Size, Vector2.Zero, Vector2.One);
+        AcceptDrop();
         Overlay.Begin(_id, ScreenPos, Size);
     }
 
@@ -116,19 +124,32 @@ public sealed class Viewport3D
         if (!HasArea) return;
         ImGui.SetCursorScreenPos(ScreenPos);
         ImGui.Dummy(Size);
+        AcceptDrop();
         Overlay.Begin(_id, ScreenPos, Size);
+    }
+
+    /// <summary>Takes a payload of <see cref="DropType"/> held over the image just drawn, as <see cref="Drop"/>. The default
+    /// highlight is not drawn: the frame shows its own preview.</summary>
+    private unsafe void AcceptDrop()
+    {
+        Drop = null;
+        if (DropType == null || !ImGui.BeginDragDropTarget()) return;
+        var payload = ImGui.AcceptDragDropPayload(DropType, ImGuiDragDropFlags.AcceptBeforeDelivery | ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
+        if (payload.Handle != null)
+            Drop = (new ReadOnlySpan<byte>(payload.Data, payload.DataSize).ToArray(), payload.IsDelivery());
+        ImGui.EndDragDropTarget();
     }
 
     /// <summary>Runs the transform gizmo over this viewport. Only after this has run does the gizmo know
     /// whether it was hit, which is why <see cref="TryConsumeClick"/> must come after it.</summary>
-    public void Gizmo(GizmoController gizmo, EditorCamera camera, Entity? entity)
+    public bool Gizmo(GizmoController gizmo, EditorCamera camera, Entity? entity, IReadOnlyList<Entity> others)
     {
-        if (!HasArea) return;
+        if (!HasArea) return false;
         // Close the overlay first: it holds pushed style colours and an id scope, and the gizmo is not
         // part of it.
         Overlay.End();
         _gizmo = gizmo;
-        gizmo.Render(camera, entity, ScreenPos, Size);
+        return gizmo.Render(camera, entity, others, ScreenPos, Size);
     }
 
     /// <summary>True on the frame a left click landed on the image and nothing above picking wanted it.

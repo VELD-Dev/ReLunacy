@@ -1,0 +1,113 @@
+<!--
+  Release build driver: one `dotnet publish` per shipped platform, so cutting a release is a single
+  Rider run configuration (.run/Publish_Release.run.xml, .run/Package_Release.run.xml) instead of
+  four hand-typed command lines.
+
+  Not part of ReLunacy.sln - it drives the solution's app project from outside rather than being
+  built with it, so it never interferes with a normal Build/Run in the IDE. It also has no Sdk
+  attribute: it defines no sources and compiles nothing, and MSBuild loads Microsoft.Common.tasks
+  (Exec, ZipDirectory, ReadLinesFromFile, ...) for every project regardless, so the SDK would only
+  pull in a Build/Restore graph this file has no use for.
+
+  From the command line:
+    dotnet msbuild Release.proj -t:Publish      # publish folders, one per platform
+    dotnet msbuild Release.proj -t:Package      # the above, plus an archive per platform
+    dotnet msbuild Release.proj -t:Package -p:ReleaseRuntimes=win-x64      # one platform only
+    dotnet msbuild Release.proj -t:Package -p:SelfContained=true           # no runtime needed
+-->
+<Project DefaultTargets="Publish">
+
+  <PropertyGroup>
+    <AppProject>$(MSBuildThisFileDirectory)ReLunacy/ReLunacy.csproj</AppProject>
+
+    <!-- The app project alone, not the solution: ReLunacy.Engine and LibreFios flow in through
+         ProjectReference, and publishing the solution would invoke Publish directly on each of
+         them (see Directory.Build.props for the NETSDK1129 that causes on multi-targeted
+         LibreFios). -->
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+
+    <!-- The four platforms the project ships. Semicolon-separated, overridable with
+         -p:ReleaseRuntimes=... to publish a subset while iterating. -->
+    <ReleaseRuntimes Condition="'$(ReleaseRuntimes)' == ''">win-x64;win-arm64;linux-x64;linux-arm64</ReleaseRuntimes>
+
+    <!-- Framework-dependent by default, matching what the README asks users to install (the .NET
+         10 runtime) and what .github/workflows/nightly.yml produces. Pass
+         -p:SelfContained=true for builds that run without any runtime installed - roughly 70 MB
+         per platform instead of 5, but nothing to install. -->
+    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
+
+    <PublishRoot Condition="'$(PublishRoot)' == ''">$(MSBuildThisFileDirectory)artifacts/publish/</PublishRoot>
+    <PackageRoot Condition="'$(PackageRoot)' == ''">$(MSBuildThisFileDirectory)artifacts/packages/</PackageRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ReleaseRuntime Include="$(ReleaseRuntimes)" />
+  </ItemGroup>
+
+  <Target Name="Publish">
+    <Message Importance="high" Text="Publishing $(Configuration) for: $(ReleaseRuntimes) (self-contained: $(SelfContained))" />
+
+    <!-- Wiped rather than published over: dotnet publish copies files in but never removes ones
+         that are no longer produced, so an asset renamed or a package dropped since the last
+         release would otherwise linger in the folder that gets shipped. -->
+    <RemoveDir Directories="$(PublishRoot)%(ReleaseRuntime.Identity)" />
+
+    <Exec WorkingDirectory="$(MSBuildThisFileDirectory)"
+          Command="dotnet publish &quot;$(AppProject)&quot; -c $(Configuration) -r %(ReleaseRuntime.Identity) --self-contained $(SelfContained) -o &quot;$(PublishRoot)%(ReleaseRuntime.Identity)&quot;" />
+
+    <Message Importance="high" Text="Published to $(PublishRoot)" />
+  </Target>
+
+  <!-- ProgramInfo.Version is the single place the running build knows its own version from (and
+       what UpdateChecker compares release tags against), so the archives are named from it rather
+       than from a number repeated here that could drift out of step with the app. Read as text
+       because it is a C# const, not an MSBuild property. -->
+  <Target Name="ResolveReleaseVersion" Condition="'$(ReleaseVersion)' == ''">
+    <ReadLinesFromFile File="$(MSBuildThisFileDirectory)ReLunacy/ProgramInfo.cs">
+      <Output TaskParameter="Lines" ItemName="_ProgramInfoLine" />
+    </ReadLinesFromFile>
+
+    <ItemGroup>
+      <_VersionLine Include="@(_ProgramInfoLine)"
+                    Condition="$([System.String]::Copy('%(Identity)').Contains('string Version'))" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_VersionDeclaration>@(_VersionLine)</_VersionDeclaration>
+      <!-- Everything between the first pair of quotes on `public const string Version = "..."`. -->
+      <_AfterOpeningQuote>$(_VersionDeclaration.Substring($([MSBuild]::Add($(_VersionDeclaration.IndexOf('&quot;')), 1))))</_AfterOpeningQuote>
+      <ReleaseVersion>$(_AfterOpeningQuote.Substring(0, $(_AfterOpeningQuote.IndexOf('&quot;'))))</ReleaseVersion>
+    </PropertyGroup>
+
+    <Error Condition="'$(ReleaseVersion)' == ''"
+           Text="Could not read ProgramInfo.Version out of ReLunacy/ProgramInfo.cs. Pass -p:ReleaseVersion=x.y to name the archives explicitly." />
+  </Target>
+
+  <Target Name="Package" DependsOnTargets="ResolveReleaseVersion;Publish">
+    <MakeDir Directories="$(PackageRoot)" />
+
+    <ItemGroup>
+      <!-- Zip for Windows, tar.gz for Linux: the Unix apphost needs its executable bit, which a
+           zip entry does not carry (and which is why nightly.yml splits the two the same way). -->
+      <_WindowsRuntime Include="@(ReleaseRuntime)"
+                       Condition="$([System.String]::Copy('%(Identity)').StartsWith('win-'))" />
+      <_UnixRuntime Include="@(ReleaseRuntime)"
+                    Condition="!$([System.String]::Copy('%(Identity)').StartsWith('win-'))" />
+    </ItemGroup>
+
+    <!-- The item-list conditions matter: with no items at all (a Linux-only -p:ReleaseRuntimes),
+         metadata batching still runs the task once with an empty %(Identity), which would archive
+         the whole publish root under a name missing its platform suffix. -->
+    <ZipDirectory Condition="'@(_WindowsRuntime)' != ''"
+                  SourceDirectory="$(PublishRoot)%(_WindowsRuntime.Identity)"
+                  DestinationFile="$(PackageRoot)ReLunacy-$(ReleaseVersion)-%(_WindowsRuntime.Identity).zip"
+                  Overwrite="true" />
+
+    <Exec Condition="'@(_UnixRuntime)' != ''"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          Command="tar -czf &quot;$(PackageRoot)ReLunacy-$(ReleaseVersion)-%(_UnixRuntime.Identity).tar.gz&quot; -C &quot;$(PublishRoot)%(_UnixRuntime.Identity)&quot; ." />
+
+    <Message Importance="high" Text="Packaged ReLunacy $(ReleaseVersion) into $(PackageRoot)" />
+  </Target>
+
+</Project>

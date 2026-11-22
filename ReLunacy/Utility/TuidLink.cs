@@ -25,8 +25,10 @@ public static class TuidLink
         var level = LunaWindow.Instance.Level;
         if (level == null || tuid == 0) return Kind.Unknown;
 
-        if (level.Mobys.ContainsKey(tuid)) return Kind.Moby;
-        if (level.Ties.ContainsKey(tuid)) return Kind.Tie;
+        // The libraries, not the classes read: a class the loaded region does not place is still one of
+        // the level's, and the asset viewer reads it when it is opened.
+        if (level.MobyLibrary.Contains(tuid)) return Kind.Moby;
+        if (level.TieLibrary.Contains(tuid)) return Kind.Tie;
         if (level.Shrubs.ContainsKey(tuid)) return Kind.Shrub;
         if (level.Zones.ContainsKey(tuid)) return Kind.Zone;
         if (level.AllTextures.ContainsKey(tuid)) return Kind.Texture;

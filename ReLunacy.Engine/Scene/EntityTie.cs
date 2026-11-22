@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Assets.Geometry;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
@@ -10,19 +11,45 @@ public class EntityTie : Entity
 {
     public readonly ITie BaseTie;
 
+    /// <summary>The placement's TUID (its 0x72C0 name record), which the planet occlusion's Tie records are found by.</summary>
+    public ulong Tuid { get; }
+
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
 
     public RenderModel? Model { get; private set; }
 
+    /// <summary>The placement's matrix as the file stores it, before the decompose into
+    /// <see cref="Entity.Transform"/> (which does not rebuild a mirrored placement exactly). A Tie's
+    /// collision instance carries this same matrix, which is how the two are matched.</summary>
+    public Matrix4x4 PlacementMatrix { get; }
+
+    /// <summary>Where the placement's record is in its file (see PlacedInstance.SourceOffset); -1 when unknown.</summary>
+    public long SourceOffset { get; }
+
+    /// <summary>The editor's matrix (<see cref="Entity.Transform"/>) as the file last held it: as loaded, then as last
+    /// saved. A save writes the file's own matrix moved by the edit since (file x saved^-1 x now), which keeps a
+    /// mirrored or sheared placement exactly; <see cref="MarkSaved"/> must follow every save, or the next one would
+    /// apply the edit twice.</summary>
+    public Matrix4x4 SavedMatrix { get; private set; }
+
+    public void MarkSaved() => SavedMatrix = Transform.GetMatrix();
+
+    /// <summary>Planet regions: the occlusion grid never hides this placement (its bit cleared in every cell, far
+    /// distances grown to reach it); cleared again, it gets its retail or baked bits back. A plain value: the editor's undo
+    /// sets it back; it is kept in the project by a save and set at load by <see cref="Packing.OcclusionBake.LoadFlags"/>.</summary>
+    public bool NeverCulled { get; set; }
+
     public EntityTie(IPlacedInstance<ITie> tieInstance, AssetManager assetManager)
     {
         BaseTie = tieInstance.Asset;
+        Tuid = tieInstance.ID;
 
         // Ties are placed via a raw affine matrix; decomposed directly rather than through
         // IPlacedInstance's Euler-angle properties, which are lossy and collapse anisotropic scale
         // into a single averaged float.
-        Matrix4x4.Decompose(tieInstance.GetTransformMatrix(), out var scale, out var rotation, out var translation);
+        PlacementMatrix = tieInstance.GetTransformMatrix();
+        Matrix4x4.Decompose(PlacementMatrix, out var scale, out var rotation, out var translation);
 
         Transform = new Transform
         {
@@ -30,6 +57,9 @@ public class EntityTie : Entity
             Rotation = rotation,
             Scale = scale
         };
+
+        SourceOffset = (tieInstance as Assets.Geometry.PlacedInstance<ITie>)?.SourceOffset ?? -1;
+        SavedMatrix = Transform.GetMatrix();
 
         var (center, radius) = BaseTie.GetBoundingSphere();
         BoundingSphere = new Vector4(center, radius);
@@ -46,16 +76,16 @@ public class EntityTie : Entity
         NewEngineCubeTuid = tieInstance.NewEngineCubeTuid;
         NewEnginePrelight = tieInstance.NewEnginePrelight;
         OldEnginePrelight = tieInstance.OldEnginePrelight;
+        FallOfManBake = (tieInstance as PlacedInstance<ITie>)?.FallOfManBake;
+        FallOfManTiePrelight = (tieInstance as PlacedInstance<ITie>)?.FallOfManTiePrelight;
+        FallOfManCubeIndex = (tieInstance as PlacedInstance<ITie>)?.FallOfManCubeIndex;
         NewEnginePrelightBaked = tieInstance.NewEnginePrelightBaked;
 
         // The game reads this as a BE ushort at instance+0x5A, then sanitizes values outside the
         // available 0x5400/0x5410 lists to 0xFFFF. Mirror that where both decoded lists are known.
         ushort candidateLightmap = tieInstance.LightmapIndex;
-        LightmapIndex = candidateLightmap != Loading.Objects.Instances.TieInstance.NoLightmap
-            && candidateLightmap < assetManager.ZoneLightmaps.Count
-            && candidateLightmap < assetManager.ZoneDirectionals.Count
-            && assetManager.ZoneLightmaps[candidateLightmap] != null
-            && assetManager.ZoneDirectionals[candidateLightmap] != null
+        LightmapIndex = assetManager.HasLightmap(candidateLightmap)
+            && (!assetManager.UsesFallOfManLightmaps || FallOfManBake != null)
                 ? candidateLightmap
                 : Loading.Objects.Instances.TieInstance.NoLightmap;
     }
@@ -95,6 +125,9 @@ public class EntityTie : Entity
 
     /// <summary>Old engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
     public byte[]? OldEnginePrelight { get; }
+    public Assets.Lighting.FallOfManBake? FallOfManBake { get; }
+    public Assets.Lighting.FallOfManTiePrelight? FallOfManTiePrelight { get; }
+    public byte? FallOfManCubeIndex { get; }
 
     /// <summary>New engine: whether the placement record carries a bake (+0x5A != 0xFFFF).</summary>
     public bool NewEnginePrelightBaked { get; }
@@ -114,7 +147,9 @@ public class EntityTie : Entity
             // are needed. A mesh whose lightmap UV slice is missing, which TieReader leaves null
             // per mesh, otherwise binds the real atlas and samples it at (0,0) - a black texel,
             // drawn as though it were the light reaching that surface.
-            if (lit && i < BaseTie.Meshes.Count && HasLightmapUVs(BaseTie.Meshes[i]))
+            if (lit && i < BaseTie.Meshes.Count && HasLightmapUVs(BaseTie.Meshes[i])
+                && (FallOfManBake == null || (mesh.SourceVertexBase >= 0
+                    && (mesh.SourceVertexBase + mesh.VertexCount) * 2 <= FallOfManBake.Chroma.Length)))
             {
                 var perInstance = _assetManager.GetOrBuildMaterial(BaseTie.Meshes[i].Material, LightmapIndex);
                 cachedRenderables.Add(new Renderable(mesh, Transform, perInstance));

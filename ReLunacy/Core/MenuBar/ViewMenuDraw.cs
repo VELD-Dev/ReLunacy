@@ -91,6 +91,45 @@ internal static class ViewMenuDraw
         }
     }
 
+    /// <summary>Every asset of the level in folders, opened in its viewer or dragged into the 3D view.</summary>
+    internal static void ShowAssetsBrowser()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<AssetsBrowserFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_AssetsBrowser"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<AssetsBrowserFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new AssetsBrowserFrame());
+    }
+
+    /// <summary>The graph of what uses an asset and what it uses.</summary>
+    internal static void ShowReferenceViewer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ReferenceViewerFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_ReferenceViewer"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ReferenceViewerFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new ReferenceViewerFrame());
+    }
+
+    /// <summary>The level's Moby and Tie classes as 3D thumbnails, dragged into the 3D view to place them.</summary>
+    internal static void ShowAssetExplorer()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<AssetExplorerFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_AssetExplorer"), "", frameAlreadyOpen, true))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<AssetExplorerFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new AssetExplorerFrame());
+    }
+
     internal static void ShowTextureExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<TexturesExplorer>();
@@ -157,6 +196,58 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.TryCloseFirstFrame<LuaEnvironmentFrame>();
         else
             LunaWindow.Instance.AddFrame(new LuaEnvironmentFrame());
+    }
+
+    /// <summary>The level's Pods (groups of Mobys), shown through their members and edited one at a time.</summary>
+    internal static void ShowPods()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PodsFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_Pods"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<PodsFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new PodsFrame());
+    }
+
+    /// <summary>The level's sound banks: every sound, what plays it and what uses it, heard with a waveform.</summary>
+    internal static void ShowSoundBanks()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<SoundBanksFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_SoundBanks"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<SoundBanksFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new SoundBanksFrame());
+    }
+
+    /// <summary>The game's configuration tables (/data/configs/*.csv), edited and saved into their archive.</summary>
+    internal static void ShowConfigTables()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ConfigTablesFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_ConfigTables"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ConfigTablesFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new ConfigTablesFrame());
+    }
+
+    /// <summary>The game's strings in every language (core_text_tags.*.pkg), edited and saved into their archive.</summary>
+    internal static void ShowTextTables()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<TextTablesFrame>();
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_TextTables"), "", frameAlreadyOpen, Program.ProvidedPath != string.Empty))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<TextTablesFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new TextTablesFrame());
     }
 
     internal static void ShowPSArcExplorer()
@@ -234,6 +325,18 @@ internal static class ViewMenuDraw
                     assetViewer.TransmitAssets(window.AssetManager, window.Level.Mobys, window.Level.Ties);
                 window.AddFrame(assetViewer);
                 return assetViewer;
+
+            case nameof(AssetExplorerFrame):
+                if (window.IsAnyFrameOpened<AssetExplorerFrame>()) return window.GetFirstFrame<AssetExplorerFrame>();
+                var assetExplorer = new AssetExplorerFrame();
+                window.AddFrame(assetExplorer);
+                return assetExplorer;
+
+            case nameof(AssetsBrowserFrame):
+                if (window.IsAnyFrameOpened<AssetsBrowserFrame>()) return window.GetFirstFrame<AssetsBrowserFrame>();
+                var assetsBrowser = new AssetsBrowserFrame();
+                window.AddFrame(assetsBrowser);
+                return assetsBrowser;
 
             case nameof(TexturesExplorer):
                 if (window.IsAnyFrameOpened<TexturesExplorer>()) return window.GetFirstFrame<TexturesExplorer>();

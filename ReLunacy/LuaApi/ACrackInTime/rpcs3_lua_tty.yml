@@ -1,0 +1,25 @@
+Version: 1.2
+
+# Restores the Lua debug output of Ratchet & Clank Future: A Crack in Time (NPUA80966, 01.20) in RPCS3.
+#
+# tty_out and screen_out (and prt / print, which the game's prelude points at screen_out) end in two
+# empty functions in the retail EBOOT (0x004F98C8, 0x004F98CC: a bare blr each). This makes both call
+# the game's own SPU log printer (0x00717508), which formats "SPU%d: %s" and writes it with
+# sys_tty_write, so the text lands in RPCS3's TTY (TTY.log, and the TTY tab of the debugger):
+#   tty_out("hello\n")  ->  SPU0: hello
+# The printer adds no line break and keeps 255 characters. Install: copy this into
+# <RPCS3 config>/patches/imported_patch.yml (or merge it there), then enable it in Manage > Game Patches.
+PPU-139ccf98a8417bd91a222f3d61d6de0860b8c436:
+  "Lua TTY output (ReLunacy)":
+    Games:
+      "Ratchet & Clank Future: A Crack in Time":
+        NPUA80966: [ 01.20 ]
+    Author: "ReLunacy"
+    Notes: "tty_out / screen_out / prt / print write to the TTY as 'SPU0: <text>' (no line break added, 255 characters)."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x004F98C8, 0x38600000 ] # li r3, 0          (the "SPU%d" number)
+      - [ be32, 0x004F98CC, 0x4821DC3C ] # b 0x00717508      (snprintf "SPU%d: %s" + sys_tty_write)
+      - [ be32, 0x00521AA4, 0x78640020 ] # tty_out:    clrldi r4, r3, 32 (the string as the %s)
+      - [ be32, 0x00521A68, 0x78640020 ] # screen_out: clrldi r4, r3, 32
+      - [ be32, 0x00521A6C, 0x4BFD7E5D ] # screen_out: bl 0x004F98C8

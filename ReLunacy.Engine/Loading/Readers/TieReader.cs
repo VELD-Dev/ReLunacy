@@ -27,7 +27,8 @@ public sealed class TieReader
 
     /// <param name="progress">The level load's bar; the Tie phase counts one item per class.</param>
     public Dictionary<ulong, Assets.Ties.Tie> ReadAllTies(LevelLoadProgress? progress = null) =>
-        _fileManager.isOld ? ReadTiesOld(progress) : ReadTiesNew(progress);
+        _fileManager.IsFallOfMan ? FallOfManGeometry.ReadTies(_fileManager, _materialReader, _debugReader, progress)
+            : _fileManager.isOld ? ReadTiesOld(progress) : ReadTiesNew(progress);
 
     private Dictionary<ulong, Assets.Ties.Tie> ReadTiesOld(LevelLoadProgress? progress)
     {
@@ -81,6 +82,52 @@ public sealed class TieReader
         }
 
         return ties;
+    }
+
+    /// <summary>The level's Ties, each read on first use (see <see cref="AssetLibrary{T}"/>). The old
+    /// engine's are all read here, keyed by file offset as its instances name them.</summary>
+    /// <param name="progress">Old engine: the Tie phase, which reads them all.</param>
+    public AssetLibrary<Assets.Ties.Tie> CreateLibrary(object fileLock, LevelLoadProgress? progress = null)
+    {
+        if (_fileManager.isOld)
+            return AssetLibrary<Assets.Ties.Tie>.FromLoaded(ReadAllTies(progress));
+
+        AssetPointer[] tiePtrs = NewEngineAssetLookup.ReadPointers(
+            _fileManager, NewEngineAssetLookup.TiePointers, "Ties");
+        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "ties.dat", "Ties", out Stream? tieStream) ||
+            tieStream is null)
+            return AssetLibrary<Assets.Ties.Tie>.FromLoaded([]);
+
+        return new AssetLibrary<Assets.Ties.Tie>(tiePtrs, pointer =>
+        {
+            byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, pointer, "Tie");
+            using MemoryStream tiems = new(tiedat);
+            var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
+                                            crackInTime: CrackInTimeLayout);
+            // Keyed by the assetlookup pointer-table TUID, as ReadTiesNew does.
+            return ConvertTie(legacyTie, pointer.TUID);
+        }, pointer => ReadNewTieName(tieStream, pointer), fileLock);
+    }
+
+    /// <summary>A new-engine Tie class read from its container bytes (a class the editor built, see
+    /// <see cref="Packing.PendingTieClass"/>), keyed by <paramref name="id"/>.</summary>
+    public Assets.Ties.Tie ReadClass(byte[] classBytes, ulong id)
+    {
+        using MemoryStream stream = new(classBytes);
+        var legacyTie = new Objects.Tie(new IGFile(stream), _fileManager, old: false, crackInTime: CrackInTimeLayout);
+        return ConvertTie(legacyTie, id);
+    }
+
+    /// <summary>A new-engine Tie's name (its metadata's +0x64 string) without parsing the rest of it.</summary>
+    private static string? ReadNewTieName(Stream tieStream, AssetPointer pointer)
+    {
+        byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, pointer, "Tie");
+        using MemoryStream tiems = new(tiedat);
+        var igFile = new IGFile(tiems);
+        var section = igFile.QuerySection(TieMetadataOld.ID);
+        if (section.id != TieMetadataOld.ID) return null;
+        uint nameOffset = igFile.sh.ReadUInt32(section.offset + 0x64);
+        return nameOffset != 0 ? igFile.sh.ReadString(nameOffset) : null;
     }
 
     private Assets.Ties.Tie ConvertTie(Objects.Tie legacyTie, ulong id)
@@ -319,9 +366,14 @@ public sealed class TieReader
                         legacyMesh.fadeNormalDistance,
                         legacyMesh.fadeReflectionDistance,
                         legacyMesh.fadeDetailDistance),
-                    legacyMesh.newEngineFeatureMask),
+                    // A Crack in Time keeps the mask at +0x24 (+0x20 is 0 on all 1,317 krell_canyon primitives;
+                    // reading it stripped specular, normal map, detail and parallax from every Tie). Only the
+                    // five feature bits are valid (0 does occur, on 118 of 36,622), so a value outside them falls back to all on.
+                    CrackInTimeLayout ? PlausibleCrackInTimeMask(legacyMesh.crackInTimeFeatureMask) : legacyMesh.newEngineFeatureMask),
         };
     }
+
+    private static byte PlausibleCrackInTimeMask(byte mask) => (mask & ~0x1F) == 0 ? mask : (byte)0x1F;
 
     /// <summary>Copies out one mesh's window of the tie-wide candidate lightmap UV array, or null if
     /// this mesh has no usable window. This is only the cheap first gate; ClassifyUnwrap then decides,

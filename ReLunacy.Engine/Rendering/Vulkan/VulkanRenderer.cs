@@ -89,7 +89,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     // Depth carries stencil for the selection outline's stencil mask-and-inflate technique.
     private const VkFormat DepthFormat = VkFormat.D32SfloatS8Uint;
     private const VkFormat AccumFormat = VkFormat.R16G16B16A16Sfloat;
-    private const VkFormat RevealFormat = VkFormat.R16Sfloat;
+    private const VkFormat RevealFormat = VkFormat.R16G16Sfloat;
     private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 104
     // Albedo, normal, properties, bake colour / direction, detail, auxiliary A / B, then the second
     // layer of a two-layer Tie: albedo, normal, properties, detail and the blend mask.
@@ -101,8 +101,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     private const float NonOpaqueSlopeScaledDepthBias = -0.33972f;
 
     // uBoneBase[gl_InstanceIndex] is the skinned instance's bone-palette region offset (see
-    // TrySetAnimatedInstance); 0 for every non-animating instance, which is the shared identity
-    // region, so skinning is a no-op unless an animation is actually playing.
+    // TrySetAnimatedInstance). Base 0 draws the decoded bind pose without reading the palette.
     private const string SkinningGlsl = @"
 layout(set = 0, binding = 9) readonly buffer BonePalette { mat4 uBones[]; };
 layout(set = 0, binding = 11) readonly buffer BoneBase { int uBoneBase[]; };
@@ -113,6 +112,7 @@ void computeSkin(vec3 pos, vec3 nrm, vec3 tan) {
     vec3 p = vec3(0.0), n = vec3(0.0), t = vec3(0.0);
     float totalWeight = 0.0;
     int base = uBoneBase[gl_InstanceIndex];
+    if (base == 0) { skinnedPosition = pos; skinnedNormal = nrm; skinnedTangent = tan; return; }
     for (int slot = 0; slot < 4; slot++) {
         float w = inWeights[slot];
         if (w <= 0.0) continue;
@@ -165,6 +165,8 @@ layout(location = 6) out vec4 fColor;
 layout(location = 7) flat out uint fInstanceIndex;
 layout(location = 8) out vec3 fPrelightChroma;
 layout(location = 9) out vec4 fPrelightIntensity;
+layout(location = 10) out vec2 fUFragVertexScales;
+layout(location = 11) out float fOldTieFade;
 struct InstanceLight { vec4 ambient; vec4 light0Colour; vec4 light1Colour; vec4 direction0; vec4 direction1; vec4 tieShaderUse0; vec4 tieShaderUse1; vec4 tieShaderUseMeta; vec4 gameplay; vec4 secondTint; vec4 secondParallax; vec4 uvAnim; vec4 uvScroll; vec4 fogCentre; vec4 layers; };
 layout(set = 0, binding = 4, std430) readonly buffer InstanceLights { InstanceLight values[]; } uInstanceLights;
 layout(set = 0, binding = 8, std430) readonly buffer Prelight { uint words[]; } uPrelight;
@@ -178,6 +180,7 @@ void main() {
     InstanceLight il = uInstanceLights.values[gl_InstanceIndex];
     fPrelightChroma = vec3(0.0);
     fPrelightIntensity = vec4(0.0);
+    fUFragVertexScales = vec2(1.0);
     if (il.direction0.w > 4.5 && il.direction0.w < 5.5) {
         uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.tieShaderUseMeta.w)];
         float v = float(word & 0xFFu) * 256.0 + float((word >> 8) & 0xFFu);
@@ -197,6 +200,51 @@ void main() {
         vec2 ab = vec2(float((word >> 16) & 0xFFu), float(word >> 24)) / 255.0;
         fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
         fPrelightIntensity = vec4(vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w, 0.0);
+    } else if (il.direction0.w > 6.5 && il.direction0.w < 7.5) {
+        int at = gl_VertexIndex * 2 + floatBitsToInt(il.direction0.z);
+        float packedW = float(uPrelight.words[at]);
+        // ToD VP 0x100D4848 and QfB's byte-identical program split position.w into a
+        // lighting multiplier and a two-layer blend weight.
+        fUFragVertexScales = fract(packedW * vec2(1.0 / 32768.0, 1.0 / 128.0)) * vec2(2.0, 1.0);
+        if (il.direction0.x > 0.5) {
+            // The unbaked VP (ToD 0x100D38A8) reads the four bytes at vertex +0x0C.
+            uint word = uPrelight.words[at + 1];
+            float direction = float(word >> 16);
+            vec2 ab = vec2(float((word >> 8) & 0xFFu), float(word & 0xFFu)) / 255.0;
+            fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
+            vec3 basis = fract(direction * vec3(1.0 / 65536.0, 1.0 / 2048.0, 1.0 / 64.0));
+            if ((int(il.tieShaderUse0.z + 0.5) & 0x08) != 0)
+                fPrelightIntensity.xyz = vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w;
+            else
+                fPrelightChroma *= basis.z * il.direction1.w;
+        }
+    } else if (il.direction0.w == 8.0) {
+        // Fall of Man's lightmapped VPs use two normalized chroma bytes, with blue
+        // reconstructed from their sum, times inverse Rec.601 luma weights and c[5].z.
+        uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.direction0.z)];
+        vec2 ab = vec2(float(word & 255u), float((word >> 8) & 255u)) / 255.0;
+        fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193) * il.direction1.w;
+    } else if (il.direction0.w == 9.0) {
+        int delta = floatBitsToInt(il.direction0.z);
+        vec3 basis;
+        vec2 ab;
+        if (il.direction0.x > 0.5) {
+            // Fall of Man UFrag VP 0x10121250 uses three U8 direction components in its UV2 slot.
+            int at = gl_VertexIndex * 2 + delta;
+            uint chroma = uPrelight.words[at];
+            uint direction = uPrelight.words[at + 1];
+            ab = vec2(float(chroma & 255u), float((chroma >> 8) & 255u)) / 255.0;
+            basis = vec3(float(direction & 255u), float((direction >> 8) & 255u),
+                float((direction >> 16) & 255u)) / 255.0;
+        } else {
+            // Tie VP 0x101237E0, c[20..21] at 0x100DA794 in game.self.
+            uint word = uPrelight.words[gl_VertexIndex + delta];
+            float packed = float(word & 255u) * 256.0 + float((word >> 8) & 255u);
+            basis = fract(packed * vec3(1.0 / 65536.0, 1.0 / 2048.0, 1.0 / 64.0));
+            ab = vec2(float((word >> 16) & 255u), float(word >> 24)) / 255.0;
+        }
+        fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
+        fPrelightIntensity.xyz = vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w;
     }
     mat3 m3 = mat3(m);
     mat3 nrm = transpose(inverse(m3));
@@ -222,6 +270,11 @@ void main() {
     fColor = inColor;
     fInstanceIndex = gl_InstanceIndex;
     gl_Position = uMvp * world;
+    // RSX applies the saturation in the vertex program, before interpolating TEX2.w.
+    vec2 oldTieFade = il.tieShaderUseMeta.zw;
+    fOldTieFade = il.tieShaderUseMeta.x > 0.5 && any(notEqual(oldTieFade, vec2(0.0)))
+        ? clamp(gl_Position.w * oldTieFade.x + oldTieFade.y, 0.0, 1.0)
+        : 1.0;
 #ifdef NON_OPAQUE_DEPTH_OFFSET
     // The game's non-opaque polygon offset as a constant step in 1/z (see the class summary), frozen
     // at its world size of uDepthOffset.y metres (squared) beyond that distance.
@@ -285,8 +338,8 @@ void main() {
     gl_Position = uPick * (uT[gl_InstanceIndex] * vec4(skinnedPosition, 1.0));
 }";
 
-    // Volume edges use their own per-draw world matrix rather than the transform SSBO, like the
-    // visible wireframe pass.
+    // Camera markers and controller icons place themselves with a per-draw world matrix rather than the
+    // transform SSBO (the volume edges are instanced: VulkanRenderer.VolumeEdges.cs).
     private const string PickVolumeVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; mat4 uView; mat4 uProj; mat4 uPick; };
 layout(push_constant) uniform Push { mat4 uWorld; uvec4 uId; };
@@ -437,10 +490,6 @@ layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; };
 layout(push_constant) uniform PC { mat4 uModel; vec4 uColor; };
 layout(location = 0) in vec3 inPos;
 void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
-    private const string VolumeFragmentGlsl = @"#version 450
-layout(push_constant) uniform PC { mat4 uModel; vec4 uColor; };
-layout(location = 0) out vec4 o;
-void main() { o = vec4(uColor.rgb, 1.0); }";
 
     private readonly VulkanContext _ctx;
     private readonly VkDeviceApi _api;
@@ -556,10 +605,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private VkDescriptorSet _descSet;
     private VkSampler _sampler;
     private VkImageView _envCubeView;
-    // New engine: the four cubes of a cubemaps.dat resource, one view each, bound at set 0 bindings 3, 5,
-    // 6, 7 - the material's 0x5000 +0x40 picks one (see LitShader). The old engine has one cube, so all
-    // four slots are that same cube and slot 0 is _envCubeView itself.
-    private const int EnvCubeSlots = 4;
+    // Set 0 bindings 3, 5, 6 and 7 hold four cube views. The new engine selects a slot by material,
+    // Fall of Man selects a slot per world draw, and a single-cube level aliases all four slots.
+    internal const int EnvCubeSlots = 4;
     // One set-0 variant per cube resource and frame (index frame * _cubeResourceCount + resource): zones
     // pick a resource per Tie placement and per UFrag (AssetManager.EnvironmentCubeResources), and the
     // lit draw loop rebinds set 0 when the next draw reflects another one. Resource 0 is _descSets.
@@ -574,10 +622,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     // The opaque pass resumed after the scene colour is copied (same attachments, loaded): additive
     // draws and the blended pass that follows can then sample what lies behind them.
     private VkRenderPass _rpOpaqueLoad;
-    private VkShaderModule _vs, _vsNonOpaque, _fsOpaque, _fsAccum, _fsAdditive, _resolveVs, _resolveFs, _volumeVs, _volumeFs;
+    private VkShaderModule _vs, _vsNonOpaque, _fsOpaque, _fsAccum, _fsAdditive, _resolveVs, _resolveFs, _volumeVs;
     private VkShaderModule _outlineVs, _outlineFs;
     private VkPipelineLayout _layout, _resolveLayout, _volumeLayout, _outlineLayout;
-    private VkPipeline _pipelineOpaque, _pipelineAccum, _pipelineResolve, _volumePipeline;
+    private VkPipeline _pipelineOpaque, _pipelineAccum, _pipelineResolve;
     private VkPipeline _pipelineSoftEdgeDepth, _pipelineAdditive;
     private VkPipeline _pipelineOpaqueCull, _pipelineAccumCull, _pipelineSoftEdgeDepthCull, _pipelineAdditiveCull;
     private VkPipeline _pipelineOpaqueCullCw, _pipelineAccumCullCw, _pipelineSoftEdgeDepthCullCw, _pipelineAdditiveCullCw;
@@ -645,7 +693,6 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private VkBuffer _edgeVertexBuffer; private VkDeviceMemory _edgeVbMemory; private void* _edgeVbMapped;
     private VkBuffer _edgeIndexBuffer; private VkDeviceMemory _edgeIbMemory; private uint _edgeIndexCount;
     private float _edgeThickness = -1f;
-    private IReadOnlyList<(Matrix4x4 world, Vector4 color, uint pickId)> _volumes = System.Array.Empty<(Matrix4x4, Vector4, uint)>();
     private int _volumeCount;
 
     // Size-dependent targets. Colour is per-slot (ImGui reads one while the GPU writes the other);
@@ -838,7 +885,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 _instCube[i] = (byte)Math.Min(cubeResource, byte.MaxValue);
             instanceLights[i] = owner switch
             {
-                Scene.EntityMoby => VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, world.Translation), _oldEngineMobys),
+                Scene.EntityMoby or SceneEntityKind.Moby => SampleMobyLighting(world.Translation),
                 Scene.EntityTie { OldBakedLightScale: { } tieScale } when float.IsFinite(tieScale) => VkInstanceLight.ForOldTie(tieScale),
                 Scene.EntityTie { NewEngineBakedLight: { } tieBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(tieBake)),
                 Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(ufragBake)),
@@ -852,6 +899,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 Scene.EntityTie => SceneEntityKind.Tie,
                 Scene.EntityUFrag => SceneEntityKind.UFrag,
                 Scene.EntityFoliage => SceneEntityKind.Foliage,
+                // A preview with no entity behind it (the Shader Viewer's sphere) names the kind it draws as.
+                SceneEntityKind kind => kind,
                 _ => SceneEntityKind.Other,
             });
             _instDisplayDist[i] = displayDistance;
@@ -862,12 +911,24 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             if (bucket >= 3 && i < softStart) softStart = i;
             if (bucket >= 4 && i < billStart) billStart = i;
         }
-        uint[] prelightWords = BuildNewEnginePrelight(geomVerts, instances, order, _drawVertexOffset, instanceLights);
+        uint[] prelightWords = BuildNewEnginePrelight(geomVerts, materials, instances, order, _drawVertexOffset, instanceLights);
         _instTodKey = BuildTodKeys(geomVerts, instances, order);
         ApplyNewEngineFades(geomVerts, instances, order, instanceLights);
         ApplyGameplayConstants(materials, instanceLights);
         ApplyNewEngineFogCentres(instanceLights);
-        foreach (var (owner, run) in ownerRuns) _ownerInstances[owner] = [.. run];
+        foreach (var (owner, run) in ownerRuns)
+        {
+            _ownerInstances[owner] = [.. run];
+            byte? cubeIndex = owner switch
+            {
+                Scene.EntityTie tie => tie.FallOfManCubeIndex,
+                Scene.EntityUFrag { UFrag: Assets.UFrags.OldUFrag terrain } => terrain.FallOfManCubeIndex,
+                _ => null,
+            };
+            if (cubeIndex is { } slot && slot < Math.Min(envCube?.ArrayLayers ?? 0, (uint)EnvCubeSlots))
+                foreach (int draw in run)
+                    instanceLights[draw].Direction1.X = slot + 1; // Fall of Man world geometry: 0 means no cube.
+        }
         _billStart = billStart;
         _softStart = Math.Min(softStart, _billStart);
         _addStart = Math.Min(addStart, _softStart);
@@ -903,6 +964,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         long tUpload = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateUniformBuffers();
         CreateSampler();
+        _iconTexture = CreateControllerIconTexture(graphicsDevice);
         long tSamplers = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         // A scene whose every material is untextured (e.g. a preview of editor-helper geometry) still
         // needs one image to bind; a neutral 1x1 white stands in instead of failing the whole renderer.
@@ -914,6 +976,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         CreatePipelines();
         CreateBloomPipelines();
         CreateNavmeshPipelines();
+        CreateCollisionPipeline();
         BuildRetailShaders(materials, instanceLights);
         long tPipelines = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateTargets(graphicsDevice);
@@ -1160,10 +1223,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
         var ssboInfo = new VkDescriptorBufferInfo { buffer = _transformBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var instanceLightInfo = new VkDescriptorBufferInfo { buffer = _instanceLightBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
-        // The float cubes are sampled LINEARLY whatever the editor's texture-filtering choice: every
-        // one of the 1,024 retail cube descriptors carries FILTER 0x02022000 = linear min and mag, and
-        // a 16x16 cube sampled point-filtered is a mosaic of its own texels.
-        VkSampler cubeSampler = floatCube ? _samplerLinear : _sampler;
+        // New-engine and Fall of Man cube descriptors request linear filtering independently
+        // of the editor's choice for surface textures.
+        VkSampler cubeSampler = floatCube || _oldLightingEnvironment?.UsesFallOfManMobyLighting == true
+            ? _samplerLinear : _sampler;
         VkDescriptorImageInfo* cubeInfos = stackalloc VkDescriptorImageInfo[EnvCubeSlots];
         var prelightInfo = new VkDescriptorBufferInfo { buffer = _prelightBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var boneInfo = new VkDescriptorBufferInfo { buffer = _bonePaletteBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
@@ -1205,15 +1268,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         fallback ??= _fallbackTexture;
         if (fallback == null) throw new InvalidOperationException("[VkRenderer] Scene has no material textures.");
 
-        var viewOf = new Dictionary<Texture, VkImageView>(ReferenceEqualityComparer.Instance);
+        var viewOf = _textureViews;
         VkImageView ViewFor(Texture? t)
         {
             t ??= fallback;
             if (viewOf.TryGetValue(t, out var existing)) return existing;
-            VkImage image = _ctx.BackendInfo.GetVkImage(t);
-            uint mips = Math.Max(1u, t.MipLevels);
-            var vi = new VkImageViewCreateInfo { image = image, viewType = VkImageViewType.Image2D, format = ColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = mips, baseArrayLayer = 0, layerCount = 1 } };
-            VkImageView view; Check(_api.vkCreateImageView(&vi, &view), "vkCreateImageView(tex)");
+            VkImageView view = CreateMaterialTextureView(t);
             viewOf[t] = view;
             return view;
         }
@@ -1243,6 +1303,107 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkUpdateDescriptorSets(TexPerMaterial, w, 0, null);
         }
         _texViews = [.. viewOf.Values];
+    }
+
+    private VkImageView CreateMaterialTextureView(Texture t)
+    {
+        VkImage image = _ctx.BackendInfo.GetVkImage(t);
+        uint mips = Math.Max(1u, t.MipLevels);
+        var vi = new VkImageViewCreateInfo { image = image, viewType = VkImageViewType.Image2D, format = ColorFormat, components = default, subresourceRange = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = mips, baseArrayLayer = 0, layerCount = 1 } };
+        VkImageView view; Check(_api.vkCreateImageView(&vi, &view), "vkCreateImageView(tex)");
+        return view;
+    }
+
+    /// <summary>The view each material texture is sampled through, by texture.</summary>
+    private readonly Dictionary<Texture, VkImageView> _textureViews = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Points every material that samples one of the old textures at its replacement (texture streaming
+    /// changing a texture's resolution). The material descriptor sets are shared by both frames in
+    /// flight and are not update-after-bind, so this waits for the GPU first; it is meant to run between
+    /// frames, after the scene was submitted, a few times a second at most. Once it returns, nothing in
+    /// this renderer refers to the old textures and they can be freed.
+    /// </summary>
+    public void ReplaceTextures(IReadOnlyList<(Texture Old, Texture New)> swaps)
+    {
+        if (swaps.Count == 0 || _matViews == null) return;
+        int latest = _slot ^ 1;
+        bool latestPending = _pending[latest];
+        WaitForPendingFrames();
+        // The frame just waited for is complete: show it, as the end of Frame would have.
+        if (latestPending)
+        {
+            _displaySlot = latest;
+            _ctx.BackendInfo.OverrideImageLayout(_colorTex[latest], (uint)VkImageLayout.ShaderReadOnlyOptimal);
+        }
+
+        var replaced = new Dictionary<ulong, VkImageView>();
+        var retired = new List<VkImageView>();
+        foreach (var (old, replacement) in swaps)
+        {
+            if (!_textureViews.Remove(old, out VkImageView oldView)) continue;
+            // A texture replaced twice in one batch: the first replacement's view is the one materials hold.
+            VkImageView view = CreateMaterialTextureView(replacement);
+            _textureViews[replacement] = view;
+            foreach (var key in replaced.Where(kv => kv.Value.Handle == oldView.Handle).Select(kv => kv.Key).ToList())
+                replaced[key] = view;
+            replaced[oldView.Handle] = view;
+            retired.Add(oldView);
+        }
+        if (replaced.Count == 0) return;
+
+        var dirty = new HashSet<int>();
+        for (int k = 0; k < _matViews.Length; k++)
+            if (replaced.TryGetValue(_matViews[k].Handle, out VkImageView view))
+            {
+                _matViews[k] = view;
+                dirty.Add(k / TexPerMaterial);
+            }
+
+        VkDescriptorImageInfo* imgs = stackalloc VkDescriptorImageInfo[TexPerMaterial];
+        VkWriteDescriptorSet* w = stackalloc VkWriteDescriptorSet[TexPerMaterial];
+        foreach (int i in dirty)
+        {
+            for (uint bnd = 0; bnd < TexPerMaterial; bnd++)
+            {
+                imgs[bnd] = new VkDescriptorImageInfo { sampler = (bnd == 3 || bnd == 4) ? _samplerBaked : _sampler, imageView = _matViews[i * TexPerMaterial + bnd], imageLayout = VkImageLayout.ShaderReadOnlyOptimal };
+                w[bnd] = new VkWriteDescriptorSet { dstSet = _matSets[i], dstBinding = bnd, descriptorCount = 1, descriptorType = VkDescriptorType.CombinedImageSampler, pImageInfo = &imgs[bnd] };
+            }
+            _api.vkUpdateDescriptorSets(TexPerMaterial, w, 0, null);
+        }
+        foreach (var view in retired) _api.vkDestroyImageView(view);
+        _texViews = [.. _textureViews.Values];
+    }
+
+    private float[] _matScreenRadius = [];
+
+    /// <summary>Per material (in the order the renderer was given them), the largest radius in pixels any
+    /// instance drawing it had on screen in the last frame; 0 when none was drawn. What texture streaming
+    /// decides resolutions from.</summary>
+    public ReadOnlySpan<float> MaterialScreenRadius => _matScreenRadius;
+
+    /// <summary>Fills <see cref="MaterialScreenRadius"/> from this frame's visible lists.</summary>
+    private void MeasureMaterialScreenRadius(float focalPixels)
+    {
+        Array.Clear(_matScreenRadius);
+        void Accumulate(int[] list, int count)
+        {
+            for (int v = 0; v < count; v++)
+            {
+                int i = list[v];
+                float r = _instRadius[i];
+                float d = Vector3.Distance(_instCenter[i], _cameraPosition);
+                float px = r * focalPixels / MathF.Max(d, r);
+                ref float slot = ref _matScreenRadius[_drawMatSlot[i]];
+                if (px > slot) slot = px;
+            }
+        }
+        Accumulate(_visibleOpaque, _visOpaqueCount);
+        Accumulate(_visibleOpaqueLate, _visOpaqueLateCount);
+        Accumulate(_visibleTranslucent, _visTransCount);
+        Accumulate(_visibleAdditive, _visAddCount);
+        Accumulate(_visibleSoftEdge, _visSoftCount);
+        Accumulate(_visibleBillboard, _visBillCount);
     }
 
     private VkRenderPass MakeColorDepthPass(bool depthWrites, VkImageLayout colorFinal, bool load = false)
@@ -1345,13 +1506,25 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         (DebugLineFragmentGlsl, ShaderStages.Fragment),
         (PickVertexGlsl, ShaderStages.Vertex),
         (PickVolumeVertexGlsl, ShaderStages.Vertex),
+        (PickVolumeEdgeVertexGlsl, ShaderStages.Vertex),
+        (PickVolumeEdgeFragmentGlsl, ShaderStages.Fragment),
         (PickFragmentGlsl, ShaderStages.Fragment),
         (BillboardVertexGlsl, ShaderStages.Vertex),
         (BillboardFragmentGlsl, ShaderStages.Fragment),
         (OutlineVertexGlsl, ShaderStages.Vertex),
         (OutlineFragmentGlsl, ShaderStages.Fragment),
         (VolumeVertexGlsl, ShaderStages.Vertex),
-        (VolumeFragmentGlsl, ShaderStages.Fragment),
+        (VolumeEdgeVertexGlsl, ShaderStages.Vertex),
+        (VolumeEdgeFragmentGlsl, ShaderStages.Fragment),
+        (VolumeFillFragmentGlsl, ShaderStages.Fragment),
+        (CameraMarkerVertexGlsl, ShaderStages.Vertex),
+        (CameraMarkerFragmentGlsl, ShaderStages.Fragment),
+        (ControllerIconVertexGlsl, ShaderStages.Vertex),
+        (ControllerIconFragmentGlsl, ShaderStages.Fragment),
+        (PathLineVertexGlsl, ShaderStages.Vertex),
+        (PathLineFragmentGlsl, ShaderStages.Fragment),
+        (BoundaryVertexGlsl, ShaderStages.Vertex),
+        (BoundaryFragmentGlsl, ShaderStages.Fragment),
     ];
 
     public static void WarmUpShaderCache()
@@ -1481,26 +1654,15 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         RegisterLitKinds();
 
         _volumeVs = Module(VolumeVertexGlsl, ShaderStages.Vertex);
-        _volumeFs = Module(VolumeFragmentGlsl, ShaderStages.Fragment);
         VkDescriptorSetLayout vl = _descLayout;
         var volPush = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = 80 };
         var volLayoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 1, pSetLayouts = &vl, pushConstantRangeCount = 1, pPushConstantRanges = &volPush };
         VkPipelineLayout volLayout; Check(_api.vkCreatePipelineLayout(&volLayoutInfo, &volLayout), "vkCreatePipelineLayout(volume)"); _volumeLayout = volLayout;
-        {
-            VkPipelineShaderStageCreateInfo* stages = stackalloc VkPipelineShaderStageCreateInfo[2];
-            stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _volumeVs, pName = entry };
-            stages[1] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Fragment, module = _volumeFs, pName = entry };
-            var vbind = new VkVertexInputBindingDescription { binding = 0, stride = 3 * sizeof(float), inputRate = VkVertexInputRate.Vertex };
-            var vattr = new VkVertexInputAttributeDescription { location = 0, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 0 };
-            var vin = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbind, vertexAttributeDescriptionCount = 1, pVertexAttributeDescriptions = &vattr };
-            var ia = new VkPipelineInputAssemblyStateCreateInfo { topology = VkPrimitiveTopology.TriangleList };
-            var depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = true, depthCompareOp = VkCompareOp.GreaterOrEqual };
-            // RGB only: the opaque pass's alpha is the bloom's glow mask (VulkanRenderer.Bloom.cs).
-            var blendAttach = new VkPipelineColorBlendAttachmentState { blendEnable = false, colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B };
-            var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
-            var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &vin, pInputAssemblyState = &ia, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _volumeLayout, renderPass = _rpOpaque, subpass = 0 };
-            VkPipeline p; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &info, &p), "vkCreateGraphicsPipelines(volume)"); _volumePipeline = p;
-        }
+        CreateVolumeFillPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateCameraMarkerPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateControllerIconPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreatePathLinePipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateBoundaryPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
 
         _billboardVs = Module(BillboardVertexGlsl, ShaderStages.Vertex);
         _billboardFs = Module(BillboardFragmentGlsl, ShaderStages.Fragment);
@@ -1608,6 +1770,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             var binfo = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = bstages, pVertexInputState = &litVertexInput, pInputAssemblyState = &inputAssembly, pViewportState = &viewportState, pRasterizationState = &rasterCullNone, pMultisampleState = &multisample, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _pickLayout, renderPass = _rpPick, subpass = 0 };
             VkPipeline bp; Check(_api.vkCreateGraphicsPipelines(pipelineCache, 1, &binfo, &bp), "vkCreateGraphicsPipelines(pickBillboard)"); _pipelinePickBillboard = bp;
         }
+        CreateVolumeEdgePipelines(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
     }
 
     private void CreatePickResources()
@@ -1793,15 +1956,18 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         BindLitState();
         DrawVisible(_pipelineOpaque, _visibleOpaqueLate, _visOpaqueLateCount);
         DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
-        DrawVolumes();
-        // After the volumes so the navmesh overlay blends over the finished scene, and in the load
-        // pass so it is not cleared away.
+        using (Diagnostics.FrameProfiler.Sample("Vk Volumes")) DrawVolumes();
+        // After the volumes so the overlays blend over the finished scene, and in the load pass so they
+        // are not cleared away. Collision first: it writes depth, and the navmesh floats over the floor
+        // collision it was built on, so it stays visible on top.
+        DrawCollision();
         DrawNavmesh();
         _api.vkCmdEndRenderPass(_cmd);
 
         VkClearValue* clearsA = stackalloc VkClearValue[2];
         clearsA[0] = new VkClearValue { color = new VkClearColorValue(0f, 0f, 0f, 0f) };
-        clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 0f, 0f, 0f) };
+        // R tracks opacity revealage. G tracks the remaining fraction of the translucent glow mask.
+        clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 1f, 0f, 0f) };
         var rpA = new VkRenderPassBeginInfo { renderPass = _rpAccum, framebuffer = _fbAccum, renderArea = area, clearValueCount = 2, pClearValues = clearsA };
         _api.vkCmdBeginRenderPass(_cmd, &rpA, VkSubpassContents.Inline);
         BindLitState();
@@ -1824,6 +1990,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkCmdBeginRenderPass(_cmd, &rpO2, VkSubpassContents.Inline);
         }
         DrawDepthDebugLines();
+        // Depth-tested against the level, over the finished image (VulkanRenderer.Effects.cs).
+        using (Diagnostics.FrameProfiler.Sample("Vk Effects")) DrawEffectSprites();
         DrawSelectionOutline();
         DrawDebugLines();
         _api.vkCmdEndRenderPass(_cmd);
@@ -1912,9 +2080,17 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkCmdDraw(_cmd, (uint)_depthDebugVertexCount, 1, 0, 0);
     }
 
+    /// <summary>The rest of a multiple selection, outlined with the selected entity passed to <see cref="Frame"/>.</summary>
+    public IReadOnlyList<object> AlsoSelected { get; set; } = [];
+    private readonly List<int[]> _outlined = [];
+
     private void DrawSelectionOutline()
     {
-        if (_selected is null || !_ownerInstances.TryGetValue(_selected, out var owned) || owned.Length == 0) return;
+        _outlined.Clear();
+        if (_selected != null && _ownerInstances.TryGetValue(_selected, out var first) && first.Length > 0) _outlined.Add(first);
+        foreach (var other in AlsoSelected)
+            if (_ownerInstances.TryGetValue(other, out var instances) && instances.Length > 0) _outlined.Add(instances);
+        if (_outlined.Count == 0) return;
         VkDescriptorSet s0 = _descSet;
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _outlineLayout, 0, 1, &s0, 0, null);
         VkBuffer vb = _vertexBuffer; ulong offset = 0;
@@ -1927,9 +2103,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, pass == 0 ? _pipelineOutlineMask : _pipelineOutlineRim);
             pc[1] = new Vector4(pass == 0 ? 0f : _outlineThickness, 0f, 0f, 0f);
             _api.vkCmdPushConstants(_cmd, _outlineLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 32, pc);
-            foreach (int i in owned)
-                if (IsOwnerVisible(i))
-                    _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
+            foreach (var owned in _outlined)
+                foreach (int i in owned)
+                    if (IsOwnerVisible(i))
+                        _api.vkCmdDrawIndexed(_cmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
         }
     }
 
@@ -1944,22 +2121,14 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     private void DrawVolumes()
     {
-        if (_volumeCount == 0) return;
-        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _volumePipeline);
-        VkDescriptorSet s0 = _descSet;
-        _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _volumeLayout, 0, 1, &s0, 0, null);
-        VkBuffer evb = _edgeVertexBuffer; ulong offset = 0;
-        _api.vkCmdBindVertexBuffers(_cmd, 0, 1, &evb, &offset);
-        _api.vkCmdBindIndexBuffer(_cmd, _edgeIndexBuffer, 0, VkIndexType.Uint32);
-        byte* pc = stackalloc byte[80];
-        for (int i = 0; i < _volumeCount; i++)
-        {
-            var v = _volumes[i];
-            *(Matrix4x4*)pc = v.world;
-            *(Vector4*)(pc + 64) = v.color;
-            _api.vkCmdPushConstants(_cmd, _volumeLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);
-            _api.vkCmdDrawIndexed(_cmd, _edgeIndexCount, 1, 0, 0, 0);
-        }
+        DrawCameraMarkers();
+        DrawControllerIcons();
+        DrawPathLines();
+        // The faces first, so the wireframe draws over them.
+        DrawVolumeFills();
+        DrawBoundary();
+        DrawFlyPlane();
+        DrawVolumeEdges();
     }
 
     /// <summary>Editor switch over the retail raster state: false draws every lit triangle double-sided.</summary>
@@ -2093,12 +2262,12 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         WriteNewEngineFog(ref light);
         light.SceneTime = (float)_skyClock.Elapsed.TotalSeconds;
         *(LightData*)_lightMappings[_slot] = light;
-        _volumes = volumes;
         _volumeCount = volumes.Count;
         if (volumeThickness != _edgeThickness) WriteEdgeVertices(volumeThickness);
         using (Diagnostics.FrameProfiler.Sample("Vk Cull"))
         {
             ExtractFrustumPlanes(viewProj);
+            using (Diagnostics.FrameProfiler.Sample("Vk Volume Edges")) FillVolumeEdges(volumes);
             _visOpaqueCount = CullRange(0, _overStart, _visibleOpaque);
             _visOpaqueLateCount = 0;
             if (_instLate.Length == _instanceCount)
@@ -2118,6 +2287,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             _visSoftCount = CullRange(_softStart, _billStart, _visibleSoftEdge);
             _visBillCount = CullRange(_billStart, _instanceCount, _visibleBillboard);
         }
+        if (_matScreenRadius.Length != _matPC0.Length) _matScreenRadius = new float[_matPC0.Length];
+        MeasureMaterialScreenRadius(projection.M22 * _height * 0.5f);
         using (Diagnostics.FrameProfiler.Sample("Vk Record")) RecordCommands();
         _recorded = true;
         int previous = _slot ^ 1;
@@ -2252,22 +2423,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 _api.vkCmdDrawIndexed(_pickCmd, _drawIndexCount[i], 1, _drawFirstIndex[i], _drawVertexOffset[i], (uint)i);
             }
         }
-        if (_volumeCount > 0)
-        {
-            _api.vkCmdBindPipeline(_pickCmd, VkPipelineBindPoint.Graphics, _pipelinePickVolume);
-            VkBuffer evb = _edgeVertexBuffer; ulong eoffset = 0;
-            _api.vkCmdBindVertexBuffers(_pickCmd, 0, 1, &evb, &eoffset);
-            _api.vkCmdBindIndexBuffer(_pickCmd, _edgeIndexBuffer, 0, VkIndexType.Uint32);
-            for (int i = 0; i < _volumeCount; i++)
-            {
-                var v = _volumes[i];
-                if (v.pickId == NoHit) continue;
-                *(Matrix4x4*)pc = v.world;
-                *(uint*)(pc + 64) = v.pickId;
-                _api.vkCmdPushConstants(_pickCmd, _pickLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);
-                _api.vkCmdDrawIndexed(_pickCmd, _edgeIndexCount, 1, 0, 0, 0);
-            }
-        }
+        PickVolumeEdges();
+        PickCameraMarkers(pc);
+        PickControllerIcons(pc);
         _api.vkCmdEndRenderPass(_pickCmd);
         var copy = new VkBufferImageCopy { bufferOffset = 0, bufferRowLength = 0, bufferImageHeight = 0, imageSubresource = new VkImageSubresourceLayers { aspectMask = VkImageAspectFlags.Color, mipLevel = 0, baseArrayLayer = 0, layerCount = 1 }, imageOffset = default, imageExtent = new VkExtent3D { width = PickTargetSize, height = PickTargetSize, depth = 1 } };
         _api.vkCmdCopyImageToBuffer(_pickCmd, _pickImage, VkImageLayout.TransferSrcOptimal, _pickReadback, 1, &copy);
@@ -2306,6 +2464,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         return true;
     }
 
+    private VkInstanceLight SampleMobyLighting(Vector3 position) =>
+        VkInstanceLight.ForMoby(OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, position),
+            _oldEngineMobys, _oldLightingEnvironment?.UsesFallOfManMobyLighting == true);
+
     public bool UpdateEntityTransforms(object owner, IReadOnlyList<Matrix4x4> worlds, Vector4 worldBoundingSphere)
     {
         if (!_ownerInstances.TryGetValue(owner, out var owned) || owned.Length != worlds.Count) return false;
@@ -2323,7 +2485,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 {
                     // Only the sampled lighting changes: the draw's UV animation, gameplay group and fog
                     // centre stay.
-                    var resampled = VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, worlds[k].Translation), _oldEngineMobys);
+                    var resampled = SampleMobyLighting(worlds[k].Translation);
                     lightDst[i].Ambient = resampled.Ambient;
                     lightDst[i].Light0Colour = resampled.Light0Colour;
                     lightDst[i].Light1Colour = resampled.Light1Colour;
@@ -2521,6 +2683,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         DestroyRetailShaders();
         DestroyBloomPipelines();
         DestroyNavmeshPipelines();
+        DestroyCollisionPipeline();
         _api.vkDestroyPipeline(_pipelineOpaque);
         _api.vkDestroyPipeline(_pipelineOpaqueCull);
         _api.vkDestroyPipeline(_pipelineOpaqueCullCw);
@@ -2536,7 +2699,6 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyBuffer(_pickReadback); _api.vkFreeMemory(_pickReadbackMemory);
         _api.vkDestroyRenderPass(_rpPick);
         _api.vkDestroyPipelineLayout(_pickLayout);
-        _api.vkDestroyPipeline(_pipelinePickVolume);
         _api.vkDestroyPipeline(_pipelinePickBillboard);
         _api.vkDestroyPipeline(_pipelinePick);
         _api.vkDestroyPipeline(_pipelineDebugLines);
@@ -2545,7 +2707,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyPipeline(_pipelineBillboard);
         _api.vkDestroyPipeline(_pipelineOutlineRim);
         _api.vkDestroyPipeline(_pipelineOutlineMask);
-        _api.vkDestroyPipeline(_volumePipeline);
+        _api.vkDestroyPipeline(_pipelinePickVolume);
+        DestroyVolumeEdges();
         _api.vkDestroyPipeline(_pipelineSoftEdgeDepth);
         _api.vkDestroyPipeline(_pipelineSoftEdgeDepthCull);
         _api.vkDestroyPipeline(_pipelineSoftEdgeDepthCullCw);
@@ -2564,17 +2727,22 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _api.vkDestroyShaderModule(_resolveVs);
         _api.vkDestroyShaderModule(_resolveFs);
         _api.vkDestroyShaderModule(_volumeVs);
-        _api.vkDestroyShaderModule(_volumeFs);
         _api.vkDestroyShaderModule(_debugLineVs);
         _api.vkDestroyShaderModule(_debugLineFs);
         _api.vkDestroyShaderModule(_pickVs);
-        _api.vkDestroyShaderModule(_pickVolumeVs);
         _api.vkDestroyShaderModule(_pickBillboardVs);
+        _api.vkDestroyShaderModule(_pickVolumeVs);
         _api.vkDestroyShaderModule(_pickFs);
         _api.vkDestroyShaderModule(_billboardVs);
         _api.vkDestroyShaderModule(_billboardFs);
         _api.vkDestroyShaderModule(_outlineVs);
         _api.vkDestroyShaderModule(_outlineFs);
+        DestroyVolumeFill();
+        DestroyCameraMarkers();
+        DestroyControllerIcons();
+        DisposeEffects();
+        DestroyPathLines();
+        DestroyBoundary();
         _api.vkDestroyBuffer(_edgeVertexBuffer); _api.vkFreeMemory(_edgeVbMemory);
         _api.vkDestroyBuffer(_edgeIndexBuffer); _api.vkFreeMemory(_edgeIbMemory);
         _api.vkDestroyRenderPass(_rpOpaque);

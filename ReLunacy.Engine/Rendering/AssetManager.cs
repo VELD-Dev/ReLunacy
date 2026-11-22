@@ -236,9 +236,12 @@ public sealed class AssetManager : IDisposable
     /// <param name="preparedGeometry">Geometry already packed by <see cref="Loading.PreparedGeometry.Build"/>,
     /// for the same reason. Null packs it here.</param>
     /// <param name="progress">The level load's bar, so the asset build reports its own share of it.</param>
+    /// <param name="textureCap">The side PrepareTextures capped this level's textures to (0: none), applied
+    /// as well to every texture built later on demand.</param>
     public AssetManager(LevelData level, GraphicsDevice gd, IDictionary<ulong, TextureLevels?>? preparedTextures = null,
-        Loading.PreparedGeometry? preparedGeometry = null, Loading.LevelLoadProgress? progress = null)
+        Loading.PreparedGeometry? preparedGeometry = null, Loading.LevelLoadProgress? progress = null, uint textureCap = 0)
     {
+        _textureCap = textureCap;
         _preparedGeometry = preparedGeometry;
         _gd = gd;
         _sourceMobys = level.Mobys;
@@ -258,6 +261,7 @@ public sealed class AssetManager : IDisposable
         // drawn on all of them (the seaside water that drew flat white was the unit-10/11 stub, now the
         // scene copy).
         _retailShadersMeasured = !level.IsOldEngine;
+        UsesFallOfManLightmaps = level.GameDefinition?.Id == Games.GameId.RFallOfMan;
         // The EBOOT's standard shaders: this level's own game's when a decrypted EBOOT lies in its install
         // (QForce, All 4 One, Into the Nexus here), else another new-engine game's - the same engine, the
         // same table layout (A Crack in Time has none decrypted).
@@ -311,7 +315,9 @@ public sealed class AssetManager : IDisposable
         long tTextures = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
         ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap", progress);
         ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional", progress);
-        if (ZoneLightmaps.Count != 0)
+        if (UsesFallOfManLightmaps)
+            Console.WriteLine($"Fall of Man: {ZoneLightmaps.Count(t => t != null)} packed lightmaps built.");
+        else if (ZoneLightmaps.Count != 0)
             Console.WriteLine($"Zone lighting: {ZoneLightmaps.Count} light-colour and {ZoneDirectionals.Count} light-direction textures built.");
 
         long tZone = sw.ElapsedMilliseconds - t0;
@@ -324,11 +330,79 @@ public sealed class AssetManager : IDisposable
         Console.WriteLine($"Assets built in {sw.ElapsedMilliseconds}ms (mobys {tMobys}, ties {tTies}, textures {tTextures}, zone lighting {tZone}). {TotalQueuedUploads} textures queued for GPU upload.");
     }
 
+    /// <summary>The models of a Moby class read after the level was built (the asset viewer reads classes
+    /// the loaded region does not place on demand); its textures are decoded here and queued for upload.</summary>
+    public RenderModel[] GetOrBuildMoby(Assets.Mobys.Moby moby)
+    {
+        if (Mobys.TryGetValue(moby.Id, out var built)) return built;
+        var models = new RenderModel[moby.Bangles.Count];
+        for (int i = 0; i < moby.Bangles.Count; i++)
+            models[i] = BuildModel(moby.Bangles[i].Meshes);
+        return Mobys[moby.Id] = models;
+    }
+
+    /// <summary>As <see cref="GetOrBuildMoby"/>, for a Tie class.</summary>
+    public RenderModel GetOrBuildTie(Assets.Ties.Tie tie)
+    {
+        if (Ties.TryGetValue(tie.Id, out var built)) return built;
+        return Ties[tie.Id] = BuildModel(tie.Meshes);
+    }
+
+    // While a LowResolutionBuilds scope is open: the largest side a texture built on demand loads at (0: its own).
+    private uint _onDemandCeiling;
+
+    /// <summary>Textures built on demand while the scope is open load at texture streaming's base size and stream up from
+    /// there like the level's own, rather than at full resolution (thumbnails). Nothing changes with streaming off.</summary>
+    public IDisposable LowResolutionBuilds()
+    {
+        uint previous = _onDemandCeiling;
+        if (TextureStreamer.Enabled) _onDemandCeiling = TextureStreamer.BaseDimension;
+        return new Scope(() => _onDemandCeiling = previous);
+    }
+
+    private sealed class Scope(Action end) : IDisposable
+    {
+        private Action? _end = end;
+        public void Dispose() { _end?.Invoke(); _end = null; }
+    }
+
+    /// <summary>Packed vertices, indices and material of each mesh, for one offscreen draw (thumbnails): neither cached
+    /// nor registered with <see cref="VulkanSceneCapture"/>, so the geometry goes when the caller drops it. Materials and
+    /// their textures are built as usual. Meshes without geometry are left out.</summary>
+    public List<(float[] Vertices, uint[] Indices, RenderMaterial Material)> BuildDetachedGeometry(IEnumerable<IMesh> meshes)
+    {
+        var built = new List<(float[], uint[], RenderMaterial)>();
+        foreach (var mesh in meshes)
+            if (BuildDetachedMesh(mesh, mesh.Material) is { } part)
+                built.Add(part);
+        return built;
+    }
+
+    /// <summary>Packs a mesh with a preview material while retaining any secondary layer and blend mask.</summary>
+    public (float[] Vertices, uint[] Indices, RenderMaterial Material)? BuildDetachedMesh(IMesh mesh, IMaterial material)
+    {
+        var twoLayer = mesh is Assets.Geometry.Mesh { SecondMaterial: not null, BlendMask: not null } layered ? layered : null;
+        var vertices = ConvertGeometryToVertices(mesh.Geometry, material.UsesVertexAlpha || twoLayer != null);
+        var indices = mesh.Geometry.GetIndices();
+        if (vertices.Length == 0 || indices.Length == 0) return null;
+        var renderMaterial = GetOrBuildMaterial(material, Loading.Objects.UFragMetadata.NoLightmap,
+            twoLayer?.SecondMaterial, twoLayer?.BlendMask);
+        return (Loading.PreparedGeometry.Interleaved(vertices, indices), indices, renderMaterial);
+    }
+
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run
     /// concurrently: pixel data is already in memory, and the block decoders hold only readonly state.</summary>
     /// <param name="progress">The level load's bar. The texture count is only known once the working
     /// set has been walked, so the phase is given its total here rather than by the caller.</param>
-    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level, Loading.LevelLoadProgress? progress = null)
+    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level, Loading.LevelLoadProgress? progress = null) =>
+        PrepareTextures(level, progress, ulong.MaxValue, out _);
+
+    /// <summary>As above, fitted to <paramref name="allowance"/> heap bytes (<see cref="GpuMemoryBudget.TextureAllowance"/>):
+    /// when the level's textures at their own resolution would not fit, the largest are capped until the set
+    /// does (<see cref="FitTextures"/>), the top of each chain dropped as soon as it is decoded so the pixels
+    /// never stay in RAM either. Planned before any decoding, from the sizes the textures declare.</summary>
+    public static Dictionary<ulong, TextureLevels?> PrepareTextures(LevelData level, Loading.LevelLoadProgress? progress,
+        ulong allowance, out TextureBudgetReport report)
     {
         // Generated mips remain disabled for atlases because a generic box filter bleeds their black
         // gutters into neighbouring islands. TextureUploadPreparer overrides this only when the source
@@ -361,6 +435,11 @@ public sealed class AssetManager : IDisposable
         foreach (var (_, tie) in level.Ties)
             foreach (var mesh in tie.Meshes) NeedMaterial(mesh.Material);
 
+        // Streaming: everything loads at no more than the base size, decoded from its small mips only;
+        // TextureStreamer brings up what the camera needs once the level is on screen.
+        uint ceiling = TextureStreamer.Enabled ? TextureStreamer.BaseDimension : 0;
+        var caps = FitTextures(needed.Values, withoutMips, allowance, ceiling, out report);
+
         var prepared = new System.Collections.Concurrent.ConcurrentDictionary<ulong, TextureLevels?>();
         progress?.AddTotal(needed.Count);
         Parallel.ForEach(needed.Values, texture =>
@@ -369,7 +448,8 @@ public sealed class AssetManager : IDisposable
             {
                 prepared[texture.Id] = TextureUploadPreparer.Prepare(
                     texture,
-                    generateMipsWhenUnauthored: !withoutMips.Contains(texture.Id));
+                    generateMipsWhenUnauthored: !withoutMips.Contains(texture.Id),
+                    caps.TryGetValue(texture.Id, out uint cap) ? cap : ceiling);
             }
             catch (Exception ex)
             {
@@ -380,6 +460,69 @@ public sealed class AssetManager : IDisposable
             progress?.Advance();
         });
         return new Dictionary<ulong, TextureLevels?>(prepared);
+    }
+
+    /// <summary>The heap bytes a texture takes with neither side above <paramref name="cap"/> (0: uncapped):
+    /// its RGBA8 pixels - with a full chain unless it is an unmipped atlas without an authored chain of its
+    /// own - plus <see cref="GpuMemoryBudget.PerTextureOverhead"/>.</summary>
+    internal static ulong HeapBytes(ITexture texture, bool mipped, uint cap)
+    {
+        ulong w = Math.Max(1u, texture.Width), h = Math.Max(1u, texture.Height);
+        if (cap != 0)
+            while (Math.Max(w, h) > cap && (w > 1 || h > 1)) { w = Math.Max(1, w / 2); h = Math.Max(1, h / 2); }
+        ulong top = w * h * 4;
+        return (mipped ? top + top / 3 : top) + GpuMemoryBudget.PerTextureOverhead;
+    }
+
+    /// <summary>
+    /// Per texture, the largest side it may keep for the set to fit <paramref name="allowance"/> heap bytes;
+    /// empty when it fits as it is. The largest power of two D (8192 down to 64) at which every texture fits
+    /// is found first - the biggest textures are what a cap shrinks - and then the memory D leaves unused
+    /// lets textures keep 2D, the cheapest first, since one step is four times the bytes and a single cap
+    /// for all would throw most of that away (creature_collector at a 4 GB budget: 128 px everywhere).
+    /// <paramref name="ceiling"/> (0: none) is the size every texture loads at anyway (texture streaming's
+    /// base): the fit is of that, and only a cap below it counts as reduced.
+    /// </summary>
+    private static Dictionary<ulong, uint> FitTextures(IEnumerable<ITexture> textures, HashSet<ulong> withoutMips, ulong allowance,
+        uint ceiling, out TextureBudgetReport report)
+    {
+        var list = textures.Select(t => (Texture: t,
+            Mipped: !withoutMips.Contains(t.Id) || t is Assets.Textures.Texture { HasAuthoredMipChain: true })).ToList();
+        uint Lower(uint cap) => cap == 0 ? ceiling : ceiling == 0 ? cap : Math.Min(cap, ceiling);
+        ulong Total(uint cap) => list.Aggregate(0UL, (sum, t) => sum + HeapBytes(t.Texture, t.Mipped, Lower(cap)));
+
+        ulong full = list.Aggregate(0UL, (sum, t) => sum + HeapBytes(t.Texture, t.Mipped, 0));
+        ulong loaded = Total(0);
+        var caps = new Dictionary<ulong, uint>();
+        if (loaded <= allowance)
+        {
+            report = new TextureBudgetReport(default, full, loaded, 0, 0, 0, list.Count);
+            return caps;
+        }
+
+        uint floor = 64;
+        ulong fitted = Total(floor);
+        for (uint cap = 8192; cap > 64; cap /= 2)
+        {
+            ulong total = Total(cap);
+            if (total <= allowance) { floor = cap; fitted = total; break; }
+        }
+
+        var over = list.Where(t => Math.Max(t.Texture.Width, t.Texture.Height) > floor).ToList();
+        foreach (var t in over) caps[t.Texture.Id] = floor;
+        uint max = floor;
+        foreach (var t in over
+            .Select(t => (t.Texture, Extra: HeapBytes(t.Texture, t.Mipped, Lower(floor * 2)) - HeapBytes(t.Texture, t.Mipped, floor)))
+            .OrderBy(t => t.Extra))
+        {
+            if (fitted + t.Extra > allowance) break;
+            fitted += t.Extra;
+            caps[t.Texture.Id] = floor * 2;
+            max = floor * 2;
+        }
+        int reduced = over.Count(t => Math.Max(t.Texture.Width, t.Texture.Height) > caps[t.Texture.Id]);
+        report = new TextureBudgetReport(default, full, fitted, floor, max, reduced, list.Count);
+        return caps;
     }
 
     // The level's environment cubemap as a GPU samplerCube, for the lit shader's reflection term.
@@ -538,6 +681,12 @@ public sealed class AssetManager : IDisposable
         int mipCount = cubemap is { Faces.Count: > 0 }
             ? cubemap.Faces.Min(face => Math.Max(1, face.MipmapCount))
             : 1;
+        int cubeCount = UsesFallOfManLightmaps && cubemap != null
+            ? Math.Min(VulkanRenderer.EnvCubeSlots, levelCubemaps.Max(cube => cube.IndexInResource) + 1)
+            : 1;
+        var cubesByIndex = UsesFallOfManLightmaps
+            ? levelCubemaps.ToDictionary(cube => cube.IndexInResource)
+            : null;
         var factory = _gd.ResourceFactory;
 
         // The RSX samples the cube through its descriptor's ADDRESS gamma bits, and every retail ToD cube
@@ -551,10 +700,11 @@ public sealed class AssetManager : IDisposable
         bool decoded = gammaArgb != 0;
 
         var tex = factory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
-            (uint)size, (uint)size, (uint)mipCount, 1,
+            (uint)size, (uint)size, (uint)mipCount, (uint)cubeCount,
             decoded ? NeoVeldrid.PixelFormat.R16_G16_B16_A16_UNorm : NeoVeldrid.PixelFormat.R8_G8_B8_A8_UNorm,
             NeoVeldrid.TextureUsage.Sampled | NeoVeldrid.TextureUsage.Cubemap));
 
+        for (int cubeIndex = 0; cubeIndex < cubeCount; cubeIndex++)
         for (uint f = 0; f < 6; f++)
         {
             uint w = (uint)size;
@@ -563,26 +713,31 @@ public sealed class AssetManager : IDisposable
             {
                 byte[] rgba;
                 int sourceFace = oldArrangement.Source((int)f);
-                if (cubemap != null && sourceFace < cubemap.Faces.Count)
+                var sourceCube = cubesByIndex?.GetValueOrDefault(cubeIndex) ?? cubemap;
+                if (sourceCube != null && sourceFace < sourceCube.Faces.Count
+                    && sourceCube.FaceSize == size && mip < sourceCube.Faces[sourceFace].MipmapCount)
                 {
-                    var face = cubemap.Faces[sourceFace];
-                    if (face.Format != ReLunacy.Engine.Assets.Interfaces.TextureFormat.A8R8G8B8)
+                    var face = sourceCube.Faces[sourceFace];
+                    var decodedFace = UsesFallOfManLightmaps
+                        ? TextureUtils.DecodeMipmapToRgba8888(face, (int)mip, out _, out _)
+                        : TextureUtils.ARGB8888ToRGBA8888(face.GetMipmapData((int)mip), (int)w, (int)h);
+                    if (decodedFace == null)
                         throw new InvalidDataException($"0x5920 cubemap face {f} has unsupported format {face.Format}.");
-                    byte[] argb = face.GetMipmapData((int)mip);
-                    rgba = oldArrangement.Orient((int)f, TextureUtils.ARGB8888ToRGBA8888(argb, (int)w, (int)h), (int)w, 4);
+                    rgba = oldArrangement.Orient((int)f, decodedFace, (int)w, 4);
                 }
                 else
                 {
                     rgba = FallbackCubeFace((int)w);
                 }
 
-                _gd.UpdateTexture(tex, decoded ? GammaDecodedFace(rgba, gammaArgb) : rgba, 0, 0, 0, w, h, 1, mip, f);
+                _gd.UpdateTexture(tex, decoded ? GammaDecodedFace(rgba, gammaArgb) : rgba,
+                    0, 0, 0, w, h, 1, mip, (uint)(6 * cubeIndex) + f);
                 w = Math.Max(1u, w / 2);
                 h = Math.Max(1u, h / 2);
             }
         }
 
-        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {size}x{size}, {mipCount} authored mip(s), 6 faces{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}, faces {oldArrangement.Describe()}.");
+        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {cubeCount} cubemap(s), {size}x{size}, {mipCount} authored mip(s), 6 faces each{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}, faces {oldArrangement.Describe()}.");
         _environmentCubemap = tex;
         EnvironmentCubemapView = factory.CreateTextureView(tex);
     }
@@ -631,15 +786,20 @@ public sealed class AssetManager : IDisposable
     /// rather than being dropped, so later indices don't shift onto the wrong texture.</summary>
     public IReadOnlyList<GpuTexture?> ZoneLightmaps { get; } = [];
     public IReadOnlyList<GpuTexture?> ZoneDirectionals { get; } = [];
+    internal bool UsesFallOfManLightmaps { get; }
 
-    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture> source, string label, Loading.LevelLoadProgress? progress = null)
+    internal bool HasLightmap(ushort index) => EnableBakedLighting
+        && index != ushort.MaxValue && index < ZoneLightmaps.Count && ZoneLightmaps[index] != null
+        && (UsesFallOfManLightmaps || (index < ZoneDirectionals.Count && ZoneDirectionals[index] != null));
+
+    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture?> source, string label, Loading.LevelLoadProgress? progress = null)
     {
         var built = new List<GpuTexture?>(source.Count);
         foreach (var tex in source)
         {
             try
             {
-                built.Add(GetOrBuildTexture(tex, mipmap: false));
+                built.Add(tex == null ? null : GetOrBuildTexture(tex, mipmap: false));
             }
             catch (Exception ex)
             {
@@ -706,14 +866,14 @@ public sealed class AssetManager : IDisposable
                     vertices, indices, Loading.PreparedGeometry.Interleaved(vertices, indices), HasValidLightmapUVs: false);
             }
 
-            var oldTieShaderUse = mesh is Assets.Geometry.Mesh sourceMesh ? sourceMesh.OldTieShaderUse : null;
-            var bMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material, oldTieShaderUse)
+            var sourceMesh = mesh as Assets.Geometry.Mesh;
+            var bMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material, sourceMesh?.OldTieShaderUse)
             {
-                NewEngineTiePrimitive = mesh is Assets.Geometry.Mesh sourcePrimitive ? sourcePrimitive.NewEngineTiePrimitive : null,
-                NewEngineFadeDistances = mesh is Assets.Geometry.Mesh fadeSource
-                    ? fadeSource.NewEngineFadeDistances ?? fadeSource.NewEngineTiePrimitive?.FadeDistances
-                    : null,
-                UvAnimation = mesh is Assets.Geometry.Mesh uvSource ? uvSource.UvAnimation : null,
+                NewEngineTiePrimitive = sourceMesh?.NewEngineTiePrimitive,
+                SourceVertexBase = sourceMesh?.SourceVertexBase ?? -1,
+                FallOfManTiePrimitive = sourceMesh?.FallOfManTiePrimitive,
+                NewEngineFadeDistances = sourceMesh?.NewEngineFadeDistances ?? sourceMesh?.NewEngineTiePrimitive?.FadeDistances,
+                UvAnimation = sourceMesh?.UvAnimation,
             };
 
             // Register this mesh's raw geometry keyed by the mesh instance, so the renderer can
@@ -807,13 +967,10 @@ public sealed class AssetManager : IDisposable
         // it the fallback textures below would read as a real full-strength white light.
         // Both are ALWAYS bound even when absent: a declared descriptor set left unbound is
         // undefined behaviour, and is exactly how the earlier GPUVM fault manifested.
-        bool hasBakedLighting = EnableBakedLighting
-            && lightmapIndex != Loading.Objects.Instances.TieInstance.NoLightmap
-            && lightmapIndex < ZoneLightmaps.Count && ZoneLightmaps[lightmapIndex] != null
-            && lightmapIndex < ZoneDirectionals.Count && ZoneDirectionals[lightmapIndex] != null;
+        bool hasBakedLighting = HasLightmap(lightmapIndex);
 
         var lightColour = hasBakedLighting ? ZoneLightmaps[lightmapIndex]! : GetDefaultLightColourTexture();
-        var lightDir = hasBakedLighting ? ZoneDirectionals[lightmapIndex]! : GetDefaultLightDirTexture();
+        var lightDir = hasBakedLighting && !UsesFallOfManLightmaps ? ZoneDirectionals[lightmapIndex]! : GetDefaultLightDirTexture();
         bMat.AddMaterialMap("fLightColour", new MaterialMap(lightColour, ResolveSampler(lightColour), hasBakedLighting ? 1f : 0f));
         bMat.AddMaterialMap("fLightDir", new MaterialMap(lightDir, ResolveSampler(lightDir)));
 
@@ -841,11 +998,10 @@ public sealed class AssetManager : IDisposable
                 nativeMaterial.NewEngineShaderFlags);
             if (!nativeMaterial.IsNewEngineMaterial && (nativeMaterial.OldRenderFlags & 0x02) == 0)
                 _vkOldEngineCulled.Add(bMat);
-            // Old engine: .x = +0x58, the detail tiling the ToD Tie vertex shaders apply (c[21].x); the
-            // generic shader reads uMat6 on the new engine only.
+            // Old engine: .x is detail tiling and .w carries the authored Moby material feature bits.
             _vkMaterialPermutation[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? NewEnginePermutation(nativeMaterial, hasDetail)
-                : new Vector4(nativeMaterial.DetailTiling, 0f, 0f, 0f);
+                : new Vector4(nativeMaterial.DetailTiling, 0f, 0f, nativeMaterial.OldFeatureFlags);
             _vkMobyTint[bMat] = nativeMaterial.IsNewEngineMaterial && nativeMaterial.GameRenderMode is 1 or 2 or 6
                 ? new Vector4(nativeMaterial.MaterialTintSource, 1f)
                 : Vector4.Zero;
@@ -1122,7 +1278,12 @@ public sealed class AssetManager : IDisposable
             // returns early, leaving data empty, when the highmips pointer's length is 0) - a real,
             // already-handled case in the loader, not a corrupt read. TextureUploadPreparer returns
             // null for that case and otherwise chooses authored-vs-generated mip handling centrally.
-            levels = TextureUploadPreparer.Prepare(texture, generateMipsWhenUnauthored: mipmap);
+            uint ceiling = _textureCap == 0 ? _onDemandCeiling : _onDemandCeiling == 0 ? _textureCap : Math.Min(_textureCap, _onDemandCeiling);
+            levels = ceiling != 0 && _onDemandCeiling != 0
+                // Decoded from the small mips only where the texture has them.
+                ? TextureUploadPreparer.Prepare(texture, mipmap, ceiling)
+                : TextureUploadPreparer.Prepare(texture, generateMipsWhenUnauthored: mipmap);
+            if (_textureCap != 0) levels = levels?.LimitTo(_textureCap);
         }
 
         if (levels == null)
@@ -1134,12 +1295,163 @@ public sealed class AssetManager : IDisposable
 
         // Allocated now but not uploaded yet; pixel data is queued for UploadOnePendingTexture so a
         // caller loading a whole level can spread the uploads across many frames.
-        var tex = new GpuTexture(_gd, levels.Width, levels.Height, (uint)levels.Levels.Length);
+        GpuTexture tex;
+        try
+        {
+            tex = new GpuTexture(_gd, levels.Width, levels.Height, (uint)levels.Levels.Length);
+        }
+        catch (NeoVeldridException ex)
+        {
+            // Out of device memory (NeoVeldrid's "Unable to allocate sufficient Vulkan memory"): the
+            // default texture stands in, and the first failure is kept for the editor to report.
+            RecordGpuMemoryFailure(texture, levels, ex);
+            var fallback = GetDefaultAlbedoTexture();
+            _textureCache[texture.Id] = fallback;
+            return fallback;
+        }
+        TextureBytes += levels.ByteSize;
         _pendingUploads.Enqueue((tex, levels));
         TotalQueuedUploads++;
         _textureCache[texture.Id] = tex;
         _builtTextureIds[tex] = texture.Id;
+
+        // Loaded below its own size (the streaming base, or the memory fit): streamed from here on.
+        uint full = Math.Max(texture.Width, texture.Height), side = Math.Max(levels.Width, levels.Height);
+        if (TextureStreamer.Enabled && side < full)
+            _streamer.Add(new TextureStreamer.Entry(texture, tex, mipmap, System.Numerics.BitOperations.RoundUpToPowerOf2(side)));
         return tex;
+    }
+
+    // ---- Texture streaming (see TextureStreamer) ----
+
+    private readonly TextureStreamer _streamer = new();
+    private readonly System.Diagnostics.Stopwatch _streamClock = System.Diagnostics.Stopwatch.StartNew();
+    // Decoded, waiting to be uploaded into a new device texture; uploaded in the batch in flight, waiting
+    // for it; and uploaded, waiting to be swapped in.
+    private readonly Queue<(TextureStreamer.Entry Entry, TextureLevels Levels)> _streamUploads = new();
+    private readonly List<(TextureStreamer.Entry Entry, Texture Texture)> _batchSwaps = [];
+    private readonly List<(TextureStreamer.Entry Entry, Texture Texture)> _readySwaps = [];
+    private double _lastSwapAt;
+    private ulong _fixedBytes;
+    private int _fixedBytesAt = -1;
+    // Per scene material slot, the streamed textures it samples, for the renderer it was worked out for.
+    private List<RenderMaterial>? _sceneMaterials;
+    private TextureStreamer.Entry[][]? _sceneMaterialEntries;
+    private VulkanRenderer? _sceneMaterialEntriesFor;
+
+    /// <summary>Heap bytes this level's textures may take on the GPU (<see cref="GpuMemoryBudget.TextureAllowance"/>);
+    /// texture streaming stays within it.</summary>
+    public ulong TextureAllowance { get; set; } = ulong.MaxValue;
+
+    /// <summary>A device texture is being replaced and freed: anything that made its own view of it (the
+    /// ImGui bindings) must drop it now. Raised between frames, with the GPU idle.</summary>
+    public event Action<Texture>? TextureRetired;
+
+    /// <summary>How many textures stream, and how many of them are above the base size now.</summary>
+    public (int Streamed, int Raised, ulong Bytes) StreamingStats =>
+        (_streamer.Count, _streamer.Entries.Count(e => e.Resident > TextureStreamer.BaseDimension), _streamer.CommittedBytes);
+
+    /// <summary>Keeps <paramref name="texture"/> at its full resolution for good, building it if needed;
+    /// <see cref="HasPendingUploads"/> stays true until it is. For consumers that keep the device texture
+    /// (the sky's packet), which a later swap would leave pointing at a freed texture.</summary>
+    public GpuTexture PinFullResolution(ITexture texture)
+    {
+        var gpu = GetOrBuildTexture(texture);
+        if (_streamer.TryGet(gpu, out var entry)) _streamer.Pin(entry);
+        return gpu;
+    }
+
+    /// <summary>Asks for <paramref name="texture"/> at full resolution while it is shown (call every frame
+    /// it is; the texture explorer's preview).</summary>
+    public void RequestFullResolution(GpuTexture texture)
+    {
+        if (_streamer.TryGet(texture, out var entry))
+            TextureStreamer.Demand(entry, entry.Full, _streamClock.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>
+    /// One frame of texture streaming, at the post-draw safe point: reads what the scene drew at what
+    /// size, starts decodes, uploads what was decoded and swaps what was uploaded into the scene.
+    /// </summary>
+    public void UpdateTextureStreaming()
+    {
+        if (_streamer.Count == 0) return;
+        double now = _streamClock.Elapsed.TotalSeconds;
+
+        if (SceneRenderer is { } renderer && _sceneMaterials != null)
+        {
+            if (!ReferenceEquals(_sceneMaterialEntriesFor, renderer))
+            {
+                _sceneMaterialEntriesFor = renderer;
+                _sceneMaterialEntries = [.. _sceneMaterials.Select(m => m.GetMaterialMaps()
+                    .Select(map => map.Texture != null && _streamer.TryGet(map.Texture, out var e) ? e : null)
+                    .OfType<TextureStreamer.Entry>().Distinct().ToArray())];
+            }
+            var radius = renderer.MaterialScreenRadius;
+            var entries = _sceneMaterialEntries!;
+            for (int m = 0; m < radius.Length && m < entries.Length; m++)
+            {
+                if (radius[m] <= 0f || entries[m].Length == 0) continue;
+                uint need = TextureStreamer.NeedFor(radius[m]);
+                foreach (var e in entries[m]) TextureStreamer.Demand(e, need, now);
+            }
+        }
+
+        // The allowance covers every texture; what is not streamed takes its share first. Worked out again
+        // only when textures were built since (thousands of them, every frame, showed).
+        if (_fixedBytesAt != _textureCache.Count)
+        {
+            _fixedBytesAt = _textureCache.Count;
+            _fixedBytes = 0;
+            foreach (var gpu in _textureCache.Values.Distinct())
+                if (!_streamer.TryGet(gpu, out _))
+                    _fixedBytes += (ulong)gpu.Width * gpu.Height * 4 * (gpu.MipLevels > 1 ? 4UL : 3UL) / 3 + GpuMemoryBudget.PerTextureOverhead;
+        }
+        ulong allowance = TextureAllowance > _fixedBytes ? TextureAllowance - _fixedBytes : 0;
+        foreach (var finished in _streamer.Update(now, allowance)) _streamUploads.Enqueue(finished);
+
+        // While a load's own uploads are draining, LunaWindow's drain carries these along with them.
+        if (!HasPendingUploads) UploadPendingTextures(StreamUploadBudgetMs);
+
+        // Each swap into the scene costs a wait for the GPU, so they are gathered: a few times a second.
+        if (_readySwaps.Count > 0 && (SceneRenderer == null || now - _lastSwapAt >= 0.25))
+        {
+            _lastSwapAt = now;
+            ApplyStreamedSwaps(now);
+        }
+
+        var (streamed, raised, bytes) = StreamingStats;
+        Diagnostics.FrameProfiler.SetCounter("Textures streamed", streamed);
+        Diagnostics.FrameProfiler.SetCounter("Textures raised", raised);
+        Diagnostics.FrameProfiler.SetCounter("Streamed MiB", (long)(bytes >> 20));
+    }
+
+    /// <summary>Time per frame the streaming uploads may take once a level has finished loading.</summary>
+    private const double StreamUploadBudgetMs = 3;
+
+    private void ApplyStreamedSwaps(double now)
+    {
+        var pairs = new List<(Texture Old, Texture New)>(_readySwaps.Count);
+        foreach (var (entry, texture) in _readySwaps)
+        {
+            // Dropped since (an edited material's texture): nothing samples the new copy.
+            if (!_streamer.TryGet(entry.Gpu, out var live) || !ReferenceEquals(live, entry))
+            {
+                texture.Dispose();
+                continue;
+            }
+            ulong before = TextureStreamer.Bytes(entry, entry.Resident);
+            pairs.Add((entry.Gpu.SwapDeviceTexture(texture), texture));
+            _streamer.Completed(entry);
+            TextureBytes = TextureBytes - Math.Min(TextureBytes, before) + TextureStreamer.Bytes(entry, entry.Resident);
+        }
+        _readySwaps.Clear();
+        SceneRenderer?.ReplaceTextures(pairs);
+        foreach (var (old, _) in pairs)
+        {
+            TextureRetired?.Invoke(old);
+            old.Dispose();
+        }
     }
 
     // Deferred texture uploads - see GetOrBuildTexture's remarks and UploadOnePendingTexture.
@@ -1149,14 +1461,122 @@ public sealed class AssetManager : IDisposable
     /// ("done" = this minus <see cref="PendingUploadCount"/>). Never decreases.</summary>
     public int TotalQueuedUploads { get; private set; }
     public int PendingUploadCount => _pendingUploads.Count;
-    public bool HasPendingUploads => _pendingUploads.Count > 0;
 
-    /// <summary>Uploads exactly one queued texture's full mip chain, so a caller can spread the cost
-    /// across frames instead of blocking on it all at once. A no-op if nothing is queued.</summary>
+    /// <summary>True while a texture is queued or its upload is still on the GPU.</summary>
+    public bool HasPendingUploads => _pendingUploads.Count > 0 || _batchHasInitial || _streamer.PinnedPending > 0;
+
+    // Whether the batch in flight carries any of the queue above, rather than only streaming's swaps.
+    private bool _batchHasInitial;
+
+    // The batch in flight: its command list, the fence its submission signals, and the staging textures
+    // it copies from, which must live until then.
+    private CommandList? _uploadCommands;
+    private Fence? _uploadFence;
+    private readonly List<Texture> _uploadStagings = [];
+
+    /// <summary>Staging memory one batch may hold. A single texture larger than this still goes alone.</summary>
+    private const ulong MaxBatchStagingBytes = 128UL * 1024 * 1024;
+
+    /// <summary>
+    /// Uploads queued textures for about <paramref name="budgetMs"/> of this thread's time, as one
+    /// batch: each texture's levels written into a staging texture and copied in a single command list,
+    /// submitted once, instead of one submission per mip level. The batch is waited for at the next call,
+    /// a frame later, by which time the GPU has long finished it; <see cref="HasPendingUploads"/> stays
+    /// true until then.
+    /// </summary>
+    public void UploadPendingTextures(double budgetMs)
+    {
+        FinishUploadBatch();
+        if (_pendingUploads.Count == 0 && _streamUploads.Count == 0) return;
+
+        _uploadCommands ??= _gd.ResourceFactory.CreateCommandList();
+        _uploadFence ??= _gd.ResourceFactory.CreateFence(false);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        ulong staged = 0;
+        int recorded = 0;
+        _uploadCommands.Begin();
+        // At least one texture per batch, however small the budget.
+        while (_pendingUploads.Count > 0 &&
+               (recorded == 0 || sw.Elapsed.TotalMilliseconds < budgetMs && staged < MaxBatchStagingBytes))
+        {
+            var (tex, levels) = _pendingUploads.Dequeue();
+            recorded++;
+            try
+            {
+                _uploadStagings.Add(tex.RecordUpload(_gd, _uploadCommands, levels));
+                staged += levels.ByteSize;
+            }
+            catch (NeoVeldridException ex)
+            {
+                // The staging memory could not be allocated. The texture keeps whatever it held; the
+                // failure is reported rather than thrown out of the frame loop.
+                RecordGpuMemoryFailure(_builtTextureIds.TryGetValue(tex, out ulong id) ? _sourceTextures.GetValueOrDefault(id) : null, levels, ex);
+            }
+        }
+        _batchHasInitial = recorded > 0;
+        // Streaming's decodes, each into a new device texture swapped in once this batch has completed.
+        while (_streamUploads.Count > 0 &&
+               (recorded == 0 || sw.Elapsed.TotalMilliseconds < budgetMs && staged < MaxBatchStagingBytes))
+        {
+            var (entry, levels) = _streamUploads.Dequeue();
+            recorded++;
+            Texture? target = null;
+            try
+            {
+                target = GpuTexture.CreateDeviceTexture(_gd, levels.Width, levels.Height, (uint)levels.Levels.Length);
+                _uploadStagings.Add(GpuTexture.RecordUpload(_gd, _uploadCommands, levels, target));
+                staged += levels.ByteSize;
+                _batchSwaps.Add((entry, target));
+            }
+            catch (NeoVeldridException ex)
+            {
+                target?.Dispose();
+                _streamer.Failed(entry, _streamClock.Elapsed.TotalSeconds, ex.Message);
+            }
+        }
+        _uploadCommands.End();
+        _gd.SubmitCommands(_uploadCommands, _uploadFence);
+        // Nothing staged (every allocation failed): still wait, so the command list can be reused.
+        if (_uploadStagings.Count == 0) FinishUploadBatch(force: true);
+    }
+
+    /// <summary>Waits for the batch in flight and frees its staging textures.</summary>
+    private void FinishUploadBatch(bool force = false)
+    {
+        if (_uploadFence == null || (!force && _uploadStagings.Count == 0)) return;
+        _gd.WaitForFence(_uploadFence);
+        _uploadFence.Reset();
+        foreach (var staging in _uploadStagings) staging.Dispose();
+        _uploadStagings.Clear();
+        _batchHasInitial = false;
+        _readySwaps.AddRange(_batchSwaps);
+        _batchSwaps.Clear();
+    }
+
+    /// <summary>Uploads exactly one queued texture's full mip chain, waiting for it.</summary>
     public void UploadOnePendingTexture()
     {
-        if (!_pendingUploads.TryDequeue(out var item)) return;
-        item.tex.UploadAll(_gd, item.levels);
+        if (_pendingUploads.Count == 0 && _streamUploads.Count == 0) return;
+        UploadPendingTextures(0);
+        FinishUploadBatch();
+    }
+
+    private readonly uint _textureCap;
+
+    /// <summary>Bytes of texture data allocated on the GPU so far (RGBA8 chains, as uploaded).</summary>
+    public ulong TextureBytes { get; private set; }
+
+    /// <summary>The first GPU memory failure while building or uploading a texture, worded for the user,
+    /// or null. Later failures are counted in <see cref="GpuMemoryFailureCount"/>.</summary>
+    public string? GpuMemoryFailure { get; private set; }
+    public int GpuMemoryFailureCount { get; private set; }
+
+    private void RecordGpuMemoryFailure(ITexture? texture, TextureLevels levels, NeoVeldridException ex)
+    {
+        GpuMemoryFailureCount++;
+        string what = $"{levels.Width}x{levels.Height} texture{(texture != null ? $" {texture.Id:X16}" : "")} ({levels.ByteSize / 1048576.0:0.0} MiB)";
+        Console.WriteLine($"GPU memory: could not allocate a {what} after {TextureBytes / 1048576} MiB of textures: {ex.Message}");
+        GpuMemoryFailure ??= $"Could not allocate a {what} after {TextureBytes / 1048576} MiB of textures were already on the GPU ({ex.Message}).";
     }
 
     // When useVertexAlpha is set, decoded vertex alpha is written into each vertex's color alpha
@@ -1260,6 +1680,7 @@ public sealed class AssetManager : IDisposable
         var instances = new List<(int, int, Matrix4x4, Vector4, object, float, uint)>();
         var geoRemap = new Dictionary<int, int>();
         var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
+        var sceneMaterials = new List<RenderMaterial>();
         int maxSkeletonBones = 0;
         // One bone-palette region per moby that could possibly animate, so playing every skinned moby
         // in the level at once can never run out (see VulkanRenderer.TrySetAnimatedInstance) - sized
@@ -1284,6 +1705,7 @@ public sealed class AssetManager : IDisposable
                     matSlot = materials.Count;
                     materials.Add(VkMaterialBuilder.Build(material, this));
                     matRemap[material] = matSlot;
+                    sceneMaterials.Add(material);
                 }
                 float displayDistance = entity is EntityMoby moby ? moby.DisplayDistance : -1f;
                 instances.Add((geoSlot, matSlot, world, sphere, entity, displayDistance, (uint)entity.ID));
@@ -1299,6 +1721,8 @@ public sealed class AssetManager : IDisposable
         if (instances.Count == 0)
             return null;
         var envCube = EnvironmentCubemapView?.Target;
+        _sceneMaterials = sceneMaterials;
+        _sceneMaterialEntriesFor = null;
         return (verts, idx, materials, instances, envCube, maxSkeletonBones, skinnedOwners.Count);
     }
 
@@ -1384,7 +1808,10 @@ public sealed class AssetManager : IDisposable
         foreach (ulong textureId in textureIds.Distinct())
         {
             if (_textureCache.Remove(textureId, out GpuTexture? texture))
+            {
                 _builtTextureIds.Remove(texture);
+                _streamer.Remove(texture);
+            }
             _sourceTextures.Remove(textureId);
         }
 
@@ -1455,6 +1882,13 @@ public sealed class AssetManager : IDisposable
         _sceneRendererInvalidationPending = false;
         SceneRenderer?.Dispose();
         SceneRenderer = null;
+
+        // A batch still copying into the textures freed below.
+        FinishUploadBatch();
+        _uploadCommands?.Dispose();
+        _uploadCommands = null;
+        _uploadFence?.Dispose();
+        _uploadFence = null;
         // Only now, with the capture gone, is nothing holding the old cube image. The next capture
         // reads EnvironmentCubemapView afresh (see BuildVkScene), so the new texture reaches the
         // shaders without anything else having to be told about it.
@@ -1490,6 +1924,16 @@ public sealed class AssetManager : IDisposable
         _sceneRendererInvalidationPending = false;
         SceneRenderer?.Dispose();
         SceneRenderer = null;
+
+        // A batch still copying into the textures freed below, and streamed copies never swapped in.
+        FinishUploadBatch();
+        _uploadCommands?.Dispose();
+        _uploadCommands = null;
+        _uploadFence?.Dispose();
+        _uploadFence = null;
+        foreach (var (_, texture) in _readySwaps) texture.Dispose();
+        _readySwaps.Clear();
+        _streamUploads.Clear();
 
         // Only textures need releasing. The shared default stands in for every texture that failed
         // to decode, so it appears in the cache multiple times and must not be disposed through it.

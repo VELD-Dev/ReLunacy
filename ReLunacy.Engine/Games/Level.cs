@@ -15,7 +15,7 @@ public enum LevelSourceKind
 public sealed class Level : IDisposable
 {
     public string Name { get; }
-    public GameDefinition? Game { get; }
+    public GameDefinition? Game { get; set; }
     public LevelSourceKind SourceKind { get; }
 
     /// <summary>Folder path (SourceKind == Folder) or the .psarc file path (SourceKind == Psarc).</summary>

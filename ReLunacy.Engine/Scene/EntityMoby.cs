@@ -31,6 +31,20 @@ public class EntityMoby : Entity
     /// for the Property Inspector.</summary>
     public float UpdateDistance { get; set; }
 
+    /// <summary>The editor layer the instance was placed in, an index into <see cref="EntityRegion.Layers"/> (0 on the old engine).</summary>
+    public ushort Group { get; set; }
+
+    /// <summary>The instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
+    public readonly ulong Tuid;
+
+    /// <summary>The instance's settings (new engine) and the fields of them that name another instance; see
+    /// PlacedInstance.Settings. Empty when it has none.</summary>
+    public byte[] Settings { get; } = [];
+    public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; private set; } = [];
+    internal void SetReferences(IReadOnlyList<Assets.LevelElements.ClueReference> references) => References = references;
+    /// <summary>The instance's place in the region's Moby table (see PlacedInstance.GameplayIndex).</summary>
+    public int GameplayIndex { get; } = -1;
+
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
         BaseMoby = mobyInstance.Asset;
@@ -51,6 +65,14 @@ public class EntityMoby : Entity
         BoundingSphere = new Vector4(center, radius);
 
         DisplayDistance = mobyInstance.DisplayDistance;
+        Group = mobyInstance.Group;
+        Tuid = mobyInstance.ID;
+        if (mobyInstance is Assets.Geometry.PlacedInstance<IMoby> placed)
+        {
+            Settings = placed.Settings;
+            References = placed.References;
+            GameplayIndex = placed.GameplayIndex;
+        }
         UpdateDistance = mobyInstance.UpdateDistance;
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";

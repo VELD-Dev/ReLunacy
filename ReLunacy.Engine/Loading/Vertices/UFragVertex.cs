@@ -41,7 +41,7 @@ public record struct UFragVertex
     public readonly float VertexAlphaNewEngineB => Math.Clamp((0x8080 - (ushort)unk) / 127f, 0f, 1f);
     public readonly float VertexAlphaNewEngineC => Math.Clamp((0x9080 - (ushort)unk) / 127f, 0f, 1f);
     // D (0x9980 -> 0.0, ascending) and E (0x8C00 -> 0.0, descending) as VertexFormat0 lists them.
-    // Both were measured on TIE vertices, not UFrag ones; they are carried here because the two
+    // Both were measured on Tie vertices, not UFrag ones; they are carried here because the two
     // share the encoding and because omitting a band fails silently - the value misses every range,
     // the fallback returns 1.0, and the surface renders opaque with no sign anything was dropped.
     public readonly float VertexAlphaNewEngineD => Math.Clamp(((ushort)unk - 0x9980) / 127f, 0f, 1f);
@@ -78,6 +78,9 @@ public record struct UFragVertex
     /// textures (sections 0x5400 / 0x5410). Half-floats, same as the base UVs above.</summary>
     public (float, float) UVs2;
 
+    /// <summary>Unbaked old-engine UFrags read vertex +0x0C as four prelight bytes.</summary>
+    public uint PackedLightmapAttribute { get; }
+
     public uint normal;
     public uint tangent;
 
@@ -93,8 +96,11 @@ public record struct UFragVertex
         sh.Seek(recordBase + 0x08);
         UVs.Item1 = sh.ReadHalf();
         UVs.Item2 = sh.ReadHalf();
-        UVs2.Item1 = (float)sh.ReadHalf();
-        UVs2.Item2 = (float)sh.ReadHalf();
+        ushort lightmapU = sh.ReadUInt16();
+        ushort lightmapV = sh.ReadUInt16();
+        UVs2.Item1 = (float)BitConverter.UInt16BitsToHalf(lightmapU);
+        UVs2.Item2 = (float)BitConverter.UInt16BitsToHalf(lightmapV);
+        PackedLightmapAttribute = ((uint)lightmapU << 16) | lightmapV;
         normal = sh.ReadUInt32(recordBase + 0x10);
         tangent = sh.ReadUInt32(recordBase + 0x14);
     }

@@ -71,7 +71,7 @@ public sealed class AnimationReader
 
     private void ReadOldEngine()
     {
-        if (!_fileManager.igfiles.TryGetValue("main.dat", out var main) || main is null) return;
+        if (_fileManager.IsFallOfMan || !_fileManager.igfiles.TryGetValue("main.dat", out var main) || main is null) return;
         _oldMain = main;
 
         var f000 = main.QuerySection(AnimationMetadataOld.ID);

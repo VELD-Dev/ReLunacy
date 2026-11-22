@@ -192,6 +192,21 @@ public class ImGuiController : IDisposable
         return GetOrCreateImGuiBinding(factory, textureView);
     }
 
+    /// <summary>Frees the binding <see cref="GetOrCreateImGuiBinding(ResourceFactory, Texture)"/> made for
+    /// <paramref name="texture"/>, which is about to be freed itself. Its id stops resolving.</summary>
+    public void ReleaseImGuiBinding(Texture texture)
+    {
+        if (!_autoViewsByTexture.Remove(texture, out var textureView) || textureView == null) return;
+        if (_setsByView.Remove(textureView, out var rsi))
+        {
+            _viewsById.Remove(rsi.ImGuiBinding);
+            _ownedResources.Remove(rsi.ResourceSet);
+            rsi.ResourceSet.Dispose();
+        }
+        _ownedResources.Remove(textureView);
+        textureView.Dispose();
+    }
+
     public ResourceSet GetImageResourceSet(nint imGuiBinding)
     {
         if (!_viewsById.TryGetValue(imGuiBinding, out var tvi))

@@ -322,7 +322,7 @@ public sealed class LuaParser
         "<" or ">" or "<=" or ">=" or "~=" or "==" => (3, 3),
         ".." => (5, 4),
         "+" or "-" => (6, 6),
-        "*" or "/" => (7, 7),
+        "*" or "/" or "%" => (7, 7),
         "^" => (10, 9),
         _ => null,
     };
@@ -334,7 +334,7 @@ public sealed class LuaParser
         LuaExpr left;
         var start = Here;
 
-        if (Check("not") || Check("-"))
+        if (Check("not") || Check("-") || Check("#"))
         {
             string op = Next().Text;
             var operand = ParseExpr(UnaryPower);

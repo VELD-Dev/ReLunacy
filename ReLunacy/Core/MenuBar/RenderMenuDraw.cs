@@ -1,4 +1,6 @@
+using System.Numerics;
 using ReLunacy.Core;
+using ReLunacy.Engine.Assets.Collision;
 using ReLunacy.Engine.Assets.Sky;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
@@ -13,7 +15,7 @@ internal static class RenderMenuDraw
     /// "Apply" step, so there's nothing to defer: the same instant-persist convention the Layout
     /// menu's save/load actions and Game Browser's path already use. See EditorSettings.RenderMobys
     /// for why EntityManager can't just own this itself.</summary>
-    private static void PersistRenderSettings()
+    internal static void PersistRenderSettings()
     {
         var settings = LunaWindow.Instance.EditorSettings;
         var em = EntityManager.Singleton;
@@ -22,31 +24,14 @@ internal static class RenderMenuDraw
         settings.RenderUFrags = em.renderUFrags;
         settings.RenderFoliage = em.renderFoliage;
         settings.RenderVolumes = em.renderVolumes;
+        settings.HideCameras = !em.renderCameras;
+        settings.HideControllers = !em.renderControllers;
+        settings.HidePaths = !em.renderPaths;
         settings.RenderNavmesh = em.renderNavmesh;
+        settings.RenderCollision = em.renderCollision;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;
         settings.MobyDistanceCullingEnabled = em.MobyDistanceCullingEnabled;
         settings.SaveSettingsToFile();
-    }
-
-    internal static void ShowMobys()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderMobys"), "", EntityManager.Singleton.renderMobys)) return;
-        EntityManager.Singleton.renderMobys = !EntityManager.Singleton.renderMobys;
-        PersistRenderSettings();
-    }
-
-    internal static void ShowTies()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderTies"), "", EntityManager.Singleton.renderTies)) return;
-        EntityManager.Singleton.renderTies = !EntityManager.Singleton.renderTies;
-        PersistRenderSettings();
-    }
-
-    internal static void ShowUFrags()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderUFrags"), "", EntityManager.Singleton.renderUFrags)) return;
-        EntityManager.Singleton.renderUFrags = !EntityManager.Singleton.renderUFrags;
-        PersistRenderSettings();
     }
 
     internal static void ShowFoliage()
@@ -56,25 +41,24 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
-    internal static void ShowVolumes()
+    /// <summary>Selects the loaded region or Fall of Man gameplay group. A level with a single choice hides the menu.</summary>
+    internal static void RegionSelection()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes)) return;
-        EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
-        PersistRenderSettings();
-    }
+        var window = LunaWindow.Instance;
+        if (window.Level is not { RegionNames.Count: > 1 } level) return;
+        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_RenderRegion"))) return;
 
-    internal static void ShowNavmesh()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderNavmesh"), "", EntityManager.Singleton.renderNavmesh)) return;
-        EntityManager.Singleton.renderNavmesh = !EntityManager.Singleton.renderNavmesh;
-        PersistRenderSettings();
-    }
+        bool loading = window.IsLoadingLevel;
+        if (loading) ImGui.BeginDisabled();
+        for (int r = 0; r < level.RegionNames.Count; r++)
+        {
+            string name = level.RegionNames[r];
+            if (ImGui.MenuItem($"{name}###region_pick_{r}", "", level.Region?.Name == name))
+                Core.Project.ProjectSession.Guard(() => window.SwitchRegion(name));
+        }
+        if (loading) ImGui.EndDisabled();
 
-    internal static void ShowBoundingSpheres()
-    {
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderBoundingSpheres"), "", EntityManager.Singleton.renderBoundingSpheres)) return;
-        EntityManager.Singleton.renderBoundingSpheres = !EntityManager.Singleton.renderBoundingSpheres;
-        PersistRenderSettings();
+        ImGui.EndMenu();
     }
 
     /// <summary>Per-zone render toggles - zones are the level's own streaming/culling unit (mostly
@@ -213,25 +197,26 @@ internal static class RenderMenuDraw
         ImGui.EndMenu();
     }
 
-    /// <summary>The game's own fidelity switches: its fragment shaders (read from a decrypted EBOOT
-    /// in the level's install, and the shaders a material ships itself), and on the old engine the
-    /// level's fog (main.dat 0x7100) and the Tie cube reflections. All on by default; they only hide.</summary>
+    /// <summary>The old engine's own fidelity switches: the level's fog (main.dat 0x7100) and the Tie
+    /// cube reflections. On by default; they only hide. The game's RSX shaders are switched from the
+    /// viewport toolbar, beside lit/unlit. A Crack in Time has the same linear fog, so it gets the fog
+    /// switch alone.</summary>
     internal static void GameFidelity()
     {
         var settings = LunaWindow.Instance.EditorSettings;
-        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_GameShaders"), "", settings.GameShaders))
-        {
-            settings.GameShaders = !settings.GameShaders;
-            Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = settings.GameShaders;
-            settings.SaveSettingsToFile();
-            LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
-        }
-        if (LunaWindow.Instance.Level?.IsOldEngine != true) return;
+        var level = LunaWindow.Instance.Level;
+        bool old = level?.IsOldEngine == true;
+        if (!old && level?.LightingEnvironment?.LinearFog == null) return;
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineFog"), "", settings.OldEngineFog))
         {
             settings.OldEngineFog = !settings.OldEngineFog;
             OldEngineRenderOptions.FogEnabled = settings.OldEngineFog;
             settings.SaveSettingsToFile();
+        }
+        if (!old)
+        {
+            ImGui.Separator();
+            return;
         }
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_OldEngineReflections"), "", settings.OldEngineReflections))
         {
@@ -239,6 +224,7 @@ internal static class RenderMenuDraw
             OldEngineRenderOptions.ReflectionsEnabled = settings.OldEngineReflections;
             settings.SaveSettingsToFile();
         }
+        ImGui.Separator();
     }
 
     internal static void ShowMobyDistanceCulling()

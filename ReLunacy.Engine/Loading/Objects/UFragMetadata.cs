@@ -35,11 +35,23 @@ public struct UFragMetadata : ILunaSerializable
     public const ushort NoLightmap = 0xFFFF;
     public readonly bool HasLightmap => lightmapIndex != NoLightmap;
 
+    /// <summary>Old-engine UFrag c[4].zw, from the packed scales at +0x7C and +0x7E.</summary>
+    public readonly Vector2? OldEngineLightScales => Unk4 is { Length: >= 0x14 }
+        ? new Vector2(
+            BinaryPrimitives.ReadUInt16BigEndian(Unk4.AsSpan(0x10, 2)),
+            BinaryPrimitives.ReadUInt16BigEndian(Unk4.AsSpan(0x12, 2))) * 0.0004882887f
+        : null;
+
+    /// <summary>Serialized old-engine UFrag material mask (+0x54) and cubemap slot (+0x59).</summary>
+    public readonly (byte Mask, byte CubeSlot)? OldEngineMaterialUse => Unk3 is { Length: 0x0E }
+        ? (Unk3[2], Unk3[7])
+        : null;
+
     /// <summary>
     /// New engine: the record's baked-light vertex constant c[4] = (+0x68, +0x6A, +0x68, +0x68 / 3) as
     /// scaled u16s. PROVEN in the QForce EBOOT, UFrag renderer 0x0074DC98 (see
     /// <see cref="NewEngineBakedLighting"/>). Retail: non-zero on every lit record, zero on unlit ones,
-    /// one value per lightmap atlas. Null on the old engine, whose record has no such field.
+    /// one value per lightmap atlas. Null on the old engine, which uses +0x7C and +0x7E.
     /// </summary>
     public readonly Vector4? NewEngineBakedLight =>
         Unk3 is { Length: >= 0x1A }

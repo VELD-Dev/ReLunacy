@@ -27,8 +27,8 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// visually "coherent" faces and manufactured a 0x380 header. That heuristic was an artefact of
 /// reading the RSX offset against the wrong file base and is deliberately gone.
 ///
-/// Only A8R8G8B8 is handled for now because it is the format closed on the audited fixture. New-
-/// engine cubemaps use a different assetlookup resource path.</summary>
+/// Fall of Man stores RGB565 cubes in the same descriptor and face layout, in MAIN section 0x9950.
+/// Its 64x64 six-mip cubes use 0x2B00 bytes per face and 0x10200 bytes per cube.</summary>
 public sealed class CubemapReader
 {
     public const uint ID = 0x5920;
@@ -55,7 +55,10 @@ public sealed class CubemapReader
             throw new InvalidDataException(
                 $"Old 0x5920 cubemap descriptor stride is 0x{section.length:X}, expected 0x{TextureMetadataOld.Size:X}.");
 
-        var residentSection = main.QuerySection(TextureShaderLoader.ResidentTextureDataSectionId);
+        uint residentId = _fileManager.IsFallOfMan
+            ? FallOfManLightmaps.ResidentPixelsSection
+            : TextureShaderLoader.ResidentTextureDataSectionId;
+        var residentSection = main.QuerySection(residentId);
         StreamHelper? localTextures = null;
         if (_fileManager.rawfiles.TryGetValue("textures.dat", out Stream? textureStream) && textureStream is not null)
             localTextures = new StreamHelper(textureStream, StreamHelper.Endianness.Big);
@@ -76,7 +79,8 @@ public sealed class CubemapReader
                 Console.WriteLine($"Cubemap {r}: non-square descriptor {meta.Width}x{meta.Height}, skipped.");
                 continue;
             }
-            if (meta.Format != Textures.TextureFormat.A8R8G8B8)
+            if (meta.Format != Textures.TextureFormat.A8R8G8B8
+                && !(_fileManager.IsFallOfMan && meta.Format == Textures.TextureFormat.R5G6B5))
             {
                 Console.WriteLine($"Cubemap {r}: unhandled format {meta.Format}, skipped.");
                 continue;
@@ -84,18 +88,20 @@ public sealed class CubemapReader
 
             StreamHelper? source;
             long sourceBase = 0;
+            long sourceEnd;
             string sourceName;
             if (meta.IsMainMemory)
             {
-                if (residentSection.id != TextureShaderLoader.ResidentTextureDataSectionId || residentSection.count == 0 || residentSection.length == 0)
+                if (residentSection.id != residentId || residentSection.count == 0 || residentSection.length == 0)
                 {
                     Console.WriteLine(
-                        $"Cubemap {r}: descriptor requests MAIN memory but main.dat has no 0x{TextureShaderLoader.ResidentTextureDataSectionId:X4}, skipped.");
+                        $"Cubemap {r}: descriptor requests MAIN memory but main.dat has no 0x{residentId:X4}, skipped.");
                     continue;
                 }
                 source = main.sh;
                 sourceBase = residentSection.offset;
-                sourceName = $"main.dat:0x{TextureShaderLoader.ResidentTextureDataSectionId:X4}";
+                sourceEnd = sourceBase + residentSection.length;
+                sourceName = $"main.dat:0x{residentId:X4}";
             }
             else if (meta.IsLocalMemory)
             {
@@ -106,6 +112,7 @@ public sealed class CubemapReader
                     Console.WriteLine($"Cubemap {r}: descriptor requests LOCAL memory but textures.dat is unavailable, skipped.");
                     continue;
                 }
+                sourceEnd = source.BaseStream.Length;
             }
             else
             {
@@ -114,7 +121,7 @@ public sealed class CubemapReader
             }
 
             long dataStart = checked(sourceBase + meta.RsxOffset);
-            var cubemap = ReadCubemap(source, dataStart, meta, checked((uint)descriptorOffset));
+            var cubemap = ReadCubemap(source, dataStart, sourceEnd, meta, checked((uint)descriptorOffset), r);
             if (cubemap != null)
             {
                 result.Add(cubemap);
@@ -494,15 +501,18 @@ public sealed class CubemapReader
     private static Assets.Cubemaps.Cubemap? ReadCubemap(
         StreamHelper source,
         long dataStart,
+        long sourceEnd,
         in TextureMetadataOld meta,
-        uint recordBase)
+        uint recordBase,
+        int index)
     {
         int size = checked((int)meta.Width);
         int mipCount = Math.Max(1, checked((int)meta.MipmapCount));
-        int chainBytes = MipChainBytes(size, mipCount);
+        int bytesPerPixel = meta.Format == Textures.TextureFormat.R5G6B5 ? 2 : 4;
+        int chainBytes = MipChainBytes(size, mipCount, bytesPerPixel);
         int stride = AlignUp(chainBytes, FaceAlignment);
         long payloadBytes = checked((long)FaceCount * stride);
-        long sourceLength = source.BaseStream.Length;
+        long sourceLength = Math.Min(sourceEnd, source.BaseStream.Length);
 
         if (dataStart < 0 || dataStart > sourceLength || payloadBytes > sourceLength - dataStart)
         {
@@ -525,10 +535,10 @@ public sealed class CubemapReader
 
             for (int mip = 0; mip < mipCount; mip++)
             {
-                int mipBytes = checked(w * w * 4);
+                int mipBytes = checked(w * w * bytesPerPixel);
                 byte[] compact = meta.IsLinear
                     ? region.AsSpan(cursor, mipBytes).ToArray()
-                    : Textures.Texture.Deswizzle(region.AsSpan(cursor, mipBytes), w, w, 4);
+                    : Textures.Texture.Deswizzle(region.AsSpan(cursor, mipBytes), w, w, bytesPerPixel);
                 authored.Write(compact);
                 cursor = checked(cursor + mipBytes);
                 w = Math.Max(1, w / 2);
@@ -539,7 +549,7 @@ public sealed class CubemapReader
                 MakeFaceId(recordBase, f),
                 (uint)size,
                 (uint)size,
-                Assets.Interfaces.TextureFormat.A8R8G8B8,
+                bytesPerPixel == 2 ? Assets.Interfaces.TextureFormat.R5G6B5 : Assets.Interfaces.TextureFormat.A8R8G8B8,
                 authored.ToArray(),
                 mipCount,
                 nativeControl1: meta.control1,
@@ -547,7 +557,7 @@ public sealed class CubemapReader
         }
 
         Console.WriteLine($"0x5920 authored cubemap mips preserved: {FaceCount} faces x {mipCount} level(s).");
-        return new Assets.Cubemaps.Cubemap(recordBase, size, faces);
+        return new Assets.Cubemaps.Cubemap(recordBase, size, faces) { IndexInResource = index };
     }
 
     private static OldTextureDescriptorState ToAssetDescriptor(in TextureMetadataOld meta) => new(
@@ -562,13 +572,13 @@ public sealed class CubemapReader
         meta.height,
         meta.control3);
 
-    private static int MipChainBytes(int size, int mipCount)
+    private static int MipChainBytes(int size, int mipCount, int bytesPerPixel)
     {
         int total = 0;
         for (int m = 0; m < Math.Max(1, mipCount); m++)
         {
             int w = Math.Max(1, size >> m);
-            total = checked(total + w * w * 4);
+            total = checked(total + w * w * bytesPerPixel);
         }
         return total;
     }

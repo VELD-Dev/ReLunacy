@@ -149,7 +149,8 @@ public static class SkyRenderOptions
         {
             try
             {
-                assets.GetOrBuildTexture(source.Texture);
+                // Pinned: the sky's packet keeps the device texture, so streaming must not swap it later.
+                assets.PinFullResolution(source.Texture);
             }
             catch (Exception ex)
             {

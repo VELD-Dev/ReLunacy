@@ -13,7 +13,23 @@ public sealed class Region : IRegion
     public IReadOnlyList<IZone> Zones { get; set; }
     public IReadOnlyList<IPlacedInstance<IMoby>> MobyInstances { get; init; }
     public IReadOnlyList<Volume> Volumes { get; init; }
+    /// <summary>The region's controllers (camera arguments, emitters, spawners...); empty on the old engine.</summary>
+    public IReadOnlyList<GameplayController> Controllers { get; init; } = [];
+    /// <summary>The region's paths (splines) with their points; empty on the old engine.</summary>
+    public IReadOnlyList<GameplayPath> Paths { get; init; } = [];
+    /// <summary>The region's Pods (groups of Mobys) and Squadrons (groups of Tie placements).</summary>
+    public IReadOnlyList<GameplayGroup> Pods { get; init; } = [];
+    public IReadOnlyList<GameplayGroup> Squadrons { get; init; } = [];
+    /// <summary>The level editor's layers, which a Moby's <see cref="IPlacedInstance{TAsset}.Group"/> indexes; empty on
+    /// the old engine. A zone is the layer of the same name.</summary>
+    public IReadOnlyList<string> Layers { get; init; } = [];
+
+    /// <summary>The region's instances as references name them: what reads and writes a reference field.</summary>
+    public Loading.Readers.GameplayReferences References { get; init; } = Loading.Readers.GameplayReferences.None;
     public bool IsOldEngine { get; init; }
+
+    /// <summary>The game the region is of; null when unknown.</summary>
+    public Games.GameId? Game { get; init; }
 
     public Region(
         ulong id,

@@ -1,0 +1,2415 @@
+# A Crack in Time: what is known of the settings fields of each class - names, types, descriptions.
+# Hand-editable; the editor's inspector reads it and can change it (Edit fields).
+#
+#   [offset, type] Field name = "description";           add ", runtime" for a field the game overwrites
+#   types: u8 u16 u32 s32 float bool bool32 text sound effect  ref  Moby Path Volume Clue Controller Scent Area Pod
+#          ref list  Volume list  Controller list ...  a pointer to a list of references, read-only
+#          component(size)  or the name of an enum declared below
+#   enum Name : u32 { Entry = 1; }     flags Name : u8 { Bit = 0x1; }
+#   class 0xNUMBER Name : 0xPARENT { fields }           a class inherits its parents' fields
+
+enum Axis : u32
+{
+    X = 0;
+    Y = 1;
+    Z = 2;
+}
+
+enum BarrierType : u16
+{
+    None = 0;
+    Terachnos = 1;
+    Tombli = 2;
+    NefariousStation = 3;
+}
+
+enum ConstructoParts : u32
+{
+    PART_BOMB_TYPE_PILLAR = 14;
+    PART_BOMB_GLOVE_MINE = 10;
+}
+
+enum LaserTripsMoveMode : u32
+{
+    Stationary = 0;
+    BetweenVolumes = 1;
+    Special = 2;
+}
+
+enum Level : u32
+{
+    None = 0;
+    GreatClockA = 1;
+    ZolarForest = 2;
+    SpaceSector1 = 3;
+    GalactonShip = 4;
+    GreatClockB = 5;
+    SpaceSector2 = 6;
+    Molonoth = 7;
+    AxiomCity = 8;
+    GreatClockC = 9;
+    SpaceSector3 = 10;
+    KrellCanyon = 11;
+    AgorianArena = 12;
+    Tombli = 13;
+    GreatClockD = 14;
+    SpaceSector4 = 15;
+    ValkyrieFleet = 16;
+    NefariousStation = 17;
+    SpaceSector5 = 18;
+    GimlickValley = 19;
+    GreatClockE = 20;
+    Museum = 21;
+    FrontEnd = 22;
+}
+
+enum SpawnRule : u32
+{
+    Always = 0;
+    FirstVisitOnly = 1;
+    ReplayOnly = 2;
+    GoneOnceBroken = 3;
+    GoneOnceBrokenBackOnReplay = 4;
+    Never = 5;
+    FirstVisitUnlessBroken = 6;
+    ReplayUnlessBroken = 7;
+}
+
+class 0x6 IGG_GameObjectUpdate
+{
+    [0x4, u32, runtime] Class number = "Filled in by the game.";
+}
+
+class 0x47 MobyBaseUpdate : 0x6
+{
+    [0x10, u8] Base flag = "";
+    [0x14, u32, runtime] Moby instance = "Filled in by the game.";
+    [0x3C, s32] = "-1 in every file: a run-time slot.";
+    [0x54, u32] = "0xFFFF in every file: a run-time slot.";
+    [0x59, bool] Start deactivated = "The object is hidden and idle until a script activates it.";
+    [0x5A, u8, runtime] Initialised = "";
+}
+
+class 0x4D PlatformGrappleBase : 0x47
+{
+}
+
+class 0x4F PlatformGrappleCatapult : 0x4D
+{
+    [0x468, Volume] Target volume = "";
+    [0x46C, Path] Flight path = "";
+    [0x470, float] Flight tuning = "";
+    [0x48C, Controller] Camera = "";
+}
+
+class 0xCF ControllerBaseUpdate : 0x6
+{
+    [0xC, float] Range = "How far the controller reaches or is active from.";
+}
+
+class 0xD1 CamArg : 0xCF
+{
+    [0x14, u32] Blend in = "0 cuts; other values blend.";
+    [0x2C, float] Blend in time = "Seconds.";
+    [0x34, u32] Blend out = "0 cuts; other values blend.";
+    [0x40, bool32] = "";
+    [0x48, bool32] = "";
+    [0x4C, float] Blend out time = "Seconds.";
+}
+
+class 0xD2 CamArgFollowPath : 0xD1
+{
+    [0x60, Path] Camera path = "";
+    [0x64, Path] Look-at path = "";
+    [0x68, Volume] Look-at volume = "";
+    [0x6C, Moby] Look-at Moby = "";
+    [0x70, float] Duration = "Seconds over the whole path; -1 to use the speed.";
+    [0x74, float] Speed = "-1 to use the duration.";
+    [0x78, float] Value = "";
+    [0x7C, float] Ease in = "-1 for no easing. Other values ease.";
+    [0x80, float] Ease out = "-1 for no easing. Other values ease.";
+    [0x84, float] Delay = "Seconds before moving.";
+    [0x88, float] Hold = "Seconds to stay at the end.";
+    [0x8C, Controller] Next camera = "";
+    [0x90, float] Field of view = "<=0 uses game's default FoV.";
+    [0xA4, float] Value B = "";
+}
+
+class 0xD7 PickupBase : 0x47
+{
+    [0x60, float] = "";
+    [0x64, float] = "Used by the script function reset_flares.";
+    [0x68, u32] = "";
+    [0x6C, float] = "Used by the script function reset_flares.";
+    [0x70, float] = "Used by the script function reset_flares.";
+    [0x74, u32] = "Used by the script function reset_flares.";
+    [0x78, u32] = "Used by the script function reset_flares.";
+    [0x90, u32] = "Used by the script function reset_flares.";
+    [0x94, u32] = "Used by the script function reset_flares.";
+    [0xA0, float] = "Used by the script function reset_flares.";
+    [0xA4, float] = "Used by the script function reset_flares.";
+    [0xA8, float] = "Used by the script function reset_flares.";
+    [0xAC, float] = "Used by the script function reset_flares.";
+}
+
+class 0xD8 PickupSpecialBase : 0xD7
+{
+    [0xE0, Controller] Reveal camera = "";
+    [0xE4, Volume] Pickup Trigger = "Volume that triggers pickup and camera";
+}
+
+class 0xE5 HERO_HeroBase : 0x52E
+{
+    [0x6C, u32] = "Used by the script function is_hoverboot_thrusting.";
+}
+
+class 0xF6 HERO_HeroCharacter : 0xE5
+{
+    [0x11BC, u32] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x11FC, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x11FD, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x11FE, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x11FF, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x1200, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x1201, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x1202, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x1203, bool] = "Used by the script function ratchet_arm_nefarious_disguise.";
+    [0x17E0, bool] = "Used by the script function ratchet_deactivate_nefarious_disguise.";
+    [0x17F0, u32] = "Used by the script function ratchet_deactivate_nefarious_disguise.";
+    [0x1800, u32] = "Used by the script function ratchet_deactivate_nefarious_disguise.";
+    [0x1908, u32] = "Used by the script functions hero_has_object, hero_add_object, hero_get_num_objects.";
+}
+
+class 0xF7 Ratchet : 0xF6
+{
+    [0x2510, u32] = "Used by the script functions is_hoverbooting, is_hoverboot_thrusting, ratchet_deactivate_nefarious_disguise.";
+    [0x2631, bool] = "Used by the script function ratchet_deactivate_nefarious_disguise.";
+    [0x2754, float] Glide pitch = "Used by the script functions set_glide_pitch, reset_glide_pitch.";
+    [0x2761, bool] Underwater FX = "Assumed because used by the script function hero_force_underwater_fx.";
+    [0x291C, u32] = "Used by the script functions set_force_thrust, set_hoverboots, hero_force_idle_on_rail.";
+    [0x2920, u32] = "Used by the script functions ratchet_deactivate_nefarious_disguise, ratchet_arm_nefarious_disguise.";
+    [0x2938, Pod] Lawrence hologram pod = "Used by the script function ratchet_set_lawrence_hologram_pod.";
+}
+
+class 0x11D ClueBase
+{
+    [0x8, u32, runtime] Volume = "The Clue's volume, filled in by the game.";
+    [0xC, bool] Enabled = "The Clue is active when the level starts.";
+    [0x10, u32, runtime] Handle = "The Clue's own handle, filled in by the game.";
+}
+
+class 0x11E ClueGravity : 0x11D
+{
+    [0x14, ref] Gravity volume = "Volume the gravity acts in, instead of the Clue's own.";
+    [0x18, ref] Gravity area = "Group of volumes the gravity acts in, instead of a single volume.";
+    [0x1C, float] Bend = "With Directional: how much the direction curves along the volume.";
+    [0x20, bool] Directional = "Gravity follows the volume's up axis instead of pulling to its centre.";
+    [0x21, bool] Inverted = "Gravity pushes outward: for walking on the inside.";
+    [0x22, bool] On any ground = "Applies on every surface, not only in the air.";
+}
+
+class 0x120 ClueGrindRail : 0x11D
+{
+    [0x14, Path] Grindpath = "";
+    [0x18, Area] Grindrail Area = "";
+}
+
+class 0x121 ClueWind : 0x11D
+{
+    [0x1C, ref] = "";
+    [0x20, ref] = "";
+}
+
+class 0x122 ClueLedgeGrab : 0x11D
+{
+    [0x14, Path] = "";
+    [0x18, Area] = "";
+}
+
+class 0x123 ClueWater : 0x11D
+{
+}
+
+class 0x125 ClueQuicksand : 0x11D
+{
+    [0x30, ref] = "";
+}
+
+class 0x126 ClueLava : 0x11D
+{
+}
+
+class 0x127 ClueFallToDeath : 0x11D
+{
+}
+
+class 0x129 ClueDeath : 0x11D
+{
+    [0x14, u32] = "";
+}
+
+class 0x12E ClueSwingshotEquip : 0x11D
+{
+}
+
+class 0x130 ClueHudMap : 0x11D
+{
+    [0x18, Volume] = "";
+    [0x34, Area] Map Clue area = "";
+    [0x38, u32] width? = "";
+    [0x3C, u32] = "";
+    [0x40, u32] height? = "";
+    [0x44, u32] = "";
+}
+
+class 0x13A AlarmController : 0xCF
+{
+    [0x14, ref] = "";
+    [0x18, ref] = "";
+}
+
+class 0x141 : 0x160
+{
+    [0xB70, u32] = "Used by the script function ally_setawareness.";
+    [0xB78, u32] = "Used by the script functions ally_addautotargetvolume, ally_clearautotargetvolume.";
+    [0xB80, u32] = "Used by the script functions ally_settargetvolume, azimuth_throw_bomb.";
+    [0xB90, u32] = "Used by the script function ally_setfirepoints.";
+    [0xC68, u32] = "Used by the script function ally_setattitude.";
+    [0xC70, u32] Home area = "Used by the script functions ally_set_home_area, ally_clear_home_area.";
+    [0xC76, bool] = "Used by the script functions ally_followpath, ally_followpathhover, ally_gotopoint.";
+    [0x1120, u16] = "Used by the script functions queue_ally_followpath, queue_ally_followpathhover.";
+    [0x1122, u16] = "Used by the script functions queue_ally_followpath, queue_ally_followpathhover.";
+    [0x1124, u32] = "Used by the script functions ally_followpathhover, ally_gotopointhover.";
+    [0x1128, u32] = "Used by the script functions ally_followpath, ally_followpathhover, ally_cancel_script_command.";
+    [0x112C, u32] = "Used by the script functions ally_gotopoint, ally_gotopointhover, qwark_startled_goto.";
+    [0x1130, u32] = "Used by the script functions ally_followpathhover, ally_gotopointhover.";
+    [0x1138, u32] = "Used by the script functions ally_followpath, ally_followpathhover.";
+    [0x113C, u16] = "Used by the script functions ally_followpath, ally_followpathhover, ally_cancel_script_command.";
+    [0x113E, u16] = "Used by the script functions ally_followpath, ally_followpathhover.";
+    [0x1140, u16] = "Used by the script function ally_ranged_only.";
+    [0x1142, u16] = "Used by the script function ally_settargetvolume.";
+    [0x1144, float] Hover speed scale = "Used by the script function ally_set_hover_speed_scale.";
+    [0x1148, u32] Face moby = "Used by the script functions ally_set_face_moby, ally_clear_face_moby.";
+}
+
+class 0x154 WeaponBase : 0x47
+{
+}
+
+class 0x15C SimpleAnimated : 0x47
+{
+    [0x6C, u32] Animation-like index = "";
+}
+
+class 0x160 CharacterBase : 0x47
+{
+    [0x70, u16] = "Used by the script functions set_anim_modifier, npc_set_speed, ally_set_speed.";
+    [0x9C, u32] = "Used by the script functions arena_hydra_tag_in, hydra_tank_kill, set_anim_modifier.";
+    [0xD4, u32] Inner awareness = "Used by the script function enemy_set_inner_awareness.";
+    [0xD8, u32] Outer awareness = "Used by the script function enemy_set_outer_awareness.";
+    [0x13C, u32] = "Used by the script functions zoni_path_follow, ally_followpathhover, ally_gotopointhover.";
+    [0x1A0, float] = "Used by the script function hydra_tank_kill.";
+    [0x1A4, float] = "Used by the script function hydra_tank_kill.";
+    [0x29C, u32] = "Used by the script function set_anim_modifier.";
+    [0x2A0, u32] = "Used by the script function hydra_tank_kill.";
+    [0x2B8, u32] = "Used by the script function hydra_tank_kill.";
+    [0x3E0, u32] = "Used by the script function hydra_tank_kill.";
+    [0x470, u32] = "Used by the script function hydra_tank_kill.";
+    [0x4F0, bool] = "Used by the script function hydra_tank_kill.";
+    [0x5F8, u32] = "Used by the script function nefarious_laser_create.";
+    [0x5FC, u32] = "Used by the script function nefarious_laser_create.";
+    [0x760, u32] = "Used by the script functions npc_interact, zoni_path_follow, qwark_start_smashers.";
+    [0x7F0, u32] = "Used by the script function nefarious_resume_behavior.";
+    [0x7F8, u32] = "Used by the script function nefarious_resume_behavior.";
+    [0x808, Path] Path = "The character's own path.";
+    [0x80C, Path] Intro path = "Walked when the character first appears.";
+    [0x810, Path] Patrol path = "";
+    [0x814, Area] Home area = "The area the character stays in.";
+    [0x818, Path] Extra path = "";
+}
+
+class 0x171 EnemyBattlefieldController : 0xCF
+{
+}
+
+class 0x173 EnemyFirepointController : 0xCF
+{
+    [0x14, Area] Firepoints = "Area of the firepoints it hands out.";
+    [0x618, u8, runtime] Firepoint count = "";
+}
+
+class 0x181 EnemyBase : 0x160
+{
+    [0x840, u32] Start state = "1: the enemy waits, deactivated, for a script or a spawner.";
+    [0x844, SpawnRule] Spawn rule = "Whether the enemy is there, given the state of its level segment.";
+    [0x848, u32] Variant = "Picks the enemy's variant or behaviour.";
+    [0x864, Volume] Inner awareness volume = "The hero inside it wakes the enemy.";
+    [0x868, Area] Inner awareness area = "";
+    [0x86C, float] Inner awareness distance = "";
+    [0x870, u32] Inner awareness flag = "";
+    [0x874, Volume] Outer awareness volume = "The enemy gives up when the hero leaves it.";
+    [0x878, Area] Outer awareness area = "";
+    [0x87C, float] Outer awareness distance = "";
+    [0x880, u32] Outer awareness flag = "";
+    [0x884, Area] Firepoints = "Area of the positions the enemy shoots from.";
+    [0x888, Controller] Battlefield controller = "";
+    [0x88C, Controller] Firepoint controller = "";
+    [0x890, Scent] Ambient targets = "What the enemy shoots at when idle.";
+    [0x8A0, Area] No-go area = "";
+    [0x8A4, ref] = "";
+    [0x8A8, Pod] Group = "The Pod of the enemy's group.";
+    [0x8B0, Volume] Target volume = "A volume the enemy attacks, set by scripts.";
+    [0x8B8, component(0x4)] Awareness component = "";
+    [0x8C4, bool] Awareness flag = "";
+    [0x8C8, float] Awareness range = "-1 for none.";
+    [0x91C, u32] = "Used by the script function hydra_tank_kill.";
+}
+
+class 0x182 EnemyBurrowerBeetle : 0x181
+{
+}
+
+class 0x185 RotaterBase : 0x47
+{
+}
+
+class 0x187 NPCBase : 0x160
+{
+    [0x910, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0x968, text] Prompt text = "Text of the prompt.";
+    [0x96C, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0x974, float] Prompt range = "The prompt shows within this distance.";
+    [0x988, u32] Prompt value A = "";
+    [0x998, float] Prompt value B = "";
+    [0x9A4, u8, runtime] Prompt 3D distance = "";
+    [0x9A5, u8, runtime] Prompt enabled = "";
+    [0x9A6, u8, runtime] Prompt showing = "";
+    [0x9A7, u8, runtime] Prompt button state = "";
+    [0x9B0, u32] 322 = "322 on every NPCs ?";
+    [0xC04, float] = "";
+    [0xC08, float] = "";
+    [0xC0C, float] = "";
+    [0xC10, float] = "";
+    [0xC14, float] = "";
+    [0xC18, float] = "";
+    [0xC1C, float] = "";
+    [0xC24, float] = "";
+    [0xC28, float] = "";
+    [0xC70, u32] = "Used by the script function npc_icon_off.";
+    [0xC74, u32] = "Used by the script function npc_icon_on.";
+    [0xC88, u32] = "";
+    [0xC8C, Area] Area of stop points = "";
+    [0xC90, u32] Face moby = "Used by the script functions npc_set_face_moby, npc_clear_face_moby.";
+    [0xC94, u32] Face hero = "Used by the script function npc_set_face_hero.";
+    [0xCA0, float] = "Used by the script function npc_start_attack.";
+    [0xCA4, float] = "Used by the script function npc_start_attack.";
+    [0xCA8, float] = "Used by the script function npc_start_attack.";
+    [0xCAC, float] = "Used by the script function npc_start_attack.";
+    [0xCB4, Volume] = "";
+    [0xCB8, Volume] = "";
+    [0xCBC, float] = "";
+    [0xCC4, u32] = "";
+    [0xCCC, Volume] Light Link Camera volume = "Used specifically in space levels";
+    [0xCD0, Volume] Light Link volume = "\"Light link\" volume. Used in space levels specifically.";
+    [0xCD8, float] = "";
+    [0xCDC, float] = "";
+    [0xCF8, ref] Target = "Used by the script functions npc_set_target, npc_clear_targets.";
+    [0xCFC, u32] = "Used by the script function npc_clear_targets.";
+    [0xD00, u32] = "Used by the script function npc_clear_targets.";
+    [0xD05, bool] = "Used by the script function npc_idle_dialogue_enable.";
+    [0xD06, bool] = "Used by the script functions npc_holo_down, npc_holo_up.";
+    [0xD08, Controller] Ambient dialogue controller = "";
+    [0xD14, float] = "Used by the script functions npc_enable_damage, npc_disable_damage, npc_scale_damage.";
+    [0xD18, u32] = "Used by the script function npc_get_attention.";
+    [0xD1C, u32] = "Used by the script function npc_get_attention.";
+    [0xD20, u32] = "Used by the script functions npc_goto, npc_patrol, npc_stop.";
+    [0xD24, u32] Visible = "Used by the script function npc_vorselon_set_visible.";
+    [0xD28, bool] Visible = "Used by the script function npc_vorselon_set_visible.";
+}
+
+class 0x192 clank : 0xF6
+{
+}
+
+class 0x198 smuggler : 0x187
+{
+    [0xD24, ref] = "";
+}
+
+class 0x19A swamp flyer / wasp : 0x181
+{
+}
+
+class 0x19F MonitorBase : 0x47
+{
+}
+
+class 0x201 PlatformBase : 0x47
+{
+    [0x11C, float] Speed = "Used by the script function gear_hazard_set_speed.";
+}
+
+class 0x202 SoundEnvironment : 0xCF
+{
+    [0x14, sound] Sound = "Plays while the listener is inside.";
+    [0x18, float] Fade in = "Seconds the sound takes to fade in.";
+    [0x1C, float] Fade out = "Seconds the sound takes to fade out.";
+    [0x20, s32, runtime] Trigger state = "";
+    [0x24, s32, runtime] Sound handle = "";
+    [0x28, Volume list] Volumes = "The listener is inside one of these, or its own box when empty.";
+    [0x2C, Controller list] Linked environments = "Environments changed while inside this one.";
+    [0x30, u32, runtime] Listener inside = "";
+    [0x34, u32, runtime] Linked changed = "";
+    [0x38, bool32] Reverb = "Builds a reverb zone from the volumes.";
+    [0x40, s32, runtime] Reverb zone = "";
+    [0x44, u32] Reverb preset = "";
+    [0x48, float] Reverb value A = "";
+    [0x4C, float] Reverb value B = "";
+    [0x50, component(0x30), runtime] Box = "";
+}
+
+class 0x210 PickupGoldBolt : 0xD8
+{
+    [0x104, float] = "3 by default.";
+}
+
+class 0x211 MoveGameObjectController : 0xCF
+{
+}
+
+class 0x213 ButtonPressure : 0x541
+{
+    [0x138, Moby] = "";
+}
+
+class 0x21B PickupBolt : 0xD7
+{
+    [0xE4, float] Bolt Value = "";
+}
+
+class 0x21D PlatformBuoyant : 0x201
+{
+    [0x180, u32] Water = "Used by the script function platform_set_water.";
+}
+
+class 0x220 VendorBase : 0x47
+{
+    [0xC0, float] Open range = "";
+    [0xC4, float] Close range = "";
+    [0xC8, float] = "";
+    [0x1C0, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0x218, text] Prompt text = "Text of the prompt.";
+    [0x21C, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0x224, float] Prompt range = "The prompt shows within this distance.";
+    [0x238, u32] Prompt appear range = "";
+    [0x248, float] Prompt value B = "";
+    [0x254, u8, runtime] Prompt 3D distance = "";
+    [0x255, u8, runtime] Prompt enabled = "";
+    [0x256, u8, runtime] Prompt showing = "";
+    [0x257, u8, runtime] Prompt button state = "";
+    [0x270, Volume] Exit volume = "";
+}
+
+class 0x221 VendorArmor : 0x220
+{
+    [0x2B8, Controller] Camera = "";
+    [0x2BC, Moby] Armor pad = "";
+}
+
+class 0x225 BridgeBase : 0x47
+{
+    [0x5C, u16] = "Used by the script function bridge_is_extended.";
+    [0x6C, ref] = "";
+    [0x70, ref] = "";
+}
+
+class 0x22E CamArgFixedZoom : 0xD1
+{
+}
+
+class 0x238 space object base : 0x47
+{
+    [0x60, float] = "";
+    [0x64, float] = "";
+    [0x68, float] = "";
+    [0x470, bool] = "Used by the script function space_make_attacker.";
+    [0x490, u32] = "";
+    [0x4A0, u32] = "";
+    [0x4A4, u32, runtime] Run-time state = "";
+    [0x4AC, bool] Drops reward = "Off on the lava asteroids.";
+    [0x4AD, bool] Destroy effects = "";
+    [0x4AE, u16, runtime] State flags = "";
+}
+
+class 0x245 ShotTargetBase : 0x47
+{
+    [0x70, float] Range = "";
+    [0x74, Area] Area where = "";
+    [0x78, Area] = "";
+    [0x7C, Moby] Parent Moby = "Moby the target is attached to.";
+    [0x94, float] = "8 by default.";
+}
+
+class 0x246 ShotTargetSwing : 0x245
+{
+}
+
+class 0x24C PathFollower : 0x47
+{
+    [0x5C, u16, runtime] State = "";
+    [0xB0, component(0xA0)] Path motion = "";
+    [0xCC, u32] = "Used by the script function taxi_warp.";
+    [0x4C0, Path] Path = "The path followed.";
+    [0x4E0, float] Speed = "";
+    [0x4E4, float] Acceleration = "Most likely the acceleration.";
+    [0x4E8, float] Start position = "Where on the path it starts, from 0 to 1.";
+    [0x4EC, float] Speed factor = "";
+    [0x4F0, float] Motion value A = "";
+    [0x4F8, u32, runtime] Run-time state = "";
+    [0x50C, Pod] Carried objects = "Pod of Mobys that ride along.";
+    [0x510, Area] Stop area = "";
+    [0x514, float] Value = "";
+    [0x518, u32, runtime] Stop distances = "";
+    [0x52C, Volume] Stop volume 1 = "A place on the path where it can stop.";
+    [0x530, Volume] Stop volume 2 = "";
+    [0x534, Volume] Stop volume 3 = "";
+    [0x538, Volume] Stop volume 4 = "";
+    [0x540, bool] Motion flag = "";
+    [0x541, bool] Start moving = "";
+    [0x542, bool] Alternate collision = "";
+    [0x543, bool] Notify at start = "";
+    [0x547, bool] Moby flag = "";
+    [0x548, bool] Targetable = "";
+    [0x549, bool] Start hidden = "";
+    [0x54A, float] Far draw distance = "";
+}
+
+class 0x24D Taxi : 0x24C
+{
+    [0x5BC, text] Stop Prompt 1 = "Prompt shown when the taxi is at volume 1";
+    [0x5C0, text] Stop Prompt 2 = "Prompt shown when the taxi is at volume 2";
+    [0x5C4, text] Stop Prompt 3 = "Prompt shown when the taxi is at volume 3";
+    [0x5C8, text] Stop Prompt 4 = "Prompt shown when the taxi is at volume 4";
+}
+
+class 0x25B PlatformGrappleExtending : 0x4D
+{
+    [0x468, Path] = "";
+    [0x46C, ref] = "";
+}
+
+class 0x260 CamArgIndexedPath : 0xD1
+{
+    [0x60, Path] Index path = "The hero's progress along it drives the camera.";
+    [0x64, Path] Look-at path = "";
+    [0x68, Path] Camera path = "";
+}
+
+class 0x269 ArenaCrateSpawner : 0x47
+{
+}
+
+class 0x26E SimpleElevator : 0x47
+{
+    [0x5C, u16] = "Used by the script function elevator_is_moving.";
+    [0x74, Volume] Bottom Volume = "Used by the script function elevator_warp_to_first_node.";
+    [0x78, Volume] Call Elevator Down Volume = "Calls the elevator if player enters this volume if elevator is not already at the bottom volume.";
+    [0x88, Volume] Top Volume = "Used by the script function elevator_warp_to_second_node.";
+    [0x8C, Volume] Call Elevator Up Volume = "Calls the elevator up if the player is in the volume and the elevator was not.";
+    [0x158, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
+    [0x15C, float] = "Used by the script functions elevator_move, elevator_move_to_first_node, elevator_move_to_second_node.";
+    [0x16C, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
+    [0x178, Volume] = "";
+    [0x17C, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
+}
+
+class 0x28F Aphelion (ship hero) : 0xE5
+{
+    [0x70, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0xC8, text] Prompt text = "Text of the prompt.";
+    [0xCC, ref] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0xD4, float] Prompt range = "The prompt shows within this distance.";
+    [0xE8, u32] Prompt value A = "";
+    [0xF8, float] Prompt value B = "";
+    [0x104, u8, runtime] Prompt 3D distance = "";
+    [0x105, u8, runtime] Prompt enabled = "";
+    [0x106, u8, runtime] Prompt showing = "";
+    [0x107, u8, runtime] Prompt button state = "";
+    [0x420, Moby] Pilot = "Ratchet.";
+    [0x424, Controller] Camera controller = "A camera controller (scene_sat_cam, sectors with satellites).";
+    [0x1690, u32] = "Used by the script function space_land_ship.";
+    [0x16D0, component(0x4)] CAM_CameraShakeEffect = "";
+    [0x1710, float] = "Used by the script function space_land_ship.";
+    [0x1714, float] = "Used by the script function space_land_ship.";
+    [0x1718, float] = "Used by the script function space_land_ship.";
+    [0x171C, float] = "Used by the script function space_land_ship.";
+    [0x1730, float] = "Used by the script function space_land_ship.";
+    [0x1734, float] = "Used by the script function space_land_ship.";
+    [0x1738, float] = "Used by the script function space_land_ship.";
+    [0x173C, float] = "Used by the script function space_land_ship.";
+    [0x1760, float] = "Used by the script function space_land_ship.";
+    [0x1764, float] = "Used by the script function space_land_ship.";
+    [0x1768, float] = "Used by the script function space_land_ship.";
+    [0x176C, float] = "Used by the script function space_land_ship.";
+    [0x17C0, u32] = "Used by the script function space_land_ship.";
+    [0x1830, u32] = "Used by the script function space_land_ship.";
+    [0x1840, u32] = "Used by the script function space_land_ship.";
+    [0x186C, float] = "Used by the script function space_land_ship.";
+    [0x1938, u32] = "Used by the script function space_land_ship.";
+    [0x1988, float] = "Used by the script function space_land_ship.";
+    [0x1990, float] = "Used by the script function space_land_ship.";
+    [0x1994, float] = "Used by the script function space_land_ship.";
+    [0x1998, float] = "Used by the script function space_land_ship.";
+    [0x199C, float] = "Used by the script function space_land_ship.";
+    [0x19BC, u32] = "Used by the script function space_land_ship.";
+    [0x19FE, bool] = "Used by the script function space_land_ship.";
+    [0x1A02, bool] = "Used by the script function space_land_ship.";
+    [0x1A04, bool] = "Used by the script function space_land_ship.";
+}
+
+class 0x290 stationary laser : 0x47
+{
+    [0x5C, u16, runtime] State = "";
+    [0x6C, float] First part = "";
+    [0x74, LaserTripsMoveMode] Motion = "0 fixed, 1 travels between the start and end volumes, 2 the third mode (takes its own pose as the base).";
+    [0x78, float] Second part = "";
+    [0x80, float] = "";
+    [0x88, Volume] Start volume = "";
+    [0x8C, Volume] End volume = "";
+    [0x94, float, runtime] Cycle length = "";
+}
+
+class 0x291 BreakableCrateBase : 0x56A
+{
+}
+
+class 0x292 BreakableBombCrate : 0x291
+{
+}
+
+class 0x296 ActorBase : 0x47
+{
+    [0x6C, u32] Color = "Used by the script function actor_set_color.";
+    [0x70, u32] Idle face hero = "Used by the script function actor_set_idle_face_hero.";
+    [0x74, u32] = "Used by the script function actor_move.";
+    [0x8C, u32] Stance = "Used by the script function actor_set_stance.";
+    [0x90, u32] Stance = "Used by the script function actor_set_stance.";
+    [0x94, u32] Gesture = "Used by the script function actor_set_gesture.";
+    [0xB0, u32] Gesture = "Used by the script function actor_set_gesture.";
+    [0xF0, u32] = "Used by the script function actor_play_anim.";
+    [0x29C, u32] = "Used by the script functions actor_move, actor_stop_moving, actor_play_anim.";
+    [0x3A0, u32] = "Used by the script function actor_move.";
+    [0x3E0, u32] = "Used by the script function actor_move.";
+    [0x3F0, u32] = "Used by the script function actor_move.";
+    [0x470, float] = "Used by the script function actor_move.";
+    [0x474, float] = "Used by the script function actor_move.";
+    [0x478, float] = "Used by the script function actor_move.";
+    [0x480, u32] = "Used by the script function actor_move.";
+}
+
+class 0x2B6 PadBase : 0x47
+{
+}
+
+class 0x2C5 ShotTargetHook : 0x245
+{
+}
+
+class 0x2C9 aphelion_zoni : 0x47
+{
+    [0xB8, text] Flyoff Prompt = "";
+    [0xC4, float] = "";
+    [0xF8, u16] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+    [0xFA, u16] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+    [0xFC, float] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+    [0x100, float] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+    [0x104, u16] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+    [0x320, u32] = "Used by the script functions hero_ship_add_enter_cine, hero_ship_add_enter_movie.";
+    [0x350, u32] = "Used by the script functions hero_ship_add_enter_cine, hero_ship_add_enter_movie.";
+    [0x388, u32] = "Used by the script functions hero_ship_add_enter_cine, hero_ship_add_enter_movie.";
+    [0x400, u32] = "Used by the script functions hero_ship_add_exit_cine, hero_ship_add_exit_movie.";
+    [0x430, u32] = "Used by the script functions hero_ship_add_exit_cine, hero_ship_add_exit_movie.";
+    [0x468, u32] = "Used by the script functions hero_ship_add_exit_cine, hero_ship_add_exit_movie.";
+    [0x4E8, ref] = "";
+    [0x4EC, ref] = "";
+    [0x4F0, float] Path Max Speed = "Top speed along the intro and outro paths, in units per second.\nLanding: the ship enters the path at this speed.\nTake-off: the ship speeds up to it, and the flight ends once less than 0.6 x this + 1 units of path are left, so a value too large for the path skips the take-off flight.";
+    [0x4F4, float] Path Acceleration = "How fast the ship gains and loses speed on its paths, in units per second, per second.\nTake-off: starts still and speeds up by this much until it reaches Path Max Speed.\nLanding: brakes by this much over the end of the path (the last Max Speed x Max Speed / (2 x this) units).";
+    [0x4F8, float] Path Curve Damping = "1 = ship will stay horizontal\n0 = ship will totally follow path's curve/inclination";
+    [0x4FC, Path] Intro Path = "";
+    [0x500, Controller] Intro Camera = "";
+    [0x504, Path] Outro Path = "";
+    [0x508, Controller] Outro Camera = "";
+    [0x50C, Controller] = "";
+    [0x510, u32] = "Used by the script function show_upgrade_screen.";
+    [0x531, bool] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+    [0x532, bool] = "Used by the script functions hero_ship_fly_in, hero_ship_fly_out.";
+}
+
+class 0x2D0 CameraSwayController : 0xCF
+{
+    [0x34, Area] = "";
+}
+
+class 0x2D3 PlatformFloating : 0x201
+{
+}
+
+class 0x2D4 BreakableMetalCrate : 0x291
+{
+}
+
+class 0x2E2 camarggravtube : 0xD1
+{
+}
+
+class 0x2E7 BreakableAmmoCrate : 0x291
+{
+}
+
+class 0x2EC machine burner : 0x47
+{
+    [0x70, float] Burn Duration = "For how long does the fire last ?";
+    [0x74, float] Idle Duration = "For how long does the burner remain idle between blasts ?";
+    [0x82, bool] Burn status = "Used by the script functions flame_jet_on, flame_jet_off, flame_jet_restart.";
+    [0x83, bool] Also Burner status (needs tests) = "Used by the script functions flame_jet_on, flame_jet_off, flame_jet_restart.";
+}
+
+class 0x316 HazardFlameColumn : 0x47
+{
+    [0x150, Path] Move Path = "Path the burner moves along";
+}
+
+class 0x319 GrindRailElectroRing : 0x47
+{
+}
+
+class 0x333 CamArgOpeningView : 0xD1
+{
+    [0x60, float] Field of view = "<=0 uses game's default FoV";
+    [0x64, bool] Opening Camera? = "Possibly says which camera to use as opening camera?\n1 on three quarters.";
+}
+
+class 0x337 SimplePathFollower : 0x47
+{
+    [0x110, Path] Path followed = "The path followed.";
+    [0x130, float] Speed-like value = "";
+    [0x14C, float] Angle-like value = "";
+}
+
+class 0x358 tj_ago_arena_crowd : 0x47
+{
+}
+
+class 0x35E CarSpawner : 0xCF
+{
+    [0xC, float, runtime] Range = "";
+    [0x10, u8, runtime] Active = "";
+    [0x14, Path] Path = "The path the spawned objects fly.";
+    [0x18, Pod] Objects = "Pod of the Mobys to send along the path.";
+    [0x1C, ref] Start volume = "The stream starts at the point of the path nearest to it.";
+    [0x30, float] Interval, minimum = "Seconds between two objects.";
+    [0x34, float] Interval, maximum = "";
+    [0x38, float, runtime] Next spawn time = "";
+    [0x3C, float] Speed = "";
+    [0x48, float, runtime] Start distance = "";
+    [0x53, bool] Extra update = "";
+    [0x54, bool] Start active = "";
+}
+
+class 0x360 CamArgFixed : 0xD1
+{
+    [0x60, float] Field of view = "<=0 use game's default FoV.\n(In degrees)";
+    [0x64, u32] = "";
+}
+
+class 0x366 TurretBase : 0x47
+{
+}
+
+class 0x369 SoundEmitter : 0xCF
+{
+    [0x14, sound] Sound = "Plays at the controller.";
+    [0x18, Controller list] Environments = "Plays according to these environments.";
+    [0x1C, u32, runtime] Playing = "";
+    [0x20, s32, runtime] State = "";
+    [0x24, s32, runtime] Sound handle = "";
+}
+
+class 0x36F PlatformGrappleTwoAxis : 0x4D
+{
+    [0x4E0, ref] = "";
+    [0x4E4, Volume] = "";
+}
+
+class 0x371 EnemyGroupController : 0xCF
+{
+    [0x9C, Pod] = "";
+}
+
+class 0x373 TempCollisionDisable : 0x47
+{
+}
+
+class 0x384 PlatformBoltCrank : 0x47
+{
+    [0x5C, Moby] Bolt crank = "The bolt crank that drives the platform.";
+}
+
+class 0x388 ShakingPlant : 0x47
+{
+}
+
+class 0x391 SimpleMotion : 0x47
+{
+    [0x60, float] = "Used by the script functions simplemotion_set_dest, simplemotion_set_offset.";
+    [0x64, float] = "Used by the script functions simplemotion_set_dest, simplemotion_set_offset.";
+    [0x68, float] = "Used by the script functions simplemotion_set_dest, simplemotion_set_offset.";
+    [0x6C, float] = "Used by the script functions simplemotion_set_dest, simplemotion_set_offset.";
+    [0x70, float] Speed = "Used by the script function simplemotion_set_speed.";
+}
+
+class 0x3A7 PromptTeleporter : 0x47
+{
+    [0x78, Volume] Destination volume = "";
+    [0x80, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0xD8, text] Prompt text = "Text of the prompt.";
+    [0xDC, ref] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0xE4, float] Prompt range = "The prompt shows within this distance. Diameter, apparently.";
+    [0xF8, u32] Prompt value A = "";
+    [0x108, float] Prompt value B = "";
+    [0x114, u8, runtime] Prompt 3D distance = "";
+    [0x115, u8, runtime] Prompt enabled = "";
+    [0x116, u8, runtime] Prompt showing = "";
+    [0x117, u8, runtime] Prompt button state = "";
+    [0x138, bool] = "Used by the script function has_teleported.";
+    [0x139, bool] = "";
+    [0x13A, bool] = "";
+    [0x13B, bool] = "";
+}
+
+class 0x3B0 PadFling : 0x2B6
+{
+    [0xBC, text] Prompt text = "";
+    [0xC0, Volume] Land volume = "";
+    [0xC4, Path] Flight path = "";
+    [0xC8, Controller] Camera during the flight = "";
+    [0xCC, float] Flight tuning = "";
+}
+
+class 0x3B1 SpawnerBase : 0x47
+{
+    [0x88, ref] = "";
+}
+
+class 0x3B2 VendorWeapon : 0x220
+{
+}
+
+class 0x3BB DoorSlide : 0x548
+{
+    [0x150, Volume] Close Door Trigger = "Volume that triggers the beginning of the closing animation";
+    [0x158, float] Close Speed? = "";
+}
+
+class 0x3C8 DropShipBase : 0x47
+{
+    [0xF8, Path] = "";
+    [0x104, Volume] = "";
+    [0x108, Path] = "";
+}
+
+class 0x3CC swingcam : 0xD1
+{
+}
+
+class 0x3CD ShotTargetHang : 0x245
+{
+}
+
+class 0x3D0 FxController : 0xCF
+{
+    [0x14, effect] Effect = "The effect to play.";
+    [0x18, u32] Alternate effect = "";
+    [0x1C, bool32] Start active = "";
+    [0x20, bool32] Tracked = "The effect can be stopped later.";
+    [0x24, float] Retrigger delay, minimum = "";
+    [0x28, float] Retrigger delay, maximum = "Above 0, the effect plays again after a random delay.";
+    [0x2C, float] Retrigger chance = "From 0 to 1.";
+    [0x30, float] Impulse delay, minimum = "";
+    [0x34, float] Impulse delay, maximum = "";
+    [0x38, float] Stop delay, minimum = "";
+    [0x3C, float] Stop delay, maximum = "";
+    [0x40, u32] Trigger source = "";
+    [0x54, Volume] Volume = "The volume the effect fills.";
+    [0x6C, ref] = "";
+    [0x70, float] Impulse amount = "";
+    [0x74, float] Impulse radius = "";
+    [0x78, u32] Impulse value = "";
+    [0x90, float] Camera shake A = "";
+    [0x94, float] Camera shake B = "";
+    [0x98, float] Camera shake C = "";
+    [0x9C, float] Camera shake strength = "Above 0, the effect shakes the camera.";
+    [0xB0, float, runtime] Activated at = "";
+    [0xBC, float, runtime] Next retrigger = "";
+    [0xC0, float, runtime] Stop time = "";
+    [0x150, component(0x38)] Camera shake = "";
+}
+
+class 0x3E7 PhysicsObject : 0x47
+{
+}
+
+class 0x3ED PlatformMoving : 0x201
+{
+    [0x180, Volume] End volume = "";
+    [0x184, Volume] Start volume = "";
+    [0x188, Path] Move Path = "Path the platform moves along.";
+    [0x198, float] Speed-like value = "";
+    [0x19C, float] Wait-like value = "";
+}
+
+class 0x3EF WeatherController : 0xCF
+{
+    [0x60, Area] = "";
+}
+
+class 0x400 PlatformGrappleSliding : 0x4D
+{
+    [0x468, Path] = "";
+}
+
+class 0x402 CamArgFixedFollow : 0xD1
+{
+    [0x64, Moby] Target = "The Moby the camera turns to follow.";
+    [0x68, float] Turn speed = "";
+    [0x70, float] Value = "";
+}
+
+class 0x404 SimpleRotated : 0x47
+{
+    [0x5C, Axis] Rotation Axis = "Rotates the objects around axis:";
+    [0x60, s32] Joint = "The joint to turn; -1 for the whole object.";
+    [0x64, float] Speed = "Degrees per second.";
+    [0x68, float] Swing angle = "Above 0, it swings back and forth by this many degrees instead of turning round.";
+    [0x6C, float] Pause = "Seconds to wait at each end of a swing.";
+    [0x70, float] Time offset = "Seconds: shifts this object against the others.";
+    [0x74, bool] Always turn = "Keeps turning when out of sight.";
+    [0x78, float, runtime] Run-time state = "";
+}
+
+class 0x425 BoltCrankBase : 0x47
+{
+    [0x380, float] = "Used by the script function crank_reset.";
+    [0x384, float] = "Used by the script function crank_reset.";
+    [0x388, float] = "Used by the script function crank_reset.";
+    [0x38C, float] = "Used by the script function crank_reset.";
+    [0x394, u32] = "Used by the script function crank_reset.";
+    [0x3A4, u32] = "Used by the script function crank_reset.";
+    [0x3C8, bool] = "Used by the script function crank_reset.";
+    [0x3C9, bool] = "Used by the script function crank_reset.";
+    [0x3CA, bool] = "Used by the script function crank_reset.";
+}
+
+class 0x43B BreakableBoltCrate : 0x291
+{
+}
+
+class 0x46B BreakableHealthCrate : 0x291
+{
+}
+
+class 0x470 PlatformGrappleSpring : 0x4D
+{
+    [0x488, float] Launch strength = "";
+}
+
+class 0x472 VerticalFogController : 0xCF
+{
+    [0x14, Volume] Fog volume = "The volume the fog fills.";
+    [0x18, u8] Fog red = "";
+    [0x19, u8] Fog green = "";
+    [0x1A, u8] Fog blue = "";
+    [0x1C, float, runtime] Fog density = "";
+    [0x20, float, runtime] Fog height = "";
+}
+
+class 0x474 RotaterConstant : 0x185
+{
+}
+
+class 0x4BC SpaceMoon : 0x11E
+{
+    [0x28, component(0x98)] Land prompt = "The prompt shown when the ship can land.";
+    [0x80, text] Prompt text = "Replaced by the generic \"Land\" text when the level starts.";
+    [0x84, Volume] Prompt volume = "Unused on moons: the prompt works by range.";
+    [0x8C, float] Prompt range = "";
+    [0xA0, u32] Prompt value A = "";
+    [0xB0, float] Prompt value B = "";
+    [0xBC, u8, runtime] Prompt 3D distance = "";
+    [0xBD, u8, runtime] Prompt enabled = "";
+    [0xBE, u8, runtime] Prompt showing = "";
+    [0xBF, u8, runtime] Prompt button state = "";
+    [0xC0, Moby] Landing pad beam = "The ship lands on this Moby, facing the way it faces.";
+    [0xC4, ref] Spare reference = "Unused by the retail moons.";
+    [0xC8, u32, runtime] Zoni = "The moon's Zoni, found by the game among the moon's objects.";
+    [0xCC, u32, runtime] Gold bolt = "The moon's gold bolt, found by the game among the moon's objects.";
+    [0xD0, Volume] Moon area = "While Ratchet is inside, the moon's script runs; the ship counts as at this moon within its radius.";
+    [0xD4, text] Moon name = "Name shown on the HUD and the map.";
+    [0xD8, u32, runtime] Moon objects = "Every Moby of the Clue's layer, gathered by the game and hidden until the moon wakes up.";
+    [0xDC, float, runtime] Fade timer = "Fades the moon's objects in.";
+    [0xE0, float] Moon radius = "Radius of the moon surface used for map-mode camera fly height.";
+    [0xE4, bool] Landing message = "Landing tells the beam and the ship.";
+    [0xE8, u32, runtime] Layer name = "Filled in by the game.";
+    [0xEC, u8, runtime] Fade state = "";
+    [0xED, u8, runtime] Active = "";
+    [0xEE, bool] Station = "Ticked on the junk trader stations. The game does not seem to read it.";
+}
+
+class 0x4BF spinner bot : 0x181
+{
+}
+
+class 0x4C2 SpacePlanet : 0x11D
+{
+    [0x30, component(0x98)] Land prompt = "The prompt shown when the ship can land.";
+    [0x88, text] Prompt text = "Replaced by the generic \"Land\" text when the level starts.";
+    [0x8C, Volume] Prompt volume = "";
+    [0x94, float] Prompt range = "";
+    [0xA8, u32] Prompt value A = "";
+    [0xB8, float] Prompt value B = "";
+    [0xC4, u8, runtime] Prompt 3D distance = "";
+    [0xC5, u8, runtime] Prompt enabled = "";
+    [0xC6, u8, runtime] Prompt showing = "";
+    [0xC7, u8, runtime] Prompt button state = "";
+    [0xC8, Level] Destination level = "The level the ship loads when it lands here.";
+    [0xCC, text] Planet name = "Name shown on the HUD and the map.";
+    [0xD0, text] Barrier name = "Name of the barrier around the planet, when it has one.";
+    [0xD4, Volume] Location volume = "Unknown usage but seems required";
+    [0xD8, Volume] Barrier outer volume = "";
+    [0xDC, Volume] Barrier inner volume = "";
+    [0xE8, float, runtime] Barrier spacing = "";
+    [0xEC, u32, runtime] Barrier timer = "";
+    [0xF0, BarrierType] Barrier type = "The kind of barrier around the planet.";
+    [0xF2, bool] Flag A = "Ticked everywhere. The game does not seem to read it.";
+    [0xF3, bool] Not a planet = "Ticked on Vorselon's ship and the arena. The game does not seem to read it.";
+    [0xF4, u32, runtime] Barrier state = "";
+}
+
+class 0x4C4 space NPC : 0x47
+{
+    [0x70, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0xC8, text] Prompt text = "Text of the prompt.";
+    [0xCC, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0xD4, float] Prompt range = "The prompt shows within this distance.";
+    [0xE8, u32] Prompt value A = "";
+    [0xF8, float] Prompt value B = "";
+    [0x104, u8, runtime] Prompt 3D distance = "";
+    [0x105, u8, runtime] Prompt enabled = "";
+    [0x106, u8, runtime] Prompt showing = "";
+    [0x107, u8, runtime] Prompt button state = "";
+    [0x108, bool] Is a character = "Off on ships.";
+    [0x10C, u32] Character index = "";
+    [0x114, Volume] Camera volume = "Where the conversation camera is taken from.";
+    [0x118, Volume] Light link volume = "";
+    [0x124, float] = "";
+}
+
+class 0x4C7 azimuth : 0x141
+{
+    [0x142C, float] Chase distance = "Used by the script function azimuth_set_chase_distance.";
+    [0x1430, u32] Chase distance = "Used by the script function azimuth_set_chase_distance.";
+    [0x1474, u32] = "Used by the script function azimuth_throw_flare.";
+    [0x1478, float] = "Used by the script function azimuth_throw_flare.";
+    [0x1484, u32] = "Used by the script function azimuth_backstab.";
+    [0x148C, float] = "Used by the script function azimuth_setup_deathblows.";
+    [0x1490, float] = "Used by the script function azimuth_setup_deathblows.";
+    [0x1494, u32] = "Used by the script function azimuth_setup_deathblows.";
+    [0x1498, float] = "Used by the script function azimuth_setup_deathblows.";
+}
+
+class 0x4D3 NavClue_NavPoint : 0x11D
+{
+}
+
+class 0x4D4 NavClue_NavNetwork : 0x11D
+{
+    [0x14, Scent] = "";
+    [0x18, ref] = "";
+}
+
+class 0x4D6 cluesupersoakerfillup : 0x11D
+{
+    [0x18, Path] = "";
+}
+
+class 0x4D9 ClueFirePoint : 0x11D
+{
+}
+
+class 0x4E1 Agorian warrior : 0x181
+{
+    [0xCF4, float] Rush dists = "Used by the script function agorian_set_rush_dists.";
+    [0xCF8, float] Rush dists = "Used by the script function agorian_set_rush_dists.";
+    [0xD0C, u32] Shots per volley = "Used by the script function agorian_set_shots_per_volley.";
+}
+
+class 0x51E kb_great_clock_time_record_pad : 0x47
+{
+    [0x8C, u32] = "Used by the script function clone_pad_delete_all.";
+    [0x90, Volume] = "";
+    [0x94, ref] = "";
+    [0x98, u32] Reset pod = "Used by the script function clone_pad_set_reset_pod.";
+    [0xA0, u32] = "Used by the script function clone_pad_has_clone.";
+    [0xAC, Volume] = "";
+    [0xB0, Volume] = "";
+    [0xB4, Moby] = "";
+    [0xB8, Moby] = "";
+    [0xE4, u32] = "Used by the script function clone_pad_disable_sigmund.";
+    [0xEC, u32] = "Used by the script function clone_pad_get_count.";
+    [0xF8, u32] = "Used by the script function clone_pad_disable_sigmund.";
+    [0xFC, u32] Sigmund path = "Used by the script function clone_pad_set_sigmund_path.";
+}
+
+class 0x52E PlayerBase : 0x47
+{
+    [0x5C, Controller, runtime] Player camera? = "Assumed because used by the script functions default_follow_cam_pos, get_follow_cam_dist, get_follow_cam_pitch.";
+}
+
+class 0x541 Button : 0x47
+{
+}
+
+class 0x544 BurningTorch : 0x47
+{
+}
+
+class 0x545 ConveyorBelt : 0x47
+{
+}
+
+class 0x548 Door : 0x47
+{
+    [0x70, ref] = "";
+    [0xE8, Volume] Open volume = "Overrides any state provided by a child class.";
+    [0xEC, Volume] Close volume = "Overrides any state provided by a child class.";
+    [0xF0, Pod] Button groups open = "Pod of the buttons that open it.";
+    [0xF4, Volume] = "";
+    [0xFC, float] = "Used by the script functions door_force_open, door_force_closed, door_clear_force.";
+    [0x108, float] Speed-like value = "";
+}
+
+class 0x54A DoorAnimated : 0x548
+{
+}
+
+class 0x54D PlatformRotating : 0x201
+{
+    [0x120, bool32] Unk = "";
+    [0x124, bool] b1 Rotation Direction? = "(4 bytes)";
+    [0x125, bool] b2 Rotation Direction? = "";
+    [0x126, bool] b3 Rotation Direction? = "";
+    [0x127, bool] b4 Rotation Direction? = "";
+}
+
+class 0x54E battery bot : 0x181
+{
+    [0x940, ref] = "";
+    [0xC80, Area] Area of flee paths = "";
+    [0xC84, Volume] No-lock volume = "A no-lock volume.";
+}
+
+class 0x553 PlatformProcedural : 0x201
+{
+    [0x11C, Volume] = "";
+    [0x120, Volume] = "";
+    [0x124, Moby] = "";
+}
+
+class 0x556 SpaceAsteroid : 0x67D
+{
+    [0x528, bool] Irradiated = "A radioactive asteroid: it damages the ship nearby.";
+}
+
+class 0x55B ant_swarm : 0x47
+{
+    [0x190, u32] = "Used by the script functions swarm_is_targeting_ratchet, swarm_is_targeting_ambrosia.";
+    [0x198, u32] Override target = "Used by the script function swarm_set_override_target.";
+    [0x19C, u32] Override target = "Used by the script function swarm_set_override_target.";
+    [0x1A0, float] Override target = "Used by the script function swarm_set_override_target.";
+    [0x1A4, float] Override target = "Used by the script function swarm_set_override_target.";
+    [0x1A8, u32] = "Used by the script function swarm_is_hiding.";
+    [0x1AC, Area] = "";
+    [0x1B0, Area] = "";
+    [0x1B4, Moby] = "";
+    [0x1B8, Moby] = "";
+    [0x1BC, Moby] = "";
+    [0x1C0, u16] = "Used by the script function swarm_is_retreating.";
+    [0x1D7, bool] = "Used by the script functions swarm_targeted_ambrosia, swarm_took_non_ambrosia_damage.";
+    [0x27C, float] = "Used by the script function swarm_force_retreat.";
+}
+
+class 0x55F ConveyorJunk : 0x47
+{
+    [0xDC, Volume] = "";
+}
+
+class 0x569 Damageable : 0x47
+{
+    [0x5C, SpawnRule] Spawn rule = "Whether the object is there, given the state of its level segment.";
+    [0x60, component(0x24)] Reward = "What breaking it pays. Set by the game for each crate type.";
+    [0x1B4, ref] = "";
+    [0x1B8, ref] = "";
+    [0x1E0, u32] Health type = "";
+    [0x1E4, float] Health = "";
+    [0x1FC, u16] = "Used by the script functions fixable_is_fixed, fixable_is_broken.";
+}
+
+class 0x56A Breakable : 0x569
+{
+    [0x208, bool32] Strong break = "Pieces fly further on some hits.";
+    [0x230, float] Break force = "How hard the pieces fly.";
+    [0x234, float] Piece lifetime = "Seconds the pieces stay; negative for the default.";
+}
+
+class 0x56E Destructible : 0x56A
+{
+}
+
+class 0x570 hydro plant : 0x47
+{
+}
+
+class 0x573 ambrosia_plant : 0x47
+{
+}
+
+class 0x577 hoverboot ramp / kick pad : 0x2B6
+{
+    [0xC8, Path] Flight path = "Its ends are moved onto the two pads by the game.";
+    [0xCC, Volume] Trigger volume = "";
+    [0xD0, Controller] Camera = "";
+    [0xD4, Controller] Second camera = "";
+    [0xD8, Moby] Destination pad = "The pad the hero lands on.";
+    [0xDC, u32] Jump duncan hack = "Used by the script function set_jump_duncan_hack.";
+    [0xE0, float] Launch tuning = "";
+    [0xF0, float] Launch angle = "";
+    [0xF4, float] Landing angle = "Takes the launch angle when left unset.";
+    [0xF8, float] Jump duncan hack = "Used by the script function set_jump_duncan_hack.";
+    [0xFC, float] Jump duncan hack = "Used by the script function set_jump_duncan_hack.";
+    [0x100, u32, runtime] Run-time state = "";
+    [0x108, u32] Mode = "";
+    [0x10C, u32] Second mode = "";
+    [0x111, bool] Use mode flags = "";
+    [0x112, bool] Mode flag A = "";
+    [0x113, bool] One-way = "Only this pad's end of the path is placed.";
+    [0x114, bool] Mode flag B = "";
+}
+
+class 0x589 PlatformGrappleWinding
+{
+}
+
+class 0x590 Agorian battlebot : 0x181
+{
+}
+
+class 0x591 GenericPrompt : 0x47
+{
+    [0x60, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0xB8, text] Prompt text = "Text of the prompt.\nCan be set with script function prompt_set_tag\nHence tags might not always be valid in this field.";
+    [0xBC, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0xC4, float] Prompt range = "The prompt shows within this distance.";
+    [0xD8, u32] Prompt value A = "";
+    [0xE8, float] Prompt value B = "";
+    [0xF4, u8, runtime] Prompt 3D distance = "";
+    [0xF5, u8, runtime] Prompt enabled = "";
+    [0xF6, u8, runtime] Prompt showing = "";
+    [0xF7, u8, runtime] Prompt button state = "";
+    [0x148, u32] = "0 229 / 231 on two Great Clock prompts.";
+    [0x15C, bool] = "";
+}
+
+class 0x598 lv_ant_swarm_spawner : 0x47
+{
+}
+
+class 0x59D ClueSwarmBridge : 0x11D
+{
+    [0x14, ref] = "";
+    [0x18, Path] = "";
+}
+
+class 0x5A0 PlatformGrappleAutoSpring
+{
+    [0x468, Moby] Bolt crank = "A bolt crank (two instances).";
+    [0x488, float] Launch strength = "";
+}
+
+class 0x5A3 custom_pistol : 0x154
+{
+}
+
+class 0x5A4 custom_shotgun : 0x154
+{
+}
+
+class 0x5AC battery bot socket : 0x47
+{
+    [0x5C, Moby, runtime] Attached Socket Bot = "Used by the script function get_attached_battery_bot.";
+}
+
+class 0x5AF ConveyorSmasher : 0x47
+{
+    [0x60, float] Idle Time = "";
+    [0x64, float] Speed = "";
+    [0x68, float] Time offset = "";
+    [0x70, u32] = "Used by the script functions open_smasher, close_smasher, restart_smasher.";
+    [0x74, u16] = "Used by the script functions open_smasher, close_smasher, restart_smasher.";
+    [0x76, u16] = "Used by the script functions open_smasher, close_smasher, restart_smasher.";
+}
+
+class 0x5B0 junk trader : 0x187
+{
+}
+
+class 0x5B7 webtacle_wall : 0x54A
+{
+    [0x10C, ref] = "";
+    [0x11C, float] = "Used by the script function is_webtacle_thrashing.";
+}
+
+class 0x5BE hydra : 0x181
+{
+    [0xC40, u32] = "Used by the script function hydra_tank_kill.";
+    [0xDB0, u32] = "Used by the script function hydra_tank_kill.";
+    [0xE48, u32] = "Used by the script function hydra_tank_kill.";
+    [0xF20, u32] = "Used by the script function hydra_tank_kill.";
+    [0xFB8, u32] = "Used by the script function hydra_tank_kill.";
+    [0x1090, u32] = "Used by the script function hydra_tank_kill.";
+    [0x1154, u32] = "Used by the script function arena_hydra_tag_out.";
+    [0x1159, bool] = "Used by the script function arena_hydra_tag_out.";
+}
+
+class 0x5C6 PlatformGrappleJunkDoor
+{
+}
+
+class 0x5D2 hoverboot_bolt_crank : 0x425
+{
+    [0x3D0, Controller] Crank Camera = "";
+    [0x3D4, Volume] = "";
+    [0x3D8, Volume] = "";
+}
+
+class 0x5D3 Zoni : 0x181
+{
+    [0x920, u32] 409 = "409 on all zonis. Used by script functions related to zoni.";
+    [0xB90, u32] Forced idle = "Used by the script function zoni_set_forced_idle.";
+    [0xB94, u32] Forced idle = "Used by the script function zoni_set_forced_idle.";
+    [0xB98, u32] Forced idle = "Used by the script function zoni_set_forced_idle.";
+    [0xC90, Area] Area of chase paths = "";
+    [0xC94, Volume] Chase Start Volume = "Start of the chase / home.";
+    [0xC98, Volume] Chase End Volume = "End of the chase.";
+    [0xCA0, u32] Stop = "Used by the script functions zoni_path_follow, zoni_set_stop, zoni_clear_stop.";
+    [0xCBD, bool] Forced idle = "Used by the script function zoni_set_forced_idle.";
+    [0xCC0, u32] = "Used by the script function zoni_resurrect.";
+}
+
+class 0x5D6 panel_hydroid : 0x47
+{
+}
+
+class 0x5DA grind_vine_seed : 0x47
+{
+}
+
+class 0x5DC clue_grindvine_patch : 0x11D
+{
+}
+
+class 0x5E0 Fongoid : 0x187
+{
+    [0xD44, Pod] = "";
+}
+
+class 0x5E4 dropship_a_agorian : 0x3C8
+{
+    [0x578, Pod] = "";
+    [0x57C, Pod] = "";
+    [0x580, Pod] = "";
+    [0x584, Pod] = "";
+    [0x588, ref] = "";
+}
+
+class 0x5E8 spawner_cannon : 0x47
+{
+    [0x6C, Path] = "";
+    [0x70, Volume] = "";
+    [0x74, Area] = "";
+}
+
+class 0x5EE zoni_vessel : 0xD8
+{
+}
+
+class 0x5F5 general_ship : 0x47
+{
+    [0x5CC, Area] = "";
+    [0x5D8, Volume] = "";
+    [0x5E0, Path] = "";
+    [0x5E4, Path] = "";
+    [0x650, Volume] = "";
+    [0x654, Pod] = "";
+    [0x658, Area] = "";
+    [0x65C, Path] = "";
+    [0x660, Path] = "";
+    [0x664, Path] = "";
+    [0x66C, Volume] = "";
+}
+
+class 0x60A first_t_bridge : 0x553
+{
+}
+
+class 0x60B CollisionSticker : 0x47
+{
+}
+
+class 0x60E hangar_turret : 0x366
+{
+}
+
+class 0x613 agorian_strafer : 0x47
+{
+    [0x570, Path] = "";
+    [0x574, Area] = "";
+}
+
+class 0x616 parking_arm : 0x47
+{
+    [0x6C, Moby] = "";
+    [0x70, Moby] = "";
+    [0x74, Moby] = "";
+    [0x78, Moby] = "";
+    [0x7C, Path] = "";
+}
+
+class 0x61C destructible junk pile : 0x56E
+{
+}
+
+class 0x622 DamageDistributerVolleyInfo : 0x11D
+{
+    [0x24, Moby] = "";
+    [0x28, Volume] = "";
+    [0x2C, Area] = "";
+    [0x30, Volume] = "";
+}
+
+class 0x623 DamageDistributer : 0x47
+{
+    [0x60, bool] = "";
+    [0x61, bool] = "";
+    [0x62, bool] = "";
+    [0x63, bool] = "";
+}
+
+class 0x626 HazardSwampGasJet : 0xCF
+{
+    [0x14, float] = "";
+}
+
+class 0x62D CamArgPathTraveler : 0x47
+{
+}
+
+class 0x630 tb_gc_clanksub_tile_platform : 0x201
+{
+    [0x2B0, Pod] = "";
+}
+
+class 0x63D prized junk pickup : 0xD8
+{
+}
+
+class 0x63F machine_sawblade_hazard : 0x47
+{
+    [0x7C, u16] = "Used by the script functions open_saw, close_saw, restart_saw.";
+    [0x7E, u16] = "Used by the script functions open_saw, close_saw, restart_saw.";
+}
+
+class 0x643 flare : 0xD7
+{
+    [0x110, u32] = "Used by the script function reset_flares.";
+    [0x120, u32] = "Used by the script function reset_flares.";
+}
+
+class 0x645 ConfirmPrompt : 0x47
+{
+    [0x168, Pod] = "";
+}
+
+class 0x646 qwark : 0x141
+{
+    [0x146C, float] Roam radius = "Used by the script function qwark_set_roam_radius.";
+    [0x1490, float] = "Used by the script function qwark_setup_deathblows.";
+    [0x1494, float] = "Used by the script function qwark_setup_deathblows.";
+    [0x1498, u32] = "Used by the script function qwark_setup_deathblows.";
+    [0x149C, float] = "Used by the script function qwark_setup_deathblows.";
+}
+
+class 0x647 death_beam_asteroid : 0x56A
+{
+    [0x5F0, Path] = "";
+}
+
+class 0x648 PlatformAnimated : 0x201
+{
+    [0x12C, Pod] = "";
+}
+
+class 0x65B crank-driven platform : 0x47
+{
+    [0x84, Volume] Start volume = "";
+    [0x88, Volume] End volume = "";
+    [0x8C, Moby] Winch crank = "";
+    [0x90, Moby] Swingshot target = "A swingshot target that drives it instead.";
+}
+
+class 0x65C planetgamec : 0x47
+{
+    [0x5C, u32] Incomplete = "Used by the script function ftg_set_incomplete.";
+    [0x80, u32] = "Used by the script function ftg_set_incomplete.";
+    [0x88, u32] = "Used by the script function ftg_set_incomplete.";
+    [0x8C, Moby] = "";
+    [0x90, Moby] = "";
+    [0x94, Moby] = "";
+    [0xA0, u32] Incomplete = "Used by the script function ftg_set_incomplete.";
+    [0x190, Controller] = "";
+}
+
+class 0x665 winch crank : 0x425
+{
+}
+
+class 0x668 blaster_game : 0x47
+{
+    [0xD8, text] Prompt Text = "MBRH prompt text !";
+    [0xDC, Volume] Prompt Volume = "MBRH prompt volume !";
+    [0x118, u32] = "Used by the script function set_arcade_game.";
+    [0x157, bool] Arcade game = "Whether this arcade is a playable arcade game or not\n(Can run MBRH or nah ?)";
+}
+
+class 0x669 qwark_door : 0x47
+{
+    [0x68, u32] Broken = "Used by the script functions qwark_door_set_broken, qwark_door_manual_break.";
+    [0x6C, u32] = "Used by the script function qwark_door_enable_break.";
+}
+
+class 0x66A blob : 0x181
+{
+    [0x920, u32] 322 = "";
+    [0xB74, float] = "";
+    [0xB78, float] = "";
+    [0xB7C, float] = "";
+    [0xB80, float] = "";
+    [0xB84, float] = "";
+    [0xB88, float] = "";
+    [0xB8C, float] = "";
+    [0xB94, float] = "";
+    [0xB98, float] = "";
+    [0xC10, float] = "Used by the script function blob_scripted_combine.";
+    [0xC14, float] = "Used by the script function blob_scripted_combine.";
+    [0xC18, float] = "Used by the script function blob_scripted_combine.";
+    [0xC1C, float] = "Used by the script function blob_scripted_combine.";
+    [0xC20, u32] = "Used by the script function blob_scripted_combine.";
+    [0xC30, Pod] = "Pod of the blob's group.";
+    [0xC35, bool] = "Used by the script function blob_scripted_combine.";
+    [0xC36, bool] = "Used by the script function blob_scripted_combine.";
+    [0xC37, bool] = "Used by the script function blob_scripted_combine.";
+    [0xC70, u32] = "Used by the script function blob_scripted_combine.";
+    [0xC74, u32] = "Used by the script function blob_scripted_combine.";
+    [0xC78, bool] = "Used by the script function blob_scripted_combine.";
+}
+
+class 0x678 kb_great_clock_pressure_pad : 0x213
+{
+}
+
+class 0x67D space drifting object base : 0x238
+{
+    [0x4E0, u32] = "Used by the script function space_make_attacker.";
+    [0x50E, bool] Flotsam = "Ticked on space flotsam.";
+}
+
+class 0x683 NPCStateGotoPoint : 0x47
+{
+    [0x5C, u32] = "Used by the script functions vx99_open_flaps, vx99_start_top_attack.";
+    [0x98, u32] = "Used by the script function vx99_attack_path.";
+    [0x9C, u32] = "Used by the script function vx99_attack_path.";
+    [0xA4, u32] = "Used by the script functions vx99_lower_turret, vx99_start_top_attack, vx99_start_turret_attack.";
+    [0xA8, u32] = "Used by the script function vx99_pull_dome.";
+    [0x400, u32] = "Used by the script function vx99_go_to_volume.";
+    [0x404, u32] = "Used by the script function vx99_follow_path.";
+    [0x410, float] = "Used by the script functions vx99_follow_path, vx99_go_to_volume.";
+    [0x414, float] = "Used by the script functions vx99_follow_path, vx99_go_to_volume.";
+    [0x41C, u32] Fling data = "Used by the script function vx99_set_fling_data.";
+    [0x420, u32] Fling data = "Used by the script function vx99_set_fling_data.";
+    [0x424, Pod] = "";
+    [0x428, Area] = "";
+    [0x43E, bool] Bob active = "Used by the script function vx99_set_bob_active.";
+}
+
+class 0x699 Nefarious swarmer : 0x181
+{
+}
+
+class 0x69A Nefarious trooper : 0x181
+{
+    [0x920, u32] 409 = "409 on all enemies it seems";
+    [0xB74, float] = "";
+    [0xB78, float] = "";
+    [0xB7C, float] = "";
+    [0xB80, float] = "";
+    [0xB84, float] = "";
+    [0xB88, float] = "";
+    [0xB8C, float] = "";
+    [0xB94, float] = "";
+    [0xB98, float] = "";
+    [0xBF0, u32] 322 = "322 on all NPCs with an AI";
+    [0xE44, float] = "";
+    [0xE48, float] = "";
+    [0xE4C, float] = "";
+    [0xE50, float] = "";
+    [0xE54, float] = "";
+    [0xE58, float] = "";
+    [0xE5C, float] = "";
+    [0xE64, float] = "";
+    [0xE68, float] = "";
+}
+
+class 0x69D EnemyStateFollowTarget_DebugData : 0x3ED
+{
+    [0x1C0, Moby] = "";
+    [0x1C4, Moby] = "";
+    [0x1C8, Volume] = "";
+    [0x1CC, ref] = "";
+}
+
+class 0x69F clueazimuthship : 0x11D
+{
+    [0x24, Moby] = "";
+    [0x28, Volume] = "";
+}
+
+class 0x6A0 azimuth_tankbstrafe : 0x47
+{
+    [0x110, Path] = "";
+}
+
+class 0x6A3 dice_crate : 0x47
+{
+}
+
+class 0x6A4 camo crate : 0x291
+{
+}
+
+class 0x6A9 orvus : 0x187
+{
+}
+
+class 0x6AF gas_room_pad : 0x2B6
+{
+    [0x118, u32] = "Used by the script function multipad_set.";
+}
+
+class 0x6B2 Terachnoid : 0x187
+{
+    [0xD24, Area] = "";
+}
+
+class 0x6BD blob_spawner : 0x47
+{
+    [0x50C, Pod] = "";
+    [0x510, Pod] = "";
+}
+
+class 0x6C7 subcon_mini_qwark : 0x181
+{
+}
+
+class 0x6CA clueallyjumpspot : 0x11D
+{
+    [0x14, Volume] = "";
+}
+
+class 0x6CD nefarious_large_trooper : 0x181
+{
+    [0xBF4, Volume] = "";
+    [0xBF8, Area] = "";
+    [0xC0C, u32] = "Used by the script function nef_trooper_spawn_swarmers.";
+    [0xC10, u32] = "Used by the script function nef_trooper_spawn_swarmers.";
+    [0xC14, u32] = "Used by the script function nef_trooper_spawn_swarmers.";
+    [0xC18, Moby] = "";
+    [0xC1C, u16] = "Used by the script function nef_trooper_spawn_swarmers.";
+}
+
+class 0x6CE fongoid_staff_panel : 0x47
+{
+}
+
+class 0x6D0 stellar_leviathan : 0x181
+{
+    [0xA90, Path] = "";
+}
+
+class 0x6D4 timed floating platform : 0x47
+{
+    [0x6C, float] Per-instance time = "";
+}
+
+class 0x6D5 soaker refill tank : 0x47
+{
+}
+
+class 0x6D7 vacuum pad / transport tube : 0x47
+{
+    [0x5C, Moby] Destination Pad = "The pad at the other end.\n(None if not an actual TP pad)";
+    [0x60, Controller] Camera = "";
+    [0x68, component(0x98)] Prompt = "The prompt shown near the object.";
+    [0xC0, text] Prompt text = "Text of the prompt.";
+    [0xC4, ref] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0xCC, float] Prompt range = "The prompt shows within this distance.";
+    [0xE0, u32] Prompt value A = "";
+    [0xF0, float] Prompt value B = "";
+    [0xFC, u8, runtime] Prompt 3D distance = "";
+    [0xFD, u8, runtime] Prompt enabled = "";
+    [0xFE, u8, runtime] Prompt showing = "";
+    [0xFF, u8, runtime] Prompt button state = "";
+}
+
+class 0x6DC zolar_bridge_chunks : 0x47
+{
+}
+
+class 0x6E0 nefarious_dropship : 0x181
+{
+    [0x1218, ref list] Actions = "Its flight and drop steps.";
+    [0x121C, u32, runtime] Action count = "";
+    [0x1220, u32, runtime] Action list = "";
+}
+
+class 0x6E3 SpaceAsteroidField : 0xCF
+{
+    [0x30, Pod] Asteroids = "Pod of the field's asteroids.";
+}
+
+class 0x6E7 sigmund : 0x187
+{
+    [0xD30, u32] = "";
+    [0x1000, float] = "Used by the script function sigmund_harrass.";
+    [0x1004, float] = "Used by the script function sigmund_harrass.";
+    [0x1008, float] = "Used by the script function sigmund_harrass.";
+    [0x100C, float] = "Used by the script function sigmund_harrass.";
+    [0x1010, ref] = "";
+    [0x1014, u32] = "Used by the script functions sigmund_holo_intro, sigmund_holo_outro.";
+    [0x101C, bool] Grounded = "Used by the script function sigmund_set_grounded.";
+    [0x101F, bool] = "Used by the script functions sigmund_holo_intro, sigmund_holo_outro.";
+}
+
+class 0x6E8 hbs_boss : 0x181
+{
+    [0xBF0, Volume] = "";
+    [0xBF4, Pod] = "";
+    [0xBF8, Pod] = "";
+}
+
+class 0x6ED galacton_first : 0x181
+{
+    [0xD38, Area] = "";
+}
+
+class 0x6FC versa bolt : 0x47
+{
+}
+
+class 0x706 armor pad : 0x47
+{
+}
+
+class 0x708 tb_gc_ringa : 0x54D
+{
+}
+
+class 0x70D axiom_cargo : 0x47
+{
+    [0x60, Moby] = "";
+    [0x64, Pod] = "";
+}
+
+class 0x713 zapper : 0xCF
+{
+    [0x14, Pod] = "";
+}
+
+class 0x714 SpaceAttackController : 0xCF
+{
+    [0x38, u32] Ships alive, minimum = "";
+    [0x3C, u32] Ships alive, maximum = "A new wave is sent when fewer enemy ships than this are flying.";
+    [0x40, u32] Wave size, minimum = "";
+    [0x44, u32] Wave size, maximum = "";
+    [0x48, float] Carrier health = "Health of the ship that launches each wave.";
+    [0x4C, s32] Ship budget = "Total ships left to send; -1 for no limit.";
+    [0x50, u32] Bombers alive, maximum = "";
+    [0x54, u32] Bomber chance = "Chance in percent that a wave includes bombers.";
+    [0x58, u32] Bombers per wave, maximum = "";
+}
+
+class 0x719 custom weapon part pickup : 0xD8
+{
+    [0xEC, ConstructoParts] Constructo Part = "Different on each of the 17 instances.";
+}
+
+class 0x71A rotating_magboot_laser_emitters : 0x47
+{
+    [0x60, Moby] = "";
+}
+
+class 0x720 sr_great_clock_elevator_standard : 0x26E
+{
+    [0x184, Moby] = "";
+}
+
+class 0x72B poison_fog : 0xCF
+{
+}
+
+class 0x72C landing pad beam : 0x47
+{
+    [0x5C, component(0x24)] Reward = "No reward: cleared by the game.";
+    [0x80, Volume] Take-off volume = "Where Ratchet stands to take off.";
+    [0x84, Volume] Respawn volume = "Checkpoint used on the junk trader stations.";
+}
+
+class 0x730 a_target : 0x11D
+{
+}
+
+class 0x739 occular_scanner : 0x47
+{
+}
+
+class 0x73B electric_arc_master : 0xCF
+{
+    [0x14, float] = "";
+    [0x18, float] = "";
+    [0x1C, float] = "";
+    [0x20, float] = "";
+    [0x24, float] = "";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+}
+
+class 0x73D water_tower_a : 0x56A
+{
+}
+
+class 0x740 ping_pong_gears_machine
+{
+}
+
+class 0x741 kb_gc_power_cord_straight_m : 0x47
+{
+    [0x5C, Moby] = "";
+}
+
+class 0x744 puzzle_fancydoor : 0x54A
+{
+}
+
+class 0x745 lawrence_holo : 0x187
+{
+}
+
+class 0x749 boss_trooper : 0x181
+{
+    [0xBE8, Clue] = "";
+    [0xBF0, ref] = "";
+}
+
+class 0x74C tumbler_puzzle : 0x47
+{
+    [0x430, ref] = "";
+}
+
+class 0x74D swarm_block : 0x47
+{
+}
+
+class 0x757 DerelictShip : 0x238
+{
+}
+
+class 0x75D SpaceAttackController (Agorian) : 0x714
+{
+    [0x5C, bool] Advanced fighters = "";
+    [0x5D, bool] Advanced bombers = "";
+}
+
+class 0x75E SpaceAttackController (Nefarious) : 0x714
+{
+    [0x5C, bool] Advanced fighters = "";
+    [0x5D, bool] Advanced bombers = "";
+}
+
+class 0x75F SpaceDefenseSatellite : 0x238
+{
+    [0x4D0, Controller] Attack controller = "Controller for waves, enemies types, health...";
+    [0x4D4, Volume] Detection volume = "The ship inside it is spotted.";
+    [0x4D8, Volume] Tracking volume = "The ship stays tracked until it leaves it.";
+    [0x4DC, u32] Value = "";
+}
+
+class 0x762 jn_axm_planter_breakable : 0x569
+{
+}
+
+class 0x765 Vorselon's ship : 0x47
+{
+    [0x80, float] = "";
+    [0xD4, Volume] Inner volume = "";
+    [0xD8, Volume] Outer volume = "";
+}
+
+class 0x76D SpaceShockwaveMine : 0x238
+{
+}
+
+class 0x773 cluehbsambientmovement : 0x11D
+{
+}
+
+class 0x774 cluehbsbounce : 0x11D
+{
+}
+
+class 0x775 hsb_ambient : 0x181
+{
+    [0xBE0, Scent] = "";
+    [0xBE4, Path] = "";
+}
+
+class 0x77B boss_azimuth : 0x181
+{
+    [0x9A0, Volume] = "";
+}
+
+class 0x788 boss_cassy : 0x181
+{
+    [0x93C, Volume] = "";
+    [0x940, Path] = "";
+    [0x944, Path] = "";
+    [0x968, u32] = "Used by the script function cassy_exit_arena.";
+    [0x990, u32] = "Used by the script function cassy_go_to_volume.";
+    [0x994, u32] = "Used by the script function cassy_follow_path.";
+    [0x998, u32] = "Used by the script function cassy_follow_path.";
+    [0xA3D, bool] = "Used by the script function cassy_exit_arena.";
+}
+
+class 0x789 cam_gcb_subcon_puzzle_cham_button : 0xD1
+{
+}
+
+class 0x78F tb_gc_clanksub_zoniscreen : 0x19F
+{
+    [0x70, Volume] = "";
+}
+
+class 0x790 gcb_subcon_tube : 0x47
+{
+    [0x108, Moby] = "";
+    [0x10C, Moby] = "";
+    [0x110, Moby] = "";
+    [0x114, Moby] = "";
+    [0x118, Moby] = "";
+    [0x11C, Moby] = "";
+    [0x120, Moby] = "";
+}
+
+class 0x796 space mission ship : 0x67D
+{
+    [0x510, u32] = "Used by the script function space_make_attacker.";
+    [0x514, Controller] Attack controller = "Enemy ships ambush around this ship.";
+    [0x518, u32] = "Used by the script function space_make_attacker.";
+    [0x51C, bool] = "Used by the script function space_make_attacker.";
+}
+
+class 0x79B kb_gc_fixable_sconce_b : 0x569
+{
+    [0x218, u32] = "Used by the script functions fixable_fix, fixable_break.";
+}
+
+class 0x79C sigmund_squawk_box : 0x47
+{
+}
+
+class 0x79E dialogue_fongoid_past : 0xCF
+{
+}
+
+class 0x7A3 hangar_chunk : 0xCF
+{
+}
+
+class 0x7A5 SpaceJumpingFireball : 0x47
+{
+    [0x84, float] = "Roles open).";
+    [0x88, float] = "";
+    [0x8C, float] = "";
+    [0x90, float] = "";
+    [0x94, float] = "";
+}
+
+class 0x7B0 kb_gc_platform_gun_hazard : 0x3ED
+{
+    [0x1C0, Volume] = "";
+}
+
+class 0x7BB SpaceComet : 0x47
+{
+    [0x5C, Path] Path = "The path the comet flies.";
+}
+
+class 0x7BE boss_ring_seg_c : 0x47
+{
+    [0xBC, ref] = "";
+    [0xC0, Pod] = "";
+    [0xCC, Moby] = "";
+}
+
+class 0x7BF boss_nefarious : 0x181
+{
+    [0x958, u32] = "Used by the script function nefarious_laser_create.";
+    [0x95C, u32] = "Used by the script function nefarious_laser_create.";
+    [0x960, u32] = "Used by the script function nefarious_laser_create.";
+    [0x964, u32] = "Used by the script function nefarious_laser_create.";
+    [0x968, u32] = "Used by the script function nefarious_laser_create.";
+    [0x96C, Pod] = "";
+    [0x970, u32] = "Used by the script function nefarious_laser_create.";
+    [0x9D0, u32] = "Used by the script function nefarious_follow_path.";
+    [0x9D4, u32] = "Used by the script function nefarious_go_to_volume.";
+    [0xA08, float] Speed = "Used by the script function nefarious_set_speed.";
+    [0xA0C, float] Speed = "Used by the script function nefarious_set_speed.";
+    [0xA10, u32] = "Used by the script function nefarious_laser_create.";
+    [0xA14, float] = "Used by the script function nefarious_script_done.";
+    [0xA18, u32] = "Used by the script function nefarious_follow_path.";
+    [0xA45, bool] = "Used by the script function nefarious_laser_stop_chase.";
+}
+
+class 0x7C0 boss_ship_in_space : 0x47
+{
+    [0x1A8, u32] = "Used by the script function lawrence_go_to_volume.";
+    [0x1AC, u32] = "Used by the script function lawrence_follow_path.";
+    [0x1B0, float] Speed = "Used by the script function lawrence_set_speed.";
+    [0x1B4, float] Speed = "Used by the script function lawrence_set_speed.";
+}
+
+class 0x7E3 time_portal : 0x47
+{
+    [0x84, u32] Id = "Used by the script function time_portal_set_id.";
+    [0x88, Moby] = "";
+    [0x8C, Volume] Target volume = "Used by the script functions time_portal_set_target_volume, time_portal_clear_target_volume.";
+}
+
+class 0x7E9 bomb_emitter : 0x47
+{
+}
+
+class 0x7EB tj_val_bomb_plate_c : 0x47
+{
+}
+
+class 0x7ED ml_tombli_force_field_emitter : 0x47
+{
+}
+
+class 0x7F3 tj_val_floor_ring_c : 0x47
+{
+    [0x5C, float] Gas speed = "Used by the script function vap_set_gas_speed.";
+    [0x74, Moby] = "";
+    [0x78, Moby] = "";
+}
+
+class 0x7F4 breaking_floor : 0x47
+{
+}
+
+class 0x7F8 timeslowcontroller : 0xCF
+{
+    [0x18, Volume] Time slow volume = "Time slows inside.";
+    [0x1C, u32, runtime] Time slow handle = "";
+    [0x20, u16] Start active = "";
+    [0x22, u16] Time slow flags = "";
+    [0x24, float] Time scale = "";
+    [0x28, float] Tint near = "";
+    [0x2C, float] Tint far = "";
+    [0x30, float] Tint value A = "";
+    [0x34, float] Tint value B = "";
+    [0x38, float] Tint value C = "";
+    [0x3C, float] Tint value D = "";
+}
+
+class 0x800 security_module : 0x47
+{
+    [0x544, u32] = "Used by the script function setup_security_module.";
+    [0x548, u32] = "Used by the script function setup_security_module.";
+    [0x54C, float] = "Used by the script function setup_security_module.";
+    [0x550, u32] = "Used by the script function add_security_module_pattern.";
+    [0x554, u32] = "Used by the script function add_security_module_pattern.";
+    [0x558, u32] = "Used by the script function setup_security_module.";
+    [0x55C, float] = "Used by the script function setup_security_module.";
+    [0x560, float] = "Used by the script function setup_security_module.";
+    [0x564, float] = "Used by the script function add_security_module_pattern.";
+    [0x570, u32] = "Used by the script function security_module_bypass.";
+    [0x574, Volume] Dropoff Volume = "Where to return the player when getting caught by security";
+}
+
+class 0x804 orvus_staff_chamber : 0x47
+{
+}
+
+class 0x806 orvus_staff_pickup : 0x47
+{
+    [0xC0, Controller] = "";
+    [0xC4, Volume] = "";
+}
+
+class 0x80B tb_gimlick_grindvine_spike_moby : 0x47
+{
+}
+
+class 0x810 large breakable crate : 0x291
+{
+}
+
+class 0x811 pollen_plant : 0x47
+{
+}
+
+class 0x813 combat modifier / exploding barrel : 0x56A
+{
+}
+
+class 0x814 red mist tank : 0x47
+{
+}
+
+class 0x815 death_beam_turret : 0x366
+{
+    [0x58C, Volume] = "";
+    [0x59C, u32] = "Used by the script functions turret_lock, turret_unlock.";
+}
+
+class 0x816 blueprint : 0xD8
+{
+}
+
+class 0x818 lagoon_bird : 0x47
+{
+    [0x7C, Path] = "";
+    [0x80, Moby] = "";
+}
+
+class 0x81D SpaceAttackController (Valkyrie) : 0x714
+{
+    [0x5C, bool] Advanced ships = "";
+}
+
+class 0x824 orvus_door : 0x54A
+{
+    [0x294, Pod] = "";
+}
+
+class 0x829 zf_gear_hazard : 0x54D
+{
+    [0x160, float] Speed = "Used by the script function gear_hazard_set_speed.";
+}
+
+class 0x834 lawrence : 0x47
+{
+}
+
+class 0x836 gcc_clankbooth : 0x47
+{
+    [0xB8, text] Prompt Text = "";
+}
+
+class 0x837 emitter : 0x47
+{
+    [0x6C, Moby] = "";
+}
+
+class 0x83F grindvine_tree : 0x47
+{
+}
+
+class 0x842 SpaceFlotsam : 0x556
+{
+}
+
+class 0x845 sr_gc_boss_glass_outer : 0x47
+{
+}
+
+class 0x84B test_az_monitor : 0x47
+{
+}
+
+class 0x858 crash_fire : 0xCF
+{
+}
+
+class 0x85B cluenoledgegrab : 0x11D
+{
+}
+
+class 0x85D kb_gc_c_pedestal_a : 0x47
+{
+}
+
+class 0x85E lower_tower : 0x56A
+{
+    [0x248, Pod] = "";
+}
+
+class 0x860 clueduncanhoverboothack : 0x11D
+{
+}
+
+class 0x863 burner platform : 0x47
+{
+    [0x70, float] Timing = "";
+}
+
+class 0x869 ratchet_rcf_simple : 0xF6
+{
+}
+
+class 0x86B dcs_galacton_tease_galacton : 0x187
+{
+}
+
+class 0x86E sr_gc_mnemonic_chamber_lower_arm_broken : 0x47
+{
+}
+
+class 0x86F nefarious_security_card : 0xD8
+{
+}
+
+class 0x874 cassy_npc_trap : 0x187
+{
+}
+
+class 0x87B nef_trooper_pingpong : 0x47
+{
+    [0x74, Moby] = "";
+    [0x78, Volume] = "";
+    [0x7C, Volume] = "";
+}
+
+class 0x882 moon hill / crater : 0x47
+{
+    [0x5C, u32] Ramp layout = "Up to 2: four hoverboot ramps around the hill. 3 and more: eight.";
+    [0x60, u32, runtime] Spawned ramps = "";
+}
+
+class 0x883 planter : 0x47
+{
+}
+
+class 0x885 fishnet : 0x54A
+{
+}
+
+class 0x88A forcefield_doors : 0x548
+{
+}
+
+class 0x893 security_platform : 0x47
+{
+}
+
+class 0x897 simple idle character : 0x47
+{
+}
+
+class 0x899 Agorian satellite / champion ship : 0x238
+{
+    [0x4E0, Controller] Attack controller = "Sends enemy ships when the satellite spots the player.";
+    [0x4E4, Volume] Detection volume = "The ship inside it is spotted.";
+    [0x4E8, Volume] Tracking volume = "The ship stays tracked until it leaves it.";
+    [0x4EC, u32] Value = "";
+}
+
+class 0x89A SpaceValkyrieBossLibra : 0x238
+{
+    [0x4CC, Controller] Attack controller = "";
+}
+
+class 0x89B SpaceValkyrieBossCarina : 0x238
+{
+    [0x4CC, Controller] Attack controller = "";
+    [0x51C, bool] = "Used by the script function space_is_aware.";
+    [0x530, bool] = "Used by the script function space_is_aware.";
+}
+
+class 0x8A2 pa_speaker : 0x47
+{
+}
+
+class 0x8A3 navclueazimuthbackstab : 0x11D
+{
+}
+
+class 0x8A5 bucket_of_win_timepuzzle : 0x47
+{
+}
+
+class 0x8A8 SpaceBillboard : 0x238
+{
+}
+
+class 0x8A9 infocontroller : 0xCF
+{
+    [0x18, component(0x98)] Prompt = "The prompt shown near the exhibit.";
+    [0x70, text] Prompt text = "Text of the prompt.";
+    [0x74, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
+    [0x7C, float] Prompt range = "The prompt shows within this distance.";
+    [0x90, u32] Prompt value A = "";
+    [0xA0, float] Prompt value B = "";
+    [0xAC, u8, runtime] Prompt 3D distance = "";
+    [0xAD, u8, runtime] Prompt enabled = "";
+    [0xAE, u8, runtime] Prompt showing = "";
+    [0xAF, u8, runtime] Prompt button state = "";
+    [0xB0, text] Title = "Title of the info screen.";
+    [0xB4, text] Body = "Text of the info screen.";
+}
+
+class 0x8B6 cluenowater : 0x11D
+{
+}
+
+class 0x8B8 controller_nefarious_disguise : 0xCF
+{
+}
+
+class 0x8B9 lightning_pillar : 0x47
+{
+}
+
+class 0x8BE space mission NPC : 0x4C4
+{
+    [0x1E0, u32] = "Used by the script function space_grab_junk.";
+}

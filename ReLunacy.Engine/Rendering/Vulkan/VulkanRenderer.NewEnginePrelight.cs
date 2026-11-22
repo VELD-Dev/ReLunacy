@@ -46,6 +46,7 @@ public sealed unsafe partial class VulkanRenderer
     /// <summary>Marks the draws of prelit placements and returns the words they read.</summary>
     private static uint[] BuildNewEnginePrelight(
         List<float[]> geomVerts,
+        List<VkMaterialDesc> materials,
         List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances,
         int[] order,
         int[] drawVertexOffset,
@@ -58,9 +59,99 @@ public sealed unsafe partial class VulkanRenderer
         var words = new List<uint>();
         var baseOf = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
         int oldPrelit = 0;
+        int fallOfManDraws = 0;
+        int fallOfManPrelit = 0;
         for (int i = 0; i < order.Length; i++)
         {
-            var (g, _, _, _, owner, _, _) = instances[order[i]];
+            var (g, mat, _, _, owner, _, _) = instances[order[i]];
+            var fallOfMan = owner switch
+            {
+                Scene.EntityTie bakedTie => bakedTie.FallOfManBake,
+                Scene.EntityUFrag { UFrag: Assets.UFrags.OldUFrag terrain } => terrain.FallOfManBake,
+                _ => null,
+            };
+            if (fallOfMan?.VertexDirections is { } directions)
+            {
+                int vertexCount = geomVerts[g].Length / VulkanSceneCapture.FloatsPerVertex;
+                byte[] chroma = fallOfMan.Chroma;
+                if (directions.Length == vertexCount * 3 && chroma.Length == vertexCount * 2)
+                {
+                    int wordDelta = words.Count - drawVertexOffset[i] * 2;
+                    for (int vertex = 0; vertex < vertexCount; vertex++)
+                    {
+                        int direction = vertex * 3;
+                        words.Add(chroma[vertex * 2] | ((uint)chroma[vertex * 2 + 1] << 8));
+                        words.Add(directions[direction] | ((uint)directions[direction + 1] << 8)
+                            | ((uint)directions[direction + 2] << 16));
+                    }
+                    lights[i] = VkInstanceLight.ForFallOfManPrelight(fallOfMan.Scale, wordDelta, terrain: true);
+                    fallOfManPrelit++;
+                }
+                continue;
+            }
+            if (fallOfMan != null && materials[mat].HasBaked > 0.5f)
+            {
+                int firstChroma = owner is Scene.EntityUFrag ? 0
+                    : captureIndex.TryGetValue(geomVerts[g], out int meshIndex) ? VulkanSceneCapture.SourceVertexBases[meshIndex] : -1;
+                int vertexCount = geomVerts[g].Length / VulkanSceneCapture.FloatsPerVertex;
+                if (firstChroma >= 0 && (firstChroma + vertexCount) * 2 <= fallOfMan.Chroma.Length)
+                {
+                    byte[] chroma = fallOfMan.Chroma;
+                    if (!baseOf.TryGetValue(chroma, out int chromaBase))
+                    {
+                        chromaBase = words.Count;
+                        baseOf[chroma] = chromaBase;
+                        for (int b = 0; b + 1 < chroma.Length; b += 2)
+                            words.Add(chroma[b] | ((uint)chroma[b + 1] << 8));
+                    }
+                    lights[i] = VkInstanceLight.ForFallOfManBake(fallOfMan.Scale, chromaBase + firstChroma - drawVertexOffset[i]);
+                    fallOfManDraws++;
+                }
+                continue;
+            }
+            if (owner is Scene.EntityTie { FallOfManTiePrelight: { } prelight }
+                && captureIndex.TryGetValue(geomVerts[g], out int prelightMesh)
+                && VulkanSceneCapture.FallOfManTiePrimitives[prelightMesh] is { } fallOfManPrimitive)
+            {
+                int firstWord = fallOfManPrimitive.PrelightFirstWord(prelight.PlacementHasLightmap);
+                int prelightVertexCount = geomVerts[g].Length / VulkanSceneCapture.FloatsPerVertex;
+                float scale = fallOfManPrimitive.Lightmapped ? prelight.LightmappedScale : prelight.PrelightScale;
+                byte[] packed = prelight.Words;
+                if (firstWord >= 0 && firstWord + prelightVertexCount <= packed.Length / 4 && float.IsFinite(scale) && scale >= 0f)
+                {
+                    if (!baseOf.TryGetValue(packed, out int prelightBase))
+                    {
+                        prelightBase = words.Count;
+                        baseOf[packed] = prelightBase;
+                        for (int b = 0; b + 3 < packed.Length; b += 4)
+                            words.Add(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(packed.AsSpan(b, 4)));
+                    }
+                    lights[i] = VkInstanceLight.ForFallOfManPrelight(scale, prelightBase + firstWord - drawVertexOffset[i]);
+                    fallOfManPrelit++;
+                }
+                continue;
+            }
+            if ((owner as Scene.EntityUFrag)?.UFrag is Assets.UFrags.OldUFrag
+                { Metadata: { OldEngineLightScales: { } scales, OldEngineMaterialUse: { } use } } oldUFrag)
+            {
+                // An authored lightmap with an unavailable atlas or invalid UVs keeps the fallback.
+                // With no authored atlas, attr2 is prelight instead of a Half2 UV.
+                bool prelit = oldUFrag.LightmapIndex == Loading.Objects.UFragMetadata.NoLightmap;
+                var vertices = oldUFrag.GetRawVertices();
+                int vertexCount = geomVerts[g].Length / VulkanSceneCapture.FloatsPerVertex;
+                if ((prelit || materials[mat].HasBaked > 0.5f) && vertexCount > 0 && vertices.Length == vertexCount)
+                {
+                    int wordDelta = words.Count - drawVertexOffset[i] * 2;
+                    foreach (var vertex in vertices)
+                    {
+                        words.Add((uint)Math.Abs((int)vertex.unk));
+                        words.Add(vertex.PackedLightmapAttribute);
+                    }
+                    int features = use.Mask & (int)materials[mat].MaterialPermutation.W;
+                    lights[i] = VkInstanceLight.ForOldUFrag(scales, prelit, wordDelta, features, use.CubeSlot == 0);
+                }
+                continue;
+            }
             // ToD: the unbaked placement's words, indexed by the primitive's first vertex in its Tie.
             if (owner is Scene.EntityTie { OldEnginePrelight: { } oldBytes, OldBakedLightScale: { } f } oldTie && f > 0f)
             {
@@ -110,7 +201,9 @@ public sealed unsafe partial class VulkanRenderer
             lights[i] = VkInstanceLight.ForNewEnginePrelight(c4, wordBase + first - drawVertexOffset[i]);
         }
 
-        if (baseOf.Count > 0)
+        if (fallOfManDraws + fallOfManPrelit > 0)
+            Console.WriteLine($"[VkRenderer] Fall of Man baked lighting: {fallOfManDraws} lightmapped and {fallOfManPrelit} vertex-lit draws.");
+        else if (baseOf.Count > 0)
             Console.WriteLine($"[VkRenderer] Tie prelight: {baseOf.Count} placement(s) ({oldPrelit} old-engine), {words.Count} vertex word(s).");
         return words.Count > 0 ? [.. words] : [0u];
     }

@@ -15,6 +15,10 @@ public sealed class Moby : IMoby
     public ISkeleton? Skeleton { get; init; }
     public Animations.AnimationSet? AnimationSet { get; init; }
 
+    /// <summary>A Crack in Time: the class's own collision, in the space of its meshes. Null on other games and on
+    /// classes without any.</summary>
+    public Collision.MobyCollision? Collision { get; init; }
+
     /// <summary>Convenience view used by existing UI/export code.</summary>
     public IReadOnlyList<Animations.AnimationClip> Animations => AnimationSet?.Clips ?? [];
 

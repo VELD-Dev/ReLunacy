@@ -134,6 +134,14 @@ public sealed class NewEngineStandardShaders
         return null;
     }
 
+    /// <summary>The decrypted EBOOTs in the USRDIR of the level's own install (or of <paramref name="game"/>'s
+    /// configured install), newest first: never a sibling game's.</summary>
+    public static IEnumerable<string> OwnElves(Games.GameId? game)
+    {
+        foreach (string elf in CandidateElves(game))
+            if (IsOwnInstall(elf) || game != null) yield return elf;
+    }
+
     private static IEnumerable<string> CandidateElves(Games.GameId? game)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

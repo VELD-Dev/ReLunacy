@@ -1,5 +1,10 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
+using ReLunacy.Core.Collision;
+using ReLunacy.Core.Moon;
+using ReLunacy.Core.Placement;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Config;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Engine.Diagnostics;
@@ -39,6 +44,17 @@ public class View3D : DockedFrame
     // and its buffers with it, so tracking the level alone would leave the overlay silently empty.
     private Engine.Loading.Readers.LevelData? navmeshLevel;
     private Engine.Rendering.Vulkan.VulkanRenderer? navmeshRenderer;
+    // Same for the collision overlay, plus the region each uploaded collision came from, in the order
+    // CollisionGeometry.Build numbered them, so the Zones menu's region toggles can be followed.
+    private Engine.Loading.Readers.LevelData? collisionLevel;
+    private Engine.Rendering.Vulkan.VulkanRenderer? collisionRenderer;
+    private string[] collisionRegions = [];
+
+    // The toolbar's collision panel and edit mode (filters, selection, edits).
+    private readonly Core.Collision.CollisionEditor _collisionEditor = new();
+    // A left press in collision edit mode, held until release: a click, or a marquee once dragged.
+    private Vector2? _marqueeStart;
+    private const float MarqueeThreshold = 4f;
     public bool ReflectionDebugView { get => lighting.ReflectionDebugView; set => lighting.ReflectionDebugView = value; }
     public float ReflectionBase { get => lighting.ReflectionBase; set => lighting.ReflectionBase = value; }
     public Vector2 LightmapUVPivot { get => lighting.LightmapUVPivot; set => lighting.LightmapUVPivot = value; }
@@ -70,6 +86,7 @@ public class View3D : DockedFrame
     public View3D(GraphicsDevice gd)
     {
         FrameName = LM.Get("GUI_Frame_View3D");
+        Core.Undo.UndoManager.Singleton.EntityRestored += e => _restored.Add(e);
         Camera = new EditorCamera(
             Vector3.Zero,
             Vector3.UnitZ,
@@ -120,17 +137,22 @@ public class View3D : DockedFrame
     /// <summary>Pushes (or clears) the Render menu's bounding-sphere wireframes. Draws the same spheres
     /// the renderer culls against, so it doubles as a way to SEE the culling: anything whose sphere does
     /// not contain it will pop at the screen edge.</summary>
+    private int _appliedSphereVisibility;
+
     private void UpdateBoundingSphereOverlay()
     {
         bool wanted = EntityManager.Singleton.renderBoundingSpheres;
-        if (wanted == _appliedBoundingSpheres) return;
+        int visibility = EntityManager.Singleton.VisibilityVersion;
+        if (wanted == _appliedBoundingSpheres && (!wanted || visibility == _appliedSphereVisibility)) return;
         _appliedBoundingSpheres = wanted;
+        _appliedSphereVisibility = visibility;
 
         _sphereLines.Clear();
         if (wanted)
         {
             foreach (var entity in EntityManager.Singleton.AllEntities())
             {
+                if (!entity.allowRender) continue;
                 var sphere = entity.WorldBoundingSphere;
                 if (sphere.W <= 0f) continue;
                 var centre = new Vector3(sphere.X, sphere.Y, sphere.Z);
@@ -158,17 +180,129 @@ public class View3D : DockedFrame
         }
     }
 
-    private bool showClipControls;
+    // The height the sector boundary is drawn over: the middle 80 % of the level's Moby heights, per level.
+    private object? _boundaryLevel;
+    private int _boundaryMobys = -1;
+    private (float Low, float High) _boundaryHeights;
 
-    /// <summary>Toolbar over the 3D viewport, same component the asset preview uses. Scoped to
-    /// controls that describe THIS viewport; anything scene-wide belongs in the settings frame.
+    /// <summary>The space sector's play area from level.csv's BoundsRadius, read every frame from the shared
+    /// table so an edit shows at once. The game tests it on X/Z around the origin, so it is drawn as a cylinder
+    /// over the level's height (GameConfigs.BoundsRadius).</summary>
+    private Engine.Rendering.Vulkan.SectorBoundary? BuildSectorBoundary()
+    {
+        if (Program.Settings.HideSectorBounds || ConfigDocument.LevelBoundsRadius() is not { } radius) return null;
+        var level = Core.LunaWindow.Instance.Level;
+        int mobys = EntityManager.Singleton.MobysCount;
+        if (!ReferenceEquals(level, _boundaryLevel) || mobys != _boundaryMobys)
+        {
+            _boundaryLevel = level;
+            _boundaryMobys = mobys;
+            var heights = EntityManager.Singleton.Regions
+                .SelectMany(r => r.MobyInstances.Entities)
+                .Select(e => e.WorldBoundingSphere.Y)
+                .Order().ToList();
+            _boundaryHeights = heights.Count == 0 ? (0f, 0f)
+                : (heights[heights.Count / 10], heights[heights.Count * 9 / 10]);
+        }
+        var (low, high) = _boundaryHeights;
+        float halfHeight = MathF.Max((high - low) * 0.5f + 300f, radius * 0.15f);
+        return new Engine.Rendering.Vulkan.SectorBoundary(new Vector3(0f, (low + high) * 0.5f, 0f), radius, halfHeight,
+            radius - GameConfigs.BoundsWarningInset, radius - GameConfigs.BoundsTurnInset);
+    }
+
+    private bool showClipControls;
+    private bool showIconControls;
+
+    /// <summary>Toolbar over the 3D viewport, same component the asset preview uses. Holds the
+    /// switches flipped often enough that reopening a menu each time gets in the way: clip, the
+    /// shading mode (lit, and the game's RSX shaders on top of it), and the navmesh and collision
+    /// overlays. Their finer options stay in the Render menu.
     /// The viewport opened the overlay when it drew the image, so this only adds to it.</summary>
     private void DrawViewportOverlay()
     {
         var overlay = _viewport.Overlay;
+        var settings = Program.Settings;
+        var em = EntityManager.Singleton;
         overlay.ToggleButton("C", ref showClipControls, LM.Get("GUI_Frame_AssetViewer_ClipControls"));
+        float clipAnchor = overlay.LastButtonLeft;
 
-        if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f)))
+        // What the scene draws, by kind.
+        overlay.Gap();
+        bool changed = overlay.ToggleButton(Icons.Cube, ref em.renderMobys, LM.Get("GUI_Viewport_Mobys"));
+        changed |= overlay.ToggleButton(Icons.Cubes, ref em.renderTies, LM.Get("GUI_Viewport_Ties"));
+        changed |= overlay.ToggleButton(Icons.MountainSun, ref em.renderUFrags, LM.Get("GUI_Viewport_UFrags"));
+        changed |= overlay.ToggleButton(Icons.VectorSquare, ref em.renderVolumes, LM.Get("GUI_Viewport_Volumes"));
+        overlay.ToggleButton(Icons.Filter, ref _volumePanel.Open, LM.Get("GUI_Viewport_VolumeFilters"));
+        float volumeAnchor = overlay.LastButtonLeft;
+        changed |= overlay.ToggleButton(Icons.Camera, ref em.renderCameras, LM.Get("GUI_Viewport_Cameras"));
+        changed |= overlay.ToggleButton(Icons.Gear, ref em.renderControllers, LM.Get("GUI_Viewport_Controllers"));
+        overlay.ToggleButton(Icons.Image, ref showIconControls, LM.Get("GUI_Viewport_IconSize"));
+        float iconAnchor = overlay.LastButtonLeft;
+        changed |= overlay.ToggleButton(Icons.BezierCurve, ref em.renderPaths, LM.Get("GUI_Viewport_Paths"));
+        float pathAnchor = overlay.LastButtonLeft;
+        overlay.ToggleButton(Icons.Palette, ref _pathPanel.Open, LM.Get("GUI_Viewport_PathFilters"));
+        float pathFilterAnchor = overlay.LastButtonLeft;
+        changed |= overlay.ToggleButton(Icons.CircleDot, ref em.renderBoundingSpheres, LM.Get("GUI_Viewport_BoundingSpheres"));
+        // Planet occlusion cells: only where the current region has them.
+        bool hasOcclusion = _occlusion.Available(em, Camera.Position);
+        if (hasOcclusion) overlay.ToggleButton(Icons.EyeSlash, ref _occlusion.On, LM.Get("GUI_Viewport_Occlusion"));
+        else _occlusion.On = false;
+        float occlusionAnchor = overlay.LastButtonLeft;
+        if (changed) MenuBar.RenderMenuDraw.PersistRenderSettings();
+        // A space sector's play area: only where level.csv gives the level a BoundsRadius.
+        if (ConfigDocument.LevelBoundsRadius() != null)
+        {
+            bool bounds = !settings.HideSectorBounds;
+            if (overlay.ToggleButton(Icons.Globe, ref bounds, LM.Get("GUI_Viewport_SectorBounds")))
+            {
+                settings.HideSectorBounds = !bounds;
+                settings.SaveSettingsToFile();
+            }
+            bool flyPlane = !settings.HideFlyPlane;
+            if (overlay.ToggleButton(Icons.Plane, ref flyPlane, LM.Get("GUI_Viewport_FlyPlane")))
+            {
+                settings.HideFlyPlane = !flyPlane;
+                settings.SaveSettingsToFile();
+            }
+        }
+        // Particle effects: old-engine and A Crack in Time levels, greyed out where there are none to play.
+        bool effects = !settings.HideEffects;
+        bool hasEffects = LevelEffectPlayer.HasEffects;
+        if (overlay.ToggleButton(Icons.Fire, ref effects,
+                LM.Get(hasEffects ? "GUI_Viewport_Effects" : "GUI_Viewport_NoEffects"), enabled: hasEffects))
+        {
+            settings.HideEffects = !effects;
+            settings.SaveSettingsToFile();
+        }
+
+        // Shading: unlit / lit, and the RSX shaders, which only exist on the lit path - greyed out
+        // while unlit, keeping its own state for when lighting comes back.
+        overlay.Gap();
+        if (overlay.ToggleButton(Icons.Lightbulb, ref settings.EnableLighting,
+                LM.Get(settings.EnableLighting ? "GUI_Viewport_Lit" : "GUI_Viewport_Unlit")))
+            settings.SaveSettingsToFile();
+        if (overlay.ToggleButton(Icons.Microchip, ref settings.GameShaders,
+                LM.Get(settings.EnableLighting ? "GUI_Viewport_RsxShaders" : "GUI_Viewport_RsxShadersNeedLit"),
+                enabled: settings.EnableLighting))
+            settings.SaveSettingsToFile();
+
+        // Inspection overlays. Greyed out when the level has none, rather than toggling nothing.
+        overlay.Gap();
+        bool hasNavmesh = HasNavmesh();
+        if (overlay.ToggleButton(Icons.Route, ref em.renderNavmesh,
+                LM.Get(hasNavmesh ? "GUI_Viewport_Navmesh" : "GUI_Viewport_NoNavmesh"), enabled: hasNavmesh))
+            MenuBar.RenderMenuDraw.PersistRenderSettings();
+        // The collision button opens its panel (visibility, filters, edit mode) rather than toggling the
+        // overlay itself; the panel stays until the button is pressed again.
+        bool hasCollision = em.CollisionSummary != null;
+        if (!hasCollision) _collisionEditor.PanelOpen = false;
+        overlay.ToggleButton(Icons.DrawPolygon, ref _collisionEditor.PanelOpen,
+            LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision);
+        // Edit mode takes the left button over; it does not outlive the panel that shows it is on.
+        if (!_collisionEditor.PanelOpen) _collisionEditor.EditMode = false;
+        float collisionAnchor = overlay.LastButtonLeft;
+
+        if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f), clipAnchor))
         {
             float farPlane = Program.Settings.RenderDistance;
             ImGui.SetNextItemWidth(-1f);
@@ -176,7 +310,117 @@ public class View3D : DockedFrame
                 Program.Settings.RenderDistance = farPlane;
             overlay.EndPanel();
         }
+
+        if (showIconControls && overlay.BeginPanel("icons", new Vector2(280f, 0f), iconAnchor))
+        {
+            ImGui.SetNextItemWidth(-1f);
+            if (ImGui.SliderFloat("##iconsize", ref settings.ControllerIconScale, 0.5f, 20f,
+                    LM.Get("GUI_Viewport_IconSizeValue"), ImGuiSliderFlags.AlwaysClamp | ImGuiSliderFlags.Logarithmic))
+                settings.SaveSettingsToFile();
+            overlay.EndPanel();
+        }
+
+        _volumePanel.Draw(overlay, volumeAnchor);
+        _pathPanel.Draw(overlay, pathFilterAnchor);
+        _occlusion.DrawPanel(overlay, occlusionAnchor, Camera.Position, SelectedEntity);
+        if (em.renderPaths && !CollisionEditing) _pathEditor.DrawPanel(overlay, pathAnchor);
+        if (Core.LunaWindow.IsSpaceSector) DrawMoonButton(overlay);
+        DrawTransformBar(overlay);
+        var selected = SelectedEntity;
+        _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
+        if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
     }
+
+    /// <summary>Bottom-centre bar: gizmo operation, space and snapping.</summary>
+    private void DrawTransformBar(ViewportOverlay overlay)
+    {
+        var gizmo = GizmoController;
+        var settings = Program.Settings;
+        string[] ops = [LM.Get("GUI_Gizmo_Move"), LM.Get("GUI_Gizmo_Rotate"), LM.Get("GUI_Gizmo_Scale")];
+        string[] opTips = [LM.Get("GUI_Gizmo_MoveHelp"), LM.Get("GUI_Gizmo_RotateHelp"), LM.Get("GUI_Gizmo_ScaleHelp")];
+        bool moons = Core.LunaWindow.IsSpaceSector;
+        string[] spaces = moons ? [LM.Get("GUI_Gizmo_World"), LM.Get("GUI_Gizmo_Local"), LM.Get("GUI_Gizmo_Moon")]
+            : [LM.Get("GUI_Gizmo_World"), LM.Get("GUI_Gizmo_Local")];
+        string snapLabel = LM.Get("GUI_Gizmo_Snap");
+        const float Step = 4f, Gap = 10f, DragWidth = 64f;
+        float width = Gap * 2f + DragWidth + Step;
+        foreach (var o in ops) width += ViewportOverlay.FitWidth(o) + Step;
+        foreach (var o in spaces) width += ViewportOverlay.FitWidth(o) + Step;
+        width += ViewportOverlay.FitWidth(snapLabel) + Step;
+        if (!overlay.BeginBottomBar(width - Step)) return;
+
+        var current = gizmo.CurrentOperation;
+        Hexa.NET.ImGuizmo.ImGuizmoOperation[] kinds = [Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate, Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate, Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale];
+        for (int i = 0; i < 3; i++)
+        {
+            bool on = current == kinds[i];
+            if (overlay.ToggleButton(ops[i], ref on, opTips[i], true, ViewportOverlay.FitWidth(ops[i])) && on)
+                gizmo.CurrentOperation = kinds[i];
+        }
+
+        overlay.Gap();
+        var space = gizmo.Space;
+        for (int i = 0; i < spaces.Length; i++)
+        {
+            bool on = (int)space == i;
+            bool enabled = i != 2 || MoonMode.Active;
+            string tip = LM.Get(i == 2 && !MoonMode.Active ? "GUI_Gizmo_MoonOff" : "GUI_Gizmo_SpaceHelp");
+            if (overlay.ToggleButton(spaces[i], ref on, tip, enabled, ViewportOverlay.FitWidth(spaces[i])) && on)
+                gizmo.SetSpace((GizmoSpace)i);
+        }
+
+        overlay.Gap();
+        if (overlay.ToggleButton(snapLabel, ref settings.GizmoSnapEnabled, LM.Get("GUI_Gizmo_SnapHelp"), true, ViewportOverlay.FitWidth(snapLabel)))
+            settings.SaveSettingsToFile();
+        _ = current switch
+        {
+            Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate => overlay.DragValue("##snap", ref settings.GizmoSnapRotation, 0.5f, 0.1f, 180f, "%.1f deg", DragWidth, LM.Get("GUI_Gizmo_SnapStep")),
+            Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale => overlay.DragValue("##snap", ref settings.GizmoSnapScale, 0.01f, 0.01f, 10f, "%.2f", DragWidth, LM.Get("GUI_Gizmo_SnapStep")),
+            _ => overlay.DragValue("##snap", ref settings.GizmoSnapTranslation, 0.05f, 0.001f, 1000f, "%.2f m", DragWidth, LM.Get("GUI_Gizmo_SnapStep")),
+        };
+        if (ImGui.IsItemDeactivatedAfterEdit()) settings.SaveSettingsToFile();
+    }
+
+    private readonly MoonOrbit _moonOrbit = new();
+
+    /// <summary>The corner button: starts moon edit mode on the selected SpaceMoon Clue, or leaves it.</summary>
+    private void DrawMoonButton(ViewportOverlay overlay)
+    {
+        if (MoonMode.Active)
+        {
+            if (overlay.CornerButton(LM.Get("GUI_Moon_Exit"), LM.Get("GUI_Moon_ExitHelp"))) ExitMoonMode();
+        }
+        else if (!CollisionEditing && MoonMode.MoonClue(SelectedEntity) is { } clue)
+        {
+            if (overlay.CornerButton(LM.Get("GUI_Moon_Enter"), LM.Get("GUI_Moon_EnterHelp"))) EnterMoonMode(clue);
+        }
+        else if (!CollisionEditing && Modals.CreateMoonModal.Available
+                 && overlay.CornerButton(LM.Get("GUI_Moon_Create"), LM.Get("GUI_Moon_CreateHelp")))
+            Modals.CreateMoonModal.Open();
+    }
+
+    /// <summary>Starts moon edit mode on a SpaceMoon Clue's volume.</summary>
+    public void EnterMoonMode(EntityVolume clue)
+    {
+        if (PovCamera != null) ExitPov(restore: true);
+        if (MoonMode.Enter(clue)) _moonOrbit.Enter(Camera);
+    }
+
+    public void ExitMoonMode()
+    {
+        if (!MoonMode.Active) return;
+        _moonOrbit.Exit(Camera);
+        MoonMode.Exit();
+    }
+
+    /// <summary>Collision edit mode owns the left button: picking selects collision only.</summary>
+    private readonly VolumeFilterPanel _volumePanel = new();
+    private readonly PathFilterPanel _pathPanel = new();
+    private readonly OcclusionViewer _occlusion = new();
+    private readonly PathOverlay _paths = new();
+    private readonly PathEditor _pathEditor = new();
+
+    private bool CollisionEditing => _collisionEditor.EditMode && _collisionEditor.Scene != null && EntityManager.Singleton.renderCollision;
 
     // Reused per-frame list of (edge world matrix, colour) for the trigger volumes' wireframe edges (12
     // per volume), handed to the VK renderer to draw as depth-tested thin-box edges. Rebuilt every
@@ -185,12 +429,19 @@ public class View3D : DockedFrame
     /// <summary>Flattens the level's zone navmeshes into the renderer's buffers, when they are not
     /// already there. A level with no navmesh uploads nothing, which clears what a previous level
     /// left behind.</summary>
+    private int navmeshVisibility;
+
     private void UploadNavmeshIfStale(Engine.Rendering.Vulkan.VulkanRenderer renderer)
     {
         var level = Core.LunaWindow.Instance.Level;
-        if (ReferenceEquals(navmeshLevel, level) && ReferenceEquals(navmeshRenderer, renderer)) return;
+        int visibility = EntityManager.Singleton.VisibilityVersion;
+        if (ReferenceEquals(navmeshLevel, level) && ReferenceEquals(navmeshRenderer, renderer) && navmeshVisibility == visibility) return;
         navmeshLevel = level;
         navmeshRenderer = renderer;
+        navmeshVisibility = visibility;
+        // Chunks hidden in the hierarchy are left out of the buffer.
+        var hidden = EntityManager.Singleton.Regions.SelectMany(r => r.Zones).SelectMany(z => z.Navmeshes)
+            .Where(n => !n.allowRender).Select(n => n.Chunk).ToHashSet();
 
         var navmeshes = level?.Zones?.Values
             .Select(z => (z as Engine.Assets.Levels.Zone)?.Navmesh)
@@ -198,7 +449,7 @@ public class View3D : DockedFrame
             .Select(n => n!)
             .ToList() ?? [];
         var ranges = new Dictionary<Engine.Assets.Navigation.NavmeshChunk, (int First, int Count)>();
-        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes, ranges);
+        var (vertices, indices, edges) = Engine.Rendering.NavmeshGeometry.Build(navmeshes, ranges, hidden.Count > 0 ? c => !hidden.Contains(c) : null);
         renderer.SetNavmesh(vertices, indices, edges);
 
         // Hand every chunk entity its slice of the buffer that was just uploaded. Matched by chunk
@@ -207,28 +458,284 @@ public class View3D : DockedFrame
         foreach (var region in EntityManager.Singleton.Regions)
             foreach (var zone in region.Zones)
                 foreach (var chunkEntity in zone.Navmeshes)
-                    if (ranges.TryGetValue(chunkEntity.Chunk, out var range))
-                        (chunkEntity.FirstIndex, chunkEntity.IndexCount) = range;
+                    (chunkEntity.FirstIndex, chunkEntity.IndexCount) = ranges.TryGetValue(chunkEntity.Chunk, out var range) ? range : (-1, 0);
         if (vertices.Length > 0)
             Console.WriteLine($"[Navmesh] {navmeshes.Count} zone(s), {vertices.Length} vertices, " +
                               $"{indices.Length / 3} triangles, {edges.Length} wireframe edges.");
     }
 
+    // Whether the loaded level has a navmesh, recomputed when the level changes rather than per frame.
+    private Engine.Loading.Readers.LevelData? navmeshCheckedLevel;
+    private bool levelHasNavmesh;
+
+    private bool HasNavmesh()
+    {
+        var level = Core.LunaWindow.Instance.Level;
+        if (!ReferenceEquals(level, navmeshCheckedLevel))
+        {
+            navmeshCheckedLevel = level;
+            levelHasNavmesh = level?.Zones.Values.Any(z => z.Navmesh != null) == true;
+        }
+        return levelHasNavmesh;
+    }
+
+    /// <summary>Builds and uploads the level's collision overlay, when it is not already there. A level
+    /// with none uploads nothing, which clears what a previous level left behind.</summary>
+    private void UploadCollisionIfStale(Engine.Rendering.Vulkan.VulkanRenderer renderer)
+    {
+        var level = Core.LunaWindow.Instance.Level;
+        if (ReferenceEquals(collisionLevel, level) && ReferenceEquals(collisionRenderer, renderer)) return;
+        collisionLevel = level;
+        collisionRenderer = renderer;
+
+        var byRegion = level?.CollisionByRegion.ToList() ?? [];
+        collisionRegions = [.. byRegion.Select(kv => kv.Key)];
+        var scene = Engine.Rendering.CollisionGeometry.Build([.. byRegion.Select(kv => kv.Value)]);
+        renderer.SetCollision(scene.Vertices, scene.Instances, scene.Batches);
+        _collisionEditor.Attach(scene, renderer, level);
+        _marqueeStart = null;
+        var summary = scene.Summary;
+        EntityManager.Singleton.CollisionSummary = scene.IsEmpty ? null : summary;
+        if (!scene.IsEmpty)
+            Console.WriteLine($"[Collision] {byRegion.Count} region(s), {summary.Instances} instance(s) " +
+                              $"({summary.DuplicateInstances} repeated between regions), {summary.Shapes} unique shape(s), " +
+                              $"{summary.PlacedTriangles} placed triangle(s), {scene.Batches.Length} draw(s).");
+    }
+
+    /// <summary>Bit N set when the Nth uploaded collision's region is shown in the Zones menu. The old
+    /// engine's single collision is keyed by the empty name and follows the level's one region.</summary>
+    private uint CollisionRegionMask()
+    {
+        uint mask = 0;
+        var regions = EntityManager.Singleton.Regions;
+        for (int i = 0; i < collisionRegions.Length; i++)
+        {
+            var region = collisionRegions[i].Length == 0
+                ? regions.FirstOrDefault()
+                : regions.FirstOrDefault(r => r.RegionName == collisionRegions[i]);
+            if (region == null || region.allowRender)
+                mask |= 1u << Math.Min(i, 31);
+        }
+        return mask;
+    }
+
+    // Hidden while editing collision: their wireframes sit on the walls and hide the faces being picked.
+    private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Colour, int Shape)> _vkVolumeFills = new();
+    private readonly List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> _vkCameras = new();
+    /// <summary>The controllers drawn with their class's icon (filled by BuildVolumeList).</summary>
+    private readonly List<(Matrix4x4 World, int Icon, Vector4 Tint, uint PickId)> _vkControllerIcons = new();
+
+    private readonly HashSet<Entity> _restored = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The gizmo moved the selection this frame: the rest of it is pushed to the renderer next frame.</summary>
+    private bool _selectionMoved;
+
+    /// <summary>Whether an entity gets the selection outline. Volumes, controllers and paths opt out: they recolour
+    /// themselves on selection, and the mask-and-inflate technique expects one closed surface, not 12 disjoint
+    /// edge boxes.</summary>
+    private static bool IsOutlined(Entity? entity) =>
+        entity is not (null or EntityVolume or EntityController or EntityPath or EntityPathPoint);
+
+    private readonly List<object> _outlinedOthers = [];
+
+    private List<object> OutlinedOthers()
+    {
+        _outlinedOthers.Clear();
+        foreach (var e in SelectionManager.Singleton.Selection)
+            if (!ReferenceEquals(e, SelectedEntity) && IsOutlined(e)) _outlinedOthers.Add(e);
+        return _outlinedOthers;
+    }
+
+    /// <summary>The camera controller being looked through (the inspector's camera POV), or null.</summary>
+    public EntityCamera? PovCamera { get; private set; }
+    private (Vector3 Position, Vector3 Target, Vector3 Up) _povSaved;
+    private object? _povLevel;
+
+    /// <summary>The game's frame: 16:9.</summary>
+    private const float PovAspect = 16f / 9f;
+
+    /// <summary>Looks through <paramref name="camera"/>: its placement, its FOV, the 16:9 frame it shows.</summary>
+    public void EnterPov(EntityCamera camera)
+    {
+        if (PovCamera == null) _povSaved = (Camera.Position, Camera.Target, Camera.Up);
+        PovCamera = camera;
+        _povLevel = Core.LunaWindow.Instance.Level;
+    }
+
+    /// <summary>Leaves the camera's view: back to the view before (<paramref name="restore"/>), or on from
+    /// the camera's place, level again.</summary>
+    public void ExitPov(bool restore)
+    {
+        if (PovCamera == null) return;
+        PovCamera = null;
+        if (restore)
+        {
+            (Camera.Position, Camera.Target, Camera.Up) = _povSaved;
+            return;
+        }
+        var forward = Camera.GetForward();
+        // The fly camera cannot look straight up or down.
+        if (MathF.Abs(forward.Y) > 0.99f) forward = Vector3.Normalize(forward + Camera.Up * -0.05f);
+        Camera.Up = Vector3.UnitY;
+        Camera.Target = Camera.Position + forward;
+    }
+
+    /// <summary>The camera's FOV: from its settings when they give one, else the game's own default where it is
+    /// known, else the editor's default. Horizontal, in degrees, over the 16:9 frame.</summary>
+    public static (float Degrees, bool Authored) PovFieldOfView(EntityCamera camera)
+    {
+        var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+        return camera.AuthoredFieldOfView(game) is { } authored ? (authored, true) : (GameDefaultFieldOfView(game) ?? Program.Settings.CameraPovFov, false);
+    }
+
+    /// <summary>The field of view the game itself gives a camera whose settings set none, in degrees, horizontal;
+    /// null where it is not known. A Crack in Time: 75.9, the first entry of its camera manager's table (the same
+    /// on 4:3 and 16:9).</summary>
+    public static float? GameDefaultFieldOfView(Engine.Games.GameId? game) =>
+        game == Engine.Games.GameId.ACrackInTime ? 75.9f : null;
+
+    /// <summary>The 16:9 frame inside the viewport, in viewport pixels.</summary>
+    private Vector4 PovFrame()
+    {
+        var size = _viewport.Size;
+        float height = MathF.Min(size.Y, size.X / PovAspect), width = height * PovAspect;
+        return new Vector4((size.X - width) * 0.5f, (size.Y - height) * 0.5f, width, height);
+    }
+
+    private void ApplyPov()
+    {
+        var camera = PovCamera;
+        if (camera == null) return;
+        if (!ReferenceEquals(_povLevel, Core.LunaWindow.Instance.Level)) { ExitPov(restore: false); return; }
+        Camera.Position = camera.Transform.Translation;
+        Camera.Target = Camera.Position + camera.ViewForward;
+        Camera.Up = camera.ViewUp;
+        // The horizontal FOV spans the frame's width; the viewport's vertical FOV is widened so that the
+        // frame's height, not the viewport's, takes the camera's vertical FOV.
+        float halfH = float.DegreesToRadians(Math.Clamp(PovFieldOfView(camera).Degrees, 1f, 179f)) * 0.5f;
+        float tanV = MathF.Tan(halfH) / PovAspect;
+        var frame = PovFrame();
+        if (frame.W > 0f) tanV *= _viewport.Size.Y / frame.W;
+        Camera.Fov = float.RadiansToDegrees(2f * MathF.Atan(tanV));
+    }
+
+    /// <summary>Darkens what lies outside the camera's 16:9 frame, and names the camera.</summary>
+    private void DrawPovFrame()
+    {
+        var camera = PovCamera;
+        if (camera == null || !_viewport.HasArea) return;
+        var drawList = ImGui.GetWindowDrawList();
+        var origin = _viewport.ScreenPos;
+        var size = _viewport.Size;
+        var frame = PovFrame();
+        var a = origin + new Vector2(frame.X, frame.Y);
+        var b = a + new Vector2(frame.Z, frame.W);
+        uint bar = ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.85f));
+        drawList.AddRectFilled(origin, new Vector2(origin.X + size.X, a.Y), bar);
+        drawList.AddRectFilled(new Vector2(origin.X, b.Y), origin + size, bar);
+        drawList.AddRectFilled(new Vector2(origin.X, a.Y), new Vector2(a.X, b.Y), bar);
+        drawList.AddRectFilled(new Vector2(b.X, a.Y), new Vector2(origin.X + size.X, b.Y), bar);
+        drawList.AddRect(a, b, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.35f)));
+
+        var (fov, authored) = PovFieldOfView(camera);
+        string label = LM.Get(authored ? "GUI_Viewport_PovLabel" : "GUI_Viewport_PovLabelDefault", camera.Name, fov.ToString("0.#"));
+        var pad = new Vector2(8f, 6f);
+        var textSize = ImGui.CalcTextSize(label);
+        var corner = new Vector2(a.X, b.Y) + new Vector2(pad.X, -pad.Y - textSize.Y);
+        drawList.AddRectFilled(corner - new Vector2(4f, 2f), corner + textSize + new Vector2(4f, 2f), ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.6f)), 3f);
+        drawList.AddText(corner, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.9f)), label);
+    }
+
+    /// <summary>The camera controllers to draw with the camera model; the selected one tinted with the
+    /// selection colour.</summary>
+    private List<(System.Numerics.Matrix4x4 World, System.Numerics.Vector4 Tint, uint PickId)> BuildCameraList()
+    {
+        _vkCameras.Clear();
+        var em = EntityManager.Singleton;
+        if (!em.renderCameras || CollisionEditing) return _vkCameras;
+        foreach (var region in em.Regions)
+        {
+            if (!region.allowRender) continue;
+            foreach (var e in region.Cameras.Entities)
+                // Not the one being looked through: the view is inside it.
+                if (e.allowRender && !ReferenceEquals(e, PovCamera))
+                    _vkCameras.Add((EntityCamera.ModelMatrix(e.Transform.GetMatrix()), e.selected ? em.VolumeSelectedColor with { W = 0.6f } : default(Vector4), (uint)e.ID));
+        }
+        return _vkCameras;
+    }
+
+    /// <summary>The controllers' diamonds, as the hierarchy's controller icon.</summary>
+    private static readonly Vector4 ControllerColour = new(0.75f, 0.75f, 0.95f, 1f);
+
     private List<(System.Numerics.Matrix4x4 world, System.Numerics.Vector4 color, uint pickId)> BuildVolumeList()
     {
         _vkVolumes.Clear();
+        _vkVolumeFills.Clear();
         var em = Engine.Scene.EntityManager.Singleton;
-        if (em.renderVolumes)
+        if (em.renderVolumes && !CollisionEditing)
             foreach (var region in em.Regions)
                 foreach (var e in region.Volumes.Entities)
-                    if (e is Engine.Scene.EntityVolume v && v.allowRender)
+                    if (e is Engine.Scene.EntityVolume v && v.allowRender && em.IsVolumeShown(v.BaseVolume))
                     {
                         var color = v.VolumeColour;
                         uint pickId = (uint)v.ID;
-                        foreach (var edge in v.GetWorldEdgeTransforms())
+                        if (em.IsVolumeFilled(v.BaseVolume))
+                            _vkVolumeFills.Add((v.ShapeMatrix, v.KindColour with { W = em.VolumeFillOpacity },
+                                v.UsesFallOfManCapsule ? Engine.Rendering.Vulkan.VulkanRenderer.FallOfManCapsuleFillShape : (int)v.BaseVolume.Shape));
+                        foreach (var edge in v.WorldEdgeMatrices)
                             _vkVolumes.Add((edge, color, pickId));
+                        if (em.ShowRadiusPreviews) AddRadiusPreviews(v, em);
                     }
+        // The other controllers: their class's icon facing the camera, or else a small diamond, drawn and picked
+        // with the volumes' wireframe.
+        _vkControllerIcons.Clear();
+        if (em.renderControllers && !CollisionEditing)
+        {
+            var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+            Matrix4x4.Invert(Camera.GetView(), out var facing);
+            float side = 1.2f * Program.Settings.ControllerIconScale * EntityController.MarkerRadius;
+            foreach (var region in em.Regions)
+            {
+                if (!region.allowRender) continue;
+                foreach (var e in region.ControllerInstances.Entities)
+                    if (e is EntityController c && c.allowRender)
+                    {
+                        var colour = c.selected ? em.VolumeSelectedColor : ControllerColour;
+                        int icon = Engine.Rendering.ControllerIcons.IconOf(game, c.Controller.Class);
+                        if (icon >= 0)
+                        {
+                            var world = facing with { Translation = c.Transform.Translation };
+                            _vkControllerIcons.Add((Matrix4x4.CreateScale(side) * world, icon,
+                                c.selected ? em.VolumeSelectedColor with { W = 0.5f } : default(Vector4), (uint)c.ID));
+                            continue;
+                        }
+                        foreach (var edge in c.MarkerEdges())
+                            _vkVolumes.Add((edge, colour, (uint)c.ID));
+                    }
+            }
+        }
         return _vkVolumes;
+    }
+
+    /// <summary>A Clue's radius settings (a moon's radius) as spheres at its volume, read from the settings every
+    /// frame so an edit in the inspector shows at once. Clicking one selects the Clue.</summary>
+    private void AddRadiusPreviews(Engine.Scene.EntityVolume volume, EntityManager em)
+    {
+        if (volume.BaseVolume.Clue is not { } clue) return;
+        var game = Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+        foreach (var (offset, colour) in Engine.Assets.LevelElements.ClueClasses.RadiiOf(game, clue.Class))
+        {
+            if (clue.Settings.Length < offset + 4) continue;
+            float radius = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(clue.Settings.AsSpan(offset));
+            if (!float.IsFinite(radius) || radius <= 0f || radius > 1e5f) continue;
+            var centre = volume.Transform.Translation;
+            var tint = volume.selected ? em.VolumeSelectedColor : new Vector4(colour, 1f);
+            foreach (var edge in Engine.Scene.EntityVolume.GlobeEdges(centre, radius))
+                _vkVolumes.Add((edge, tint, (uint)volume.ID));
+            if (em.VolumeFillMode != Engine.Scene.VolumeFillMode.None)
+                _vkVolumeFills.Add((Matrix4x4.CreateScale(radius * 2f) * Matrix4x4.CreateTranslation(centre),
+                    new Vector4(colour, em.VolumeFillOpacity * 0.6f), (int)Engine.Assets.LevelElements.VolumeShape.Sphere));
+        }
     }
 
     protected override void Render(double deltaTime)
@@ -237,6 +744,7 @@ public class View3D : DockedFrame
         // changes (settings frame, viewport clip slider) reach the camera via Camera.Update.
         Camera.Fov = Program.Settings.CamFOV;
         Camera.FarPlane = Program.Settings.RenderDistance;
+        EntityCamera.ModelScale = Program.Settings.CameraModelScale;
         // EntityManager (ReLunacy.Engine) has no reference to Program.Settings (app-layer) - see
         // EntityManager.VolumeWireThickness's own comment.
         EntityManager.Singleton.VolumeWireThickness = Program.Settings.VolumeWireThickness;
@@ -262,7 +770,7 @@ public class View3D : DockedFrame
         var env = level?.EnvironmentAverage;
         lighting.EnvironmentColour = oldEngine ? (env ?? Vector3.One) : Vector3.One;
         lighting.EnvironmentIntensity = !oldEngine && level is { Cubemaps.Count: > 0 } ? ReflectionIntensity : 0f;
-        lighting.LevelFog = oldEngine ? level?.LevelFog : null;
+        lighting.LevelFog = oldEngine ? level?.LevelFog : level?.LightingEnvironment?.LinearFog;
         // The real cubemap the lit shader samples for reflections, in place of the flat average above.
         // AssetManager always provides one (a 1x1 fallback when the level has none), so the lit
         // effect's set 10 is always bound. See AssetManager.BuildEnvironmentCubemap.
@@ -271,28 +779,7 @@ public class View3D : DockedFrame
         // The game's own analytic lighting (section 0x8b00) for non-baked surfaces, in place of the
         // fabricated editor sun. Null on levels without one, in which case the shader keeps the flat
         // ambient fallback. See LightingEnvironmentReader / LitModelShaderSource.
-        var lightEnv = Core.LunaWindow.Instance.Level?.LightingEnvironment;
-        lighting.HasLightingEnvironment = lightEnv != null;
-        if (lightEnv != null)
-        {
-            // Map the variable-length light list into the shader's two fixed slots; an absent light
-            // gets a zero colour so it contributes nothing (see LitModelShaderSource).
-            lighting.EnvAmbient = lightEnv.Ambient;
-            var lights = lightEnv.Lights;
-            lighting.EnvLight0Colour = lights.Count > 0 ? lights[0].Colour : Vector3.Zero;
-            lighting.EnvDirection0 = lights.Count > 0 ? lights[0].Direction : Vector3.UnitY;
-            lighting.EnvLight1Colour = lights.Count > 1 ? lights[1].Colour : Vector3.Zero;
-            lighting.EnvDirection1 = lights.Count > 1 ? lights[1].Direction : Vector3.UnitY;
-        }
-        else
-        {
-            // View3D survives level switches: clear the previous level's values.
-            lighting.EnvAmbient = Vector3.Zero;
-            lighting.EnvLight0Colour = Vector3.Zero;
-            lighting.EnvDirection0 = Vector3.UnitY;
-            lighting.EnvLight1Colour = Vector3.Zero;
-            lighting.EnvDirection1 = Vector3.UnitY;
-        }
+        lighting.SetEnvironment(level?.LightingEnvironment);
 
         // Measures the region the image will occupy and samples the mouse against it, which everything
         // below depends on: the texture size, the camera controls, and the click latch.
@@ -315,6 +802,7 @@ public class View3D : DockedFrame
         // selection's transforms, and the renderer's own cull + re-record + submit. The renderer's
         // internal "Vk Cull" / "Vk Record" samples are the finer breakdown.
         var record = FrameProfiler.Sample("3D Record");
+        ApplyPov();
         Camera.Update();
 
         // Replay the raw-Vulkan scene AFTER Camera.Update, so the view uses the current frame's
@@ -329,6 +817,11 @@ public class View3D : DockedFrame
                 // move in the editor, and it is a handful of matrices.
                 if (SelectedEntity is { } moved)
                     Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(moved);
+                // The rest of a multiple selection only moves with the gizmo, so only then.
+                if (_selectionMoved)
+                    foreach (var other in SelectionManager.Singleton.Selection)
+                        if (!ReferenceEquals(other, SelectedEntity))
+                            Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(other);
 
                 UpdateAnimatedMobys(deltaTime, vkStage);
                 UpdateBoundingSphereOverlay();
@@ -338,7 +831,15 @@ public class View3D : DockedFrame
                 SkyRenderOptions.Enabled = Program.Settings.RenderSky;
                 OldEngineRenderOptions.FogEnabled = Program.Settings.OldEngineFog;
                 OldEngineRenderOptions.ReflectionsEnabled = Program.Settings.OldEngineReflections;
-                Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = Program.Settings.GameShaders;
+                // The RSX shaders belong to the lit path (the viewport toolbar greys them out while
+                // unlit). Which ones a draw uses is decided when the scene is built, so a change
+                // rebuilds it, as the switch in the Render menu used to.
+                bool rsx = Program.Settings.EnableLighting && Program.Settings.GameShaders;
+                if (rsx != Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders)
+                {
+                    Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = rsx;
+                    Core.LunaWindow.Instance.AssetManager?.InvalidateSceneRenderer();
+                }
                 // Per-material culling comes from the retail raster state (_matCullBack); this switch
                 // gates it so the editor can still inspect geometry double-sided. Pushed per frame so
                 // the toggle takes effect live, without a scene rebuild.
@@ -352,16 +853,67 @@ public class View3D : DockedFrame
                     ? (chunk.FirstIndex, chunk.IndexCount)
                     : (0, 0);
                 vkStage.NavmeshSelectionColor = Program.Settings.SelectionOutlineColor with { W = 0.8f };
+                // The collision overlay, the same way: live look, geometry uploaded once per level.
+                UploadCollisionIfStale(vkStage);
+                // A Tie carries its collision with it (the matrices are the same in the files). After the
+                // upload, so it never links against the previous level's collision.
+                if (SelectedEntity is { } movedTie)
+                    _collisionEditor.FollowEntity(movedTie);
+                if (_selectionMoved)
+                    foreach (var other in SelectionManager.Singleton.Selection)
+                        if (other is EntityTie && !ReferenceEquals(other, SelectedEntity))
+                            _collisionEditor.FollowEntity(other);
+                _selectionMoved = false;
+                // What an undo or a redo put back: its matrices to the renderer, a Tie's collision with it, and the
+                // gizmo back onto a selected path part whose path changed.
+                if (_restored.Count > 0)
+                {
+                    foreach (var entity in _restored)
+                    {
+                        Core.LunaWindow.Instance.AssetManager?.UpdateEntityTransforms(entity);
+                        if (entity is EntityTie) _collisionEditor.FollowEntity(entity);
+                    }
+                    // A path part whose key an undo took away (an insertion undone) gives way to its path.
+                    if (SelectedEntity is EntityPathPoint restoredPart)
+                    {
+                        int count = restoredPart.Part == PathPart.Point ? restoredPart.Owner.PointCount : restoredPart.Owner.KeyCount;
+                        if (restoredPart.Index < count) restoredPart.Refresh();
+                        else SelectedEntity = restoredPart.Owner;
+                    }
+                    _restored.Clear();
+                }
+                vkStage.CollisionVisible = EntityManager.Singleton.renderCollision;
+                vkStage.CollisionColorMode = Program.Settings.CollisionColorMode;
+                vkStage.CollisionCategories = Program.Settings.CollisionCategories;
+                vkStage.CollisionOpacity = Program.Settings.CollisionOpacity;
+                vkStage.CollisionOutlines = Program.Settings.CollisionOutlines;
+                vkStage.CollisionRegionMask = CollisionRegionMask();
+                _collisionEditor.RegionMask = vkStage.CollisionRegionMask;
+                _collisionEditor.Apply(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
+                // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
+                var volumeList = BuildVolumeList();
+                _occlusion.AppendEdges(volumeList, Camera.Position);
+                vkStage.VolumeFills = _vkVolumeFills;
+                vkStage.CameraMarkers = BuildCameraList();
+                vkStage.ControllerIconMarkers = _vkControllerIcons;
+                vkStage.Boundary = BuildSectorBoundary();
+                vkStage.FlyPlane = !Program.Settings.HideFlyPlane && ConfigDocument.LevelBoundsRadius() is { } flyRadius
+                    ? (GameConfigs.AphelionFlyHeight, flyRadius) : null;
+                _paths.Update(vkStage, SelectedEntity, CollisionEditing);
+                vkStage.AlsoSelected = OutlinedOthers();
+                // Placed effects (FxControllers) play in the renderer's depth-tested sprite pass.
+                try { LevelEffectPlayer.Update(vkStage, Camera, (float)deltaTime, graphicsDevice); }
+                catch (Exception e) { LunaLog.LogError($"[Effects] level playback failed: {e.Message}"); }
                 vkStage.Frame(
                     Camera.GetView(), Camera.GetProjection(),
                     lighting.BuildLightData(Camera.Position),
-                    BuildVolumeList(), EntityManager.Singleton.VolumeWireThickness,
+                    volumeList, EntityManager.Singleton.VolumeWireThickness,
                     // Volumes opt out of the outline: EntityVolume already recolours its own wireframe
                     // on selection, and the mask-and-inflate technique expects one closed surface, not
                     // 12 disjoint edge boxes.
-                    SelectedEntity is EntityVolume ? null : SelectedEntity,
+                    IsOutlined(SelectedEntity) ? SelectedEntity : null,
                     Program.Settings.SelectionOutlineColor, 0.006f,
                     // True world-space position, same convention as lighting.BuildLightData(Camera.Position)
                     // just above and as Entity.WorldBoundingSphere (what _instCenter/Visible() compares
@@ -385,24 +937,40 @@ public class View3D : DockedFrame
         // No UV flip needed: the render texture already comes out right-side up and correctly
         // oriented left/right. Before a level is captured there is nothing to show, so the panel
         // stays empty.
+        _viewport.DropType = InstancePlacer.PayloadType;
         if (vkStage != null)
             _viewport.DrawImage(Core.LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(graphicsDevice.ResourceFactory, vkStage.ColorTexture));
         else
             _viewport.DrawEmpty();
+        DrawPovFrame();
+        HandleAssetDrop();
 
         // Overlay, then gizmo, then picking. That is the priority order, and it is the call order:
         // each one gets its chance at the click before the next, and TryConsumeClick below returns
         // true only for a click none of them wanted.
         DrawViewportOverlay();
 
-        _viewport.Gizmo(GizmoController, Camera, SelectedEntity);
+        // No gizmo while editing collision: the selection is collision, not an entity.
+        if (_viewport.Gizmo(GizmoController, Camera, CollisionEditing ? null : SelectedEntity, SelectionManager.Singleton.Selection))
+            _selectionMoved = true;
 
         var viewportSize = _viewport.Size;
         if (viewportSize.X >= 120f && viewportSize.Y >= 120f)
             AxisGizmoRenderer.Draw(Camera, _viewport.ScreenPos + new Vector2(viewportSize.X - 55f, 55f), 28f);
 
         if (_viewport.TryConsumeClick())
-            PickEntityUnderCursor();
+        {
+            if (CollisionEditing) _marqueeStart = _viewport.MousePos;
+            else if (!TryInsertPathKey())
+            {
+                PickEntityUnderCursor();
+                // A press on a key, handle or point of the selected path starts dragging it.
+                if (SelectedEntity is EntityPathPoint part)
+                    _pathEditor.BeginDrag(part, _viewport.MousePos, _viewport.Size, Camera);
+            }
+        }
+        UpdateCollisionMarquee();
+        _pathEditor.UpdateDrag(_viewport.MousePos, _viewport.Size, Camera);
 
         _viewport.End();
     }
@@ -445,6 +1013,11 @@ public class View3D : DockedFrame
         // Left click is not read here any more: the viewport latched it in Begin and hands it over at
         // TryConsumeClick, after the overlay and the gizmo have had their turn. A rotate-drag claims
         // the mouse (see CheckRotationInput), which is what stops a click from also picking.
+        if (MoonMode.Active)
+        {
+            if (!Core.LunaWindow.IsSpaceSector) { ExitMoonMode(); GizmoController.SetMoonSpace(false); }
+            else if (!EntityManager.Singleton.Regions.Contains(MoonMode.Region!)) ExitMoonMode();
+        }
         bool isRotating = CheckRotationInput(_viewport.AllowCameraInput);
 
         if (!isRotating && !_viewport.IsHovered)
@@ -456,6 +1029,88 @@ public class View3D : DockedFrame
             CheckMovementInput(deltaTime);
         else
             HandleGizmoShortcuts();
+    }
+
+    /// <summary>A double-click on the selected path's line adds a key there; one on a key or handle is left to
+    /// the normal pick.</summary>
+    private bool TryInsertPathKey()
+    {
+        if (!ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) return false;
+        if ((SelectedEntity as EntityPath ?? (SelectedEntity as EntityPathPoint)?.Owner) is not { } path) return false;
+        var viewProjection = Camera.GetView() * Camera.GetProjection();
+        if (_paths.Pick(_viewport.MousePos, viewProjection, _viewport.Size, Camera.Position, SelectedEntity) is { Entity: EntityPathPoint })
+            return false;
+        if (PathOverlay.PickSpan(path, _viewport.MousePos, viewProjection, _viewport.Size) is not { } hit) return false;
+        _pathEditor.InsertAt(path, hit.Span, hit.T);
+        return true;
+    }
+
+    // --- Placing new instances -----------------------------------------------------------------------
+
+    /// <summary>How far along the ray a placement lands where it meets no surface.</summary>
+    private const float PlaceFallbackDistance = 15f;
+
+    private (Vector2 Mouse, Vector3 Position, Vector3 Target, Vector3 Point)? _placeCache;
+
+    /// <summary>The surface under <paramref name="mouse"/> (pixels in the image): the nearest collision, else a point at a fixed
+    /// distance along the ray. The collision is the only surface the CPU knows; it is searched again only when the mouse or
+    /// the camera moved.</summary>
+    private Vector3 PlacementPoint(Vector2 mouse)
+    {
+        if (_placeCache is { } cached && cached.Mouse == mouse && cached.Position == Camera.Position && cached.Target == Camera.Target)
+            return cached.Point;
+        Vector3 point;
+        if (SurfaceProbe.ViewRay(Camera, mouse, _viewport.Size) is { } ray)
+            point = SurfaceProbe.Cast(_collisionEditor.Scene, ray.Origin, ray.Direction)?.Point
+                ?? (MoonMode.Active ? MoonMode.RaySurface(ray.Origin, ray.Direction) : null)
+                ?? ray.Origin + ray.Direction * PlaceFallbackDistance;
+        else
+            point = Camera.Position + Camera.GetForward() * PlaceFallbackDistance;
+        _placeCache = (mouse, Camera.Position, Camera.Target, point);
+        return point;
+    }
+
+    /// <summary>The surface at the middle of the image (see <see cref="PlacementPoint"/>) and the way the camera looks, where
+    /// the Create menu puts what it makes.</summary>
+    public (Vector3 Point, Vector3 Forward, Vector3 Right) CentrePlacement()
+    {
+        var right = Camera.GetRight();
+        right = new Vector3(right.X, 0f, right.Z);
+        right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : Vector3.UnitX;
+        return (PlacementPoint(_viewport.Size * 0.5f), Camera.GetForward(), right);
+    }
+
+    /// <summary>In moon mode, the rotation that stands an object on the surface at <paramref name="point"/>, facing the way the
+    /// view does; null otherwise.</summary>
+    public Quaternion? MoonRotation(Vector3 point) => MoonMode.Active ? MoonMode.UpRotation(point, Camera.GetForward()) : null;
+
+    /// <summary>An asset dragged over the image: shown where it would land, and placed there when released.</summary>
+    private void HandleAssetDrop()
+    {
+        if (_viewport.Drop is not { } drop || drop.Data.Length < Marshal.SizeOf<AssetExplorerFrame.Payload>()) return;
+        var payload = MemoryMarshal.Read<AssetExplorerFrame.Payload>(drop.Data);
+        var asset = new DraggedAsset((PlaceableKind)payload.Kind, payload.Id);
+        var point = PlacementPoint(_viewport.MousePos);
+        if (drop.Released)
+        {
+            InstancePlacer.PlaceNew(asset, point, MoonRotation(point));
+            return;
+        }
+
+        // Its thumbnail standing on the point, with a ring on the surface.
+        var clip = Vector4.Transform(new Vector4(point, 1f), Camera.GetView() * Camera.GetProjection());
+        if (clip.W <= 0f) return;
+        var size = _viewport.Size;
+        var screen = _viewport.ScreenPos + new Vector2((clip.X / clip.W * 0.5f + 0.5f) * size.X, (0.5f - clip.Y / clip.W * 0.5f) * size.Y);
+        var drawList = ImGui.GetWindowDrawList();
+        uint colour = ImGui.ColorConvertFloat4ToU32(Program.Settings.SelectionOutlineColor);
+        if (AssetThumbnails.Singleton.Get(asset.Kind == PlaceableKind.Tie, asset.Id) is { } thumbnail)
+        {
+            var half = new Vector2(40f, 0f);
+            drawList.AddImage(thumbnail, screen - half - new Vector2(0f, 80f), screen + half - new Vector2(0f, 0f));
+        }
+        drawList.AddCircle(screen, 8f, colour, 24, 2f);
+        drawList.AddCircleFilled(screen, 2.5f, colour);
     }
 
     private void PickEntityUnderCursor()
@@ -474,13 +1129,74 @@ public class View3D : DockedFrame
                 (int)_viewport.MousePos.X, (int)_viewport.MousePos.Y,
                 _viewport.Size.X, _viewport.Size.Y);
 
-            SelectedEntity = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
+            Entity? hit = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
                 ? EntityManager.Singleton.AllEntities().FirstOrDefault(e => (uint)e.ID == hitId)
                 : null;
+            // Paths are picked on the CPU (PathOverlay.Pick); the nearer of the two wins, the mesh measured
+            // at its bounding sphere's centre.
+            if (!CollisionEditing && _paths.Pick(_viewport.MousePos, Camera.GetView() * Camera.GetProjection(), _viewport.Size,
+                    Camera.Position, SelectedEntity) is { } pathHit)
+            {
+                float meshDistance = hit != null
+                    ? Vector3.Distance(Camera.Position, new Vector3(hit.WorldBoundingSphere.X, hit.WorldBoundingSphere.Y, hit.WorldBoundingSphere.Z))
+                    : float.MaxValue;
+                if (pathHit.Entity is EntityPathPoint || pathHit.Distance <= meshDistance) hit = pathHit.Entity;
+            }
+            // Shift adds to the selection, Ctrl adds or removes; a click on nothing with either keeps it.
+            var selection = SelectionManager.Singleton;
+            if (Input.IsKeyDown(KeyboardKey.ControlLeft) || Input.IsKeyDown(KeyboardKey.ControlRight))
+            {
+                if (hit != null) selection.Toggle(hit);
+            }
+            else if (Input.IsKeyDown(KeyboardKey.ShiftLeft) || Input.IsKeyDown(KeyboardKey.ShiftRight))
+            {
+                if (hit != null) selection.Add(hit);
+            }
+            else SelectedEntity = hit;
         }
         catch (Exception e)
         {
             LunaLog.LogError($"Picking failed: {e}");
+        }
+    }
+
+    /// <summary>Follows a left press in collision edit mode to its release: under the drag threshold it
+    /// is a click, past it a marquee, drawn while held. Shift adds to the selection, Ctrl removes.</summary>
+    private void UpdateCollisionMarquee()
+    {
+        if (_marqueeStart is not { } start) return;
+        if (!CollisionEditing) { _marqueeStart = null; return; }
+
+        var end = Vector2.Clamp(_viewport.MousePos, Vector2.Zero, _viewport.Size);
+        bool dragged = Vector2.Distance(start, end) >= MarqueeThreshold;
+        if (Input.IsMouseButtonDown(ReLunacy.Utility.MouseButton.Left))
+        {
+            if (dragged)
+            {
+                var drawList = ImGui.GetWindowDrawList();
+                var a = _viewport.ScreenPos + Vector2.Min(start, end);
+                var b = _viewport.ScreenPos + Vector2.Max(start, end);
+                var colour = Program.Settings.SelectionOutlineColor;
+                drawList.AddRectFilled(a, b, ImGui.ColorConvertFloat4ToU32(colour with { W = 0.15f }));
+                drawList.AddRect(a, b, ImGui.ColorConvertFloat4ToU32(colour with { W = 0.9f }));
+            }
+            return;
+        }
+
+        _marqueeStart = null;
+        bool add = Input.IsKeyDown(KeyboardKey.ShiftLeft) || Input.IsKeyDown(KeyboardKey.ShiftRight);
+        bool remove = Input.IsKeyDown(KeyboardKey.ControlLeft) || Input.IsKeyDown(KeyboardKey.ControlRight);
+        var viewProjection = Camera.GetView() * Camera.GetProjection();
+        try
+        {
+            if (dragged)
+                _collisionEditor.Marquee(start, end, viewProjection, _viewport.Size, add, remove, Program.Settings);
+            else
+                _collisionEditor.Click(start, viewProjection, _viewport.Size, add, remove, Program.Settings);
+        }
+        catch (Exception e)
+        {
+            LunaLog.LogError($"Collision selection failed: {e}");
         }
     }
 
@@ -496,7 +1212,16 @@ public class View3D : DockedFrame
 
     public void HandleShortcuts()
     {
-        if (Input.IsKeyPressed(KeyboardKey.Escape)) SelectedEntity = null;
+        _pathEditor.HandleShortcuts();
+        // Delete takes new instances out at once and asks before deleting what the files hold (an undo step).
+        if (Input.IsKeyPressed(KeyboardKey.Delete) && !ImGui.GetIO().WantTextInput && !CollisionEditing
+            && SelectionManager.Singleton.SelectedEntity is not EntityPathPoint)
+            InstancePlacer.DeleteSelection();
+        if (!Input.IsKeyPressed(KeyboardKey.Escape)) return;
+        if (PovCamera != null) { ExitPov(restore: true); return; }
+        if (MoonMode.Active) { ExitMoonMode(); return; }
+        if (CollisionEditing) _collisionEditor.ClearSelection();
+        else SelectedEntity = null;
     }
 
     /// <summary>Gizmo tool shortcuts - only when NOT in camera movement mode, to avoid clashing with WASD.</summary>
@@ -505,6 +1230,7 @@ public class View3D : DockedFrame
         if (Input.IsKeyPressed(KeyboardKey.W)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Translate;
         if (Input.IsKeyPressed(KeyboardKey.E)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Rotate;
         if (Input.IsKeyPressed(KeyboardKey.R)) GizmoController.CurrentOperation = Hexa.NET.ImGuizmo.ImGuizmoOperation.Scale;
+        if (Input.IsKeyPressed(KeyboardKey.X)) GizmoController.CycleSpace();
     }
 
     private bool CheckRotationInput(bool allowGrab)
@@ -517,10 +1243,17 @@ public class View3D : DockedFrame
         bool rotating = rmbghandler.TryGrabMouse(allowGrab);
         _viewport.SetMouseCaptured(rotating);
         if (!rotating) return false;
+        // Looking around leaves the camera's view, flying on from where it is.
+        if (PovCamera != null) ExitPov(restore: false);
 
         Vector2 rot = Input.GetMouseDelta();
         rot *= Program.Settings.CamSensivity;
 
+        if (MoonMode.Active)
+        {
+            _moonOrbit.Look(Camera, rot);
+            return true;
+        }
         Camera.SetPitch(Camera.GetPitch() - rot.Y, false);
         Camera.SetYaw(Camera.GetYaw() - rot.X, false);
         return true;
@@ -529,6 +1262,15 @@ public class View3D : DockedFrame
     private void CheckMovementInput(double deltaTime)
     {
         float moveSpeed = Input.IsKeyDown(KeyboardKey.ShiftLeft) ? Program.Settings.CamMaxSpeed : Program.Settings.CamMoveSpeed;
+        if (MoonMode.Active)
+        {
+            float ahead = (Input.IsKeyDown(KeyboardKey.W) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.S) ? 1f : 0f);
+            float side = (Input.IsKeyDown(KeyboardKey.D) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.A) ? 1f : 0f);
+            float up = (Input.IsKeyDown(KeyboardKey.E) ? 1f : 0f) - (Input.IsKeyDown(KeyboardKey.Q) ? 1f : 0f);
+            _moonOrbit.Move(Camera, ahead, side, moveSpeed, (float)deltaTime);
+            _moonOrbit.Climb(Camera, up, moveSpeed, (float)deltaTime);
+            return;
+        }
         Vector3 deltaPosition = GetInputAxes();
         if (deltaPosition.LengthSquared() > 0)
         {

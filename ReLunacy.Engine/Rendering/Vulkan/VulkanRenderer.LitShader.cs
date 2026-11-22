@@ -141,9 +141,8 @@ vec3 newEngineAtmosphere(vec3 c, float d, vec3 dir) {
 // True in the opaque pass's shader: the game draws those pixels before its atmosphere pass, so they
 // take the atmosphere (VulkanRenderer.NewEngineFog.cs) instead of the per-draw fog constant.
 bool gBeforeAtmosphere = false;
-// What the opaque pass writes to alpha: 1, or with the bloom on (uPostParams.x) the glow mask the
-// game's shaders output and 0 for everything else (VulkanRenderer.Bloom.cs).
-float gGlow = 1.0;
+// Bloom coverage is independent of material opacity.
+float gGlow = 0.0;
 layout(set = 0, binding = 3) uniform samplerCube uEnvCube;
 // New engine: the other three cubes of the level's environment resource (R16G16B16A16_Float, retail
 // channels). The old engine binds its single cube to all four slots.
@@ -205,6 +204,8 @@ layout(location = 6) in vec4 fColor;
 layout(location = 7) flat in uint fInstanceIndex;
 layout(location = 8) in vec3 fPrelightChroma;
 layout(location = 9) in vec4 fPrelightIntensity;
+layout(location = 10) in vec2 fUFragVertexScales;
+layout(location = 11) in float fOldTieFade;
 // New engine: the fog constant K of this draw, as the game patches it into fragment group 0 (QForce
 // EBOOT 0x00718030): region.dat 0x34004 at t = distance(centre, camera) / far x 512, the two nearest
 // ARGB entries lerped, then pow 2.2 on all four channels. (0) when off: mix(c, K.rgb, 0) = c.
@@ -240,6 +241,12 @@ vec3 debugTonemap(vec3 c) {
 
 void shadeInner(out vec3 litColor, out float litAlpha);
 
+float bloomMask(float emissive, float reflection)
+{
+    float glow = emissive + max(reflection, 0.0);
+    return isnan(glow) ? 0.0 : clamp(glow, 0.0, 1.0);
+}
+
 // A non-finite colour reads as BLACK, and does so exactly where the image is brightest - which is
 // how an overflow presents, the opposite way round from clipping, which saturates to white. It also
 // spreads: NaN survives alpha blending, the OIT accumulate/reveal divide and every tap of the bloom
@@ -274,10 +281,7 @@ void shade(out vec3 litColor, out float litAlpha) {
         litAlpha = 1.0;
     }
     litColor = sanitiseColour(debugTonemap(litColor));
-    // 0..1, not the colour's headroom: this alpha is coverage, and in the opaque pass it is also the
-    // BLOOM SOURCE (gGlow). Left unbounded it feeds the bloom chain values that overflow half float,
-    // and the combine's mix(c, s3, h) then evaluates Inf * 0 = NaN at h = 1 - which renders black,
-    // exactly where bloom is strongest and so exactly where the image is brightest.
+    // Opacity and the separate bloom mask both fit in [0,1].
     litAlpha = isnan(litAlpha) ? 0.0 : clamp(litAlpha, 0.0, 1.0);
 }
 
@@ -289,6 +293,15 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 viewDir = normalize(uCameraPosition - fWorldPos);
     vec3 viewDirTS = transpose(tbn) * viewDir;
     InstanceLight instanceLight = uInstanceLights.values[fInstanceIndex];
+    bool oldUFrag = uOldEngineMode > 0.5 && instanceLight.direction0.w > 6.5 && instanceLight.direction0.w < 7.5;
+    bool fallOfManBake = instanceLight.direction0.w == 8.0;
+    bool fallOfManPrelight = instanceLight.direction0.w == 9.0;
+    bool fallOfManMoby = uOldEngineMode > 0.5 && instanceLight.direction0.w == 1.0 && instanceLight.direction1.w > 0.5;
+    int fallOfManCubeSlot = uOldEngineMode > 0.5 && instanceLight.direction0.w != 1.0
+        ? int(instanceLight.direction1.x + 0.5) - 1 : -1;
+    bool fallOfManSurface = fallOfManBake || fallOfManPrelight || fallOfManCubeSlot >= 0;
+    bool fallOfManNormalFormat = fallOfManSurface || fallOfManMoby;
+    int oldUFragFeatures = int(instanceLight.tieShaderUse0.z + 0.5);
     // New-engine distance fades (VkInstanceLight.ApplyNewEngineFades: tieShaderUse1 = 1/d, from the
     // Tie primitive's +0x30 or the UFrag record's +0x60). The retail VPs build c[19] = K / d with
     // K = (-2.5, -2.5, 1, 2.5) * the camera LOD scale (uNewEngineLodScale) and the view depth (clip w):
@@ -318,10 +331,10 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // as smeared UVs and blown specular, and only in this shader - nothing unlit samples uProps.
     // The retail route already does it this way (see StandardRoute / the RSX fragment prologue in
     // VulkanRenderer.RsxShaders): it starts from uMat6.w and only ANDs a mask when one exists.
-    // Old-engine materials carry no +0x20 (uMat6 is their detail tiling), so they keep 0x1F.
+    // Old-engine UFrags carry the effective key from record +0x54 AND material +0x10.
     bool hasPermutationMask = uOldEngineMode < 0.5 && instanceLight.tieShaderUse0.w > 0.5;
     int permutationBits = uOldEngineMode > 0.5
-        ? 0x1F
+        ? (fallOfManSurface ? int(uMat6.w + 0.5) : (oldUFrag ? oldUFragFeatures : 0x1F))
         : hasPermutationMask
             ? int(uMat6.w + 0.5) & (int(instanceLight.tieShaderUse0.w + 0.5) - 1)
             : int(uMat6.w + 0.5);
@@ -342,7 +355,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // is the vertex alpha the loader filled with |pos.w| & 0x7F / 128.
     float layerWeight = 0.0;
     if (instanceLight.layers.x > 0.5) {
-        float vertexWeight = uOldEngineMode > 0.5 ? 127.0 / 128.0 : fColor.a;
+        float vertexWeight = oldUFrag ? fUFragVertexScales.y : (uOldEngineMode > 0.5 ? 127.0 / 128.0 : fColor.a);
         layerWeight = clamp(vertexWeight * texture(uBlendMask, fUV2).x, 0.0, 1.0);
         albedoTex = mix(albedoTex, texture(uAlbedo2, uv), layerWeight);
     }
@@ -354,7 +367,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     if (layerWeight > 0.0) nrmSample = mix(nrmSample, texture(uNormal2, uv), layerWeight);
     // TextureUploadPreparer already applies NV4097_SET_TEXTURE_CONTROL1. The normal derivative
     // pair is therefore the LOGICAL R/G pair for both DXT5 (0x6AE0) and G8B8 (0x6AF0).
-    vec2 derivativeRaw = allowNormalMap ? nrmSample.rg * 2.0 - 1.0 : vec2(0.0);
+    vec2 normalChannels = fallOfManNormalFormat ? nrmSample.ag : nrmSample.rg;
+    vec2 derivativeRaw = allowNormalMap ? normalChannels * 2.0 - 1.0 : vec2(0.0);
     vec4 props = texture(uProps, uv);
     if (layerWeight > 0.0) props = mix(props, texture(uProps2, uv), layerWeight);
     // New-engine detail map, as the retail shaders apply it (FP c8872868fd5f / cbf6dd28f655 paired
@@ -372,14 +386,11 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // +0x30 (c[21].x, faded into TEX3.w) and keeps z = 1 - |xy|^2 from the unscaled sample.
     // Old-engine Tie: TEX2.w = saturate(clip w x c16.x + c16.y), the VP's distance fade (TieFrag +0x30 /
     // +0x34, tieShaderUseMeta.zw), scales the normal map's derivatives and the cube reflection.
-    bool oldFadeKnown = uOldEngineMode > 0.5 && instanceLight.tieShaderUseMeta.x > 0.5
-        && (instanceLight.tieShaderUseMeta.z != 0.0 || instanceLight.tieShaderUseMeta.w != 0.0);
-    float oldDistanceFade = oldFadeKnown
-        ? clamp((1.0 / gl_FragCoord.w) * instanceLight.tieShaderUseMeta.z + instanceLight.tieShaderUseMeta.w, 0.0, 1.0)
-        : 1.0;
-    vec2 derivativeSum = derivativeRaw * (uOldEngineMode > 0.5 ? oldDistanceFade : clamp(uMat5.y * normalFade, 0.0, 1.0));
+    vec2 derivativeSum = derivativeRaw * (uOldEngineMode > 0.5 ? fOldTieFade : clamp(uMat5.y * normalFade, 0.0, 1.0));
     if (normalPermutation) derivativeSum -= detail.xy * (1.0 - dot(derivativeRaw, derivativeRaw));
-    vec3 worldNormal = normalize(tbn * normalize(vec3(derivativeSum, 1.0)));
+    vec2 fallOfManXY = normalPermutation ? derivativeSum * (fallOfManMoby ? 1.0 : uBakedBumpFade) : vec2(0.0);
+    vec3 fallOfManNormal = vec3(fallOfManXY, sqrt(abs(1.0 - dot(fallOfManXY, fallOfManXY))));
+    vec3 worldNormal = normalize(tbn * (fallOfManNormalFormat ? fallOfManNormal : vec3(derivativeSum, 1.0)));
     // uPostParams.w < 0 leaves the material's own specular map alone; >= 0 replaces it, so a
     // reflection can be judged without the props texture deciding where it appears.
     float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w : props.r * (1.0 + detail.w);
@@ -407,17 +418,24 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 ? 1.0 + 0.5 * worldNormal.y : 1.0)
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
-    // Direction0.w: 1 = old-engine Moby draw, 3 = new-engine Moby draw (VkInstanceLight.ForMoby),
-    // 2 = old Tie with a retail baked scale. Both Moby kinds take the hemispheric ambient below; only
-    // the old one is kept away from the environment cube.
+    // Direction0.w: 1 = old-engine Moby draw, 2 = old Tie with a retail baked scale,
+    // 3 = new-engine Moby draw (VkInstanceLight.ForMoby).
     float isOldMoby = step(0.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 1.5);
     float isNewMoby = step(2.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 3.5);
     float isMoby = max(isOldMoby, isNewMoby);
-    // PROVEN (retail Moby FPs paired with the skinned Moby VPs): the ambient term is hemispheric,
-    // ambient * (1 + 0.5 * n.y), before the two directional terms and the props.b emissive add.
-    vec3 instanceEnvDiffuse = instanceLight.ambient.xyz * (1.0 + 0.5 * worldNormal.y)
-        + instanceLight.light0Colour.xyz * max(dot(worldNormal, instanceLight.direction0.xyz), 0.0) * sunS
-        + instanceLight.light1Colour.xyz * max(dot(worldNormal, instanceLight.direction1.xyz), 0.0);
+    // Fall of Man uploads the 0x8A00 rig to c[24..28] (EBOOT 0x192EB0).
+    // Its flat and normal-mapped Moby FPs (0x10111838 / 0x10111678) add c[24].rgb directly
+    // and saturate both directional dot products. ToD's ambient is hemispheric.
+    float mobyAmbientFactor = fallOfManMoby ? 1.0 : 1.0 + 0.5 * worldNormal.y;
+    float light0Dot = max(dot(worldNormal, instanceLight.direction0.xyz), 0.0);
+    float light1Dot = max(dot(worldNormal, instanceLight.direction1.xyz), 0.0);
+    if (fallOfManMoby) {
+        light0Dot = min(light0Dot, 1.0);
+        light1Dot = min(light1Dot, 1.0);
+    }
+    vec3 instanceEnvDiffuse = instanceLight.ambient.xyz * mobyAmbientFactor
+        + instanceLight.light0Colour.xyz * light0Dot * sunS
+        + instanceLight.light1Colour.xyz * light1Dot;
     float useInstanceLighting = instanceLight.ambient.w * uEnvHasLighting;
     vec3 envDiffuse = mix(globalEnvDiffuse, instanceEnvDiffuse, useInstanceLighting);
     vec3 undecodedFill = mix(vec3(uAmbient), envDiffuse, uEnvHasLighting);
@@ -430,7 +448,18 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec4 bakedDirSample = texture(uLightDir, bakedUV);
     float hasBaked = uMat0.x;
     vec3 bakedDiffuseLight;
-    if (uOldEngineMode > 0.5) {
+    if (fallOfManBake) {
+        // Retail FP 0x10111E88 (flat) and 0x10111A78 (normal-mapped), game.self.
+        // The matching VPs derive TEX2.rgb from vertex chroma and the decode constants.
+        // These baked passes have no input from the Moby ambient rig.
+        // CONTROL1 supplies logical RGB. XY is signed direction, Z carries intensity.
+        float irradiance = bakedColour.b;
+        if (normalPermutation) {
+            vec3 lightVector = vec3(bakedColour.rg * 2.0 - 1.0, bakedColour.b);
+            irradiance = max(dot(fallOfManNormal, lightVector), 0.0);
+        }
+        bakedDiffuseLight = fPrelightChroma * irradiance;
+    } else if (uOldEngineMode > 0.5) {
         // Source-authored per-draw state is physically present here:
         // instanceLight.tieShaderUse0 / tieShaderUse1 / tieShaderUseMeta.
         // Do NOT alias tieShaderUse0.z (EffectiveUseMask) to callback52.arg2.low8: runtime V4 proved
@@ -457,9 +486,10 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         // positive, scale by c[4].z (TieInstance +0x60 candidate). Every other baked draw keeps the
         // VELD presentation fallback, whose fixed 4.0 scale made lightmapped Ties about 3x brighter
         // than their retail median scale (1.31) and produced the uneven contrast.
-        bool retailTieScale = instanceLight.direction0.w > 1.5;
+        bool retailTieScale = instanceLight.direction0.w > 1.5 && !oldUFrag;
+        bool retailBakeScale = retailTieScale || oldUFrag;
         vec3 fallbackDir = normalize(bakedLightDirTS + vec3(0.0, 0.0, 1e-6));
-        vec3 lm2 = retailTieScale ? bakedLightDirTS : fallbackDir;
+        vec3 lm2 = retailBakeScale ? bakedLightDirTS : fallbackDir;
         float bakedNdotL = clamp(dot(lm2, bakedNormalTS), 0.0, 1.0);
         float bakedDiffuse = lm2.z > 0.0 ? bakedNdotL / lm2.z : bakedNdotL;
         // PROVEN (runtime census, Tools/Reverse/evidence/TOD_TIE_Route_Key_2026-09-18.md): the shell key is the
@@ -467,7 +497,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         // and its absence the LM1-only ones (Full[0x20]/[0x24]): light = LM1 * c[4].z with NO N.L and no LM2.
         float retailDirectional = mod(floor(instanceLight.tieShaderUse0.z / 8.0), 2.0);
         if (retailTieScale && instanceLight.tieShaderUseMeta.y > 0.5 && retailDirectional < 0.5) bakedDiffuse = 1.0;
-        float bakedScale = retailTieScale ? instanceLight.direction1.w : uBakedLightScale;
+        if (oldUFrag && !allowNormalMap) bakedDiffuse = 1.0;
+        float bakedScale = retailBakeScale ? instanceLight.direction1.w : uBakedLightScale;
         bakedDiffuseLight = bakedColour.rgb * bakedDiffuse * bakedScale;
     } else if (uMat2.w > 0.5) {
         // New engine (QForce / All 4 One), decoded from the retail Tie fragment shaders in the
@@ -529,13 +560,13 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // floor, so the editor floor is removed for them. Unbaked Ties deliberately KEEP the environment
     // fill: the retail unbaked shaders use a per-vertex UBYTE4 prelight whose constants are not
     // closed, and replacing it with a neutral 1.0 removed all shading and made Ties glow (2026-09-17).
-    float oldTieDraw = uOldEngineMode > 0.5 ? step(1.5, instanceLight.direction0.w) : 0.0;
+    float oldTieDraw = uOldEngineMode > 0.5 && !oldUFrag ? step(1.5, instanceLight.direction0.w) : 0.0;
     // New engine, same rule: a draw carrying the game's own c[4] is drawn the retail way, and the
     // lightmapped QForce shaders (949d655b3022, d70d44879d79) add nothing under the bake either.
     float newRetailBakeDraw = uOldEngineMode > 0.5
         ? 0.0
         : step(3.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 4.5);
-    vec3 selectedFloor = mix(bakedFloor, vec3(0.0), max(oldTieDraw, newRetailBakeDraw));
+    vec3 selectedFloor = oldUFrag ? vec3(0.0) : mix(bakedFloor, vec3(0.0), max(oldTieDraw, newRetailBakeDraw));
     // PROVEN, new engine: the retail emissive term is 4 * props.b, in BOTH shader families - the
     // Tie ones (Reduced 03039ca17211 ends '+ 4 * expensive.b') and the skinned-Moby ones
     // ('+ emissive(tex2.b) * 4'). The editor used to reach 4 only on a lightmapped draw, by adding
@@ -552,6 +583,14 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // intensities by the squared RNM weights of the tangent normal; the flat ones average them
     // (c[4].w = c[4].z / 3). The key light takes S like every other shader's sun.
     vec3 unbakedFill = undecodedFill;
+    if (fallOfManPrelight) {
+        // Flat Tie VP 0x10124C10 and normal-mapped FP 0x101067C8, game.self.
+        unbakedFill = fPrelightChroma * max(dot(fallOfManNormal, fPrelightIntensity.xyz), 0.0);
+    }
+    if (oldUFrag && instanceLight.direction0.x > 0.5)
+        unbakedFill = fPrelightChroma * (allowNormalMap
+            ? max(dot(normalize(vec3(derivativeSum, 1.0)), fPrelightIntensity.xyz), 0.0)
+            : 1.0);
     // ToD unbaked Tie with its placement's prelight (Direction0.w = 6, FPs 86591e25cdd7 flat /
     // 952806cc549c normal-mapped): chroma x max(N.TEX3, 0), N the tangent normal (z without a normal map),
     // + props.b (the emissive term below); the albedo already carries TEX0.z (the vertex light scale).
@@ -573,34 +612,62 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     }
     float shadowLight = uOldEngineMode > 0.5 ? 1.0 : 0.2 * sunS + 0.8;
     vec3 lighting = mix(unbakedFill, max(bakedDiffuseLight, selectedFloor), hasBaked) * shadowLight + emissive * emissiveGain;
-    float bakedSpecLight = mix(1.0, bakedColour.a, hasBaked);
+    if (oldUFrag) lighting *= fUFragVertexScales.x;
+    float bakedSpecLight = fallOfManBake ? 1.0 : mix(1.0, bakedColour.a, hasBaked);
     vec3 reflDir = reflect(-viewDir, worldNormal);
-    vec4 envTexel = texture(uEnvCube, reflDir);
+    vec3 oldMobySpecular = vec3(0.0);
+    if (uOldEngineMode > 0.5 && isOldMoby > 0.5 && uEnvHasLighting > 0.5 && (int(uMat6.w + 0.5) & 0x04) != 0) {
+        // Fall of Man game.self 0x10100B68 / 0x10100358, ToD 0x100B00C0 and QfB 0x0086DC30.
+        // Material +0x38 is the exponent, +0x40 the tint/mix, and props.R masks both light lobes.
+        // Use the near value for the vertex-program distance fade.
+        vec3 direction0 = mix(uEnvDirection0, instanceLight.direction0.xyz, useInstanceLighting);
+        vec3 direction1 = mix(uEnvDirection1, instanceLight.direction1.xyz, useInstanceLighting);
+        vec3 colour0 = mix(uEnvLight0Colour, instanceLight.light0Colour.xyz, useInstanceLighting);
+        vec3 colour1 = mix(uEnvLight1Colour, instanceLight.light1Colour.xyz, useInstanceLighting);
+        float gloss = max(uMat4.z, 0.0001);
+        float highlight0 = pow(clamp(dot(reflDir, direction0), 0.0, 1.0), gloss);
+        float highlight1 = pow(clamp(dot(reflDir, direction1), 0.0, 1.0), gloss);
+        oldMobySpecular = mix(uMat3.rgb, albedo, uMat3.w) * (fallOfManMoby ? specIntensity : props.r)
+            * clamp(1.0 + uMat4.x, 0.0, 1.0)
+            * (colour0 * highlight0 + colour1 * highlight1);
+    }
+    vec4 envTexel = fallOfManCubeSlot == 1 ? textureLod(uEnvCube1, reflDir, uMat4.w)
+                  : fallOfManCubeSlot == 2 ? textureLod(uEnvCube2, reflDir, uMat4.w)
+                  : fallOfManCubeSlot == 3 ? textureLod(uEnvCube3, reflDir, uMat4.w)
+                  : uOldEngineMode > 0.5 ? textureLod(uEnvCube, reflDir, uMat4.w)
+                  : texture(uEnvCube, reflDir);
     // PROVEN (retail Tie cubemap FPs): env.rgb *= EX2((env.a * 255 - 80) * 0.0285691) - the RSX EXP
     // opcode is base 2 (RPCS3's EX2), so 2^((a*255 - 80) / 35.0). Read as a natural exp (e^x, i.e.
     // /24.26) until 09-10-2026, which made the HDR cube up to 3x too bright (a = 204 on Metropolis:
     // 34x instead of 11.7x) and is why the reflections were once held back to a 0.12 gain. The alpha read
     // here is already sRGB-decoded: ToD's cube descriptors set ADDRESS gamma on all four channels, applied at
     // upload (AssetManager.BuildEnvironmentCubemap).
-    float envExposure = uOldEngineMode > 0.5
+    float envExposure = fallOfManSurface ? 1.0 : uOldEngineMode > 0.5
         ? exp2((envTexel.a * 255.0 - 80.0) * 0.0285691)
         : exp2((envTexel.a * 255.0 - 128.0) / 16.0);
     vec3 envColour = envTexel.rgb * envExposure;
     float NdotV = clamp(dot(worldNormal, viewDir), 0.0, 1.0);
     float fresnel = uReflectionBase + (1.0 - uReflectionBase) * pow(1.0 - NdotV, 5.0);
     float reflectivity = clamp(specIntensity + fresnel, 0.0, 1.0);
-    // OLD engine, PROVEN: no retail ToD fragment shader paired with a skinned Moby VP samples the
-    // cubemap unit (7); Moby reflection comes from the props.b emissive term only. NEW engine, PROVEN
-    // the other way (QForce RPCS3 cache, FP 1a28fd1dc600 paired with skinned VP c29b70f7428f, unit 7
-    // a cube per the pipeline's texture dimensions): Mobys sample the reflection cube by the reflect
-    // vector like Ties do, so only the old-engine Moby is kept away from envFill.
-    // PROVEN (retail Tie cubemap FPs, keys with feature bit 0x04 only):
-    //   reflection = env * mix(ShaderMetadataOld+0x40 rgb, albedo, +0x40 w) * props.r * saturate(fade) * c4.w
-    // Eligibility is shell feature bit 0x04: every table entry that samples unit 7 has it and no
-    // other does, and runtime V4 shows the bit surviving from the effective use mask into the terminal
-    // key. The distance fade (c[16]) is not closed and is taken as 1; c4.w is 1.0 on every instance.
+    // Old-engine Tie and UFrag cubemap variants use feature bit 0x04 and RSX texture unit 7.
+    // The fragment program adds material +0x30.x to the interpolated fade, saturates it, then
+    // multiplies by props.R. TXL takes the explicit mip from material +0x3C.
     float oldReflectionBit = mod(floor(instanceLight.tieShaderUse0.z / 4.0), 2.0);
-    vec3 oldReflection = envColour * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * oldReflectionBit * oldDistanceFade;
+    float oldReflectionFade = clamp(fOldTieFade + uMat4.x, 0.0, 1.0);
+    vec3 oldReflection = envColour * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * oldReflectionBit * oldReflectionFade;
+    // UFrag TEX2.w is the c[19] distance fade. Use its near value with the fragment bias in +0x30.
+    if (oldUFrag)
+        oldReflection = envColour * mix(uMat3.rgb, albedo * fUFragVertexScales.x, uMat3.w) * specIntensity
+            * oldReflectionBit * instanceLight.tieShaderUseMeta.w * clamp(1.0 + uMat4.x, 0.0, 1.0);
+    // Fall of Man's unit-7 TXL samples the RGB565 cube directly. The material's
+    // feature byte and the expensive map's red channel gate the additive term.
+    // game.self FP 0x10111C78 patches the +0x40 vector into both the tint subtraction
+    // and the multiply-add, doubling the latter's result before applying the cube colour.
+    // The retail Tie and UFrag VP fade constants are not uploaded by this path, so fOldTieFade is 1.
+    if (fallOfManSurface)
+        oldReflection = allowSpecular && fallOfManCubeSlot >= 0
+            ? envColour * (2.0 * mix(uMat3.rgb, albedo, uMat3.w)) * specIntensity * oldReflectionFade
+            : vec3(0.0);
     // NEW ENGINE reflection (Docs/reverse/NEW_ENGINE_REFLECTION_FOG_TIE_UFRAG_2026-09-23.md section 2),
     // read off the retail shaders with Tools/Reverse/rsx/rsxfp_dataflow.py and checked against the raw
     // listings by the 23-09 verification:
@@ -653,12 +720,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         * dot(lighting, vec3(0.2126, 0.7152, 0.0722)) / occlusionFull, 0.0, 1.0);
     // PROVEN: the reflection mask also takes material +0x34 (c[21].y, faded into TEX2.w).
     vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
-    // New-engine Mobys take the cube too: QForce's skinned-Moby FPs sample unit 7 by the reflect
-    // vector (RPCS3 pipeline cache: unit 7 is a cube for FP 1a28fd1dc600), unlike ToD's, which never
-    // do. isOldMoby is what keeps the old engine's Mobys out of it. uEnvironmentIntensity stays as the
-    // user's gain (1.0 by default on the new engine), not as a retail term.
+    // Old-engine Ties and new-engine reflective materials sample the environment cube here.
     vec3 envFill = uOldEngineMode > 0.5
-        ? oldReflection * uEnvironmentIntensity * oldTieDraw
+        ? oldReflection * uEnvironmentIntensity * ((oldUFrag || fallOfManSurface) ? 1.0 : oldTieDraw)
         : newReflection * uEnvironmentIntensity * (1.0 - isOldMoby);
 
     // uReflectionDebug as a MODE (it was declared and never read, and the menu toggle it backed did
@@ -672,7 +736,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // surface keeps its real silhouette and texel. Everything above still runs - the compiler drops it,
     // and branching around it would need the texture fetches hoisted out anyway (they feed the test).
     litColor = uMat1.z > 0.5
-        ? (albedo * lighting + envFill)
+        ? (albedo * lighting + oldMobySpecular + envFill)
         : albedoTex.rgb * fColor.rgb;
     if (reflMode == 1) litColor = envFill;
     else if (reflMode == 2) litColor = uOldEngineMode > 0.5 ? envColour : newReflRadiance;
@@ -683,12 +747,14 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // is the one that says whether a fault shared by both lives here at all, and the rest split it
     // into the inputs that feed it.
     int lightMode = int(uBakedDebugView + 0.5);
+    if (uPostParams.x > 0.5 && uMat1.z > 0.5 && lightMode == 0 && (reflMode == 0 || reflMode == 3))
+        gGlow = bloomMask(emissive, dot(envFill + oldMobySpecular, vec3(0.299, 0.587, 0.114)));
     if (lightMode == 1) litColor = lighting;
-    else if (lightMode == 2) litColor = bakedColour.rgb;                 // LM.rgb, the indirect colour
-    else if (lightMode == 3) litColor = bakedDirSample.rgb;              // the per-basis direction weights
-    else if (lightMode == 4) litColor = vec3(bakedColour.a);             // LM.a, baked sun visibility
+    else if (lightMode == 2) litColor = fallOfManBake ? fPrelightChroma * bakedColour.b : bakedColour.rgb;
+    else if (lightMode == 3) litColor = fallOfManBake ? bakedColour.rgb : bakedDirSample.rgb;
+    else if (lightMode == 4) litColor = vec3(fallOfManBake ? 1.0 : bakedColour.a); // Baked sun visibility when separate.
     else if (lightMode == 5) litColor = unbakedFill;                     // what a Moby uses instead
-    else if (lightMode == 6) litColor = max(bakedDiffuseLight, vec3(0.0));
+    else if (lightMode == 6) litColor = max(fallOfManPrelight ? unbakedFill : bakedDiffuseLight, vec3(0.0));
     else if (lightMode == 7) litColor = albedo;                          // the albedo alone, no lighting
     // Class 0x13 with a decoded shader (uMat1.x, NewEngineEmbeddedShaders): its own equation replaces
     // the generic one. 1 = family be10f7bae86f, a veil whose albedo holds masks: scrolling, facing-weighted
@@ -726,24 +792,23 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
 
     private const string FragmentOpaqueGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 o;
-void main() { vec3 c; float a; gGlow = 1.0 - uPostParams.x; gBeforeAtmosphere = true; shade(c, a); o = vec4(c, gGlow); }";
+void main() { vec3 c; float a; gBeforeAtmosphere = true; shade(c, a); o = vec4(c, uPostParams.x > 0.5 ? gGlow : 1.0); }";
 
     // Weighted-blended OIT accumulation. accum sums premultiplied colour * weight; reveal multiplies
     // down by (1 - alpha). Weight favours nearer, more-opaque fragments (McGuire's depth+alpha form).
     private const string FragmentAccumGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 accum;
-layout(location = 1) out float reveal;
+layout(location = 1) out vec2 reveal;
 void main() {
     vec3 c; float a; shade(c, a);
     // Depth is reversed (VulkanRenderer.ReverseDepth): 1 - z is the usual near-0 depth McGuire's weight wants.
     float w = clamp(pow(min(1.0, a * 10.0) + 0.01, 3.0) * 1e8 * pow(1.0 - (1.0 - gl_FragCoord.z) * 0.9, 3.0), 1e-2, 3e3);
     accum = vec4(c * a, a) * w;
-    reveal = a;
+    reveal = vec2(a, gGlow * a);
 }";
 
-    // Additive (mode 2): the pipeline blends SrcAlpha/One, so the shader just outputs the lit colour and
-    // its alpha (which scales the contribution). No OIT needed - addition is order-independent already.
+    // Additive (mode 2): premultiply colour and glow by coverage before adding both to the scene.
     private const string FragmentAdditiveGlsl = LitFragCommon + @"
 layout(location = 0) out vec4 o;
-void main() { vec3 c; float a; shade(c, a); o = vec4(c, a); }";
+void main() { vec3 c; float a; shade(c, a); o = vec4(c * a, gGlow * a); }";
 }

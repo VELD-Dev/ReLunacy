@@ -11,6 +11,11 @@ public record struct VertexFormat0
     public (short, short, short) position;
     // Bone index on Mobys (which have a skeleton). On Ties (no skeleton) this field carries
     // per-vertex alpha instead - see VertexAlpha/VertexAlphaNewEngine* below.
+    // MEASURED on new-engine Moby meshes (zolar_forest, creature_collector, haunted_city): every value
+    // is +/-(3 x bone + 1) - 0x0001, 0x0004, 0x0007 ... and 0xFFFF, 0xFFFC, 0xFFF9 ... - with the sign
+    // independent of the bone, so 0xFF80-0xFFFF is NOT a vertex-alpha band here as it is on VertexFormat1:
+    // read as alpha, 0xFFFF (bone 0) made whole meshes transparent (a 36-vertex Ratchet mesh is all
+    // 0xFFFF). MobyReader.ExtractSkinData reads the bone as |(raw + 1) / 3|.
     public short boneIndex;
     public (Half, Half) UVs;
     public uint normal;

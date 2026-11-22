@@ -14,6 +14,7 @@ using ReLunacy.MenuBar;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 using NeoVeldrid;
+using ReLunacy.Engine.Games;
 
 namespace ReLunacy.Core;
 
@@ -52,6 +53,24 @@ public class LunaWindow : IDisposable
     public FileManager? fileManager { get; private set; }
     public AssetManager? AssetManager { get; private set; }
     public LevelData? Level { get; private set; }
+    
+    /// <summary>
+    /// The currently loaded level.
+    /// </summary>
+    public Level? LevelMetadata { get; set; }
+
+    /// <summary>The loaded level is an A Crack in Time space sector: the moon tools exist only there, until custom levels do.</summary>
+    public static bool IsSpaceSector => Instance.Level != null && ConfigDocument.LevelName.StartsWith("space_sector", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The open level's reader, kept so another of its regions can be read over the same files
+    /// (see <see cref="SwitchRegion"/>).</summary>
+    private LevelReader? _levelReader;
+
+    /// <summary>The reader of the open level (its files stay open for classes read later); null without a level.</summary>
+    public LevelReader? Reader => _levelReader;
+
+    /// <summary>True while a level or region is being read, built or uploaded: no region switch then.</summary>
+    public bool IsLoadingLevel => _loadBar != null || _sceneBuild != null || _buildingAssetManager != null || _finalizingLevelLoad;
 
     /// <summary>The level and its background-decoded textures, handed from LoadLevelDataAsync's
     /// background task to <see cref="DoLoadEntitiesCheck"/> on the main thread - queued (same pattern
@@ -62,7 +81,8 @@ public class LunaWindow : IDisposable
         int Generation,
         LevelData Level,
         Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?> PreparedTextures,
-        Engine.Loading.PreparedGeometry PreparedGeometry);
+        Engine.Loading.PreparedGeometry PreparedGeometry,
+        Engine.Rendering.Vulkan.TextureBudgetReport? TextureBudget);
 
     /// <summary>Which load is current. Bumped by every load and every wipe, so a loading task that
     /// finishes after its level was closed - or after another level was asked for - can be told
@@ -160,6 +180,8 @@ public class LunaWindow : IDisposable
         });
 
         Time.Init();
+        // No project yet: saves are refused until one is opened, so nothing reaches the game unasked.
+        Project.ProjectSession.Init();
         SetTargetFPS(EditorSettings.TargetFPS);
 
         CommandList = graphicsDevice.ResourceFactory.CreateCommandList();
@@ -228,6 +250,19 @@ public class LunaWindow : IDisposable
         FullScreenRenderer = new FullscreenBlit(GraphicsDevice);
         var (width, height) = MainWindow.GetSizeInPixels();
         FullScreenTexture = new MainRenderTarget(GraphicsDevice, (uint)width, (uint)height, (TextureSampleCount)EditorSettings.MSAA_Level);
+        // The editor's camera model, drawn at every camera controller (VulkanRenderer.CameraMarkers).
+        try
+        {
+            Engine.Rendering.Vulkan.VulkanRenderer.CameraModel =
+                Engine.Rendering.MarkerModel.LoadObj(Path.Combine(Program.EditorPath, "Assets", "ReLunacyCamera.obj"));
+        }
+        catch (Exception ex)
+        {
+            LunaLog.LogWarn($"The camera model could not be loaded, so cameras are not drawn: {ex.Message}");
+        }
+        // The controller icons (VulkanRenderer.ControllerIcons); a class whose icon fails keeps the diamond.
+        foreach (var failure in Engine.Rendering.ControllerIcons.Load(Path.Combine(Program.EditorPath, "Assets", "Icons")))
+            LunaLog.LogWarn($"A controller icon could not be loaded: {failure}");
         imGuiController = new ImGuiController(GraphicsDevice, FullScreenTexture.Framebuffer.OutputDescription, (int)FullScreenTexture.Width, (int)FullScreenTexture.Height);
 
         LM.Initialize();
@@ -241,6 +276,14 @@ public class LunaWindow : IDisposable
         em.renderUFrags = EditorSettings.RenderUFrags;
         em.renderFoliage = EditorSettings.RenderFoliage;
         em.renderVolumes = EditorSettings.RenderVolumes;
+        em.renderCameras = !EditorSettings.HideCameras;
+        em.renderControllers = !EditorSettings.HideControllers;
+        em.renderPaths = !EditorSettings.HidePaths;
+        em.renderNavmesh = EditorSettings.RenderNavmesh;
+        // The RSX shaders only apply while lit (see View3D, which keeps this in step afterwards); set
+        // before the first scene is built so it is not built once with the wrong set and rebuilt.
+        Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = EditorSettings.EnableLighting && EditorSettings.GameShaders;
+        em.renderCollision = EditorSettings.RenderCollision;
         em.renderBoundingSpheres = EditorSettings.RenderBoundingSpheres;
         em.MobyDistanceCullingEnabled = EditorSettings.MobyDistanceCullingEnabled;
 
@@ -267,6 +310,11 @@ public class LunaWindow : IDisposable
             AddFrame(new View3D(GraphicsDevice));
             AddFrame(new PropertyInspectorFrame());
             AddFrame(new BasicEntityExplorer());
+        }
+
+        if (!Program.Settings.HideStartupConfigMessage)
+        {
+            AddFrame(new StartupConfigModal());
         }
 
         PeriodicalSave();
@@ -338,26 +386,13 @@ public class LunaWindow : IDisposable
                     if (resolvedDebugDat != null)
                         fileManager.LoadExternalDebugDat(resolvedDebugDat);
                 }
+                Project.ProjectSession.OnLevelOpened(path, fileManager.ArchivePaths);
                 progress.CompletePhase();
 
                 var levelReader = new LevelReader(fileManager);
                 Level = levelReader.LoadLevel(progress);
-
-                // Everything the asset build and the scene entities would otherwise do on the main
-                // thread that does NOT need the graphics device, done here instead: packing every
-                // mesh and UFrag into vertex/index/interleaved arrays, then decoding every texture
-                // and building its mip chain. Both are internally parallel across cores; they run
-                // one after the other rather than at the same time because each already saturates
-                // them, and sequencing keeps the bar's phases - and the peak memory - honest.
-                progress.Begin(Engine.Loading.LoadPhase.PreparingGeometry);
-                var geometry = Engine.Loading.PreparedGeometry.Build(Level, progress);
-
-                progress.Begin(Engine.Loading.LoadPhase.DecodingTextures);
-                var swPrep = System.Diagnostics.Stopwatch.StartNew();
-                var prepared = AssetManager.PrepareTextures(Level, progress);
-                LunaLog.LogDebug($"Decoded {prepared.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
-
-                pendingLevelReady.Enqueue(new LevelReady(generation, Level, prepared, geometry));
+                _levelReader = levelReader;
+                PrepareLevel(Level, progress, generation);
             });
         }
         catch (Exception ex)
@@ -379,6 +414,78 @@ public class LunaWindow : IDisposable
         LunaLog.LogDebug("Level loaded.");
     }
 
+    /// <summary>
+    /// Shows another region of the open level. The current one's scene, GPU models and textures are
+    /// freed and the new region is read from the level's files, which stay open: only its zones,
+    /// instances, environment, collision and the classes it places are read, and only their textures
+    /// are decoded and uploaded. A level is shown one region at a time, so a GPU only has to hold one.
+    /// </summary>
+    public async void SwitchRegion(string regionName)
+    {
+        if (_levelReader is not { } reader || Level is null || IsLoadingLevel) return;
+        if (Level.Region?.Name == regionName) return;
+
+        TryWipeLevel(keepFiles: true);
+        LunaLog.LogInfo($"Loading region {regionName}.");
+
+        var labels = PhaseLabels<Engine.Loading.LoadPhase>.Snapshot("LoadPhase");
+        var bar = new LoadingProgress(labels.Label(Engine.Loading.LoadPhase.Zones), LoadBarSteps, true);
+        _loadBar = bar;
+        BackgroundTasks.Begin(bar);
+        int generation = ++_loadGeneration;
+        var progress = new Engine.Loading.LevelLoadProgress(
+            report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total));
+        _loadProgress = progress;
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                Level = reader.LoadRegion(regionName, progress);
+                PrepareLevel(Level, progress, generation);
+            });
+        }
+        catch (Exception ex)
+        {
+            LunaLog.LogError($"Region load failed: {ex}");
+            BackgroundTasks.End(bar);
+        }
+    }
+
+    /// <summary>The loading task's tail, shared by a level load and a region switch: everything the main
+    /// thread would otherwise do that does not need the graphics device, then the hand-off to it.</summary>
+    private void PrepareLevel(LevelData level, Engine.Loading.LevelLoadProgress progress, int generation)
+    {
+        // Everything the asset build and the scene entities would otherwise do on the main
+        // thread that does NOT need the graphics device, done here instead: packing every
+        // mesh and UFrag into vertex/index/interleaved arrays, then decoding every texture
+        // and building its mip chain. Both are internally parallel across cores; they run
+        // one after the other rather than at the same time because each already saturates
+        // them, and sequencing keeps the bar's phases - and the peak memory - honest.
+        progress.Begin(Engine.Loading.LoadPhase.PreparingGeometry);
+        var geometry = Engine.Loading.PreparedGeometry.Build(level, progress);
+
+        progress.Begin(Engine.Loading.LoadPhase.DecodingTextures);
+        var swPrep = System.Diagnostics.Stopwatch.StartNew();
+        // Fitted to what the GPU has: a level whose textures would overflow device memory gets them
+        // capped here rather than failing inside the driver halfway through the upload.
+        var budget = Engine.Rendering.Vulkan.GpuMemoryBudget.Query(GraphicsDevice);
+        Engine.Rendering.Vulkan.TextureBudgetReport? report = null;
+        Dictionary<ulong, ReLunacy.Engine.Rendering.Resources.TextureLevels?> prepared;
+        if (budget is not { } known)
+            prepared = AssetManager.PrepareTextures(level, progress);
+        else
+        {
+            prepared = AssetManager.PrepareTextures(level, progress, known.TextureAllowance, out var fitted);
+            report = fitted with { Budget = known };
+            LunaLog.LogInfo($"Textures: {fitted.FullBytes >> 20} MiB at full resolution, {known.TextureAllowance >> 20} MiB allowed " +
+                $"(GPU {known.DeviceName}: heap {known.HeapBytes >> 20} MiB, budget {known.BudgetBytes >> 20} MiB{(known.FromBudgetExtension ? " from VK_EXT_memory_budget" : "")}).");
+        }
+        LunaLog.LogDebug($"Decoded {prepared.Count} textures in {swPrep.ElapsedMilliseconds}ms (loading task, parallel).");
+
+        pendingLevelReady.Enqueue(new LevelReady(generation, level, prepared, geometry, report));
+    }
+
     /// <summary>Applies a user-picked debug.dat to the currently loaded level by reloading it -
     /// the reload runs every name through the exact same DebugReader path a normal load does,
     /// rather than trying to retroactively patch names onto already-built entities.</summary>
@@ -397,13 +504,18 @@ public class LunaWindow : IDisposable
     /// later (see FlushPendingLevelWipe), but every field this class exposes already reads as
     /// cleared once this returns.
     /// </summary>
-    public void TryWipeLevel()
+    /// <param name="keepFiles">For a region switch: the level's files and reader stay open for the next
+    /// region to be read from.</param>
+    public void TryWipeLevel(bool keepFiles = false)
     {
         // A level whose scene is still being built has no AssetManager published yet, so the guard
         // below would walk straight past it and leave its half-built entities, its GPU textures and
         // a job still stepping over a level that is being thrown away. Dropped first, before
         // anything else, and whatever the rest of this method decides to do.
         AbandonLevelFinalization();
+        // The history is the scene's: its steps hold the entities being thrown away (a region switch too).
+        Core.Undo.UndoManager.Singleton.Clear();
+        ReLunacy.Engine.Config.SegmentRegistry.ClearRenames();
         // Anything the loading task finished but that was never picked up belongs to the level being
         // wiped, not to the one about to load - and a task still running is now a stale generation,
         // so whatever it enqueues later is dropped rather than built over the next level.
@@ -429,12 +541,16 @@ public class LunaWindow : IDisposable
         // may already have queued a draw command against earlier this same frame. fileManager.Dispose()
         // just closes file handles, not GPU state, so it stays synchronous.
         _pendingWipeAssetManager = AssetManager;
-        fileManager.Dispose();
-
         Level = null;
-        fileManager = null;
+        LevelMetadata = null;
         AssetManager = null;
-        Program.ProvidedPath = string.Empty;
+        if (!keepFiles)
+        {
+            fileManager.Dispose();
+            fileManager = null;
+            _levelReader = null;
+            Program.ProvidedPath = string.Empty;
+        }
         // In case this level was wiped mid-load, while DoLoadEntitiesCheck was still draining its
         // queued texture uploads.
         _finalizingLevelLoad = false;
@@ -508,7 +624,7 @@ public class LunaWindow : IDisposable
     // each frame can just mutate .current instead of reconstructing/relocking through UpdateProgress.
     private LoadingProgress? _uploadProgress;
 
-    // Per-frame time budget for draining queued texture uploads (see AssetManager.UploadOnePendingTexture).
+    // Per-frame time budget for draining queued texture uploads (see AssetManager.UploadPendingTextures).
     // A time budget rather than a count, since texture sizes vary hugely (a 4K atlas vs a 32x32 icon).
     // Runs inside AfterUpdate, after this frame's Draw, so overrunning slightly delays next frame's
     // Present rather than corrupting this one.
@@ -539,6 +655,20 @@ public class LunaWindow : IDisposable
     /// installed beside the level and on the path it was browsed through (a symlinked install has
     /// different neighbours than its target). The substituted table draws, but with the wrong lighting,
     /// reflections and transparency.</summary>
+    // The AssetManager whose GPU memory failure was already shown: one dialog per level, not per texture.
+    private AssetManager? _gpuMemoryFailureShownFor;
+
+    /// <summary>Tells the user, once per level, that a texture could not get GPU memory. It is drawn with
+    /// the default texture instead; the dialog says how much was already allocated against the budget.</summary>
+    private void ReportGpuMemoryFailure()
+    {
+        var assets = _buildingAssetManager ?? AssetManager;
+        if (assets?.GpuMemoryFailure is not { } failure || ReferenceEquals(_gpuMemoryFailureShownFor, assets)) return;
+        _gpuMemoryFailureShownFor = assets;
+        LunaLog.LogError($"Out of GPU memory: {failure}");
+        AddFrame(new GpuMemoryModal(failure, Engine.Rendering.Vulkan.GpuMemoryBudget.Query(GraphicsDevice)));
+    }
+
     private void WarnIfEbootMissing(LevelData level)
     {
         if (level.IsOldEngine) return;
@@ -558,7 +688,18 @@ public class LunaWindow : IDisposable
     {
         var lsw = System.Diagnostics.Stopwatch.StartNew();
         _buildingAssetManager = new AssetManager(
-            ready.Level, GraphicsDevice, ready.PreparedTextures, ready.PreparedGeometry, _loadProgress);
+            ready.Level, GraphicsDevice, ready.PreparedTextures, ready.PreparedGeometry, _loadProgress,
+            ready.TextureBudget?.MinDimension ?? 0);
+        if (ready.TextureBudget is { } budget) _buildingAssetManager.TextureAllowance = budget.Budget.TextureAllowance;
+        _buildingAssetManager.TextureRetired += imGuiController.ReleaseImGuiBinding;
+        if (ready.TextureBudget is { Reduced: true } reduced)
+        {
+            LunaLog.LogWarn($"This level's textures need {reduced.FullBytes >> 20} MiB at full resolution but the GPU allows about " +
+                $"{reduced.Budget.TextureAllowance >> 20} MiB: {reduced.ReducedCount} of {reduced.TextureCount} textures were reduced to " +
+                $"{reduced.MinDimension}-{reduced.MaxDimension} px ({reduced.FittedBytes >> 20} MiB).");
+            AddFrame(new GpuMemoryModal(reduced));
+        }
+        ReportGpuMemoryFailure();
         // AssetManager's constructor is what resolves the retail shader table, so its provenance is
         // known by here. A borrowed or absent EBOOT still renders - wrongly - so say so plainly
         // rather than leaving it to look like a renderer bug.
@@ -581,17 +722,10 @@ public class LunaWindow : IDisposable
 
         if (!_sceneBuild.IsFinished) return false; // resume next frame
 
-        // The one called "default" when the level names one - that is the game's own default
-        // region, and on a level like lobby (outfitter / static_scene / default) it is the one
-        // holding the full zone set. Otherwise the first, which is the region the loader used to
-        // be hardcoded to. Drawing them all at once would stack segments that overlap in space and
-        // were never shown together, so exactly one starts visible and the rest become available
-        // from Render > Zones.
-        var regions = EntityManager.Singleton.Regions;
-        int shown = regions.FindIndex(r => r.RegionName == "default");
-        if (shown < 0) shown = 0;
-        for (int r = 0; r < regions.Count; r++)
-            regions[r].allowRender = r == shown;
+        // One region is loaded at a time (LevelReader.LoadRegion picks the level's default one and
+        // Render > Region switches), so whatever was built is shown.
+        foreach (var region in EntityManager.Singleton.Regions)
+            region.allowRender = true;
 
         // Published only now that every region and zone exists - see _buildingAssetManager.
         AssetManager = _buildingAssetManager;
@@ -651,11 +785,10 @@ public class LunaWindow : IDisposable
         // Anything queued later (asset previews, lazily built materials) was stuck the same way.
         if (AssetManager.HasPendingUploads)
         {
-            // GraphicsDevice.UpdateTexture work, spread across as many AfterUpdate calls as it takes,
+            // One batch of uploads per frame, spread across as many AfterUpdate calls as it takes,
             // bounded per call so the window keeps pumping events instead of appearing to hang.
-            var uploadSw = System.Diagnostics.Stopwatch.StartNew();
-            while (AssetManager.HasPendingUploads && uploadSw.Elapsed.TotalMilliseconds < UploadBudgetMs)
-                AssetManager.UploadOnePendingTexture();
+            AssetManager.UploadPendingTextures(UploadBudgetMs);
+            ReportGpuMemoryFailure();
 
             // Only meaningful while the loading modal is up; null once the level has finalized.
             int uploaded = AssetManager.TotalQueuedUploads - AssetManager.PendingUploadCount;
@@ -682,6 +815,10 @@ public class LunaWindow : IDisposable
         if (_loadBar != null) BackgroundTasks.End(_loadBar);
         _loadBar = null;
         _loadProgress = null;
+
+        // Every load ends here (a level, a region switch, the reload after a save): the never-culled flags come back
+        // from the project, or the next save would write them all away.
+        if (fileManager != null) Engine.Packing.OcclusionBake.LoadFlags(fileManager, EntityManager.Singleton.Regions.ToList());
 
         foreach (var listener in openFrames.OfType<ILevelListener>())
             listener.OnLevelLoaded();
@@ -785,19 +922,29 @@ public class LunaWindow : IDisposable
 
     private void RenderMenuBar()
     {
+        FileMenuDraw.SaveLevelShortcut();
+        EditMenuDraw.UndoRedoShortcuts();
+        Project.ProjectSession.UpdateTitle();
         if (!ImGui.BeginMainMenuBar()) return;
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_File")))
         {
+            FileMenuDraw.ProjectMenuItems();
+            ImGui.Separator();
             FileMenuDraw.OpenLevelMenuItem();
             FileMenuDraw.OpenGameBrowserMenuItem();
+            FileMenuDraw.SaveLevelMenuItem();
+            FileMenuDraw.InstallMenuItem();
+            FileMenuDraw.BackupsMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
+            FileMenuDraw.ImportMenu();
             FileMenuDraw.CloseLevelMenuItem();
             ImGui.EndMenu();
         }
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_Edit")))
         {
+            EditMenuDraw.UndoRedoMenuItems();
             EditMenuDraw.EditorSettingsMenuItem();
             ImGui.EndMenu();
         }
@@ -807,10 +954,15 @@ public class LunaWindow : IDisposable
             ToolsMenuDraw.TranslationTool();
             ToolsMenuDraw.RotationTool();
             ToolsMenuDraw.ScaleTool();
+            ToolsMenuDraw.LocalSpace();
+if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
             ImGui.Separator();
             ToolsMenuDraw.DeselectObject();
             ImGui.EndMenu();
         }
+
+        BakeMenuDraw.Menu();
+        CreateMenuDraw.Menu();
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_View")))
         {
@@ -818,17 +970,24 @@ public class LunaWindow : IDisposable
             ImGui.Separator();
             ViewMenuDraw.ShowLevelData();
             ViewMenuDraw.ShowView3D();
+            ViewMenuDraw.ShowAssetsBrowser();
+            ViewMenuDraw.ShowReferenceViewer();
             ViewMenuDraw.ShowAssetViewer();
+            ViewMenuDraw.ShowAssetExplorer();
             ViewMenuDraw.ShowTextureExplorer();
             ViewMenuDraw.ShowCubemapViewer();
             ViewMenuDraw.ShowShaderBrowser();
             ViewMenuDraw.ShowEntityExplorer();
             ViewMenuDraw.ShowInstanceInspector();
+            ViewMenuDraw.ShowPods();
+            ViewMenuDraw.ShowSoundBanks();
             ViewMenuDraw.ShowProfiler();
             ViewMenuDraw.ShowConsoleFrame();
             ImGui.Separator();
             ViewMenuDraw.ShowPSArcExplorer();
             ViewMenuDraw.ShowLuaEnvironment();
+            ViewMenuDraw.ShowConfigTables();
+            ViewMenuDraw.ShowTextTables();
             ImGui.Separator();
             ViewMenuDraw.LayoutPresets();
             ImGui.EndMenu();
@@ -836,19 +995,15 @@ public class LunaWindow : IDisposable
 
         if (ImGui.BeginMenu(LM.Get("GUI_Menu_Render")))
         {
-            RenderMenuDraw.ShowMobys();
-            RenderMenuDraw.ShowTies();
-            RenderMenuDraw.ShowUFrags();
+            // Mobys, Ties, UFrags, volumes and bounding spheres are toggled from the 3D viewport's overlay.
             RenderMenuDraw.ShowFoliage();
-            RenderMenuDraw.ShowVolumes();
-            RenderMenuDraw.ShowNavmesh();
-            RenderMenuDraw.ShowBoundingSpheres();
             ImGui.Separator();
+            RenderMenuDraw.RegionSelection();
             RenderMenuDraw.ZoneVisibility();
             RenderMenuDraw.SkyVisibility();
             ImGui.Separator();
+            // Old engine only, and it draws its own separator after it.
             RenderMenuDraw.GameFidelity();
-            ImGui.Separator();
             RenderMenuDraw.ShowMobyDistanceCulling();
             ImGui.Separator();
             RenderMenuDraw.ReflectionControls();
@@ -958,6 +1113,11 @@ public class LunaWindow : IDisposable
         // still live at that point; ImGui doesn't tear it down just because Begin() stopped being
         // called for it.
         RememberDockIdsBeforeClosing();
+        // A closing frame that owns GPU resources frees them here: the previous frame, the last one that drew its
+        // window, has been presented by now.
+        foreach (var frame in openFrames)
+            if (!frame.isOpen && frame is IDisposable disposable)
+                disposable.Dispose();
         openFrames.RemoveAll(FrameMustClose);
 
         if (Overlay.showOverlay)
@@ -977,6 +1137,7 @@ public class LunaWindow : IDisposable
         AssetManager?.FlushSceneRendererInvalidation();
         FlushPendingLevelWipe();
         DoLoadEntitiesCheck();
+        AssetManager?.UpdateTextureStreaming();
         DoExportCompletionsCheck();
         DoMainThreadWorkCheck();
     }

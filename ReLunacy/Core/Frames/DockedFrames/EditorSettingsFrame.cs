@@ -68,12 +68,10 @@ internal class EditorSettingsFrame : Frame
                 currentFiltering = (int)Program.Settings.TextureFiltering;
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
                     Program.Settings.TextureFiltering = (ReLunacy.Engine.Rendering.TextureFiltering)currentFiltering;
-                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_EnableLighting"), ref Program.Settings.EnableLighting);
+                // Lit/unlit and the RSX shaders are switched from the 3D viewport's toolbar; light
+                // direction/colour/ambient live in the Level Data frame, which edits the level's own
+                // lighting environment.
                 DrawCodeEditorThemePicker();
-                ImGui.SameLine();
-                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_EnableLightingHelp"));
-                // Light direction/colour/ambient controls live in the Level Data frame instead,
-                // which edits the level's own lighting environment.
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_Language"), ref selectedLanguage, Languages, Languages.Length))
                 {
                     currLanguage = selectedLanguage;
@@ -103,6 +101,15 @@ internal class EditorSettingsFrame : Frame
                 ImGuiPlus.HelpMarker(LM.Get(prereleaseForced
                     ? "GUI_Frame_EditorSettings_IncludePrereleasesForced"
                     : "GUI_Frame_EditorSettings_IncludePrereleasesHelp"));
+                
+                ImGui.Spacing();    
+                if (ImGui.Button(LM.Get("GUI_Frame_EditorSettings_CreateDesktopShortcut")))
+                {
+                    DesktopShortcutUtils.CreateDesktopShortcut();
+                }
+                
+                ImGui.Spacing();
+                
                 if (ImGui.CollapsingHeader(LM.Get("GUI_Common_AdvancedCollapsed")))
                 {
                     ImGui.Text(LM.Get("GUI_Frame_EditorSettings_CustomShadersPlaceholder"));
@@ -122,10 +129,17 @@ internal class EditorSettingsFrame : Frame
                 ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_VolumeWireThickness"), ref Program.Settings.VolumeWireThickness, 0.01f, 5f, "%.2f", ImGuiSliderFlags.AlwaysClamp);
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_VolumeWireThicknessHelp"));
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_CameraModelScale"), ref Program.Settings.CameraModelScale, 0.05f, 4f, "%.2fx", ImGuiSliderFlags.AlwaysClamp | ImGuiSliderFlags.Logarithmic);
+                ImGui.SliderFloat(LM.Get("GUI_Frame_EditorSettings_CameraPovFov"), ref Program.Settings.CameraPovFov, 30f, 120f, "%.1f deg", ImGuiSliderFlags.AlwaysClamp);
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_CameraPovFovHelp"));
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeColor"), ref Program.Settings.VolumeColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_NavmeshColor"), ref Program.Settings.NavmeshColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_VolumeSelectedColor"), ref Program.Settings.VolumeSelectedColor);
                 ImGui.ColorEdit4(LM.Get("GUI_Frame_EditorSettings_SelectionOutlineColor"), ref Program.Settings.SelectionOutlineColor);
+                if (ImGui.Button(LM.Get("GUI_Frame_EditorSettings_ClearThumbnails"))) Placement.ThumbnailService.Singleton.ClearCache();
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_ClearThumbnailsHelp"));
                 ImGui.EndGroup();
                 ImGui.EndTabItem();
             }

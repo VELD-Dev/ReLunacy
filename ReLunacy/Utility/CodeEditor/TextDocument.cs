@@ -95,12 +95,16 @@ public sealed class TextDocument
     {
         // First ending wins: a file is one convention in practice, and guessing per line would make
         // saving produce something that matches neither.
-        int lf = text.IndexOf('\n');
-        LineEnding = lf > 0 && text[lf - 1] == '\r' ? "\r\n" : lf >= 0 ? "\n" : "\r\n";
-        EndsWithNewline = text.EndsWith('\n');
+        // A bare CR counts: A Crack in Time's scripts end every line with one, and splitting on LF
+        // alone showed a whole file as a single line.
+        int brk = text.IndexOfAny(['\n', '\r']);
+        LineEnding = brk < 0 ? "\r\n"
+            : text[brk] == '\n' ? "\n"
+            : brk + 1 < text.Length && text[brk + 1] == '\n' ? "\r\n" : "\r";
+        EndsWithNewline = text.EndsWith('\n') || text.EndsWith('\r');
 
         _lines.Clear();
-        _lines.AddRange(text.Split('\n').Select(l => l.TrimEnd('\r')));
+        _lines.AddRange(text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'));
         // Split leaves a phantom empty line after a trailing newline; the flag records it instead.
         if (EndsWithNewline && _lines.Count > 1) _lines.RemoveAt(_lines.Count - 1);
         if (_lines.Count == 0) _lines.Add("");

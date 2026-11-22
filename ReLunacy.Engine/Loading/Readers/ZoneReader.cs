@@ -13,16 +13,16 @@ public sealed class ZoneReader
 {
     private readonly FileManager _fileManager;
     private readonly MaterialReader _materialReader;
-    private readonly Dictionary<ulong, Assets.Ties.Tie> _ties;
+    private readonly AssetLibrary<Assets.Ties.Tie> _ties;
 
     /// <summary>Zone names by TUID, from the regions (see NewEngineZoneNames). Empty on the old
     /// engine and before regions are readable, in which case a zone keeps its Zone_TUID fallback.</summary>
     public IReadOnlyDictionary<ulong, string> ZoneNames { get; init; } = new Dictionary<ulong, string>();
 
     /// <summary>Shrub classes by the TUID a zone's 0x7500 table names them with; empty on the old
-    /// engine and on levels that ship no shrubs.dat.</summary>
-    public IReadOnlyDictionary<ulong, Assets.Shrubs.Shrub> Shrubs { get; init; } =
-        new Dictionary<ulong, Assets.Shrubs.Shrub>();
+    /// engine and on levels that ship no shrubs.dat. Read as the zones being read place them.</summary>
+    public AssetLibrary<Assets.Shrubs.Shrub> Shrubs { get; init; } =
+        AssetLibrary<Assets.Shrubs.Shrub>.FromLoaded([]);
     private readonly DebugReader _debugReader;
     private readonly List<ITexture> _newZoneLightmaps = [];
     private readonly List<ITexture> _newZoneDirectionals = [];
@@ -44,7 +44,8 @@ public sealed class ZoneReader
     /// </summary>
     public bool CrackInTimeLayout { get; init; }
 
-    public ZoneReader(FileManager fileManager, MaterialReader materialReader, Dictionary<ulong, Assets.Ties.Tie> ties, DebugReader debugReader)
+    /// <param name="ties">The level's Tie classes; the ones the zones being read place are read from it.</param>
+    public ZoneReader(FileManager fileManager, MaterialReader materialReader, AssetLibrary<Assets.Ties.Tie> ties, DebugReader debugReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
         _materialReader = materialReader ?? throw new ArgumentNullException(nameof(materialReader));
@@ -54,8 +55,10 @@ public sealed class ZoneReader
 
     /// <param name="progress">The level load's bar; the Zone phase counts one item per zone. The old
     /// engine's single zone counts as one, which is what it is - one pass over the whole level's UFrags.</param>
-    public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones(LevelLoadProgress? progress = null) =>
-        _fileManager.isOld ? ReadZonesOld(progress) : ReadZonesNew(progress);
+    /// <param name="only">New engine: the zones to read (one region's), null for every zone. The baked
+    /// lighting collected in <see cref="NewZoneLightmaps"/> is then theirs alone.</param>
+    public Dictionary<ulong, Assets.Levels.Zone> ReadAllZones(LevelLoadProgress? progress = null, IReadOnlySet<ulong>? only = null) =>
+        _fileManager.isOld ? ReadZonesOld(progress) : ReadZonesNew(progress, only);
 
     /// <summary>
     /// ToD: the prelight an unbaked Tie placement's vertex shaders read as attribute 4 - one UB256 x4
@@ -91,11 +94,18 @@ public sealed class ZoneReader
 
     private Dictionary<ulong, Assets.Levels.Zone> ReadZonesOld(LevelLoadProgress? progress)
     {
+        progress?.SetTotal(1);
+        if (_fileManager.IsFallOfMan)
+        {
+            var zone = FallOfManGeometry.ReadZone(_fileManager, _materialReader, _ties, _debugReader);
+            progress?.Advance();
+            return new() { [0] = zone };
+        }
+
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile verticesFile = _fileManager.igfiles["vertices.dat"]!;
 
-        progress?.SetTotal(1);
         var legacyZone = new Objects.Zone(main.sh, old: true, verticesFile: verticesFile);
         zones.Add(0, ConvertZone(legacyZone, 0, 0));
         progress?.Advance();
@@ -103,7 +113,7 @@ public sealed class ZoneReader
         return zones;
     }
 
-    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesNew(LevelLoadProgress? progress)
+    private Dictionary<ulong, Assets.Levels.Zone> ReadZonesNew(LevelLoadProgress? progress, IReadOnlySet<ulong>? only)
     {
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         _newZoneLightmaps.Clear();
@@ -118,6 +128,8 @@ public sealed class ZoneReader
 
         var lightingReader = new NewEngineZoneLightingReader(_fileManager);
 
+        if (only != null)
+            zonePtrs = Array.FindAll(zonePtrs, pointer => only.Contains(pointer.TUID));
         progress?.SetTotal(zonePtrs.Length);
         for (int i = 0; i < zonePtrs.Length; i++)
         {
@@ -173,7 +185,7 @@ public sealed class ZoneReader
     {
         var ufragShaderTuids = ReadUFragShaderTuids(legacyZone);
         ITexture?[] blendMasks = lightingReader?.ReadZoneBlendMasks(legacyZone.zoneIGFile, tuid) ?? [];
-        var ufrags = ReadUFrags(legacyZone, ufragShaderTuids, newEngineLightmapRemap, blendMasks);
+        var ufrags = ReadUFrags(legacyZone, ufragShaderTuids, newEngineLightmapRemap, blendMasks, sourceFileBaseOffset);
         var tieInstances = ReadTieInstances(legacyZone, sourceFileBaseOffset, newEngineLightmapRemap, lightingReader, tuid);
 
         return new Assets.Levels.Zone(
@@ -224,7 +236,7 @@ public sealed class ZoneReader
             // Out of range should not happen - it does not on any of the 142,644 measured - but a
             // bad index would otherwise index the wrong model rather than fail, so it is dropped.
             if (placement.ClassIndex >= classTuids.Length) continue;
-            if (!Shrubs.TryGetValue(classTuids[placement.ClassIndex], out var shrub)) continue;
+            if (Shrubs.Get(classTuids[placement.ClassIndex]) is not { } shrub) continue;
 
             placements.Add(new PlacedInstance<IShrub>(
                 shrub, placement.ToMatrix(), classTuids[placement.ClassIndex],
@@ -359,7 +371,8 @@ public sealed class ZoneReader
         Objects.Zone legacyZone,
         ulong[]? shaderTuids,
         IReadOnlyDictionary<ushort, ushort>? newEngineLightmapRemap = null,
-        ITexture?[]? blendMasks = null)
+        ITexture?[]? blendMasks = null,
+        uint sourceFileBaseOffset = 0)
     {
         var ufrags = new List<IUFrag>();
         IGFile.SectionHeader ufragSection = legacyZone.ufragSection;
@@ -432,6 +445,9 @@ public sealed class ZoneReader
                     }
                 }
             }
+            long record = sourceFileBaseOffset + ufragSection.offset + (long)i * UFragMetadata.Size;
+            if (ufrag is Assets.UFrags.NewUFrag newRecord) newRecord.SourceOffset = record;
+            else if (ufrag is Assets.UFrags.OldUFrag oldRecord) oldRecord.SourceOffset = record;
             ufrags.Add(ufrag);
         }
 
@@ -593,13 +609,11 @@ public sealed class ZoneReader
             Assets.Ties.Tie? tie = null;
             if (legacyZone.isOld)
             {
-                if (_ties.TryGetValue(legacyInstance.tieIndex, out var oldTie))
-                    tie = oldTie;
+                tie = _ties.Get(legacyInstance.tieIndex);
             }
             else if (tieTUIDs != null && legacyInstance.tieIndex < tieTUIDs.Length)
             {
-                if (_ties.TryGetValue(tieTUIDs[legacyInstance.tieIndex], out var newTie))
-                    tie = newTie;
+                tie = _ties.Get(tieTUIDs[legacyInstance.tieIndex]);
             }
 
             if (tie != null)
@@ -643,6 +657,7 @@ public sealed class ZoneReader
 
                 var placedInstance = new PlacedInstance<ITie>(tie, legacyInstance.transform, (ulong)i, 0, name)
                 {
+                    SourceOffset = sourceFileBaseOffset + tieInstanceSection.offset + (long)i * TieInstance.Size,
                     NewEnginePrelight = prelight,
                     OldEnginePrelight = oldPrelight,
                     NewEnginePrelightOffset = prelight != null ? legacyInstance.NewEnginePrelightOffset : 0xFFFFFFFF,

@@ -19,7 +19,6 @@ public record struct TextureObject
     {
         Texture = texture;
         Index = index;
-        TexturePtr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
         GpuTexture = tex2d;
     }
 
@@ -32,7 +31,10 @@ public record struct TextureObject
 
     public readonly ITexture Texture;
     public readonly GpuTexture GpuTexture;
-    public readonly ImTextureRef TexturePtr;
+    /// <summary>Looked up on every use: texture streaming replaces the device texture when it changes the
+    /// texture's resolution, and the binding of the old one is freed with it.</summary>
+    public readonly ImTextureRef TexturePtr =>
+        LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, GpuTexture.DeviceTexture);
 }
 
 public class TexturesExplorer : DockedFrame, ILevelListener
@@ -66,7 +68,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     {
         public readonly Cubemap Cubemap = cubemap;
         public float Exposure = 1f;
-        public CubemapChannel Channel = CubemapChannel.Hdr;
+        public CubemapChannel Channel = cubemap.Faces.FirstOrDefault()?.Format == TextureFormat.R5G6B5
+            ? CubemapChannel.Rgb : CubemapChannel.Hdr;
         public bool Dirty = true;
         public readonly GpuTexture?[] FaceTextures = new GpuTexture?[cubemap.Faces.Count];
         public readonly ImTextureRef[] FacePtrs = new ImTextureRef[cubemap.Faces.Count];
@@ -366,13 +369,7 @@ public class TexturesExplorer : DockedFrame, ILevelListener
         return true;
     }
 
-    // Texture names come straight from the game's own string tables, which for some formats
-    // (e.g. new-engine shader-referenced texture names) are full slash-delimited asset paths,
-    // not bare filenames - writing that as-is into Path.Combine either creates unwanted nested
-    // directories under Extracted/ or fails outright. Keep only the last path segment, and fall
-    // back to the texture's index (not e.g. "unnamed") when it has no name at all.
-    private static string GetExportFileName(string? textureName, int index) =>
-        string.IsNullOrEmpty(textureName) ? $"Tex_{index}" : textureName.Split('/')[^1];
+    private static string GetExportFileName(string? textureName, int index) => TextureTools.ExportFileName(textureName, index);
 
     private static bool MaterialUsesTexture(IMaterial mat, ulong textureId) =>
         mat.AlbedoTexture?.Id == textureId ||
@@ -566,6 +563,9 @@ public class TexturesExplorer : DockedFrame, ILevelListener
             if(ImGui.BeginChild("texture_preview", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             {
                 var selection = textureObjects[selectedTexture];
+                // The preview shows the texture at its own resolution, whatever the scene streams it at.
+                LunaWindow.Instance.AssetManager?.RequestFullResolution(selection.GpuTexture);
+                if (channelPreviewTexture == null) selectedTexturePtr = selection.TexturePtr;
 
                 ImGui.Image(selectedTexturePtr, new(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().X), Vector2.UnitY, Vector2.UnitX);
                 ImGui.Text(LM.Get("GUI_Frame_TextureExplorer_Preview_SelectColorChannel"));
@@ -621,25 +621,12 @@ public class TexturesExplorer : DockedFrame, ILevelListener
                 ImGui.EndGroup();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportRaw")))
                 {
-                    var path = Path.Combine(Program.EditorPath, "Extracted");
-                    if (!Directory.Exists(path))
-                        Directory.CreateDirectory(path);
-
-                    File.WriteAllBytes(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".raw"), selection.Texture.GetPixelData());
+                    TextureTools.ExportRaw(selection.Texture, GetExportFileName(selection.TextureName, selection.Index));
                 }
                 ImGui.SameLine();
                 if(ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_ExportPNG")))
                 {
-                    var path = Path.Combine(Program.EditorPath, "Extracted");
-                    if (!Directory.Exists(path))
-                        Directory.CreateDirectory(path);
-
-                    // Re-decoded from the source texture rather than read back off the GPU one: the
-                    // GPU copy has a mip chain and no CPU-side pixels, and this is the same decode
-                    // every other view in this frame does.
-                    byte[]? pixels = ReLunacy.Engine.Rendering.TextureUtils.DecodeToRgba8888(selection.Texture, out int pw, out int ph);
-                    if (pixels != null)
-                        new Image(pw, ph, pixels).SaveAsPng(Path.Combine(path, GetExportFileName(selection.TextureName, selection.Index) + ".png"));
+                    TextureTools.ExportPng(selection.Texture, GetExportFileName(selection.TextureName, selection.Index));
                 }
                 ImGui.Separator();
                 if (ImGui.Button(LM.Get("GUI_Frame_TextureExplorer_Preview_FindUsages")))

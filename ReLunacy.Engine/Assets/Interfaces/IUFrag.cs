@@ -6,6 +6,10 @@ namespace ReLunacy.Engine.Assets.Interfaces;
 /// <summary>Geometry baked directly into zones - not instanced.</summary>
 public interface IUFrag : IAsset
 {
+    /// <summary>Where the UFrag's 0x80-byte record starts in the file it was read from (zones.dat on the new engine,
+    /// main.dat on the old), for a save to write its placement back; -1 when unknown.</summary>
+    long SourceOffset => -1;
+
     float[] GetVertexPositions();
     float[] GetTextureCoordinates();
 

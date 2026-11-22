@@ -58,7 +58,7 @@ public sealed class LuaEditorView
     /// The archive a script came from, for writing one back. A hook for the same reason as
     /// <see cref="SharedScripts"/>: the editor does not need to know how an archive is found.
     /// </summary>
-    public Func<string?>? ArchivePath { get; set; }
+    public Func<string, string?>? ArchivePath { get; set; }
 
     /// <summary>The level's sibling sources, for searching them. Separate from
     /// <see cref="SharedScripts"/> because that one hands over declarations, and a reference search
@@ -81,7 +81,11 @@ public sealed class LuaEditorView
 
     /// <summary>Whether the archive holds this path, which is to say the script came from one
     /// rather than from the filesystem.</summary>
-    private bool CameFromArchive => _path.StartsWith('/');
+    /// <summary>Whether the open script was read from a game archive (its path is then an archive path,
+    /// <c>/levels/...</c>), rather than from a file on disk. Told by whoever loads it: an absolute
+    /// disk path on Linux starts with '/' too.</summary>
+    private bool CameFromArchive => _fromArchive;
+    private bool _fromArchive;
 
     public string Path => _path;
     public TextDocument Document => _editor.Document;
@@ -351,10 +355,16 @@ public sealed class LuaEditorView
         }
     }
 
-    public void Load(string text, string label)
+    /// <summary>Where a script from an archive is saved on disk: its archive path under the editor's
+    /// LuaScripts folder.</summary>
+    private static string ExportPath(string archivePath) =>
+        System.IO.Path.Combine(Program.EditorPath, "LuaScripts", archivePath.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar));
+
+    public void Load(string text, string label, bool fromArchive = false)
     {
         _editor.SetText(text);
         _path = label;
+        _fromArchive = fromArchive;
         _modified = false;
         _status = null;
         _scopesVersion = -1;
@@ -418,10 +428,14 @@ public sealed class LuaEditorView
             try
             {
                 // Written as bytes, not as text: a script may hold bytes that are not valid UTF-8 -
-                // 28 of the shipped ones do - and re-encoding them changes the file.
-                File.WriteAllBytes(_path, LuaText.ToBytes(Document.GetText()));
-                _modified = false;
-                _status = string.Format(LM.Get("GUI_LuaEnv_Saved"), _path);
+                // 28 of the shipped ones do - and re-encoding them changes the file. A script from an
+                // archive has an archive path, not a place on disk: it is saved as a copy under the
+                // editor's LuaScripts folder (Install is what writes it into the game).
+                string file = CameFromArchive ? ExportPath(_path) : _path;
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(file))!);
+                File.WriteAllBytes(file, LuaText.ToBytes(Document.GetText()));
+                if (!CameFromArchive) _modified = false;
+                _status = string.Format(LM.Get("GUI_LuaEnv_Saved"), file);
             }
             catch (Exception e) { _status = e.Message; }
         }
@@ -430,7 +444,7 @@ public sealed class LuaEditorView
         // offered for an archive path - one starting with '/'. The script need not already be in
         // the archive: a path that is not there yet is added, index entries and all.
         ImGui.SameLine();
-        string? archivePath = ArchivePath?.Invoke();
+        string? archivePath = ArchivePath?.Invoke(_path);
         ImGui.BeginDisabled(archivePath is null || !CameFromArchive || _installing);
         if (ImGui.Button(LM.Get("GUI_LuaEnv_Install")) && archivePath is not null)
         {
@@ -448,7 +462,7 @@ public sealed class LuaEditorView
             BackgroundJob.Run(
                 LM.Get("GUI_LuaEnv_Install"),
                 installing,
-                bar => LuaScriptPackWriter.Save(archive, scriptPath, text,
+                bar => LuaScriptBrowser.SaveInto(archive, scriptPath, text,
                     report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total)),
                 result =>
                 {

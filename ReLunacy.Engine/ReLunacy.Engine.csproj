@@ -9,6 +9,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="NAudio.Core" Version="3.4.0-preview.1" />
+    <PackageReference Include="NAudio.Flac" Version="1.0.5702.29018" />
+    <PackageReference Include="NAudio.Flac.Unknown" Version="1.0.4" />
+    <PackageReference Include="NAudio.Lame" Version="2.1.0" />
+    <PackageReference Include="NAudio.Lame.CrossPlatform" Version="2.2.1" />
+    <PackageReference Include="NAudio.SoundFile" Version="3.4.0-preview.1" />
+    <PackageReference Include="NAudio.Vorbis" Version="3.0.0" />
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
     <!-- PNG/JPEG/etc decode and encode. Same two libraries Bliss used underneath its own Image type,
          referenced directly now. -->
@@ -51,4 +58,16 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Class number -> name tables recovered from the EBOOTs (see the files' headers). -->
+    <!-- The same files beside the executable, so an installed editor can change them (ClassDataFiles). -->
+    <Content Include="Resources\Classes\*.classes;Resources\Classes\*.fields;Resources\Classes\*.textids">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <EmbeddedResource Include="Resources\Classes\*.classes" />
+    <!-- Settings fields by class (ClassFields), generated from the reverse-engineering notes. -->
+    <EmbeddedResource Include="Resources\Classes\*.fields" />
+    <!-- Text id -> tag name, from the EBOOT's text enum (GameText). -->
+    <EmbeddedResource Include="Resources\Classes\*.textids" />
+  </ItemGroup>
 </Project>

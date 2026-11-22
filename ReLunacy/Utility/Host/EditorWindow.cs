@@ -38,6 +38,10 @@ public sealed class EditorWindow : IDisposable
         if (!GraphicsDevice.IsBackendSupported(preferredBackend))
             throw new PlatformNotSupportedException($"The graphics backend [{preferredBackend}] is not supported on this platform.");
 
+        // The Wayland app ID matches the generated launcher filename without ".desktop".
+        if (OperatingSystem.IsLinux())
+            SDL.SetHint(SDL.Hints.AppID, typeof(ProgramInfo).Assembly.GetName().Name!);
+
         if (!SDL.Init(SDL.InitFlags.Video | SDL.InitFlags.Events))
             throw new InvalidOperationException($"SDL_Init failed: {SDL.GetError()}");
 

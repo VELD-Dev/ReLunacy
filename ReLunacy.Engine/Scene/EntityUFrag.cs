@@ -18,6 +18,15 @@ public class EntityUFrag : Entity
 
     public RenderMesh UFragMesh { get; protected set; }
 
+    /// <summary>The anchor as the file last held it (as loaded, then as last saved). A UFrag's record holds a
+    /// position and a bounding sphere, no rotation or scale: a save moves both by how far the anchor moved since.</summary>
+    public Vector3 SavedTranslation { get; private set; }
+
+    public void MarkSaved() => SavedTranslation = Transform.Translation;
+
+    /// <summary>Planet regions: the occlusion grid never hides this UFrag (see <see cref="EntityTie.NeverCulled"/>).</summary>
+    public bool NeverCulled { get; set; }
+
     public EntityUFrag(IUFrag ufrag, AssetManager assetManager)
     {
         UFrag = ufrag;
@@ -35,11 +44,8 @@ public class EntityUFrag : Entity
         // decoded 0x5400/0x5410 list is treated as none rather than allowed to become a material key.
         ushort candidateIndex = ufrag.LightmapIndex;
         ushort lightmapIndex = geometry.HasValidLightmapUVs
-            && candidateIndex != Loading.Objects.UFragMetadata.NoLightmap
-            && candidateIndex < assetManager.ZoneLightmaps.Count
-            && candidateIndex < assetManager.ZoneDirectionals.Count
-            && assetManager.ZoneLightmaps[candidateIndex] != null
-            && assetManager.ZoneDirectionals[candidateIndex] != null
+            && assetManager.HasLightmap(candidateIndex)
+            && (!assetManager.UsesFallOfManLightmaps || ufrag is Assets.UFrags.OldUFrag { FallOfManBake: not null })
                 ? candidateIndex
                 : Loading.Objects.UFragMetadata.NoLightmap;
 
@@ -59,6 +65,7 @@ public class EntityUFrag : Entity
         // are brought back to world scale by the reciprocal quantisation here.
         var anchor = ufrag.GetAnchor();
         Transform = new Transform { Translation = anchor, Rotation = Quaternion.Identity, Scale = Vector3.One / UFragQuantisation };
+        SavedTranslation = anchor;
 
         // BoundingSphere is LOCAL space per Entity's convention. The file gives centre/radius in
         // world units, so convert them back into the x256 mesh space and let WorldBoundingSphere's
@@ -81,7 +88,9 @@ public class EntityUFrag : Entity
         // Reject the UV channel before either the vertex buffer or material can use it.
         var candidateLightmapUVs = ufrag.GetLightmapUVs();
         int vertexCount = ufrag.GetVertexPositions().Length / 3;
-        bool hasValidLightmapUVs = HasValidLightmapUVs(candidateLightmapUVs, vertexCount, ufrag.IsOldEngine);
+        bool hasValidLightmapUVs = ufrag is Assets.UFrags.OldUFrag { FallOfManBake: not null }
+            ? candidateLightmapUVs != null && candidateLightmapUVs.Length == vertexCount * 2 && candidateLightmapUVs.All(float.IsFinite)
+            : HasValidLightmapUVs(candidateLightmapUVs, vertexCount, ufrag.IsOldEngine);
         var validatedLightmapUVs = hasValidLightmapUVs ? candidateLightmapUVs : null;
 
         var vertices = ConvertUFragToVertices(ufrag, ufrag.Material.UsesVertexAlpha, validatedLightmapUVs);
@@ -131,6 +140,7 @@ public class EntityUFrag : Entity
         // See Material.UsesVertexAlpha / AssetManager.ConvertGeometryToVertices, which this
         // mirrors: only read when the material has a use for it.
         var vertexAlpha = useVertexAlpha ? ufrag.GetVertexAlpha() : null;
+        var vertexLight = (ufrag as Assets.UFrags.OldUFrag)?.FallOfManBake?.VertexScales;
 
         int vertexCount = positions.Length / 3;
         var vertices = new Vertex3D[vertexCount];
@@ -157,7 +167,8 @@ public class EntityUFrag : Entity
                 : uv;
 
             float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
-            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, new Vector4(1f, 1f, 1f, alpha));
+            float lightScale = vertexLight?[i] ?? 1f;
+            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, new Vector4(lightScale, lightScale, lightScale, alpha));
         }
 
         return vertices;

@@ -117,7 +117,7 @@ public class GameBrowserFrame : DockedFrame
                 if ((library.DetectedGame?.IsOldEngine ?? true) && level.DebugDatPath == null)
                 {
                     ImGui.SameLine();
-                    ImGui.TextDisabled("[no debug.dat found]");
+                    ImGui.TextDisabled("[no loose debug.dat found]");
                 }
                 ImGui.SameLine();
                 if (ImGui.Button($"Load##level_{level.Name}"))
@@ -208,12 +208,7 @@ public class GameBrowserFrame : DockedFrame
         }
     }
 
-    private static void LoadLevel(Level level)
-    {
-        var loadingFrame = new LoadingFrame(LM.Get("GUI_LoadLevelModal_Title"), 1);
-        LunaWindow.Instance.AddFrame(loadingFrame);
-        LunaWindow.Instance.LoadLevelDataAsync(level.SourcePath, loadingFrame, level.DebugDatPath);
-    }
+    private static void LoadLevel(Level level) => Project.ProjectSession.LoadLevel(level);
 
     public override void RenderAsWindow(double deltaTime)
     {

@@ -17,6 +17,9 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     public float UpdateDistance { get; init; } = -1f;
     public ushort LightmapIndex { get; init; } = 0xFFFF;
     public float? OldBakedLightScale { get; init; }
+    public Assets.Lighting.FallOfManBake? FallOfManBake { get; init; }
+    public Assets.Lighting.FallOfManTiePrelight? FallOfManTiePrelight { get; init; }
+    public byte? FallOfManCubeIndex { get; init; }
     public Vector4? NewEngineBakedLight { get; init; }
     public ulong NewEngineCubeTuid { get; init; }
     public byte[]? NewEnginePrelight { get; init; }
@@ -27,6 +30,21 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     public bool NewEnginePrelightBaked { get; init; }
 
     private readonly Matrix4x4? _rawMatrix;
+
+    /// <summary>Where a Tie placement's 0x80-byte record starts in the file it was read from (zones.dat on the new
+    /// engine, main.dat on the old), for a save to write it back; -1 when unknown.</summary>
+    public long SourceOffset { get; init; } = -1;
+
+    /// <summary>New engine, a Moby's instance settings: its class struct (starting with the class number), edited
+    /// in place by the inspector and written back by a save, and the fields that name another instance.</summary>
+    public byte[] Settings { get; init; } = [];
+    public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; init; } = [];
+    /// <summary>New engine: the Moby's settings block is its class's default one (gp_prius 0x25030, shared), as the file
+    /// holds it. Read once at load; what <see cref="Scene.ClassDefaults"/> is built from.</summary>
+    public bool SharedSettings { get; init; }
+    /// <summary>New engine, a Moby's place in the region's Moby table, which is what a reference names it by; -1
+    /// when unknown.</summary>
+    public int GameplayIndex { get; init; } = -1;
 
     public PlacedInstance(TAsset asset, Transform3D transform, ulong tuid, ushort group = 0, string name = "", float displayDistance = -1f, float updateDistance = -1f)
     {

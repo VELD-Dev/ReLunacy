@@ -28,12 +28,14 @@ public readonly record struct LuaToken(LuaTokenKind Kind, LuaPosition Start, Lua
 }
 
 /// <summary>
-/// Lua 5.0 lexer.
+/// Lua 5.0 lexer, plus the two 5.1 operators A Crack in Time's scripts use.
 ///
-/// The dialect is 5.0, confirmed against the 524 shipped sources rather than assumed: no <c>#</c>
-/// length operator and no <c>%</c> modulo (5.1 additions - every occurrence in the corpus is inside
-/// a comment or a string literal), no <c>[=[</c> level brackets, and no goto/labels. Long strings
-/// are 5.0's nestable <c>[[ ]]</c>.
+/// Tools of Destruction's dialect is 5.0, confirmed against its 524 shipped sources: no <c>#</c>
+/// length operator and no <c>%</c> modulo (every occurrence in that corpus is inside a comment or a
+/// string literal), no <c>[=[</c> level brackets, and no goto/labels. Long strings are 5.0's nestable
+/// <c>[[ ]]</c>. A Crack in Time ships Lua 5.1, and 15 of its 62 scripts use <c>#</c>: both
+/// operators are read, and the 5.0 compiler refuses them (LuaCompiler), so a ToD script using one
+/// is still an error.
 ///
 /// It never throws. Unterminated strings, stray characters and malformed numbers become
 /// <see cref="LuaTokenKind.Error"/> tokens and lexing continues, so the editor can highlight and the
@@ -52,7 +54,7 @@ public static class LuaLexer
     private static readonly string[] Symbols =
     [
         "...", "..", "==", "~=", "<=", ">=",
-        "+", "-", "*", "/", "^", "=", "<", ">", "(", ")", "{", "}", "[", "]", ";", ":", ",", ".",
+        "+", "-", "*", "/", "%", "^", "#", "=", "<", ">", "(", ")", "{", "}", "[", "]", ";", ":", ",", ".",
     ];
 
     public static bool IsKeyword(string text) => Keywords.Contains(text);
@@ -174,7 +176,7 @@ public static class LuaLexer
         var text = new System.Text.StringBuilder();
         while (true)
         {
-            if (s.AtEnd || s.Peek() == '\n')
+            if (s.AtEnd || IsLineBreak(s.Peek()))
                 return new LuaToken(LuaTokenKind.Error, start, s.Position, "unterminated string");
 
             char c = s.Take(1)[0];
@@ -192,8 +194,12 @@ public static class LuaLexer
                 case 'r': text.Append('\r'); break;
                 case 't': text.Append('\t'); break;
                 case 'v': text.Append('\v'); break;
-                // A backslash before a real newline embeds that newline.
+                // A backslash before a real newline embeds that newline (any of LF, CR, CRLF).
                 case '\n': text.Append('\n'); break;
+                case '\r':
+                    text.Append('\n');
+                    if (s.Peek() == '\n') s.Advance(1);
+                    break;
                 default:
                     if (char.IsDigit(e))
                     {
@@ -219,6 +225,7 @@ public static class LuaLexer
         if (!s.StartsWith("[[")) return false;
         int startIndex = s.Index;
         s.Advance(2);
+        // 5.0 skips only an LF here, and keeps a CR in the string: unchanged so ToD's chunks are too.
         if (s.Peek() == '\n') s.Advance(1);
 
         int depth = 1;
@@ -244,6 +251,13 @@ public static class LuaLexer
         return true;
     }
 
+    /// <summary>
+    /// A line ends at LF, CR or CRLF, as in the reference lexer. A Crack in Time's scripts end their
+    /// lines with a bare CR (space_sector_1's main.lua: 108 CRs, no LF); counting only LF read
+    /// each of them as one line, and its first <c>--</c> comment as running to the end of the file.
+    /// </summary>
+    private static bool IsLineBreak(char c) => c is '\n' or '\r';
+
     /// <summary>Character cursor that tracks line and column so tokens carry real positions.</summary>
     private struct Scanner(string source)
     {
@@ -264,8 +278,10 @@ public static class LuaLexer
         {
             for (int i = 0; i < count && Index < _source.Length; i++)
             {
-                if (_source[Index] == '\n') { _line++; _column = 0; }
-                else _column++;
+                // CRLF counts once, at its LF.
+                char c = _source[Index];
+                if (c == '\n' || (c == '\r' && (Index + 1 >= _source.Length || _source[Index + 1] != '\n'))) { _line++; _column = 0; }
+                else if (c != '\r') _column++;
                 Index++;
             }
         }
@@ -284,7 +300,7 @@ public static class LuaLexer
             return _source[from..Index];
         }
 
-        public string TakeToEndOfLine() => TakeWhile(c => c != '\n');
+        public string TakeToEndOfLine() => TakeWhile(c => c is not ('\n' or '\r'));
 
         public void SkipWhitespace() => TakeWhile(char.IsWhiteSpace);
 
