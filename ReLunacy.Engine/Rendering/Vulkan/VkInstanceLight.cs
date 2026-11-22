@@ -142,6 +142,16 @@ public struct VkInstanceLight
     }
 
     public const float OldUFragFlag = 7f;
+    public const float FallOfManBakeFlag = 8f;
+
+    public static VkInstanceLight ForFallOfManBake(float scale, int wordDelta)
+    {
+        var light = default(VkInstanceLight);
+        light.Direction0.W = FallOfManBakeFlag;
+        light.Direction0.Z = BitConverter.Int32BitsToSingle(wordDelta);
+        light.Direction1.W = scale;
+        return light;
+    }
 
     /// <summary>Old UFrag c[4].z (diffuse scale), c[4].w (cube gain), and its two packed words per vertex.</summary>
     public static VkInstanceLight ForOldUFrag(Vector2 scales, bool prelit, int wordDelta, int features, bool usesDefaultCube)

@@ -261,6 +261,7 @@ public sealed class AssetManager : IDisposable
         // drawn on all of them (the seaside water that drew flat white was the unit-10/11 stub, now the
         // scene copy).
         _retailShadersMeasured = !level.IsOldEngine;
+        UsesFallOfManLightmaps = level.GameDefinition?.Id == Games.GameId.RFallOfMan;
         // The EBOOT's standard shaders: this level's own game's when a decrypted EBOOT lies in its install
         // (QForce, All 4 One, Into the Nexus here), else another new-engine game's - the same engine, the
         // same table layout (A Crack in Time has none decrypted).
@@ -314,7 +315,9 @@ public sealed class AssetManager : IDisposable
         long tTextures = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
         ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap", progress);
         ZoneDirectionals = BuildZoneLighting(level.ZoneDirectionals, "directional", progress);
-        if (ZoneLightmaps.Count != 0)
+        if (UsesFallOfManLightmaps)
+            Console.WriteLine($"Fall of Man: {ZoneLightmaps.Count(t => t != null)} packed lightmaps built.");
+        else if (ZoneLightmaps.Count != 0)
             Console.WriteLine($"Zone lighting: {ZoneLightmaps.Count} light-colour and {ZoneDirectionals.Count} light-direction textures built.");
 
         long tZone = sw.ElapsedMilliseconds - t0;
@@ -771,15 +774,20 @@ public sealed class AssetManager : IDisposable
     /// rather than being dropped, so later indices don't shift onto the wrong texture.</summary>
     public IReadOnlyList<GpuTexture?> ZoneLightmaps { get; } = [];
     public IReadOnlyList<GpuTexture?> ZoneDirectionals { get; } = [];
+    internal bool UsesFallOfManLightmaps { get; }
 
-    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture> source, string label, Loading.LevelLoadProgress? progress = null)
+    internal bool HasLightmap(ushort index) => EnableBakedLighting
+        && index != ushort.MaxValue && index < ZoneLightmaps.Count && ZoneLightmaps[index] != null
+        && (UsesFallOfManLightmaps || (index < ZoneDirectionals.Count && ZoneDirectionals[index] != null));
+
+    private List<GpuTexture?> BuildZoneLighting(IReadOnlyList<ITexture?> source, string label, Loading.LevelLoadProgress? progress = null)
     {
         var built = new List<GpuTexture?>(source.Count);
         foreach (var tex in source)
         {
             try
             {
-                built.Add(GetOrBuildTexture(tex, mipmap: false));
+                built.Add(tex == null ? null : GetOrBuildTexture(tex, mipmap: false));
             }
             catch (Exception ex)
             {
@@ -846,14 +854,13 @@ public sealed class AssetManager : IDisposable
                     vertices, indices, Loading.PreparedGeometry.Interleaved(vertices, indices), HasValidLightmapUVs: false);
             }
 
-            var oldTieShaderUse = mesh is Assets.Geometry.Mesh sourceMesh ? sourceMesh.OldTieShaderUse : null;
-            var bMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material, oldTieShaderUse)
+            var sourceMesh = mesh as Assets.Geometry.Mesh;
+            var bMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material, sourceMesh?.OldTieShaderUse)
             {
-                NewEngineTiePrimitive = mesh is Assets.Geometry.Mesh sourcePrimitive ? sourcePrimitive.NewEngineTiePrimitive : null,
-                NewEngineFadeDistances = mesh is Assets.Geometry.Mesh fadeSource
-                    ? fadeSource.NewEngineFadeDistances ?? fadeSource.NewEngineTiePrimitive?.FadeDistances
-                    : null,
-                UvAnimation = mesh is Assets.Geometry.Mesh uvSource ? uvSource.UvAnimation : null,
+                NewEngineTiePrimitive = sourceMesh?.NewEngineTiePrimitive,
+                SourceVertexBase = sourceMesh?.SourceVertexBase ?? -1,
+                NewEngineFadeDistances = sourceMesh?.NewEngineFadeDistances ?? sourceMesh?.NewEngineTiePrimitive?.FadeDistances,
+                UvAnimation = sourceMesh?.UvAnimation,
             };
 
             // Register this mesh's raw geometry keyed by the mesh instance, so the renderer can
@@ -947,13 +954,10 @@ public sealed class AssetManager : IDisposable
         // it the fallback textures below would read as a real full-strength white light.
         // Both are ALWAYS bound even when absent: a declared descriptor set left unbound is
         // undefined behaviour, and is exactly how the earlier GPUVM fault manifested.
-        bool hasBakedLighting = EnableBakedLighting
-            && lightmapIndex != Loading.Objects.Instances.TieInstance.NoLightmap
-            && lightmapIndex < ZoneLightmaps.Count && ZoneLightmaps[lightmapIndex] != null
-            && lightmapIndex < ZoneDirectionals.Count && ZoneDirectionals[lightmapIndex] != null;
+        bool hasBakedLighting = HasLightmap(lightmapIndex);
 
         var lightColour = hasBakedLighting ? ZoneLightmaps[lightmapIndex]! : GetDefaultLightColourTexture();
-        var lightDir = hasBakedLighting ? ZoneDirectionals[lightmapIndex]! : GetDefaultLightDirTexture();
+        var lightDir = hasBakedLighting && !UsesFallOfManLightmaps ? ZoneDirectionals[lightmapIndex]! : GetDefaultLightDirTexture();
         bMat.AddMaterialMap("fLightColour", new MaterialMap(lightColour, ResolveSampler(lightColour), hasBakedLighting ? 1f : 0f));
         bMat.AddMaterialMap("fLightDir", new MaterialMap(lightDir, ResolveSampler(lightDir)));
 

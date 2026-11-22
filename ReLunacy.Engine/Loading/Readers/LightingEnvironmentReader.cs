@@ -3,7 +3,7 @@ using ReLunacy.Engine.Loading.IO;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
-/// <summary>Reads the old-engine lighting environment rooted at main.dat section 0x8B00.
+/// <summary>Reads the old-engine lighting environment from main.dat. Fall of Man uses 0x8A00.
 ///
 /// 0x8B00 is one 0x80-byte root record. +0x00 is format/version (2 on the confirmed fixtures),
 /// +0x04 points to 0x8C00 and +0x08 is its volume count. The root also carries global ambient,
@@ -18,6 +18,7 @@ public sealed class LightingEnvironmentReader
     public const uint SpatialVolumesID = 0x8C00;
     public const uint SpatialVoxelDataID = 0x8D00;
 
+    private const uint FallOfManLightingId = 0x8A00;
     private const uint RootStride = 0x80;
     private const uint VolumeStride = 0x80;
     private const int MaxLights = 2;
@@ -340,6 +341,7 @@ public sealed class LightingEnvironmentReader
     {
         if (!_fileManager.isOld) return null;
         if (!_fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null) return null;
+        if (_fileManager.IsFallOfMan) return ReadFallOfMan(main);
 
         var rootSection = main.QuerySection(ID);
         if (rootSection.id != ID || rootSection.count == 0) return null;
@@ -388,6 +390,78 @@ public sealed class LightingEnvironmentReader
         Console.WriteLine($"Lighting environment (0x{ID:X4}): version={version}, {env.Lights.Count} global directional light(s), ambient={env.Ambient}, spatial={env.SpatialVolumes.Count} volumes ({voxelVolumes} voxel grids, 0x{voxelBytes:X} bytes).");
         return env;
     }
+
+    private static Assets.Lighting.LightingEnvironment? ReadFallOfMan(IGFile main)
+    {
+        // game.self 0x128974 loads the version 1 header and resolves its relative volume offset.
+        // 0x128AC8 searches the 0x80-byte boxes, and 0x12BCE0 reads the selected rig for a Moby.
+        // The retail renderer also interpolates rig changes over time and modulates the colours
+        // using a separate brightness sample from 0x8400. This reads the authored rigs.
+        var section = main.QuerySection(FallOfManLightingId);
+        if (section.id != FallOfManLightingId || section.count != 1 || section.length < RootStride
+            || (long)section.offset + section.length > main.sh.BaseStream.Length)
+            return null;
+
+        uint root = section.offset;
+        uint relativeVolumeOffset = main.sh.ReadUInt32(root);
+        uint volumeCount = main.sh.ReadUInt32(root + 0x04);
+        uint version = main.sh.ReadUInt32(root + 0x08);
+        if (version != 1) return null;
+
+        var env = new Assets.Lighting.LightingEnvironment
+        {
+            Version = version,
+            UsesFallOfManMobyLighting = true,
+            Ambient = ReadVec3(main, root + 0x10),
+        };
+
+        for (uint i = 0; i < MaxLights; i++)
+        {
+            env.Lights.Add(new Assets.Lighting.DirectionalLight
+            {
+                Colour = ReadVec3(main, root + 0x20 + i * 0x10),
+                Direction = ReadVec3(main, root + 0x40 + i * 0x10),
+            });
+        }
+
+        if (relativeVolumeOffset < RootStride
+            || relativeVolumeOffset + (long)volumeCount * VolumeStride > section.length)
+            return env;
+
+        for (uint i = 0; i < volumeCount; i++)
+        {
+            uint row = root + relativeVolumeOffset + i * VolumeStride;
+            uint ambient = main.sh.ReadUInt32(row + 0x04);
+            uint key = main.sh.ReadUInt32(row + 0x08);
+            uint fill = main.sh.ReadUInt32(row + 0x0C);
+            Vector4 x = ReadVec4(main, row + 0x40);
+            Vector4 y = ReadVec4(main, row + 0x50);
+            Vector4 z = ReadVec4(main, row + 0x60);
+            env.SpatialVolumes.Add(new Assets.Lighting.SpatialLightingVolume
+            {
+                Index = (int)i,
+                Field00Bits = main.sh.ReadUInt32(row),
+                Colour0Bits = ambient,
+                Colour1Bits = key,
+                Colour2Bits = fill,
+                Field10Bits = main.sh.ReadUInt32(row + 0x10),
+                Colour0 = DecodeFallOfManLightingRgb8(ambient),
+                Colour1 = DecodeFallOfManLightingRgb8(key),
+                Colour2 = DecodeFallOfManLightingRgb8(fill),
+                Direction0 = ReadVec3(main, row + 0x20),
+                Direction1 = ReadVec3(main, row + 0x30),
+                AxisX = new Vector3(x.X, x.Y, x.Z),
+                AxisY = new Vector3(y.X, y.Y, y.Z),
+                AxisZ = new Vector3(z.X, z.Y, z.Z),
+                AxisScale = new Vector3(x.W, y.W, z.W),
+                Center = ReadVec3(main, row + 0x70),
+            });
+        }
+        return env;
+    }
+
+    private static Vector3 DecodeFallOfManLightingRgb8(uint rgba) =>
+        new Vector3(rgba >> 24, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF) / 255f;
 
     private static void ReadSpatialVolumes(IGFile main, Assets.Lighting.LightingEnvironment env, uint declaredVolumeCount)
     {

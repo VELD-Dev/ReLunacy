@@ -218,6 +218,12 @@ void main() {
             else
                 fPrelightChroma *= basis.z * il.direction1.w;
         }
+    } else if (il.direction0.w == 8.0) {
+        // Fall of Man's lightmapped VPs use two normalized chroma bytes, with blue
+        // reconstructed from their sum, times inverse Rec.601 luma weights and c[5].z.
+        uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.direction0.z)];
+        vec2 ab = vec2(float(word & 255u), float((word >> 8) & 255u)) / 255.0;
+        fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193) * il.direction1.w;
     }
     mat3 m3 = mat3(m);
     mat3 nrm = transpose(inverse(m3));

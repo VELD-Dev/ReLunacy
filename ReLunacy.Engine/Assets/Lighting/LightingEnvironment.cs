@@ -11,7 +11,8 @@ public sealed class DirectionalLight
 }
 
 /// <summary>
-/// One old-engine 0x8C00 spatial-lighting record plus its exact 0x8D00 U8 voxel payload.
+/// One old-engine spatial-lighting box. Tools of Destruction stores these in 0x8C00 with
+/// optional 0x8D00 voxel data. Fall of Man stores the boxes alongside the 0x8A00 global rig.
 ///
 /// The retail position sampler is now closed far enough to use for dynamic Mobys:
 ///  - containing OBBs are tested and the deepest containing volume wins;
@@ -75,8 +76,8 @@ public sealed class SpatialLightingVolume
 }
 
 /// <summary>
-/// Old-engine lighting environment rooted at main.dat 0x8B00. The root carries ambient and two
-/// directional lights and points at 0x8C00 spatial volumes backed by 0x8D00 voxel grids.
+/// Old-engine lighting environment with ambient and two directional lights. Tools of Destruction
+/// stores the rig in 0x8B00 and its volumes in 0x8C00. Fall of Man stores both in 0x8A00.
 ///
 /// Retail evidence currently closes this as the static environment-lighting source sampled for
 /// Mobys/moveable objects. Static environment geometry has a separate prelighting path (directional
@@ -88,6 +89,9 @@ public sealed class LightingEnvironment
 {
     public uint Version { get; init; }
     public uint SpatialVolumesPointer { get; init; }
+
+    /// <summary>Fall of Man's Moby renderer selects a local rig from the 0x8A00 boxes.</summary>
+    public bool UsesFallOfManMobyLighting { get; init; }
 
     public Vector3 Ambient { get; set; }
     public List<DirectionalLight> Lights { get; } = [];

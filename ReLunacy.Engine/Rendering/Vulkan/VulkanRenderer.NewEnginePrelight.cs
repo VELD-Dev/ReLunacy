@@ -59,9 +59,36 @@ public sealed unsafe partial class VulkanRenderer
         var words = new List<uint>();
         var baseOf = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
         int oldPrelit = 0;
+        int fallOfManDraws = 0;
         for (int i = 0; i < order.Length; i++)
         {
             var (g, mat, _, _, owner, _, _) = instances[order[i]];
+            var fallOfMan = owner switch
+            {
+                Scene.EntityTie bakedTie => bakedTie.FallOfManBake,
+                Scene.EntityUFrag { UFrag: Assets.UFrags.OldUFrag terrain } => terrain.FallOfManBake,
+                _ => null,
+            };
+            if (fallOfMan != null && materials[mat].HasBaked > 0.5f)
+            {
+                int firstChroma = owner is Scene.EntityUFrag ? 0
+                    : captureIndex.TryGetValue(geomVerts[g], out int meshIndex) ? VulkanSceneCapture.SourceVertexBases[meshIndex] : -1;
+                int vertexCount = geomVerts[g].Length / VulkanSceneCapture.FloatsPerVertex;
+                if (firstChroma >= 0 && (firstChroma + vertexCount) * 2 <= fallOfMan.Chroma.Length)
+                {
+                    if (!baseOf.TryGetValue(owner, out int chromaBase))
+                    {
+                        chromaBase = words.Count;
+                        baseOf[owner] = chromaBase;
+                        byte[] chroma = fallOfMan.Chroma;
+                        for (int b = 0; b + 1 < chroma.Length; b += 2)
+                            words.Add(chroma[b] | ((uint)chroma[b + 1] << 8));
+                    }
+                    lights[i] = VkInstanceLight.ForFallOfManBake(fallOfMan.Scale, chromaBase + firstChroma - drawVertexOffset[i]);
+                    fallOfManDraws++;
+                }
+                continue;
+            }
             if ((owner as Scene.EntityUFrag)?.UFrag is Assets.UFrags.OldUFrag
                 { Metadata: { OldEngineLightScales: { } scales, OldEngineMaterialUse: { } use } } oldUFrag)
             {
@@ -132,7 +159,9 @@ public sealed unsafe partial class VulkanRenderer
             lights[i] = VkInstanceLight.ForNewEnginePrelight(c4, wordBase + first - drawVertexOffset[i]);
         }
 
-        if (baseOf.Count > 0)
+        if (fallOfManDraws > 0)
+            Console.WriteLine($"[VkRenderer] Fall of Man baked lighting: {fallOfManDraws} draws, {words.Count} chroma words.");
+        else if (baseOf.Count > 0)
             Console.WriteLine($"[VkRenderer] Tie prelight: {baseOf.Count} placement(s) ({oldPrelit} old-engine), {words.Count} vertex word(s).");
         return words.Count > 0 ? [.. words] : [0u];
     }

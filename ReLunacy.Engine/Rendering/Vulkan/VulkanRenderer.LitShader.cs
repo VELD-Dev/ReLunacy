@@ -294,6 +294,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 viewDirTS = transpose(tbn) * viewDir;
     InstanceLight instanceLight = uInstanceLights.values[fInstanceIndex];
     bool oldUFrag = uOldEngineMode > 0.5 && instanceLight.direction0.w > 6.5 && instanceLight.direction0.w < 7.5;
+    bool fallOfManBake = instanceLight.direction0.w == 8.0;
     int oldUFragFeatures = int(instanceLight.tieShaderUse0.z + 0.5);
     // New-engine distance fades (VkInstanceLight.ApplyNewEngineFades: tieShaderUse1 = 1/d, from the
     // Tie primitive's +0x30 or the UFrag record's +0x60). The retail VPs build c[19] = K / d with
@@ -360,7 +361,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     if (layerWeight > 0.0) nrmSample = mix(nrmSample, texture(uNormal2, uv), layerWeight);
     // TextureUploadPreparer already applies NV4097_SET_TEXTURE_CONTROL1. The normal derivative
     // pair is therefore the LOGICAL R/G pair for both DXT5 (0x6AE0) and G8B8 (0x6AF0).
-    vec2 derivativeRaw = allowNormalMap ? nrmSample.rg * 2.0 - 1.0 : vec2(0.0);
+    vec2 normalChannels = fallOfManBake ? nrmSample.ag : nrmSample.rg;
+    vec2 derivativeRaw = allowNormalMap ? normalChannels * 2.0 - 1.0 : vec2(0.0);
     vec4 props = texture(uProps, uv);
     if (layerWeight > 0.0) props = mix(props, texture(uProps2, uv), layerWeight);
     // New-engine detail map, as the retail shaders apply it (FP c8872868fd5f / cbf6dd28f655 paired
@@ -430,7 +432,18 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec4 bakedDirSample = texture(uLightDir, bakedUV);
     float hasBaked = uMat0.x;
     vec3 bakedDiffuseLight;
-    if (uOldEngineMode > 0.5) {
+    if (fallOfManBake) {
+        // Retail FP 0x10111E88 (flat) and 0x10111A78 (normal-mapped), game.self.
+        // CONTROL1 supplies logical RGB. XY is signed direction, Z carries intensity.
+        float irradiance = bakedColour.b;
+        if (normalPermutation) {
+            vec2 xy = derivativeSum * uBakedBumpFade;
+            vec3 normal = vec3(xy, sqrt(abs(1.0 - dot(xy, xy))));
+            vec3 lightVector = vec3(bakedColour.rg * 2.0 - 1.0, bakedColour.b);
+            irradiance = max(dot(normal, lightVector), 0.0);
+        }
+        bakedDiffuseLight = fPrelightChroma * irradiance;
+    } else if (uOldEngineMode > 0.5) {
         // Source-authored per-draw state is physically present here:
         // instanceLight.tieShaderUse0 / tieShaderUse1 / tieShaderUseMeta.
         // Do NOT alias tieShaderUse0.z (EffectiveUseMask) to callback52.arg2.low8: runtime V4 proved
@@ -580,7 +593,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     float shadowLight = uOldEngineMode > 0.5 ? 1.0 : 0.2 * sunS + 0.8;
     vec3 lighting = mix(unbakedFill, max(bakedDiffuseLight, selectedFloor), hasBaked) * shadowLight + emissive * emissiveGain;
     if (oldUFrag) lighting *= fUFragVertexScales.x;
-    float bakedSpecLight = mix(1.0, bakedColour.a, hasBaked);
+    float bakedSpecLight = fallOfManBake ? 1.0 : mix(1.0, bakedColour.a, hasBaked);
     vec3 reflDir = reflect(-viewDir, worldNormal);
     vec3 oldMobySpecular = vec3(0.0);
     if (uOldEngineMode > 0.5 && isOldMoby > 0.5 && uEnvHasLighting > 0.5 && (int(uMat6.w + 0.5) & 0x04) != 0) {
@@ -705,9 +718,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     if (uPostParams.x > 0.5 && uMat1.z > 0.5 && lightMode == 0 && (reflMode == 0 || reflMode == 3))
         gGlow = bloomMask(emissive, dot(envFill + oldMobySpecular, vec3(0.299, 0.587, 0.114)));
     if (lightMode == 1) litColor = lighting;
-    else if (lightMode == 2) litColor = bakedColour.rgb;                 // LM.rgb, the indirect colour
-    else if (lightMode == 3) litColor = bakedDirSample.rgb;              // the per-basis direction weights
-    else if (lightMode == 4) litColor = vec3(bakedColour.a);             // LM.a, baked sun visibility
+    else if (lightMode == 2) litColor = fallOfManBake ? fPrelightChroma * bakedColour.b : bakedColour.rgb;
+    else if (lightMode == 3) litColor = fallOfManBake ? bakedColour.rgb : bakedDirSample.rgb;
+    else if (lightMode == 4) litColor = vec3(fallOfManBake ? 1.0 : bakedColour.a); // Baked sun visibility when separate.
     else if (lightMode == 5) litColor = unbakedFill;                     // what a Moby uses instead
     else if (lightMode == 6) litColor = max(bakedDiffuseLight, vec3(0.0));
     else if (lightMode == 7) litColor = albedo;                          // the albedo alone, no lighting

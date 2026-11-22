@@ -20,6 +20,7 @@ public sealed class OldUFrag : IUFrag
     public bool IsLoaded { get; private set; }
     public IMaterial Material { get; init; }
     public bool IsOldEngine => true;
+    public Lighting.FallOfManBake? FallOfManBake { get; init; }
 
     private readonly float[] _positions;
     private readonly float[] _uvs;
