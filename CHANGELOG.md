@@ -5,11 +5,15 @@ Because the European date format is better, please keep date format like this: `
 
 ## [v0.06-alpha.2](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-11-2026
 
+- Added **Resistance: Fall of Man** support.
+  - Currently supported: Ties, UFrags, Mobys, Volumes, Paths/Splines, Baked Lightmaps, Directional Lighting, Reflection Cubemaps, Instance names (when `ps3debug.dat` has the required data).
+  - Currently **NOT** supported: Level Editing, Instances parameters editing, Clues, Controllers, Effects, Foliages, Shrubs, Sound Banks, Model Importation, Collision Importation.
 - New level editing and saving on A Crack in Time, Full Frontal Assault, All 4 One and Into the Nexus: Mobys, Ties, UFrags, volumes, cameras, paths, and Clue and Moby settings.
-- New projects (`.lunaproj`): File > Save keeps your edits in a project, and Install to Game writes them into the game.
+- New project system (`.lunaproj`): File > Save keeps your edits in a project, and Install to Game writes them into the game.
 - New Asset Explorer (View menu): drag Mobys and Ties into the 3D view to place them. Favourites are listed first.
+- New Assets Browser (View menu) with cached thumbnails, asset references, and dedicated texture and shader viewers. Preview shaders and swap them in the Asset Viewer.
 - New Create menu: volumes, paths, controllers, Pods, Areas and Scents.
-- New model import (File > Import > Model...): a glTF model becomes a new Tie, with its collision (A Crack in Time).
+- New model import (File > Import > Model...) turns a glTF model into a new Tie with collision in A Crack in Time. Import textures and generate shaders, with manual texture assignments available.
 - New deletion and renaming of instances, Pods, Areas and Scents.
 - New layers and zones can be added to a level.
 - New Create > Moon and moon edit mode in A Crack in Time's space sectors.
@@ -25,7 +29,7 @@ Because the European date format is better, please keep date format like this: `
 - New Pods window (View menu).
 - New Config Tables (View menu): edit the game's configuration spreadsheets.
 - New Text Tables (View menu): edit the game's text in every language.
-- New Sound Banks (View menu, A Crack in Time): browse and play the level's sounds.
+- New Sound Banks (View menu) for supported old-engine games and A Crack in Time. Browse sounds by mixer group, seek through full songs with waveform markers, and export audio in up to nine formats depending on the platform.
 - New effects playing in the 3D view, and an Effects tab in the Asset Viewer.
 - New Backups window (File > Backups...).
 - Added a gizmo toolbar: move, rotate, scale, World/Local space, snapping.
@@ -38,6 +42,7 @@ Because the European date format is better, please keep date format like this: `
 - Added Lua scripts of A Crack in Time levels to the Lua environment.
 - Added Lua API documentation for A Crack in Time, and an RPCS3 patch that brings back its Lua text output.
 - Added bloom and fog to A Crack in Time.
+- Added a Linux desktop launcher and fixed the taskbar icon.
 - Improved level loading: one region at a time (Render > Region switches region).
 - Improved texture loading: much faster, and textures stream in at the size the view needs, using far less video memory.
 - Changed: every write to a game file keeps a dated backup.
@@ -46,6 +51,8 @@ Because the European date format is better, please keep date format like this: `
 - Fixed levels edited by ReLunacy loading forever in game: ReLunacy now offers to clear RPCS3's disk cache after a save.
 - Fixed missing reflections, normal maps and detail maps on A Crack in Time's Ties.
 - Fixed reflections turning black on dark surfaces in A Crack in Time.
+- Fixed Moby shading on old-engine games and Moby scale in the Asset Viewer.
+- Fixed glTF and GLB model export.
 - Fixed Lua scripts installed into A Crack in Time not running.
 - Fixed the Lua environment listing no level scripts from A Crack in Time on.
 - Fixed some scripts showing as a single line in the Lua editor.
