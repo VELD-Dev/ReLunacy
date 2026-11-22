@@ -290,7 +290,7 @@ public sealed class LevelReader
             shaders: _textureShaderLoader.Shaders,
             // Old engine: main.dat 0x5400 / 0x5410. New engine: the region's zones' pairs, read from
             // lighting.dat by ZoneReader and indexed the way its placements address them.
-            zoneLightmaps: _fileManager.isOld
+            zoneLightmaps: _fileManager.IsFallOfMan ? _textureShaderLoader.FallOfManBakedLightmaps : _fileManager.isOld
                 ? _materialReader.WrapZoneLighting(_textureShaderLoader.ZoneLightmaps)
                 : [.. _zoneReader.NewZoneLightmaps],
             zoneDirectionals: _fileManager.isOld
@@ -405,7 +405,7 @@ public sealed class LevelData
     /// <summary>Baked light colour / light direction textures (main.dat sections 0x5400 / 0x5410),
     /// positionally indexed by lightmap index (see TieInstance.LightmapIndex). Empty on the new
     /// engine, whose pixel data lives in lighting.dat and isn't wired up.</summary>
-    public IReadOnlyList<Assets.Interfaces.ITexture> ZoneLightmaps { get; }
+    public IReadOnlyList<Assets.Interfaces.ITexture?> ZoneLightmaps { get; }
     public IReadOnlyList<Assets.Interfaces.ITexture> ZoneDirectionals { get; }
 
     /// <summary>Flat approximation of the level's environment cubemap - see
@@ -460,7 +460,7 @@ public sealed class LevelData
         DebugReader debugReader,
         IReadOnlyDictionary<ulong, Assets.Interfaces.ITexture>? allTextures = null,
         IReadOnlyDictionary<ulong, Shader>? shaders = null,
-        IReadOnlyList<Assets.Interfaces.ITexture>? zoneLightmaps = null,
+        IReadOnlyList<Assets.Interfaces.ITexture?>? zoneLightmaps = null,
         IReadOnlyList<Assets.Interfaces.ITexture>? zoneDirectionals = null,
         System.Numerics.Vector3? environmentAverage = null,
         IReadOnlyList<Assets.Foliage.Foliage>? foliages = null,

@@ -63,10 +63,12 @@ public struct VkInstanceLight
     /// no spatial-lighting sample exists, because the Moby shading contract differs from Tie/UFrag
     /// independently of the lighting data (see the retail Moby FP notes in VulkanRenderer.cs).
     /// </summary>
-    public static VkInstanceLight ForMoby(OldEngineLightingSampler.Sample sample, bool oldEngine = true)
+    public static VkInstanceLight ForMoby(OldEngineLightingSampler.Sample sample, bool oldEngine = true,
+        bool fallOfMan = false)
     {
         var light = From(sample);
         light.Direction0.W = oldEngine ? MobyClassFlag : NewEngineMobyClassFlag;
+        light.Direction1.W = fallOfMan && oldEngine ? 1f : 0f;
         return light;
     }
 
@@ -142,6 +144,25 @@ public struct VkInstanceLight
     }
 
     public const float OldUFragFlag = 7f;
+    public const float FallOfManBakeFlag = 8f;
+    public const float FallOfManPrelightFlag = 9f;
+
+    public static VkInstanceLight ForFallOfManBake(float scale, int wordDelta)
+    {
+        var light = default(VkInstanceLight);
+        light.Direction0.W = FallOfManBakeFlag;
+        light.Direction0.Z = BitConverter.Int32BitsToSingle(wordDelta);
+        light.Direction1.W = scale;
+        return light;
+    }
+
+    public static VkInstanceLight ForFallOfManPrelight(float scale, int wordDelta, bool terrain = false)
+    {
+        var light = ForFallOfManBake(scale, wordDelta);
+        light.Direction0.W = FallOfManPrelightFlag;
+        light.Direction0.X = terrain ? 1f : 0f;
+        return light;
+    }
 
     /// <summary>Old UFrag c[4].z (diffuse scale), c[4].w (cube gain), and its two packed words per vertex.</summary>
     public static VkInstanceLight ForOldUFrag(Vector2 scales, bool prelit, int wordDelta, int features, bool usesDefaultCube)

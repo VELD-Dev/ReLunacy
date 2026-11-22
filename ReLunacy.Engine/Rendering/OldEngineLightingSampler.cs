@@ -50,15 +50,14 @@ public static class OldEngineLightingSampler
             1f);
     }
 
-    /// <summary>Samples the retail spatial-lighting path at one world-space point. If the Render A/B
-    /// gate is disabled, returns the global 0x8B00 rig instead; this compares spatial vs global light
-    /// without incorrectly turning the Moby black or disabling old-engine lighting altogether.</summary>
+    /// <summary>Samples the spatial-lighting rig at one world-space point. Fall of Man always
+    /// queries its lighting boxes. The Tools of Destruction A/B switch controls its 0x8C00 lookup.</summary>
     public static Sample SampleAt(LightingEnvironment? environment, Vector3 worldPosition)
     {
         if (environment == null)
             return default;
 
-        if (!OldEngineRenderOptions.MobySpatialLightingEnabled)
+        if (!environment.UsesFallOfManMobyLighting && !OldEngineRenderOptions.MobySpatialLightingEnabled)
             return Global(environment);
 
         SpatialLightingVolume? best = null;
@@ -82,9 +81,10 @@ public static class OldEngineLightingSampler
                 MathF.Abs(lx) - sx,
                 MathF.Max(MathF.Abs(ly) - sy, MathF.Abs(lz) - sz));
 
-            // 0x5510AC initializes the best score at zero. Therefore only points inside an OBB
-            // (negative signed distance) qualify, and overlaps select the most deeply-contained one.
-            if (signedDistance < bestSignedDistance)
+            // 0x5510AC requires a negative distance. Fall of Man 0x128AC8 also accepts zero
+            // and replaces the candidate when two boxes have the same signed distance.
+            if (signedDistance < bestSignedDistance
+                || (environment.UsesFallOfManMobyLighting && signedDistance == bestSignedDistance))
             {
                 bestSignedDistance = signedDistance;
                 best = volume;

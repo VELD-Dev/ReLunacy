@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <Content Include="Assets\logo.ico" />
+    <Content Include="Assets\logo.svg" CopyToOutputDirectory="PreserveNewest"/>
     <Content Include="Shaders\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Shaders\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -74,11 +75,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\logo.ico" />
+    <EmbeddedResource Include="Assets\logo.png" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Window creation and input. Came in transitively through Bliss until its host layer was
-         replaced (see Utility/Host); referenced directly now. -->
     <PackageReference Include="NAudio.Core" Version="3.4.0-preview.1" />
     <PackageReference Include="NAudio.Flac" Version="1.0.5702.29018" />
     <PackageReference Include="NAudio.Flac.Unknown" Version="1.0.4" />
@@ -92,17 +92,10 @@
     <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.2.10-prerelease" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
     <PackageReference Include="NativeFileDialogSharp" Version="0.6.0-alpha" />
-    <!-- PNG/JPEG/etc decode and encode. Same two libraries Bliss used underneath its own Image type,
-         referenced directly now. -->
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
-    <!-- Was Veldrith (Stellution-Studios), a single-maintainer fork - moved to NeoVeldrid, the
-         actively-maintained Silk.NET-based continuation of Veldrid. See ReLunacy.Engine.csproj's
-         comment for why, and EditorWindow.cs for the Direct3D12/Metal backend removal that came with it. -->
     <PackageReference Include="NeoVeldrid" Version="1.2.1" />
-    <!-- GLSL to SPIR-V, for the ImGui shaders and the fullscreen blit. Came in through Bliss. -->
     <PackageReference Include="NeoVeldrid.SPIRV" Version="1.2.1" />
-    <!-- Native libraries CreateFromSpirv needs at runtime - see ReLunacy.Engine.csproj's comment. -->
     <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
     <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
@@ -128,5 +121,43 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <UsingTask TaskName="ReadDesktopEntryVersion" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <AssemblyPath Required="true" />
+      <ProductVersion Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs">
+        // The C# compiler writes AssemblyInformationalVersion as the DLL's product version.
+        ProductVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(AssemblyPath).ProductVersion;
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="CreateDesktopEntry" AfterTargets="PostBuildEvent"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))">
+    <ReadDesktopEntryVersion AssemblyPath="$(TargetPath)">
+      <Output TaskParameter="ProductVersion" PropertyName="DesktopEntryVersion" />
+    </ReadDesktopEntryVersion>
+
+    <ItemGroup>
+      <DesktopEntryLine Include="[Desktop Entry]" />
+      <DesktopEntryLine Include="Type=Application" />
+      <DesktopEntryLine Include="Name=ReLunacy" />
+      <DesktopEntryLine Include="Icon=$(TargetDir)Assets/logo.svg" />
+      <DesktopEntryLine Include="Comment=$(DesktopEntryVersion) - Level Editor for Ratchet &amp; Clank Future and Resistance series" />
+      <DesktopEntryLine Include="Exec=&quot;$(TargetDir)$(AssemblyName)&quot;" />
+      <DesktopEntryLine Include="Terminal=false" />
+      <DesktopEntryLine Include="Categories=Development%3B" />
+    </ItemGroup>
+
+    <!-- The default encoding is UTF-8 without a byte-order mark. -->
+    <WriteLinesToFile
+            File="$(TargetDir)$(AssemblyName).desktop"
+            Lines="@(DesktopEntryLine)"
+            Overwrite="true" />
+  </Target>
 
 </Project>

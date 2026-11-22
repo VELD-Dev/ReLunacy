@@ -218,6 +218,33 @@ void main() {
             else
                 fPrelightChroma *= basis.z * il.direction1.w;
         }
+    } else if (il.direction0.w == 8.0) {
+        // Fall of Man's lightmapped VPs use two normalized chroma bytes, with blue
+        // reconstructed from their sum, times inverse Rec.601 luma weights and c[5].z.
+        uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.direction0.z)];
+        vec2 ab = vec2(float(word & 255u), float((word >> 8) & 255u)) / 255.0;
+        fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193) * il.direction1.w;
+    } else if (il.direction0.w == 9.0) {
+        int delta = floatBitsToInt(il.direction0.z);
+        vec3 basis;
+        vec2 ab;
+        if (il.direction0.x > 0.5) {
+            // Fall of Man UFrag VP 0x10121250 uses three U8 direction components in its UV2 slot.
+            int at = gl_VertexIndex * 2 + delta;
+            uint chroma = uPrelight.words[at];
+            uint direction = uPrelight.words[at + 1];
+            ab = vec2(float(chroma & 255u), float((chroma >> 8) & 255u)) / 255.0;
+            basis = vec3(float(direction & 255u), float((direction >> 8) & 255u),
+                float((direction >> 16) & 255u)) / 255.0;
+        } else {
+            // Tie VP 0x101237E0, c[20..21] at 0x100DA794 in game.self.
+            uint word = uPrelight.words[gl_VertexIndex + delta];
+            float packed = float(word & 255u) * 256.0 + float((word >> 8) & 255u);
+            basis = fract(packed * vec3(1.0 / 65536.0, 1.0 / 2048.0, 1.0 / 64.0));
+            ab = vec2(float((word >> 16) & 255u), float(word >> 24)) / 255.0;
+        }
+        fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
+        fPrelightIntensity.xyz = vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w;
     }
     mat3 m3 = mat3(m);
     mat3 nrm = transpose(inverse(m3));
@@ -859,7 +886,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 _instCube[i] = (byte)Math.Min(cubeResource, byte.MaxValue);
             instanceLights[i] = owner switch
             {
-                Scene.EntityMoby or SceneEntityKind.Moby => VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, world.Translation), _oldEngineMobys),
+                Scene.EntityMoby or SceneEntityKind.Moby => SampleMobyLighting(world.Translation),
                 Scene.EntityTie { OldBakedLightScale: { } tieScale } when float.IsFinite(tieScale) => VkInstanceLight.ForOldTie(tieScale),
                 Scene.EntityTie { NewEngineBakedLight: { } tieBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(tieBake)),
                 Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(ufragBake)),
@@ -2426,6 +2453,10 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         return true;
     }
 
+    private VkInstanceLight SampleMobyLighting(Vector3 position) =>
+        VkInstanceLight.ForMoby(OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, position),
+            _oldEngineMobys, _oldLightingEnvironment?.UsesFallOfManMobyLighting == true);
+
     public bool UpdateEntityTransforms(object owner, IReadOnlyList<Matrix4x4> worlds, Vector4 worldBoundingSphere)
     {
         if (!_ownerInstances.TryGetValue(owner, out var owned) || owned.Length != worlds.Count) return false;
@@ -2443,7 +2474,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 {
                     // Only the sampled lighting changes: the draw's UV animation, gameplay group and fog
                     // centre stay.
-                    var resampled = VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, worlds[k].Translation), _oldEngineMobys);
+                    var resampled = SampleMobyLighting(worlds[k].Translation);
                     lightDst[i].Ambient = resampled.Ambient;
                     lightDst[i].Light0Colour = resampled.Light0Colour;
                     lightDst[i].Light1Colour = resampled.Light1Colour;

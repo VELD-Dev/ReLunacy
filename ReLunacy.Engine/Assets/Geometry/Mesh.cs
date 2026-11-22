@@ -36,10 +36,11 @@ public sealed class Mesh : IMesh
 
     /// <summary>
     /// Old-engine Tie only: where this primitive's vertices start inside its prototype's shared vertex
-    /// block (0x3300 +0x04). Vertex i of this mesh is prototype vertex SourceVertexBase + i, which is
-    /// what lets an editor map a picked render vertex back to the file. -1 when not applicable.
+    /// block (0x3300 +0x04 for ToD). Fall of Man uses the window in the lightmap UV and chroma arrays
+    /// (0x3300 +0x0E). Vertex i of this mesh reads SourceVertexBase + i. -1 when unavailable.
     /// </summary>
     public int SourceVertexBase { get; init; } = -1;
+    public Lighting.FallOfManTiePrimitive? FallOfManTiePrimitive { get; init; }
 
     /// <summary>Animated UVs (section 0x5C00), or null.</summary>
     public UvAnimation? UvAnimation { get; init; }

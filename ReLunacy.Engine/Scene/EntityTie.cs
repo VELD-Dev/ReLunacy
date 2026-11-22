@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Assets.Geometry;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
@@ -75,16 +76,15 @@ public class EntityTie : Entity
         NewEngineCubeTuid = tieInstance.NewEngineCubeTuid;
         NewEnginePrelight = tieInstance.NewEnginePrelight;
         OldEnginePrelight = tieInstance.OldEnginePrelight;
+        FallOfManBake = (tieInstance as PlacedInstance<ITie>)?.FallOfManBake;
+        FallOfManTiePrelight = (tieInstance as PlacedInstance<ITie>)?.FallOfManTiePrelight;
         NewEnginePrelightBaked = tieInstance.NewEnginePrelightBaked;
 
         // The game reads this as a BE ushort at instance+0x5A, then sanitizes values outside the
         // available 0x5400/0x5410 lists to 0xFFFF. Mirror that where both decoded lists are known.
         ushort candidateLightmap = tieInstance.LightmapIndex;
-        LightmapIndex = candidateLightmap != Loading.Objects.Instances.TieInstance.NoLightmap
-            && candidateLightmap < assetManager.ZoneLightmaps.Count
-            && candidateLightmap < assetManager.ZoneDirectionals.Count
-            && assetManager.ZoneLightmaps[candidateLightmap] != null
-            && assetManager.ZoneDirectionals[candidateLightmap] != null
+        LightmapIndex = assetManager.HasLightmap(candidateLightmap)
+            && (!assetManager.UsesFallOfManLightmaps || FallOfManBake != null)
                 ? candidateLightmap
                 : Loading.Objects.Instances.TieInstance.NoLightmap;
     }
@@ -124,6 +124,8 @@ public class EntityTie : Entity
 
     /// <summary>Old engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
     public byte[]? OldEnginePrelight { get; }
+    public Assets.Lighting.FallOfManBake? FallOfManBake { get; }
+    public Assets.Lighting.FallOfManTiePrelight? FallOfManTiePrelight { get; }
 
     /// <summary>New engine: whether the placement record carries a bake (+0x5A != 0xFFFF).</summary>
     public bool NewEnginePrelightBaked { get; }
@@ -143,7 +145,9 @@ public class EntityTie : Entity
             // are needed. A mesh whose lightmap UV slice is missing, which TieReader leaves null
             // per mesh, otherwise binds the real atlas and samples it at (0,0) - a black texel,
             // drawn as though it were the light reaching that surface.
-            if (lit && i < BaseTie.Meshes.Count && HasLightmapUVs(BaseTie.Meshes[i]))
+            if (lit && i < BaseTie.Meshes.Count && HasLightmapUVs(BaseTie.Meshes[i])
+                && (FallOfManBake == null || (mesh.SourceVertexBase >= 0
+                    && (mesh.SourceVertexBase + mesh.VertexCount) * 2 <= FallOfManBake.Chroma.Length)))
             {
                 var perInstance = _assetManager.GetOrBuildMaterial(BaseTie.Meshes[i].Material, LightmapIndex);
                 cachedRenderables.Add(new Renderable(mesh, Transform, perInstance));

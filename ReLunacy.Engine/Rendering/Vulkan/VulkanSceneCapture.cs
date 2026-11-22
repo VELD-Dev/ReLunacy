@@ -159,6 +159,8 @@ public static class VulkanSceneCapture
     /// authored use bytes, so material-level inference is not an acceptable substitute.
     /// </summary>
     public static readonly List<VkOldTieDrawState> OldTieDrawStates = new();
+    internal static readonly List<int> SourceVertexBases = new();
+    internal static readonly List<Assets.Lighting.FallOfManTiePrimitive?> FallOfManTiePrimitives = new();
     /// <summary>Per captured geometry: its new-engine Tie primitive window, or null.</summary>
     public static readonly List<Assets.Geometry.NewEngineTiePrimitive?> NewEngineTiePrimitives = new();
     /// <summary>Per captured geometry: its new-engine fade distances (Tie primitive, Moby frag), or null.</summary>
@@ -212,6 +214,8 @@ public static class VulkanSceneCapture
         OldTieDrawStates.Add(mesh is RenderMesh renderMesh
             ? VkOldTieDrawState.From(renderMesh.OldTieShaderUse)
             : default);
+        SourceVertexBases.Add((mesh as RenderMesh)?.SourceVertexBase ?? -1);
+        FallOfManTiePrimitives.Add((mesh as RenderMesh)?.FallOfManTiePrimitive);
         NewEngineTiePrimitives.Add((mesh as RenderMesh)?.NewEngineTiePrimitive);
         NewEngineFadeDistances.Add((mesh as RenderMesh)?.NewEngineFadeDistances);
         UvAnimations.Add((mesh as RenderMesh)?.UvAnimation);
@@ -232,6 +236,8 @@ public static class VulkanSceneCapture
         VertexData.Clear();
         Indices.Clear();
         OldTieDrawStates.Clear();
+        SourceVertexBases.Clear();
+        FallOfManTiePrimitives.Clear();
         NewEngineTiePrimitives.Clear();
         NewEngineFadeDistances.Clear();
         UvAnimations.Clear();

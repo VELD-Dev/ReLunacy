@@ -12,6 +12,7 @@ public sealed class TextureShaderLoader
     public readonly Dictionary<ulong, Texture> Textures = [];
     public readonly Dictionary<ulong, Shader> Shaders = [];
     public readonly List<Texture> OldTexturesByIndex = [];
+    public IReadOnlyList<Assets.Interfaces.ITexture?> FallOfManBakedLightmaps { get; private set; } = [];
 
     /// <summary>New engine: TUIDs of <see cref="Textures"/> / <see cref="Shaders"/> taken from the
     /// patches' <c>built/patch/</c> layer (it wins over the level's copy, like on console).</summary>
@@ -117,6 +118,7 @@ public sealed class TextureShaderLoader
                 OldTexturesByIndex.Add(texture);
                 _progress?.Advance();
             }
+            FallOfManBakedLightmaps = Readers.FallOfManLightmaps.Read(main, textureStream);
             return;
         }
 
