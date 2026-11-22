@@ -185,6 +185,9 @@ public sealed partial class ShaderViewerFrame
         var assets = window.AssetManager;
         if (assets == null || EnsureRenderMaterial() is not { } material) return;
 
+        _lighting.OldEngineMode = assets.OldEngineMobys;
+        _lighting.SetEnvironment(_lighting.OldEngineMode ? window.Level?.LightingEnvironment : null);
+
         foreach (var key in material.GetMaterialMapKeys())
             if (material.GetMaterialMap(key)?.Texture is { } gpu)
                 _builtTextures.Add((gpu, gpu.DeviceTexture));

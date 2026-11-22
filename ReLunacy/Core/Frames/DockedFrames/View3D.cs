@@ -778,28 +778,7 @@ public class View3D : DockedFrame
         // The game's own analytic lighting (section 0x8b00) for non-baked surfaces, in place of the
         // fabricated editor sun. Null on levels without one, in which case the shader keeps the flat
         // ambient fallback. See LightingEnvironmentReader / LitModelShaderSource.
-        var lightEnv = Core.LunaWindow.Instance.Level?.LightingEnvironment;
-        lighting.HasLightingEnvironment = lightEnv != null;
-        if (lightEnv != null)
-        {
-            // Map the variable-length light list into the shader's two fixed slots; an absent light
-            // gets a zero colour so it contributes nothing (see LitModelShaderSource).
-            lighting.EnvAmbient = lightEnv.Ambient;
-            var lights = lightEnv.Lights;
-            lighting.EnvLight0Colour = lights.Count > 0 ? lights[0].Colour : Vector3.Zero;
-            lighting.EnvDirection0 = lights.Count > 0 ? lights[0].Direction : Vector3.UnitY;
-            lighting.EnvLight1Colour = lights.Count > 1 ? lights[1].Colour : Vector3.Zero;
-            lighting.EnvDirection1 = lights.Count > 1 ? lights[1].Direction : Vector3.UnitY;
-        }
-        else
-        {
-            // View3D survives level switches: clear the previous level's values.
-            lighting.EnvAmbient = Vector3.Zero;
-            lighting.EnvLight0Colour = Vector3.Zero;
-            lighting.EnvDirection0 = Vector3.UnitY;
-            lighting.EnvLight1Colour = Vector3.Zero;
-            lighting.EnvDirection1 = Vector3.UnitY;
-        }
+        lighting.SetEnvironment(level?.LightingEnvironment);
 
         // Measures the region the image will occupy and samples the mouse against it, which everything
         // below depends on: the texture size, the camera controls, and the click latch.

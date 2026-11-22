@@ -981,11 +981,10 @@ public sealed class AssetManager : IDisposable
                 nativeMaterial.NewEngineShaderFlags);
             if (!nativeMaterial.IsNewEngineMaterial && (nativeMaterial.OldRenderFlags & 0x02) == 0)
                 _vkOldEngineCulled.Add(bMat);
-            // Old engine: .x = +0x58, the detail tiling the ToD Tie vertex shaders apply (c[21].x); the
-            // generic shader reads uMat6 on the new engine only.
+            // Old engine: .x is detail tiling and .w carries the authored Moby material feature bits.
             _vkMaterialPermutation[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? NewEnginePermutation(nativeMaterial, hasDetail)
-                : new Vector4(nativeMaterial.DetailTiling, 0f, 0f, 0f);
+                : new Vector4(nativeMaterial.DetailTiling, 0f, 0f, nativeMaterial.OldFeatureFlags);
             _vkMobyTint[bMat] = nativeMaterial.IsNewEngineMaterial && nativeMaterial.GameRenderMode is 1 or 2 or 6
                 ? new Vector4(nativeMaterial.MaterialTintSource, 1f)
                 : Vector4.Zero;

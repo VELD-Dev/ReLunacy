@@ -407,9 +407,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 ? 1.0 + 0.5 * worldNormal.y : 1.0)
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
-    // Direction0.w: 1 = old-engine Moby draw, 3 = new-engine Moby draw (VkInstanceLight.ForMoby),
-    // 2 = old Tie with a retail baked scale. Both Moby kinds take the hemispheric ambient below; only
-    // the old one is kept away from the environment cube.
+    // Direction0.w: 1 = old-engine Moby draw, 2 = old Tie with a retail baked scale,
+    // 3 = new-engine Moby draw (VkInstanceLight.ForMoby).
     float isOldMoby = step(0.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 1.5);
     float isNewMoby = step(2.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 3.5);
     float isMoby = max(isOldMoby, isNewMoby);
@@ -575,6 +574,21 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 lighting = mix(unbakedFill, max(bakedDiffuseLight, selectedFloor), hasBaked) * shadowLight + emissive * emissiveGain;
     float bakedSpecLight = mix(1.0, bakedColour.a, hasBaked);
     vec3 reflDir = reflect(-viewDir, worldNormal);
+    vec3 oldMobySpecular = vec3(0.0);
+    if (uOldEngineMode > 0.5 && isOldMoby > 0.5 && uEnvHasLighting > 0.5 && (int(uMat6.w + 0.5) & 0x04) != 0) {
+        // ToD 0x100B00C0 / QfB 0x0086DC30: reflect the view vector and evaluate one gloss lobe
+        // per level light. Material +0x38 is the exponent, +0x40 is the tint/mix, and props.R
+        // masks the additive highlight. Use the near fade until the Moby c[16] input is wired.
+        vec3 direction0 = mix(uEnvDirection0, instanceLight.direction0.xyz, useInstanceLighting);
+        vec3 direction1 = mix(uEnvDirection1, instanceLight.direction1.xyz, useInstanceLighting);
+        vec3 colour0 = mix(uEnvLight0Colour, instanceLight.light0Colour.xyz, useInstanceLighting);
+        vec3 colour1 = mix(uEnvLight1Colour, instanceLight.light1Colour.xyz, useInstanceLighting);
+        float gloss = max(uMat4.z, 0.0001);
+        float highlight0 = pow(clamp(dot(reflDir, direction0), 0.0, 1.0), gloss);
+        float highlight1 = pow(clamp(dot(reflDir, direction1), 0.0, 1.0), gloss);
+        oldMobySpecular = mix(uMat3.rgb, albedo, uMat3.w) * props.r * clamp(1.0 + uMat4.x, 0.0, 1.0)
+            * (colour0 * highlight0 + colour1 * highlight1);
+    }
     vec4 envTexel = texture(uEnvCube, reflDir);
     // PROVEN (retail Tie cubemap FPs): env.rgb *= EX2((env.a * 255 - 80) * 0.0285691) - the RSX EXP
     // opcode is base 2 (RPCS3's EX2), so 2^((a*255 - 80) / 35.0). Read as a natural exp (e^x, i.e.
@@ -653,10 +667,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         * dot(lighting, vec3(0.2126, 0.7152, 0.0722)) / occlusionFull, 0.0, 1.0);
     // PROVEN: the reflection mask also takes material +0x34 (c[21].y, faded into TEX2.w).
     vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
-    // New-engine Mobys take the cube too: QForce's skinned-Moby FPs sample unit 7 by the reflect
-    // vector (RPCS3 pipeline cache: unit 7 is a cube for FP 1a28fd1dc600), unlike ToD's, which never
-    // do. isOldMoby is what keeps the old engine's Mobys out of it. uEnvironmentIntensity stays as the
-    // user's gain (1.0 by default on the new engine), not as a retail term.
+    // Old-engine Ties and new-engine reflective materials sample the environment cube here.
     vec3 envFill = uOldEngineMode > 0.5
         ? oldReflection * uEnvironmentIntensity * oldTieDraw
         : newReflection * uEnvironmentIntensity * (1.0 - isOldMoby);
@@ -672,7 +683,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // surface keeps its real silhouette and texel. Everything above still runs - the compiler drops it,
     // and branching around it would need the texture fetches hoisted out anyway (they feed the test).
     litColor = uMat1.z > 0.5
-        ? (albedo * lighting + envFill)
+        ? (albedo * lighting + oldMobySpecular + envFill)
         : albedoTex.rgb * fColor.rgb;
     if (reflMode == 1) litColor = envFill;
     else if (reflMode == 2) litColor = uOldEngineMode > 0.5 ? envColour : newReflRadiance;

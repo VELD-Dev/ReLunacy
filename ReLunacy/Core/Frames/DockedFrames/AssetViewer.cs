@@ -1937,6 +1937,9 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         var materials = new List<Engine.Rendering.Vulkan.VkMaterialDesc>();
         var instances = new List<(int, int, Matrix4x4, Vector4, object, float, uint)>();
         var moby = selectedMobyAsset?.Moby;
+        var level = LunaWindow.Instance.Level;
+        _lighting.OldEngineMode = moby != null && level?.IsOldEngine == true;
+        _lighting.SetEnvironment(_lighting.OldEngineMode ? level?.LightingEnvironment : null);
         int boneCount = moby?.Skeleton?.Bones.Count ?? 0;
         var geoRemap = new Dictionary<int, int>();
         var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
