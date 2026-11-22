@@ -681,6 +681,12 @@ public sealed class AssetManager : IDisposable
         int mipCount = cubemap is { Faces.Count: > 0 }
             ? cubemap.Faces.Min(face => Math.Max(1, face.MipmapCount))
             : 1;
+        int cubeCount = UsesFallOfManLightmaps && cubemap != null
+            ? Math.Min(VulkanRenderer.EnvCubeSlots, levelCubemaps.Max(cube => cube.IndexInResource) + 1)
+            : 1;
+        var cubesByIndex = UsesFallOfManLightmaps
+            ? levelCubemaps.ToDictionary(cube => cube.IndexInResource)
+            : null;
         var factory = _gd.ResourceFactory;
 
         // The RSX samples the cube through its descriptor's ADDRESS gamma bits, and every retail ToD cube
@@ -694,10 +700,11 @@ public sealed class AssetManager : IDisposable
         bool decoded = gammaArgb != 0;
 
         var tex = factory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
-            (uint)size, (uint)size, (uint)mipCount, 1,
+            (uint)size, (uint)size, (uint)mipCount, (uint)cubeCount,
             decoded ? NeoVeldrid.PixelFormat.R16_G16_B16_A16_UNorm : NeoVeldrid.PixelFormat.R8_G8_B8_A8_UNorm,
             NeoVeldrid.TextureUsage.Sampled | NeoVeldrid.TextureUsage.Cubemap));
 
+        for (int cubeIndex = 0; cubeIndex < cubeCount; cubeIndex++)
         for (uint f = 0; f < 6; f++)
         {
             uint w = (uint)size;
@@ -706,26 +713,31 @@ public sealed class AssetManager : IDisposable
             {
                 byte[] rgba;
                 int sourceFace = oldArrangement.Source((int)f);
-                if (cubemap != null && sourceFace < cubemap.Faces.Count)
+                var sourceCube = cubesByIndex?.GetValueOrDefault(cubeIndex) ?? cubemap;
+                if (sourceCube != null && sourceFace < sourceCube.Faces.Count
+                    && sourceCube.FaceSize == size && mip < sourceCube.Faces[sourceFace].MipmapCount)
                 {
-                    var face = cubemap.Faces[sourceFace];
-                    if (face.Format != ReLunacy.Engine.Assets.Interfaces.TextureFormat.A8R8G8B8)
+                    var face = sourceCube.Faces[sourceFace];
+                    var decodedFace = UsesFallOfManLightmaps
+                        ? TextureUtils.DecodeMipmapToRgba8888(face, (int)mip, out _, out _)
+                        : TextureUtils.ARGB8888ToRGBA8888(face.GetMipmapData((int)mip), (int)w, (int)h);
+                    if (decodedFace == null)
                         throw new InvalidDataException($"0x5920 cubemap face {f} has unsupported format {face.Format}.");
-                    byte[] argb = face.GetMipmapData((int)mip);
-                    rgba = oldArrangement.Orient((int)f, TextureUtils.ARGB8888ToRGBA8888(argb, (int)w, (int)h), (int)w, 4);
+                    rgba = oldArrangement.Orient((int)f, decodedFace, (int)w, 4);
                 }
                 else
                 {
                     rgba = FallbackCubeFace((int)w);
                 }
 
-                _gd.UpdateTexture(tex, decoded ? GammaDecodedFace(rgba, gammaArgb) : rgba, 0, 0, 0, w, h, 1, mip, f);
+                _gd.UpdateTexture(tex, decoded ? GammaDecodedFace(rgba, gammaArgb) : rgba,
+                    0, 0, 0, w, h, 1, mip, (uint)(6 * cubeIndex) + f);
                 w = Math.Max(1u, w / 2);
                 h = Math.Max(1u, h / 2);
             }
         }
 
-        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {size}x{size}, {mipCount} authored mip(s), 6 faces{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}, faces {oldArrangement.Describe()}.");
+        Console.WriteLine($"[Texture Update 1.2] Environment cubemap GPU upload: {cubeCount} cubemap(s), {size}x{size}, {mipCount} authored mip(s), 6 faces each{(decoded ? $", gamma 0x{gammaArgb:X} (ARGB) decoded" : "")}, faces {oldArrangement.Describe()}.");
         _environmentCubemap = tex;
         EnvironmentCubemapView = factory.CreateTextureView(tex);
     }

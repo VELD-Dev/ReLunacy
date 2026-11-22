@@ -296,6 +296,11 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     bool oldUFrag = uOldEngineMode > 0.5 && instanceLight.direction0.w > 6.5 && instanceLight.direction0.w < 7.5;
     bool fallOfManBake = instanceLight.direction0.w == 8.0;
     bool fallOfManPrelight = instanceLight.direction0.w == 9.0;
+    bool fallOfManMoby = uOldEngineMode > 0.5 && instanceLight.direction0.w == 1.0 && instanceLight.direction1.w > 0.5;
+    int fallOfManCubeSlot = uOldEngineMode > 0.5 && instanceLight.direction0.w != 1.0
+        ? int(instanceLight.direction1.x + 0.5) - 1 : -1;
+    bool fallOfManSurface = fallOfManBake || fallOfManPrelight || fallOfManCubeSlot >= 0;
+    bool fallOfManNormalFormat = fallOfManSurface || fallOfManMoby;
     int oldUFragFeatures = int(instanceLight.tieShaderUse0.z + 0.5);
     // New-engine distance fades (VkInstanceLight.ApplyNewEngineFades: tieShaderUse1 = 1/d, from the
     // Tie primitive's +0x30 or the UFrag record's +0x60). The retail VPs build c[19] = K / d with
@@ -329,7 +334,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // Old-engine UFrags carry the effective key from record +0x54 AND material +0x10.
     bool hasPermutationMask = uOldEngineMode < 0.5 && instanceLight.tieShaderUse0.w > 0.5;
     int permutationBits = uOldEngineMode > 0.5
-        ? (oldUFrag ? oldUFragFeatures : 0x1F)
+        ? (fallOfManSurface ? int(uMat6.w + 0.5) : (oldUFrag ? oldUFragFeatures : 0x1F))
         : hasPermutationMask
             ? int(uMat6.w + 0.5) & (int(instanceLight.tieShaderUse0.w + 0.5) - 1)
             : int(uMat6.w + 0.5);
@@ -362,7 +367,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     if (layerWeight > 0.0) nrmSample = mix(nrmSample, texture(uNormal2, uv), layerWeight);
     // TextureUploadPreparer already applies NV4097_SET_TEXTURE_CONTROL1. The normal derivative
     // pair is therefore the LOGICAL R/G pair for both DXT5 (0x6AE0) and G8B8 (0x6AF0).
-    vec2 normalChannels = (fallOfManBake || fallOfManPrelight) ? nrmSample.ag : nrmSample.rg;
+    vec2 normalChannels = fallOfManNormalFormat ? nrmSample.ag : nrmSample.rg;
     vec2 derivativeRaw = allowNormalMap ? normalChannels * 2.0 - 1.0 : vec2(0.0);
     vec4 props = texture(uProps, uv);
     if (layerWeight > 0.0) props = mix(props, texture(uProps2, uv), layerWeight);
@@ -383,7 +388,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // +0x34, tieShaderUseMeta.zw), scales the normal map's derivatives and the cube reflection.
     vec2 derivativeSum = derivativeRaw * (uOldEngineMode > 0.5 ? fOldTieFade : clamp(uMat5.y * normalFade, 0.0, 1.0));
     if (normalPermutation) derivativeSum -= detail.xy * (1.0 - dot(derivativeRaw, derivativeRaw));
-    vec3 worldNormal = normalize(tbn * normalize(vec3(derivativeSum, 1.0)));
+    vec2 fallOfManXY = normalPermutation ? derivativeSum * (fallOfManMoby ? 1.0 : uBakedBumpFade) : vec2(0.0);
+    vec3 fallOfManNormal = vec3(fallOfManXY, sqrt(abs(1.0 - dot(fallOfManXY, fallOfManXY))));
+    vec3 worldNormal = normalize(tbn * (fallOfManNormalFormat ? fallOfManNormal : vec3(derivativeSum, 1.0)));
     // uPostParams.w < 0 leaves the material's own specular map alone; >= 0 replaces it, so a
     // reflection can be judged without the props texture deciding where it appears.
     float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w : props.r * (1.0 + detail.w);
@@ -419,7 +426,6 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // Fall of Man uploads the 0x8A00 rig to c[24..28] (EBOOT 0x192EB0).
     // Its flat and normal-mapped Moby FPs (0x10111838 / 0x10111678) add c[24].rgb directly
     // and saturate both directional dot products. ToD's ambient is hemispheric.
-    bool fallOfManMoby = isOldMoby > 0.5 && instanceLight.direction1.w > 0.5;
     float mobyAmbientFactor = fallOfManMoby ? 1.0 : 1.0 + 0.5 * worldNormal.y;
     float light0Dot = max(dot(worldNormal, instanceLight.direction0.xyz), 0.0);
     float light1Dot = max(dot(worldNormal, instanceLight.direction1.xyz), 0.0);
@@ -449,10 +455,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         // CONTROL1 supplies logical RGB. XY is signed direction, Z carries intensity.
         float irradiance = bakedColour.b;
         if (normalPermutation) {
-            vec2 xy = derivativeSum * uBakedBumpFade;
-            vec3 normal = vec3(xy, sqrt(abs(1.0 - dot(xy, xy))));
             vec3 lightVector = vec3(bakedColour.rg * 2.0 - 1.0, bakedColour.b);
-            irradiance = max(dot(normal, lightVector), 0.0);
+            irradiance = max(dot(fallOfManNormal, lightVector), 0.0);
         }
         bakedDiffuseLight = fPrelightChroma * irradiance;
     } else if (uOldEngineMode > 0.5) {
@@ -581,9 +585,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 unbakedFill = undecodedFill;
     if (fallOfManPrelight) {
         // Flat Tie VP 0x10124C10 and normal-mapped FP 0x101067C8, game.self.
-        vec2 xy = normalPermutation ? derivativeSum * uBakedBumpFade : vec2(0.0);
-        vec3 normal = vec3(xy, sqrt(abs(1.0 - dot(xy, xy))));
-        unbakedFill = fPrelightChroma * max(dot(normal, fPrelightIntensity.xyz), 0.0);
+        unbakedFill = fPrelightChroma * max(dot(fallOfManNormal, fPrelightIntensity.xyz), 0.0);
     }
     if (oldUFrag && instanceLight.direction0.x > 0.5)
         unbakedFill = fPrelightChroma * (allowNormalMap
@@ -615,9 +617,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 reflDir = reflect(-viewDir, worldNormal);
     vec3 oldMobySpecular = vec3(0.0);
     if (uOldEngineMode > 0.5 && isOldMoby > 0.5 && uEnvHasLighting > 0.5 && (int(uMat6.w + 0.5) & 0x04) != 0) {
-        // ToD 0x100B00C0 / QfB 0x0086DC30: reflect the view vector and evaluate one gloss lobe
-        // per level light. Material +0x38 is the exponent, +0x40 is the tint/mix, and props.R
-        // masks the additive highlight. Use the near fade until the Moby c[16] input is wired.
+        // Fall of Man game.self 0x10100B68 / 0x10100358, ToD 0x100B00C0 and QfB 0x0086DC30.
+        // Material +0x38 is the exponent, +0x40 the tint/mix, and props.R masks both light lobes.
+        // Use the near value for the vertex-program distance fade.
         vec3 direction0 = mix(uEnvDirection0, instanceLight.direction0.xyz, useInstanceLighting);
         vec3 direction1 = mix(uEnvDirection1, instanceLight.direction1.xyz, useInstanceLighting);
         vec3 colour0 = mix(uEnvLight0Colour, instanceLight.light0Colour.xyz, useInstanceLighting);
@@ -625,19 +627,22 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         float gloss = max(uMat4.z, 0.0001);
         float highlight0 = pow(clamp(dot(reflDir, direction0), 0.0, 1.0), gloss);
         float highlight1 = pow(clamp(dot(reflDir, direction1), 0.0, 1.0), gloss);
-        oldMobySpecular = mix(uMat3.rgb, albedo, uMat3.w) * props.r * clamp(1.0 + uMat4.x, 0.0, 1.0)
+        oldMobySpecular = mix(uMat3.rgb, albedo, uMat3.w) * (fallOfManMoby ? specIntensity : props.r)
+            * clamp(1.0 + uMat4.x, 0.0, 1.0)
             * (colour0 * highlight0 + colour1 * highlight1);
     }
-    vec4 envTexel = uOldEngineMode > 0.5
-        ? textureLod(uEnvCube, reflDir, uMat4.w)
-        : texture(uEnvCube, reflDir);
+    vec4 envTexel = fallOfManCubeSlot == 1 ? textureLod(uEnvCube1, reflDir, uMat4.w)
+                  : fallOfManCubeSlot == 2 ? textureLod(uEnvCube2, reflDir, uMat4.w)
+                  : fallOfManCubeSlot == 3 ? textureLod(uEnvCube3, reflDir, uMat4.w)
+                  : uOldEngineMode > 0.5 ? textureLod(uEnvCube, reflDir, uMat4.w)
+                  : texture(uEnvCube, reflDir);
     // PROVEN (retail Tie cubemap FPs): env.rgb *= EX2((env.a * 255 - 80) * 0.0285691) - the RSX EXP
     // opcode is base 2 (RPCS3's EX2), so 2^((a*255 - 80) / 35.0). Read as a natural exp (e^x, i.e.
     // /24.26) until 09-10-2026, which made the HDR cube up to 3x too bright (a = 204 on Metropolis:
     // 34x instead of 11.7x) and is why the reflections were once held back to a 0.12 gain. The alpha read
     // here is already sRGB-decoded: ToD's cube descriptors set ADDRESS gamma on all four channels, applied at
     // upload (AssetManager.BuildEnvironmentCubemap).
-    float envExposure = uOldEngineMode > 0.5
+    float envExposure = fallOfManSurface ? 1.0 : uOldEngineMode > 0.5
         ? exp2((envTexel.a * 255.0 - 80.0) * 0.0285691)
         : exp2((envTexel.a * 255.0 - 128.0) / 16.0);
     vec3 envColour = envTexel.rgb * envExposure;
@@ -654,6 +659,15 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     if (oldUFrag)
         oldReflection = envColour * mix(uMat3.rgb, albedo * fUFragVertexScales.x, uMat3.w) * specIntensity
             * oldReflectionBit * instanceLight.tieShaderUseMeta.w * clamp(1.0 + uMat4.x, 0.0, 1.0);
+    // Fall of Man's unit-7 TXL samples the RGB565 cube directly. The material's
+    // feature byte and the expensive map's red channel gate the additive term.
+    // game.self FP 0x10111C78 patches the +0x40 vector into both the tint subtraction
+    // and the multiply-add, doubling the latter's result before applying the cube colour.
+    // The retail Tie and UFrag VP fade constants are not uploaded by this path, so fOldTieFade is 1.
+    if (fallOfManSurface)
+        oldReflection = allowSpecular && fallOfManCubeSlot >= 0
+            ? envColour * (2.0 * mix(uMat3.rgb, albedo, uMat3.w)) * specIntensity * oldReflectionFade
+            : vec3(0.0);
     // NEW ENGINE reflection (Docs/reverse/NEW_ENGINE_REFLECTION_FOG_TIE_UFRAG_2026-09-23.md section 2),
     // read off the retail shaders with Tools/Reverse/rsx/rsxfp_dataflow.py and checked against the raw
     // listings by the 23-09 verification:
@@ -708,7 +722,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
     // Old-engine Ties and new-engine reflective materials sample the environment cube here.
     vec3 envFill = uOldEngineMode > 0.5
-        ? oldReflection * uEnvironmentIntensity * (oldUFrag ? 1.0 : oldTieDraw)
+        ? oldReflection * uEnvironmentIntensity * ((oldUFrag || fallOfManSurface) ? 1.0 : oldTieDraw)
         : newReflection * uEnvironmentIntensity * (1.0 - isOldMoby);
 
     // uReflectionDebug as a MODE (it was declared and never read, and the menu toggle it backed did

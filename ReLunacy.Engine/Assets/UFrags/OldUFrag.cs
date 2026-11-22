@@ -21,6 +21,7 @@ public sealed class OldUFrag : IUFrag
     public IMaterial Material { get; init; }
     public bool IsOldEngine => true;
     public Lighting.FallOfManBake? FallOfManBake { get; init; }
+    public byte? FallOfManCubeIndex { get; init; }
 
     private readonly float[] _positions;
     private readonly float[] _uvs;

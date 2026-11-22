@@ -6,7 +6,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 internal static class FallOfManLightmaps
 {
     private const uint DescriptorSection = 0x5500;
-    private const uint ResidentPixelsSection = 0x9950;
+    internal const uint ResidentPixelsSection = 0x9950;
 
     public static IReadOnlyList<ITexture?> Read(IGFile main, Stream localPixels)
     {

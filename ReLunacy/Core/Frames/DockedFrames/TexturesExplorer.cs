@@ -68,7 +68,8 @@ public class TexturesExplorer : DockedFrame, ILevelListener
     {
         public readonly Cubemap Cubemap = cubemap;
         public float Exposure = 1f;
-        public CubemapChannel Channel = CubemapChannel.Hdr;
+        public CubemapChannel Channel = cubemap.Faces.FirstOrDefault()?.Format == TextureFormat.R5G6B5
+            ? CubemapChannel.Rgb : CubemapChannel.Hdr;
         public bool Dirty = true;
         public readonly GpuTexture?[] FaceTextures = new GpuTexture?[cubemap.Faces.Count];
         public readonly ImTextureRef[] FacePtrs = new ImTextureRef[cubemap.Faces.Count];

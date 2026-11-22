@@ -69,6 +69,20 @@ internal static class FallOfManGeometry
         uint vertexBase = vertices.QuerySection(0x9000).offset;
         uint indexBase = vertices.QuerySection(0x9100).offset;
         uint mapCount = main.QuerySection(0x5500).count;
+        uint cubeCount = main.QuerySection(CubemapReader.ID).count;
+        var environment = main.QuerySection(0x7000);
+        uint defaultCubeIndex = environment.count != 0 && environment.length >= 0x7C
+            ? main.sh.ReadUInt32(environment.offset + 0x78) : 0;
+        byte defaultCube = defaultCubeIndex < cubeCount ? (byte)defaultCubeIndex : (byte)0;
+
+        // game.self 0x146718 (Tie), 0x1506D0 (UFrag) and 0xFC324 (level default).
+        byte? ReadCubeIndex(uint offset)
+        {
+            if (cubeCount == 0) return null;
+            byte index = main.sh.ReadByte(offset);
+            return index < cubeCount ? index : defaultCube;
+        }
+
         Stream textures = files.rawfiles["textures.dat"]!;
         var terrain = new List<IUFrag>((int)records.count);
         for (uint i = 0; i < records.count; i++)
@@ -102,6 +116,7 @@ internal static class FallOfManGeometry
                     materials.GetMaterialByIndex(material), anchor, center, radius, data.GetNormals(), data.GetTangents(),
                     data.GetLightmapUVs(), data.GetVertexAlpha(), lightmapIndex: lightmap)
                 {
+                    FallOfManCubeIndex = ReadCubeIndex(offset + 0x67),
                     FallOfManBake = chroma == null ? null : new FallOfManBake(chroma, bakeScale,
                         data.GetVertexBakedLightScales(), prelightDirections),
                 });
@@ -162,6 +177,7 @@ internal static class FallOfManGeometry
             placements.Add(new PlacedInstance<ITie>(tie, matrix, i, name: $"{tie.Name}_Instance_{i}")
             {
                 LightmapIndex = lightmap,
+                FallOfManCubeIndex = ReadCubeIndex(offset + 0x94),
                 FallOfManBake = bake,
                 FallOfManTiePrelight = prelight,
             });

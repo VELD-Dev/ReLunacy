@@ -65,10 +65,13 @@ public sealed class LevelCollision
     /// <summary>Tools of Destruction / Quest for Booty: the whole collision.dat.</summary>
     public static LevelCollision? ReadOldEngine(byte[] data) => Read(data, newEngine: false);
 
+    /// <summary>Fall of Man: ps3levelcoll.dat uses old-engine instances and packed XYZ vertices.</summary>
+    internal static LevelCollision? ReadFallOfMan(byte[] data) => Read(data, newEngine: false, packedXyz: true);
+
     /// <summary>New engine: the payload of a region collision.dat's section 0x2900.</summary>
     public static LevelCollision? ReadNewEngine(byte[] data) => Read(data, newEngine: true);
 
-    private static LevelCollision? Read(byte[] data, bool newEngine)
+    private static LevelCollision? Read(byte[] data, bool newEngine, bool packedXyz = false)
     {
         if (data.Length < HeaderSize) return null;
         ReadOnlySpan<byte> d = data;
@@ -121,7 +124,7 @@ public sealed class LevelCollision
                 shape = shapeOffset >= shapeBlobLength ? null
                     : (shapeFlags & PrimitiveSetFlag) != 0
                         ? CollisionPrimitiveSet.Read(d, at, shapeLength)
-                        : CollisionMesh.Read(d, at, shapeLength);
+                        : CollisionMesh.Read(d, at, shapeLength, packedXyz);
                 if (shape != null) shape.Offset = at;
                 if (shape == null)
                 {
@@ -229,8 +232,9 @@ public abstract class CollisionShape
 /// material offset. ToD then has an oriented box at +0x14..+0x50 and its vertex block at 0x60; the new
 /// engine has no box and its vertex block at 0x10.
 ///
-/// The vertex block is an s32 x/y/z origin, 4 bytes of padding, then groups of 8 vertices stored
-/// x[8], y[8], z[8] as u16, each line in the order 0,4,1,5,2,6,3,7; position = (origin + value) / 1024.
+/// The vertex block is an s32 x/y/z origin and 4 bytes of padding, followed by u16 offsets.
+/// Fall of Man (vertex block at 0x50) stores consecutive XYZ triples. Later games group 8 vertices
+/// as x[8], y[8], z[8], each line in the order 0,4,1,5,2,6,3,7. Both use (origin + value) / 1024.
 /// A triangle is one u32: indices in bits 18-26, 9-17 and 0-8, flags in 27-31. One material byte per
 /// triangle follows.
 /// </summary>
@@ -267,7 +271,7 @@ public sealed class CollisionMesh : CollisionShape
     /// <summary>Mesh vertices are 16-bit offsets from a 32-bit origin, both in 1/1024 world units.</summary>
     private const float VertexScale = 1f / 1024f;
 
-    internal static CollisionMesh? Read(ReadOnlySpan<byte> d, int o, uint length)
+    internal static CollisionMesh? Read(ReadOnlySpan<byte> d, int o, uint length, bool packedXyz = false)
     {
         if (o < 0 || o + 0x10 > d.Length) return null;
         int vertexCount = LevelCollision.U16(d, o + 0x00);
@@ -275,14 +279,17 @@ public sealed class CollisionMesh : CollisionShape
         int triangleCount = LevelCollision.U16(d, o + 0x06);
         int triangleOffset = LevelCollision.U16(d, o + 0x08);
         int materialOffset = LevelCollision.U16(d, o + 0x0C);
-        int groups = (vertexCount + 7) / 8;
-        int end = Math.Max(Math.Max(vertexOffset + 0x10 + groups * 0x30, triangleOffset + triangleCount * 4), materialOffset + triangleCount);
+        int vertexBytes = packedXyz ? vertexCount * 6 : (vertexCount + 7) / 8 * 0x30;
+        int vertexEnd = vertexOffset + 0x10 + vertexBytes;
+        int end = Math.Max(Math.Max(vertexEnd, triangleOffset + triangleCount * 4), materialOffset + triangleCount);
         if (vertexCount == 0 || triangleCount == 0 || o + end > d.Length || (length != 0 && end > length))
             return null;
 
         int ox = LevelCollision.S32(d, o + vertexOffset);
         int oy = LevelCollision.S32(d, o + vertexOffset + 4);
         int oz = LevelCollision.S32(d, o + vertexOffset + 8);
+        int start = o + vertexOffset + 0x10;
+        int axisStride = packedXyz ? 2 : 0x10;
         var positions = new Vector3[vertexCount];
         for (int v = 0; v < vertexCount; v++)
         {
@@ -291,11 +298,11 @@ public sealed class CollisionMesh : CollisionShape
             // 96.5%), and new-engine vertices leave their instance's box.
             int k = v & 7;
             int slot = k < 4 ? k * 2 : (k - 4) * 2 + 1;
-            int g = o + vertexOffset + 0x10 + (v >> 3) * 0x30 + slot * 2;
+            int g = start + (packedXyz ? v * 6 : (v >> 3) * 0x30 + slot * 2);
             positions[v] = new Vector3(
                 (ox + LevelCollision.U16(d, g)) * VertexScale,
-                (oy + LevelCollision.U16(d, g + 0x10)) * VertexScale,
-                (oz + LevelCollision.U16(d, g + 0x20)) * VertexScale);
+                (oy + LevelCollision.U16(d, g + axisStride)) * VertexScale,
+                (oz + LevelCollision.U16(d, g + axisStride * 2)) * VertexScale);
         }
 
         var indices = new int[triangleCount * 3];
