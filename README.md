@@ -57,9 +57,9 @@ Sorry for this message, please proceed to the rest of the readme :)
 
 <h2 id="compatibility">✅ Compatibility</h2>
 
-| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  | Volumes & Triggers |
+| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  |  Volumes & Paths   |
 |---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:-------:|:--------:|:-----------:|:------------------:|
-| Resistance: Fall Of Man               |      Old+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    🚧    |     🚧      |         🚧         |
+| Resistance: Fall Of Man               |      Old+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    🚧    |     🚧      |         ✅         |
 | Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
 | Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
 | Resistance 2                          |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
