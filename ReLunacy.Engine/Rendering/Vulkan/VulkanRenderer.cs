@@ -865,7 +865,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 _instCube[i] = (byte)Math.Min(cubeResource, byte.MaxValue);
             instanceLights[i] = owner switch
             {
-                Scene.EntityMoby or SceneEntityKind.Moby => VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, world.Translation), _oldEngineMobys),
+                Scene.EntityMoby or SceneEntityKind.Moby => SampleMobyLighting(world.Translation),
                 Scene.EntityTie { OldBakedLightScale: { } tieScale } when float.IsFinite(tieScale) => VkInstanceLight.ForOldTie(tieScale),
                 Scene.EntityTie { NewEngineBakedLight: { } tieBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(tieBake)),
                 Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(ufragBake)),
@@ -2432,6 +2432,10 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         return true;
     }
 
+    private VkInstanceLight SampleMobyLighting(Vector3 position) =>
+        VkInstanceLight.ForMoby(OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, position),
+            _oldEngineMobys, _oldLightingEnvironment?.UsesFallOfManMobyLighting == true);
+
     public bool UpdateEntityTransforms(object owner, IReadOnlyList<Matrix4x4> worlds, Vector4 worldBoundingSphere)
     {
         if (!_ownerInstances.TryGetValue(owner, out var owned) || owned.Length != worlds.Count) return false;
@@ -2449,7 +2453,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 {
                     // Only the sampled lighting changes: the draw's UV animation, gameplay group and fog
                     // centre stay.
-                    var resampled = VkInstanceLight.ForMoby(ReLunacy.Engine.Rendering.OldEngineLightingSampler.SampleAt(_oldLightingEnvironment, worlds[k].Translation), _oldEngineMobys);
+                    var resampled = SampleMobyLighting(worlds[k].Translation);
                     lightDst[i].Ambient = resampled.Ambient;
                     lightDst[i].Light0Colour = resampled.Light0Colour;
                     lightDst[i].Light1Colour = resampled.Light1Colour;

@@ -63,10 +63,12 @@ public struct VkInstanceLight
     /// no spatial-lighting sample exists, because the Moby shading contract differs from Tie/UFrag
     /// independently of the lighting data (see the retail Moby FP notes in VulkanRenderer.cs).
     /// </summary>
-    public static VkInstanceLight ForMoby(OldEngineLightingSampler.Sample sample, bool oldEngine = true)
+    public static VkInstanceLight ForMoby(OldEngineLightingSampler.Sample sample, bool oldEngine = true,
+        bool fallOfMan = false)
     {
         var light = From(sample);
         light.Direction0.W = oldEngine ? MobyClassFlag : NewEngineMobyClassFlag;
+        light.Direction1.W = fallOfMan && oldEngine ? 1f : 0f;
         return light;
     }
 

@@ -415,11 +415,20 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     float isOldMoby = step(0.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 1.5);
     float isNewMoby = step(2.5, instanceLight.direction0.w) * step(instanceLight.direction0.w, 3.5);
     float isMoby = max(isOldMoby, isNewMoby);
-    // PROVEN (retail Moby FPs paired with the skinned Moby VPs): the ambient term is hemispheric,
-    // ambient * (1 + 0.5 * n.y), before the two directional terms and the props.b emissive add.
-    vec3 instanceEnvDiffuse = instanceLight.ambient.xyz * (1.0 + 0.5 * worldNormal.y)
-        + instanceLight.light0Colour.xyz * max(dot(worldNormal, instanceLight.direction0.xyz), 0.0) * sunS
-        + instanceLight.light1Colour.xyz * max(dot(worldNormal, instanceLight.direction1.xyz), 0.0);
+    // Fall of Man uploads the 0x8A00 rig to c[24..28] (EBOOT 0x192EB0).
+    // Its flat and normal-mapped Moby FPs (0x10111838 / 0x10111678) add c[24].rgb directly
+    // and saturate both directional dot products. ToD's ambient is hemispheric.
+    bool fallOfManMoby = isOldMoby > 0.5 && instanceLight.direction1.w > 0.5;
+    float mobyAmbientFactor = fallOfManMoby ? 1.0 : 1.0 + 0.5 * worldNormal.y;
+    float light0Dot = max(dot(worldNormal, instanceLight.direction0.xyz), 0.0);
+    float light1Dot = max(dot(worldNormal, instanceLight.direction1.xyz), 0.0);
+    if (fallOfManMoby) {
+        light0Dot = min(light0Dot, 1.0);
+        light1Dot = min(light1Dot, 1.0);
+    }
+    vec3 instanceEnvDiffuse = instanceLight.ambient.xyz * mobyAmbientFactor
+        + instanceLight.light0Colour.xyz * light0Dot * sunS
+        + instanceLight.light1Colour.xyz * light1Dot;
     float useInstanceLighting = instanceLight.ambient.w * uEnvHasLighting;
     vec3 envDiffuse = mix(globalEnvDiffuse, instanceEnvDiffuse, useInstanceLighting);
     vec3 undecodedFill = mix(vec3(uAmbient), envDiffuse, uEnvHasLighting);
@@ -434,6 +443,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 bakedDiffuseLight;
     if (fallOfManBake) {
         // Retail FP 0x10111E88 (flat) and 0x10111A78 (normal-mapped), game.self.
+        // The matching VPs derive TEX2.rgb from vertex chroma and the decode constants.
+        // These baked passes have no input from the Moby ambient rig.
         // CONTROL1 supplies logical RGB. XY is signed direction, Z carries intensity.
         float irradiance = bakedColour.b;
         if (normalPermutation) {
