@@ -3,7 +3,7 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
-## [v0.06-alpha.2](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-11-2026
+## [v0.06-alpha.2](https://github.com/VELD-Dev/ReLunacy/releases/0.06-alpha.2) - 22-11-2026
 
 - Added **Resistance: Fall of Man** support.
   - Currently supported: Ties, UFrags, Mobys, Volumes, Paths/Splines, Baked Lightmaps, Directional Lighting, Reflection Cubemaps, Instance names (when `ps3debug.dat` has the required data).
@@ -32,6 +32,7 @@ Because the European date format is better, please keep date format like this: `
 - New Sound Banks (View menu) for supported old-engine games and A Crack in Time. Browse sounds by mixer group, seek through full songs with waveform markers, and export audio in up to nine formats depending on the platform.
 - New effects playing in the 3D view, and an Effects tab in the Asset Viewer.
 - New Backups window (File > Backups...).
+- New startup modal and button to create desktop shortcut (compatible Linux & Windows)
 - Added a gizmo toolbar: move, rotate, scale, World/Local space, snapping.
 - Added viewport toolbar buttons for lighting, game shaders, navmesh, collision and each object type.
 - Added the space sector boundary and the Aphelion's fly height to the 3D view.
