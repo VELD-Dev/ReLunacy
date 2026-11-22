@@ -312,6 +312,11 @@ public class LunaWindow : IDisposable
             AddFrame(new BasicEntityExplorer());
         }
 
+        if (!Program.Settings.HideStartupConfigMessage)
+        {
+            AddFrame(new StartupConfigModal());
+        }
+
         PeriodicalSave();
     }
 

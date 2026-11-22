@@ -116,13 +116,20 @@ public static class ImGuiPlus
     public static bool IconButton(string icon, string id, Vector2? size = null) =>
         size is { } s ? ImGui.Button($"{icon}##{id}", s) : ImGui.Button($"{icon}##{id}");
 
-    public static void CenteredText(string label, float pivot = 0.5f)
+    public static void CenteredText(string label, float pivot = 0.5f, bool disabled = false)
     {
         float horizontalSize = ImGui.CalcTextSize(label).X;
         float avail = ImGui.GetContentRegionAvail().X;
         float offset = (avail - horizontalSize) * pivot;
         if (offset > 0)
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offset);
-        ImGui.Text(label);
+        if (disabled)
+        {
+            ImGui.TextDisabled(label);
+        }
+        else
+        {
+            ImGui.Text(label);
+        }
     }
 }

@@ -23,6 +23,7 @@ public class Volume : IVolumeData
     public bool IsLoaded { get; set; }
     public ushort group { get; set; }
     public VolumeShape Shape { get; set; }
+    internal bool UsesFallOfManShape { get; init; }
 
     /// <summary>The volume's place in the region's volume table, which is what a reference names it by (names
     /// repeat: axiom_city has six "volume30"). On the old engine it is its gameplay.dat position too, read only: no old-engine save writes it.</summary>

@@ -6,6 +6,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// <summary>
 /// Reads a level's static collision (see <see cref="LevelCollision"/>).
 ///
+/// Fall of Man: the level's raw ps3levelcoll.dat, mapped to collision.dat by FileManager.
 /// Tools of Destruction and Quest for Booty: the level's raw collision.dat, loaded by the EBOOT from
 /// "/app_home/%s/collision.dat". The new engine: section 0x2900 of each region's collision.dat, beside
 /// its region.dat. That file also carries 0x8200 and 0x8300 on 126 of 152 regions, which are not
@@ -57,7 +58,7 @@ public sealed class CollisionReader(FileManager fileManager)
         stream.Position = 0;
         var data = new byte[stream.Length];
         stream.ReadExactly(data);
-        return LevelCollision.ReadOldEngine(data);
+        return _fileManager.IsFallOfMan ? LevelCollision.ReadFallOfMan(data) : LevelCollision.ReadOldEngine(data);
     }
 
     private LevelCollision? ReadNew(string key)

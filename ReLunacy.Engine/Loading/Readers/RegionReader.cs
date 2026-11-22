@@ -17,6 +17,7 @@ public sealed class RegionReader
     private readonly AssetLibrary<Assets.Mobys.Moby> _mobys;
     private readonly Dictionary<ulong, Assets.Levels.Zone> _zones;
     private readonly DebugReader _debugReader;
+    private readonly FallOfManGameplayReader? _fallOfManGameplay;
 
     /// <param name="mobys">The level's Moby classes; the ones a region places are read from it.</param>
     /// <param name="zones">The zones read so far; a region keeps those of its own list that are among them.</param>
@@ -26,6 +27,13 @@ public sealed class RegionReader
         _mobys = mobys ?? throw new ArgumentNullException(nameof(mobys));
         _zones = zones ?? throw new ArgumentNullException(nameof(zones));
         _debugReader = debugReader ?? throw new ArgumentNullException(nameof(debugReader));
+        if (fileManager.IsFallOfMan && fileManager.igfiles.GetValueOrDefault("gameplay.dat") is { } gameplay)
+        {
+            var debug = fileManager.igfiles.GetValueOrDefault("debug.dat");
+            if (debug?.QuerySection(FallOfManGameplayReader.DebugSection).id != FallOfManGameplayReader.DebugSection)
+                debug = fileManager.OriginalDebugFile;
+            _fallOfManGameplay = new FallOfManGameplayReader(gameplay, debug);
+        }
     }
 
     public Assets.Levels.Region ReadRegion() => ReadAllRegions()[0];
@@ -35,9 +43,9 @@ public sealed class RegionReader
         progress?.SetTotal(1);
         if (_fileManager.IsFallOfMan)
         {
-            var instances = FallOfManGeometry.ReadMobyInstances(_fileManager.igfiles["gameplay.dat"], _mobys);
+            var region = ReadFallOfManRegion(null);
             progress?.Advance();
-            return new Assets.Levels.Region(0, instances, [], null, true, "OldRegion") { Game = Game };
+            return region;
         }
 
         IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
@@ -61,6 +69,25 @@ public sealed class RegionReader
             Paths = old.Paths,
             Pods = old.Pods,
             References = old.References,
+        };
+    }
+
+    internal List<string> ReadFallOfManGroupNames() => _fallOfManGameplay?.Groups.Select(group => group.Name).ToList() ?? [];
+
+    internal Assets.Levels.Region ReadFallOfManRegion(string? name)
+    {
+        if (_fallOfManGameplay is not { Groups.Count: > 0 } source)
+            return new Assets.Levels.Region(0, [], [], null, true, "OldRegion") { Game = Game };
+
+        var group = source.Groups.FirstOrDefault(group => group.Name == (name ?? "default"));
+        if (group.Offset == 0) group = source.Groups[0];
+        var (volumes, paths, mobyNames) = source.Read(group);
+        var instances = FallOfManGeometry.ReadMobyInstances(_fileManager.igfiles["gameplay.dat"]!, group.Offset, _mobys,
+            mobyNames, group == source.Groups[0] ? _debugReader : null);
+        return new Assets.Levels.Region(0, instances, volumes, null, true, group.Name)
+        {
+            Game = Game,
+            Paths = paths,
         };
     }
 

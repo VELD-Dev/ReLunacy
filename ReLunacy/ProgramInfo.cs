@@ -16,6 +16,6 @@ public static class ProgramInfo
 {
     public const string Name = "ReLunacy";
     public const string DisplayName = "ReLunacy";
-    public const string Version = "0.06-alpha.1";
+    public const string Version = "0.06-alpha.2";
     public const string GithubURL = "https://github.com/VELD-Dev/ReLunacy/";
 }

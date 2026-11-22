@@ -117,7 +117,7 @@ public class GameBrowserFrame : DockedFrame
                 if ((library.DetectedGame?.IsOldEngine ?? true) && level.DebugDatPath == null)
                 {
                     ImGui.SameLine();
-                    ImGui.TextDisabled("[no debug.dat found]");
+                    ImGui.TextDisabled("[no loose debug.dat found]");
                 }
                 ImGui.SameLine();
                 if (ImGui.Button($"Load##level_{level.Name}"))

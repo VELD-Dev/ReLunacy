@@ -37,14 +37,19 @@ public class EntityVolume : Entity
 
     /// <summary>This volume's shape scale (see <see cref="NextShapeScale"/>): what its matrix's scale is multiplied by
     /// to give the size of the shape the game tests against.</summary>
-    public float ShapeScale { get; } = NextShapeScale;
+    public float ShapeScale { get; }
+
+    /// <summary>Fall of Man's capsule has unit radius and cap centres at local Y = ±1.</summary>
+    public bool UsesFallOfManCapsule => BaseVolume.UsesFallOfManShape && BaseVolume.Shape == VolumeShape.Capsule;
 
     /// <summary>The shape's full size along each axis, as the game tests it: <see cref="scale"/> x <see cref="ShapeScale"/>.</summary>
-    public Vector3 ShapeSize => scale * ShapeScale;
+    public Vector3 ShapeSize => scale * ShapeScale * (UsesFallOfManCapsule ? new Vector3(1f, 2f, 1f) : Vector3.One);
 
     public EntityVolume(Volume volume)
     {
         BaseVolume = volume;
+        // game.self 0x408570 tests against a radius or half-extent of one.
+        ShapeScale = volume.UsesFallOfManShape ? 2f : NextShapeScale;
         Name = !string.IsNullOrEmpty(volume.Name) ? volume.Name : $"Volume_{ID}";
 
         Matrix4x4.Decompose(volume.transform, out var initialScale, out var rotation, out var position);
@@ -203,7 +208,7 @@ public class EntityVolume : Entity
             {
                 // The caps are hemispheres of the smaller horizontal radius, inside the box like the rest:
                 // the straight part is what the height leaves once both caps are in.
-                float cap = MathF.Min(MathF.Min(h.X, h.Z), h.Y);
+                float cap = UsesFallOfManCapsule ? h.Y * 0.5f : MathF.Min(MathF.Min(h.X, h.Z), h.Y);
                 float side = h.Y - cap;
                 AddRoundSides(edges, h, side);
                 foreach (float sy in Signs)

@@ -25,6 +25,7 @@ public class FileManager : IDisposable
 
     public bool isOld { get; private set; }
     internal bool IsFallOfMan { get; private set; }
+    internal IGFile? OriginalDebugFile { get; private set; }
     internal GameDefinition? GameDefinition => IsFallOfMan ? GameDefinitions.FallOfMan : GameDefinitions.FromLevelPath(SourcePath);
 
     /// <summary>The folder or archive the level was opened from.</summary>
@@ -117,7 +118,8 @@ public class FileManager : IDisposable
             LoadFile("main.dat", false);
             LoadFile("vertices.dat", false);
             LoadFile("gameplay.dat", false);
-            LoadFile("debug.dat", false);
+            var debug = (IGFile?)LoadFile("debug.dat", false);
+            if (IsFallOfMan) OriginalDebugFile = debug;
 
             LoadFile("textures.dat", true);
             if (!IsFallOfMan) LoadFile("texstream.dat", true);
@@ -180,7 +182,11 @@ public class FileManager : IDisposable
             return false;
 
         var stream = File.Open(path, FileMode.Open, FileAccess.Read);
-        igfiles["debug.dat"] = new IGFile(stream);
+        var debug = new IGFile(stream);
+        var previous = igfiles.GetValueOrDefault("debug.dat");
+        igfiles["debug.dat"] = debug;
+        // A loose legacy debug file can supplement the packed gameplay name table.
+        if (previous != OriginalDebugFile) previous?.Dispose();
         return true;
     }
 
@@ -323,6 +329,8 @@ public class FileManager : IDisposable
 
     public void Dispose()
     {
+        if (OriginalDebugFile != igfiles.GetValueOrDefault("debug.dat")) OriginalDebugFile?.Dispose();
+        OriginalDebugFile = null;
         foreach (var file in igfiles.Values)
             file?.Dispose();
         igfiles.Clear();

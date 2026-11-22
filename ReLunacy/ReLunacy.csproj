@@ -90,7 +90,7 @@
     <PackageReference Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <PackageReference Include="Hexa.NET.ImGui" Version="2.2.10-prerelease" />
     <PackageReference Include="Hexa.NET.ImGuizmo" Version="2.2.10-prerelease" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
+    <PackageReference Include="Newtonsoft.Json" Version="14.0.1-beta2" />
     <PackageReference Include="NativeFileDialogSharp" Version="0.6.0-alpha" />
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
@@ -99,6 +99,7 @@
     <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
     <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
+    <PackageReference Include="WindowsShortcutFactory" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -121,43 +122,5 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-
-  <UsingTask TaskName="ReadDesktopEntryVersion" TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <AssemblyPath Required="true" />
-      <ProductVersion Output="true" />
-    </ParameterGroup>
-    <Task>
-      <Code Type="Fragment" Language="cs">
-        // The C# compiler writes AssemblyInformationalVersion as the DLL's product version.
-        ProductVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(AssemblyPath).ProductVersion;
-      </Code>
-    </Task>
-  </UsingTask>
-
-  <Target Name="CreateDesktopEntry" AfterTargets="PostBuildEvent"
-          Condition="$([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))">
-    <ReadDesktopEntryVersion AssemblyPath="$(TargetPath)">
-      <Output TaskParameter="ProductVersion" PropertyName="DesktopEntryVersion" />
-    </ReadDesktopEntryVersion>
-
-    <ItemGroup>
-      <DesktopEntryLine Include="[Desktop Entry]" />
-      <DesktopEntryLine Include="Type=Application" />
-      <DesktopEntryLine Include="Name=ReLunacy" />
-      <DesktopEntryLine Include="Icon=$(TargetDir)Assets/logo.svg" />
-      <DesktopEntryLine Include="Comment=$(DesktopEntryVersion) - Level Editor for Ratchet &amp; Clank Future and Resistance series" />
-      <DesktopEntryLine Include="Exec=&quot;$(TargetDir)$(AssemblyName)&quot;" />
-      <DesktopEntryLine Include="Terminal=false" />
-      <DesktopEntryLine Include="Categories=Development%3B" />
-    </ItemGroup>
-
-    <!-- The default encoding is UTF-8 without a byte-order mark. -->
-    <WriteLinesToFile
-            File="$(TargetDir)$(AssemblyName).desktop"
-            Lines="@(DesktopEntryLine)"
-            Overwrite="true" />
-  </Target>
 
 </Project>

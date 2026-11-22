@@ -559,18 +559,23 @@ public sealed class TextureShaderLoader
             Shader shader;
             if (fallOfMan)
             {
-                // The texture bindings begin at +0x20 in 0x5001. Its constants and feature
-                // byte have their own layout, so use the common material's default parameters.
-                mainstream.Seek(shaderMetadataSec.offset + ShaderMetadataOld.Size * i + 0x1D);
+                // 0x5001 places the feature byte at +0x1C (game.self 0x1468F4).
+                // The fragment patch loop at 0x149638 reads group 1 at +0x30 and group 2 at +0x40.
+                mainstream.Seek(0x1C, SeekOrigin.Current);
+                byte flags = mainstream.ReadByte();
                 byte mode = mainstream.ReadByte();
                 mainstream.Seek(2, SeekOrigin.Current);
                 shader = new Shader(mainstream, i, new ShaderMetadataOld
                 {
+                    flags = flags,
                     renderingMode = mode,
                     albedo = mainstream.ReadUInt32(),
                     normal = mainstream.ReadUInt32(),
                     expensive = mainstream.ReadUInt32(),
                     detailMap = mainstream.ReadUInt32(),
+                    value1X = mainstream.ReadSingle(),
+                    value1Y = mainstream.ReadSingle(),
+                    Unk2b = mainstream.ReadBytes(0x18),
                 });
             }
             else

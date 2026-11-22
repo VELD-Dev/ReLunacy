@@ -28,7 +28,7 @@ public sealed class MobyReader
 
     /// <param name="progress">The level load's bar; the Moby phase counts one item per prototype.</param>
     public Dictionary<ulong, Assets.Mobys.Moby> ReadAllMobys(LevelLoadProgress? progress = null) =>
-        _fileManager.IsFallOfMan ? FallOfManGeometry.ReadMobys(_fileManager, _materialReader, progress)
+        _fileManager.IsFallOfMan ? FallOfManGeometry.ReadMobys(_fileManager, _materialReader, _debugReader, progress)
             : _fileManager.isOld ? ReadMobysOld(progress) : ReadMobysNew(progress);
 
     private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysOld(LevelLoadProgress? progress)

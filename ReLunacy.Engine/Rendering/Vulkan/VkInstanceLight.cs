@@ -18,6 +18,7 @@ public struct VkInstanceLight
     public Vector4 Light0Colour;
     public Vector4 Light1Colour;
     public Vector4 Direction0;
+    // On Fall of Man Tie and UFrag draws X is the cube slot plus one, or zero without an authored cube.
     public Vector4 Direction1;
 
     // x=SerializedUseMask, y=MaterialFeatureMask, z=EffectiveUseMask, w=SerializedRaw2F

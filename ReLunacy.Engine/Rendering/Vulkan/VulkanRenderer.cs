@@ -605,10 +605,9 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private VkDescriptorSet _descSet;
     private VkSampler _sampler;
     private VkImageView _envCubeView;
-    // New engine: the four cubes of a cubemaps.dat resource, one view each, bound at set 0 bindings 3, 5,
-    // 6, 7 - the material's 0x5000 +0x40 picks one (see LitShader). The old engine has one cube, so all
-    // four slots are that same cube and slot 0 is _envCubeView itself.
-    private const int EnvCubeSlots = 4;
+    // Set 0 bindings 3, 5, 6 and 7 hold four cube views. The new engine selects a slot by material,
+    // Fall of Man selects a slot per world draw, and a single-cube level aliases all four slots.
+    internal const int EnvCubeSlots = 4;
     // One set-0 variant per cube resource and frame (index frame * _cubeResourceCount + resource): zones
     // pick a resource per Tie placement and per UFrag (AssetManager.EnvironmentCubeResources), and the
     // lit draw loop rebinds set 0 when the next draw reflects another one. Resource 0 is _descSets.
@@ -917,7 +916,19 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         ApplyNewEngineFades(geomVerts, instances, order, instanceLights);
         ApplyGameplayConstants(materials, instanceLights);
         ApplyNewEngineFogCentres(instanceLights);
-        foreach (var (owner, run) in ownerRuns) _ownerInstances[owner] = [.. run];
+        foreach (var (owner, run) in ownerRuns)
+        {
+            _ownerInstances[owner] = [.. run];
+            byte? cubeIndex = owner switch
+            {
+                Scene.EntityTie tie => tie.FallOfManCubeIndex,
+                Scene.EntityUFrag { UFrag: Assets.UFrags.OldUFrag terrain } => terrain.FallOfManCubeIndex,
+                _ => null,
+            };
+            if (cubeIndex is { } slot && slot < Math.Min(envCube?.ArrayLayers ?? 0, (uint)EnvCubeSlots))
+                foreach (int draw in run)
+                    instanceLights[draw].Direction1.X = slot + 1; // Fall of Man world geometry: 0 means no cube.
+        }
         _billStart = billStart;
         _softStart = Math.Min(softStart, _billStart);
         _addStart = Math.Min(addStart, _softStart);
@@ -1212,10 +1223,10 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
 
         var ssboInfo = new VkDescriptorBufferInfo { buffer = _transformBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var instanceLightInfo = new VkDescriptorBufferInfo { buffer = _instanceLightBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
-        // The float cubes are sampled LINEARLY whatever the editor's texture-filtering choice: every
-        // one of the 1,024 retail cube descriptors carries FILTER 0x02022000 = linear min and mag, and
-        // a 16x16 cube sampled point-filtered is a mosaic of its own texels.
-        VkSampler cubeSampler = floatCube ? _samplerLinear : _sampler;
+        // New-engine and Fall of Man cube descriptors request linear filtering independently
+        // of the editor's choice for surface textures.
+        VkSampler cubeSampler = floatCube || _oldLightingEnvironment?.UsesFallOfManMobyLighting == true
+            ? _samplerLinear : _sampler;
         VkDescriptorImageInfo* cubeInfos = stackalloc VkDescriptorImageInfo[EnvCubeSlots];
         var prelightInfo = new VkDescriptorBufferInfo { buffer = _prelightBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };
         var boneInfo = new VkDescriptorBufferInfo { buffer = _bonePaletteBuffer, offset = 0, range = Vortice.Vulkan.Vulkan.VK_WHOLE_SIZE };

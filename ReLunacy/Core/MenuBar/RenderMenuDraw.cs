@@ -41,10 +41,7 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
-    /// <summary>Which of the level's regions is loaded. A new-engine level is read one region at a time
-    /// (All 4 One's are progression segments of one map that overlap in space and were never shown
-    /// together), so picking another frees this one and reads that one from the level's files. Hidden
-    /// for a level with a single region - every old-engine level, and A Crack in Time's.</summary>
+    /// <summary>Selects the loaded region or Fall of Man gameplay group. A level with a single choice hides the menu.</summary>
     internal static void RegionSelection()
     {
         var window = LunaWindow.Instance;
