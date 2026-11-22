@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using NeoVeldrid;
+using ReLunacy.Core.Frames.DockedFrames;
 using ReLunacy.Core.Project;
 using ReLunacy.Engine.Assets.Audio;
 using ReLunacy.Engine.Assets.Browser;
@@ -83,10 +84,7 @@ public sealed class ThumbnailService
     private string? _cacheRoot;
     private ulong _levelStamp;
     private (LunaProject? Project, int Revision) _stampFor;
-    private Dictionary<ulong, IMaterial>? _materials;
-    private (int Mobys, int Ties, int Shrubs) _materialsFor;
     private readonly Dictionary<int, int> _effectTextures = [];
-    private (float[] Vertices, uint[] Indices)? _sphere;
     private LevelSounds? _sounds;
 
     // --- Asking ------------------------------------------------------------------------------------
@@ -106,8 +104,7 @@ public sealed class ThumbnailService
     /// <summary>The entry's thumbnail, or null while it is made (it is asked for by this call) or when it has none.</summary>
     public ImTextureRef? Get(AssetEntry entry) => Get(entry.Key, entry.Tag, entry.Imported);
 
-    /// <summary>As <see cref="Get(AssetEntry)"/>, by key; <paramref name="tag"/> is the entry's Tag where the kind needs it
-    /// (UFrag, Foliage, Shader).</summary>
+    /// <summary>As <see cref="Get(AssetEntry)"/>, by key; <paramref name="tag"/> is the entry's Tag where the kind needs it.</summary>
     public ImTextureRef? Get(AssetKey key, object? tag = null, bool imported = false)
     {
         if (!Supports(key.Kind) || key.Kind == AssetKind.Sound) return null;
@@ -271,7 +268,7 @@ public sealed class ThumbnailService
                     // Its textures were only just queued: drawn once they are up.
                     if (assets.HasPendingUploads) break;
                 }
-                var image = Render(window, assets, slot.Scene!);
+                var image = Render(window, assets, slot.Scene!, slot.Key.Kind);
                 slot.Scene = null;
                 renders++;
                 if (image == null) { slot.Stage = Stage.Failed; continue; }
@@ -305,7 +302,6 @@ public sealed class ThumbnailService
         _slots.Clear();
         _cache = null;
         _cacheRoot = null;
-        _materials = null;
         _effectTextures.Clear();
         _stampFor = default;
     }
@@ -353,6 +349,9 @@ public sealed class ThumbnailService
                 // Its id is its zone's position in the loaded region.
                 stamp = ThumbnailCache.Combine(stamp, level.Region?.Name);
                 break;
+            case AssetKind.Shader:
+                stamp = ThumbnailCache.Combine(stamp, "shader viewer sphere");
+                break;
         }
         return stamp;
     }
@@ -380,14 +379,6 @@ public sealed class ThumbnailService
                 StartDecode(slot, cache, () => set.DecodeRgba(index, out int w, out int h) is { } rgba && w > 0 && h > 0
                     ? ThumbnailCache.Fit(rgba, w, h, Size) : null,
                     () => vfx.Rgba != null ? ThumbnailCache.Hash(vfx.Rgba) : ThumbnailCache.Combine(vfx.Hash, TextureStamp(vfx.Texture)));
-                return;
-            }
-            case AssetKind.Shader when ShaderMaterial(key.Id, level) == null:
-            {
-                // No class of the level draws with it: its albedo stands for it.
-                if (slot.Imported || slot.Tag is not Engine.Loading.Shaders.Shader { Albedo: { } albedo }
-                    || !level.AllTextures.TryGetValue(albedo.id, out var source)) { slot.Stage = Stage.Failed; return; }
-                StartDecode(slot, cache, () => DecodeTexture(source), () => ThumbnailCache.Combine(TextureStamp(source), "albedo"));
                 return;
             }
         }
@@ -479,27 +470,6 @@ public sealed class ThumbnailService
         _ => false,
     };
 
-    /// <summary>A material made from the shader, from any class of the level read so far.</summary>
-    private IMaterial? ShaderMaterial(ulong id, LevelData level)
-    {
-        var counts = (level.Mobys.Count, level.Ties.Count, level.Shrubs.Count);
-        if (_materials == null || _materialsFor != counts)
-        {
-            _materialsFor = counts;
-            _materials = [];
-            void Add(IEnumerable<IMesh> meshes)
-            {
-                foreach (var mesh in meshes)
-                    if (mesh.Material is { } material) _materials.TryAdd(material.Id, material);
-            }
-            foreach (var moby in level.Mobys.Values)
-                foreach (var bangle in moby.Bangles) Add(bangle.Meshes);
-            foreach (var tie in level.Ties.Values) Add(tie.Meshes);
-            foreach (var shrub in level.Shrubs.Values) Add(shrub.Meshes);
-        }
-        return _materials.GetValueOrDefault(id);
-    }
-
     // --- Rendering ---------------------------------------------------------------------------------
 
     /// <summary>What the slot's render draws; its textures are queued for upload here. Null when there is nothing.</summary>
@@ -576,26 +546,27 @@ public sealed class ThumbnailService
             }
             case AssetKind.Shader:
             {
-                if (ShaderMaterial(key.Id, level) is not { } material) return null;
+                if (LunaWindow.Instance.Reader?.FindShaderMaterial(key.Id) is not { } material) return null;
                 RenderMaterial built;
                 using (assets.LowResolutionBuilds()) built = assets.GetOrBuildMaterial(material);
-                var (vertices, indices) = _sphere ??= Sphere();
+                var (vertices, indices) = ShaderViewerFrame.SphereGeometry();
                 scene.Vertices.Add(vertices);
                 scene.Indices.Add(indices);
                 scene.Instances.Add((0, Material(built), Matrix4x4.Identity));
+                scene.Bounds = new Vector4(0f, 0f, 0f, 1f);
                 break;
             }
         }
         return scene.Instances.Count > 0 ? scene : null;
     }
 
-    private ThumbnailImage? Render(LunaWindow window, AssetManager assets, Scene scene)
+    private ThumbnailImage? Render(LunaWindow window, AssetManager assets, Scene scene, AssetKind kind)
     {
         var (centre, radius) = Bounds(scene);
         var materials = scene.Materials.Select(m => VkMaterialBuilder.Build(m, assets)).ToList();
+        object owner = kind == AssetKind.Shader ? SceneEntityKind.Moby : null!;
         var instances = scene.Instances
-            // A sphere no cull can drop, as the Asset Viewer's preview uses.
-            .Select(i => (i.Geometry, i.Material, i.World, new Vector4(0f, 0f, 0f, 1e9f), (object)null!, -1f, 0u))
+            .Select(i => (i.Geometry, i.Material, i.World, new Vector4(0f, 0f, 0f, 1e9f), owner, -1f, 0u))
             .ToList();
 
         var gd = window.GraphicsDevice;
@@ -711,32 +682,6 @@ public sealed class ThumbnailService
         }
         if (min.X > max.X) return (Vector3.Zero, 1f);
         return ((min + max) * 0.5f, (max - min).Length() * 0.5f);
-    }
-
-    /// <summary>A unit sphere, for shaders.</summary>
-    private static (float[] Vertices, uint[] Indices) Sphere()
-    {
-        const int rings = 24, segments = 48;
-        var vertices = new List<Vertex3D>();
-        var indices = new List<uint>();
-        for (int r = 0; r <= rings; r++)
-        {
-            float v = r / (float)rings, phi = v * MathF.PI;
-            for (int s = 0; s <= segments; s++)
-            {
-                float u = s / (float)segments, theta = u * MathF.Tau;
-                var normal = new Vector3(MathF.Sin(phi) * MathF.Cos(theta), MathF.Cos(phi), MathF.Sin(phi) * MathF.Sin(theta));
-                var tangent = Vector3.Normalize(new Vector3(-MathF.Sin(theta), 0f, MathF.Cos(theta)));
-                vertices.Add(new Vertex3D(normal, new Vector2(u * 2f, v), Vector2.Zero, normal, new Vector4(tangent, 1f), Vector4.One));
-            }
-        }
-        for (int r = 0; r < rings; r++)
-            for (int s = 0; s < segments; s++)
-            {
-                uint a = (uint)(r * (segments + 1) + s), b = a + segments + 1;
-                indices.AddRange([a, b, a + 1, a + 1, b, b + 1]);
-            }
-        return (VulkanSceneCapture.Interleave([.. vertices]), [.. indices]);
     }
 
     // --- GPU textures ------------------------------------------------------------------------------

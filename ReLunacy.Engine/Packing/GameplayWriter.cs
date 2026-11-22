@@ -75,7 +75,7 @@ public static partial class GameplayWriter
                 entries[location.EntryPath] = patched;
             }
             else if (files.folderPath.Length > 0)
-                byFolderFile[Path.Combine(files.folderPath, name)] = patched;
+                byFolderFile[files.GetFolderFilePath(name)] = patched;
             else
                 problems.Add($"{name}: the level's archive has no path to write to");
         }
@@ -307,7 +307,7 @@ public static partial class GameplayWriter
         var ufrags = regions.SelectMany(r => r.Zones).SelectMany(z => z.UFrags.Entities).OfType<EntityUFrag>().ToList();
         var current = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         string zonesName = ZoneWriter.FileName(files.isOld);
-        if (ties.Count + ufrags.Count > 0 && files.ReadOriginal(zonesName) is { } zones)
+        if (!files.IsFallOfMan && ties.Count + ufrags.Count > 0 && files.ReadOriginal(zonesName) is { } zones)
         {
             var (bytes, changes, problems) = ZoneWriter.Patch(zones, ties, ufrags, files.isOld);
             Add("zones", zonesName, bytes, changes, problems);

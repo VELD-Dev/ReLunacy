@@ -801,7 +801,7 @@ public sealed class AssetsBrowserFrame : DockedFrame
     }
 
     /// <summary>The name cut to fit <paramref name="width"/>, with an ellipsis.</summary>
-    private static string Fit(string name, float width)
+    internal static string Fit(string name, float width)
     {
         if (ImGui.CalcTextSize(name).X <= width) return name;
         int low = 1, high = name.Length;

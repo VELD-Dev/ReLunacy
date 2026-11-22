@@ -97,6 +97,7 @@ public sealed class AssetIndex
             if (q.Length == 0
                 || entry.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || entry.FullName.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || (entry.Kind == AssetKind.Sound && entry.Folder.Contains(q, StringComparison.OrdinalIgnoreCase))
                 || (isHex && $"{entry.Id:X16}".Contains(hex, StringComparison.OrdinalIgnoreCase)))
                 found.Add(entry);
         }
@@ -274,7 +275,7 @@ public sealed class AssetIndex
         {
             foreach (var sound in sounds.BankSounds)
             {
-                var format = SoundReader.Format(sources.Sounds, sound.Bank, sound.BankIndex);
+                var format = SoundReader.Format(sounds, sound.Bank, sound.BankIndex);
                 string details = "";
 
                 if (format is {} f)
@@ -292,7 +293,7 @@ public sealed class AssetIndex
                     Key = new(AssetKind.Sound, (ulong)sound.NameIndex),
                     Name = sound.Name,
                     FullName = sound.Name,
-                    Folder = $"Sounds/{sound.Bank}",
+                    Folder = $"Sounds/{sound.Bank}/{sounds.GroupLabel(sound.Group).Replace('/', '_')}",
                     Detail = details,
                     Tag = sound,
                 });

@@ -89,7 +89,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     // Depth carries stencil for the selection outline's stencil mask-and-inflate technique.
     private const VkFormat DepthFormat = VkFormat.D32SfloatS8Uint;
     private const VkFormat AccumFormat = VkFormat.R16G16B16A16Sfloat;
-    private const VkFormat RevealFormat = VkFormat.R16Sfloat;
+    private const VkFormat RevealFormat = VkFormat.R16G16Sfloat;
     private const uint VertexStride = VulkanSceneCapture.FloatsPerVertex * sizeof(float); // 104
     // Albedo, normal, properties, bake colour / direction, detail, auxiliary A / B, then the second
     // layer of a two-layer Tie: albedo, normal, properties, detail and the blend mask.
@@ -101,8 +101,7 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     private const float NonOpaqueSlopeScaledDepthBias = -0.33972f;
 
     // uBoneBase[gl_InstanceIndex] is the skinned instance's bone-palette region offset (see
-    // TrySetAnimatedInstance); 0 for every non-animating instance, which is the shared identity
-    // region, so skinning is a no-op unless an animation is actually playing.
+    // TrySetAnimatedInstance). Base 0 draws the decoded bind pose without reading the palette.
     private const string SkinningGlsl = @"
 layout(set = 0, binding = 9) readonly buffer BonePalette { mat4 uBones[]; };
 layout(set = 0, binding = 11) readonly buffer BoneBase { int uBoneBase[]; };
@@ -113,6 +112,7 @@ void computeSkin(vec3 pos, vec3 nrm, vec3 tan) {
     vec3 p = vec3(0.0), n = vec3(0.0), t = vec3(0.0);
     float totalWeight = 0.0;
     int base = uBoneBase[gl_InstanceIndex];
+    if (base == 0) { skinnedPosition = pos; skinnedNormal = nrm; skinnedTangent = tan; return; }
     for (int slot = 0; slot < 4; slot++) {
         float w = inWeights[slot];
         if (w <= 0.0) continue;
@@ -165,6 +165,8 @@ layout(location = 6) out vec4 fColor;
 layout(location = 7) flat out uint fInstanceIndex;
 layout(location = 8) out vec3 fPrelightChroma;
 layout(location = 9) out vec4 fPrelightIntensity;
+layout(location = 10) out vec2 fUFragVertexScales;
+layout(location = 11) out float fOldTieFade;
 struct InstanceLight { vec4 ambient; vec4 light0Colour; vec4 light1Colour; vec4 direction0; vec4 direction1; vec4 tieShaderUse0; vec4 tieShaderUse1; vec4 tieShaderUseMeta; vec4 gameplay; vec4 secondTint; vec4 secondParallax; vec4 uvAnim; vec4 uvScroll; vec4 fogCentre; vec4 layers; };
 layout(set = 0, binding = 4, std430) readonly buffer InstanceLights { InstanceLight values[]; } uInstanceLights;
 layout(set = 0, binding = 8, std430) readonly buffer Prelight { uint words[]; } uPrelight;
@@ -178,6 +180,7 @@ void main() {
     InstanceLight il = uInstanceLights.values[gl_InstanceIndex];
     fPrelightChroma = vec3(0.0);
     fPrelightIntensity = vec4(0.0);
+    fUFragVertexScales = vec2(1.0);
     if (il.direction0.w > 4.5 && il.direction0.w < 5.5) {
         uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.tieShaderUseMeta.w)];
         float v = float(word & 0xFFu) * 256.0 + float((word >> 8) & 0xFFu);
@@ -197,6 +200,24 @@ void main() {
         vec2 ab = vec2(float((word >> 16) & 0xFFu), float(word >> 24)) / 255.0;
         fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
         fPrelightIntensity = vec4(vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w, 0.0);
+    } else if (il.direction0.w > 6.5 && il.direction0.w < 7.5) {
+        int at = gl_VertexIndex * 2 + floatBitsToInt(il.direction0.z);
+        float packedW = float(uPrelight.words[at]);
+        // ToD VP 0x100D4848 and QfB's byte-identical program split position.w into a
+        // lighting multiplier and a two-layer blend weight.
+        fUFragVertexScales = fract(packedW * vec2(1.0 / 32768.0, 1.0 / 128.0)) * vec2(2.0, 1.0);
+        if (il.direction0.x > 0.5) {
+            // The unbaked VP (ToD 0x100D38A8) reads the four bytes at vertex +0x0C.
+            uint word = uPrelight.words[at + 1];
+            float direction = float(word >> 16);
+            vec2 ab = vec2(float((word >> 8) & 0xFFu), float(word & 0xFFu)) / 255.0;
+            fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
+            vec3 basis = fract(direction * vec3(1.0 / 65536.0, 1.0 / 2048.0, 1.0 / 64.0));
+            if ((int(il.tieShaderUse0.z + 0.5) & 0x08) != 0)
+                fPrelightIntensity.xyz = vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w;
+            else
+                fPrelightChroma *= basis.z * il.direction1.w;
+        }
     }
     mat3 m3 = mat3(m);
     mat3 nrm = transpose(inverse(m3));
@@ -222,6 +243,11 @@ void main() {
     fColor = inColor;
     fInstanceIndex = gl_InstanceIndex;
     gl_Position = uMvp * world;
+    // RSX applies the saturation in the vertex program, before interpolating TEX2.w.
+    vec2 oldTieFade = il.tieShaderUseMeta.zw;
+    fOldTieFade = il.tieShaderUseMeta.x > 0.5 && any(notEqual(oldTieFade, vec2(0.0)))
+        ? clamp(gl_Position.w * oldTieFade.x + oldTieFade.y, 0.0, 1.0)
+        : 1.0;
 #ifdef NON_OPAQUE_DEPTH_OFFSET
     // The game's non-opaque polygon offset as a constant step in 1/z (see the class summary), frozen
     // at its world size of uDepthOffset.y metres (squared) beyond that distance.
@@ -859,7 +885,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
             if (bucket >= 3 && i < softStart) softStart = i;
             if (bucket >= 4 && i < billStart) billStart = i;
         }
-        uint[] prelightWords = BuildNewEnginePrelight(geomVerts, instances, order, _drawVertexOffset, instanceLights);
+        uint[] prelightWords = BuildNewEnginePrelight(geomVerts, materials, instances, order, _drawVertexOffset, instanceLights);
         _instTodKey = BuildTodKeys(geomVerts, instances, order);
         ApplyNewEngineFades(geomVerts, instances, order, instanceLights);
         ApplyGameplayConstants(materials, instanceLights);
@@ -1902,7 +1928,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
 
         VkClearValue* clearsA = stackalloc VkClearValue[2];
         clearsA[0] = new VkClearValue { color = new VkClearColorValue(0f, 0f, 0f, 0f) };
-        clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 0f, 0f, 0f) };
+        // R tracks opacity revealage. G tracks the remaining fraction of the translucent glow mask.
+        clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 1f, 0f, 0f) };
         var rpA = new VkRenderPassBeginInfo { renderPass = _rpAccum, framebuffer = _fbAccum, renderArea = area, clearValueCount = 2, pClearValues = clearsA };
         _api.vkCmdBeginRenderPass(_cmd, &rpA, VkSubpassContents.Inline);
         BindLitState();

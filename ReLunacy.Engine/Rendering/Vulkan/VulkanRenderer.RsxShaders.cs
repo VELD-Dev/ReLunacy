@@ -208,7 +208,7 @@ public sealed unsafe partial class VulkanRenderer
             case LitKind.Accum or LitKind.AccumCull or LitKind.AccumCullCw:
                 depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = false, depthCompareOp = VkCompareOp.GreaterOrEqual };
                 atts[0] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.One, dstColorBlendFactor = VkBlendFactor.One, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.One, dstAlphaBlendFactor = VkBlendFactor.One, alphaBlendOp = VkBlendOp.Add, colorWriteMask = mask };
-                atts[1] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.Zero, dstColorBlendFactor = VkBlendFactor.OneMinusSrcColor, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.Zero, dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcColor, alphaBlendOp = VkBlendOp.Add, colorWriteMask = VkColorComponentFlags.R };
+                atts[1] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.Zero, dstColorBlendFactor = VkBlendFactor.OneMinusSrcColor, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.Zero, dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcColor, alphaBlendOp = VkBlendOp.Add, colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G };
                 blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 2, pAttachments = atts };
                 pass = _rpAccum;
                 break;
@@ -220,7 +220,7 @@ public sealed unsafe partial class VulkanRenderer
                 break;
             default:
                 depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = false, depthCompareOp = VkCompareOp.GreaterOrEqual };
-                atts[0] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.SrcAlpha, dstColorBlendFactor = VkBlendFactor.One, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.Zero, dstAlphaBlendFactor = VkBlendFactor.One, alphaBlendOp = VkBlendOp.Add, colorWriteMask = mask };
+                atts[0] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.One, dstColorBlendFactor = VkBlendFactor.One, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.One, dstAlphaBlendFactor = VkBlendFactor.One, alphaBlendOp = VkBlendOp.Add, colorWriteMask = mask };
                 blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = atts };
                 pass = _rpOpaque;
                 break;
@@ -508,7 +508,8 @@ public sealed unsafe partial class VulkanRenderer
         {
             if (!RsxSources.TryGetValue((key, route, k), out source!))
             {
-                var shader = RsxFragmentTranslator.Translate(variant.Microcode, variant.SlotGroups(), variant.Exports32, out string? failure);
+                var shader = RsxFragmentTranslator.Translate(variant.Microcode, variant.SlotGroups(),
+                    variant.Exports32, out string? failure, captureOldReflectionGlow: route is RouteTodBaked or RouteTodPrelit);
                 source = shader == null
                     ? new RsxSource(null, null, null, failure)
                     : new RsxSource(
@@ -612,6 +613,8 @@ int rsxCubeSlot;
 // The last cube texel this draw reconstructed, so the debug modes can show what the retail program
 // was handed - it computes its reflection internally, where nothing else can reach it.
 vec3 gCubeRadiance = vec3(0.0);
+vec4 rsxReflectionGlow = vec4(0.0);
+float rsxEmissive0 = 0.0, rsxEmissive1 = 0.0, rsxLayerMask = 0.0;
 vec4 rsxProject(vec4 c) { return vec4(c.xyz / c.w, 1.0); }
 vec4 rsxDst(vec4 a, vec4 b) { return vec4(1.0, a.y * b.y, a.z, b.w); }
 // NRM of a zero vector stays zero instead of turning the whole pixel into NaN.
@@ -643,7 +646,11 @@ vec4 rsxProbe(vec3 n) {
 }
 vec4 rsxTex0(vec4 c) { vec4 t = texture(uAlbedo, c.xy); if (uMat2.y > 0.5) t.rgb = pow(max(t.rgb, vec3(0.0)), vec3(2.2)); return t; }
 vec4 rsxTex1(vec4 c) { return texture(uNormal, c.xy) * 2.0 - 1.0; }
-vec4 rsxTex2(vec4 c) { return texture(uProps, c.xy); }
+vec4 rsxTex2(vec4 c) {
+    vec4 props = texture(uProps, c.xy);
+    rsxEmissive0 = props.b;
+    return props;
+}
 vec4 rsxTex3(vec4 c) { return texture(uDetail, c.xy) * 2.0 - 1.0; }
 vec4 rsxTex4(vec4 c) {
 #if RSX_ROUTE == 6
@@ -664,11 +671,7 @@ vec4 rsxTex4(vec4 c) {
 }
 vec4 rsxTex5(vec4 c) { return vec4(sunShadowTerm()); }
 vec4 rsxTex6(vec4 c) { return vec4(0.0); }
-vec4 rsxTex7(vec4 c) {
-    vec4 t = rsxCubeSlot == 1 ? texture(uEnvCube1, c.xyz)
-           : rsxCubeSlot == 2 ? texture(uEnvCube2, c.xyz)
-           : rsxCubeSlot == 3 ? texture(uEnvCube3, c.xyz)
-           : texture(uEnvCube, c.xyz);
+vec4 rsxCubeColour(vec4 t) {
     // A new-engine cube keeps a near-white tint in rgb and its radiance in alpha (CubemapReader:
     // rgb tint, a intensity). Measured over All 4 One Luminopolis: rgb means 0.93 / 0.98 / 1.23
     // with almost no structure, alpha reaching 51. So rgb on its own is not a colour - it is a
@@ -690,6 +693,20 @@ vec4 rsxTex7(vec4 c) {
     if (int(uReflectionDebug + 0.5) == 3) t.rgb = vec3(0.0);
     return t;
 }
+vec4 rsxTex7(vec4 c) {
+    vec4 t = rsxCubeSlot == 1 ? texture(uEnvCube1, c.xyz)
+           : rsxCubeSlot == 2 ? texture(uEnvCube2, c.xyz)
+           : rsxCubeSlot == 3 ? texture(uEnvCube3, c.xyz)
+           : texture(uEnvCube, c.xyz);
+    return rsxCubeColour(t);
+}
+vec4 rsxTex7Lod(vec4 c, float lod) {
+#if RSX_ROUTE == 6 || RSX_ROUTE == 7
+    return rsxCubeColour(textureLod(uEnvCube, c.xyz, lod));
+#else
+    return rsxTex7(c);
+#endif
+}
 #if RSX_TWO_LAYER
 vec4 rsxTex8(vec4 c) { vec4 t = texture(uAlbedo2, c.xy); if (uMat2.y > 0.5) t.rgb = pow(max(t.rgb, vec3(0.0)), vec3(2.2)); return t; }
 vec4 rsxTex9(vec4 c) { return texture(uNormal2, c.xy) * 2.0 - 1.0; }
@@ -710,14 +727,22 @@ vec4 rsxSceneColor(vec4 c) {
     return t;
 }
 #if RSX_TWO_LAYER
-vec4 rsxTex10(vec4 c) { return texture(uProps2, c.xy); }
+vec4 rsxTex10(vec4 c) {
+    vec4 props = texture(uProps2, c.xy);
+    rsxEmissive1 = props.b;
+    return props;
+}
 vec4 rsxTex11(vec4 c) { return texture(uDetail2, c.xy) * 2.0 - 1.0; }
 #else
 vec4 rsxTex10(vec4 c) { return rsxSceneColor(c); }
 vec4 rsxTex11(vec4 c) { return rsxSceneColor(c); }
 #endif
 #if RSX_TWO_LAYER
-vec4 rsxTex12(vec4 c) { return texture(uBlendMask, c.xy); }
+vec4 rsxTex12(vec4 c) {
+    vec4 mask = texture(uBlendMask, c.xy);
+    rsxLayerMask = mask.r;
+    return mask;
+}
 #else
 vec4 rsxTex12(vec4 c) { return vec4(0.0); }
 #endif
@@ -888,8 +913,7 @@ void rsxSetup() {
     // weight 1 - sat(w c16.z), c16.z = 0.125 on every TieFrag) take the next interpolants by the key's
     // bits - normal map 0x08, reflection 0x04, detail 0x10 - as the VPs of each key do.
     float clipW = 1.0 / gl_FragCoord.w;
-    bool todFadeKnown = il.tieShaderUseMeta.x > 0.5 && (il.tieShaderUseMeta.z != 0.0 || il.tieShaderUseMeta.w != 0.0);
-    float todFade = todFadeKnown ? clamp(clipW * il.tieShaderUseMeta.z + il.tieShaderUseMeta.w, 0.0, 1.0) : 1.0;
+    float todFade = fOldTieFade;
     vec4 todDetail = vec4(fUV * uMat6.x, 1.0 - clamp(clipW * 0.125, 0.0, 1.0), 0.0);
     float todF = il.direction1.w > 0.0 ? il.direction1.w : 1.0;
     float todFog = clamp(min(clipW * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
@@ -1019,11 +1043,20 @@ void shadeRetail(out vec3 litColor, out float litAlpha) {
     litColor = o.rgb;
     litAlpha = clamp(o.a, 0.0, 1.0);
     if (int(uReflectionDebug + 0.5) == 2) { litColor = gCubeRadiance; litAlpha = 1.0; }
-    // The opaque pass's alpha is the bloom source: the shader's own output alpha - not on the old
-    // engine, whose world shaders draw with alpha blend ZERO / ZERO (Docs/reverse/TOD_RENDER_POST_2026-10-09.md).
-#if RSX_ROUTE < 6
-    if (uPostParams.x > 0.5) gGlow = litAlpha;
+    if (uPostParams.x > 0.5 && (uReflectionDebug < 0.5 || uReflectionDebug > 2.5)) {
+#if RSX_ROUTE == 6 || RSX_ROUTE == 7
+        float emissive = rsxEmissive0;
+#if RSX_TWO_LAYER
+        emissive = mix(emissive, rsxEmissive1, clamp(TEX1.y * rsxLayerMask, 0.0, 1.0));
 #endif
+        float reflected = max(max(rsxReflectionGlow.x, rsxReflectionGlow.y), max(rsxReflectionGlow.z, rsxReflectionGlow.w));
+        gGlow = bloomMask(emissive, reflected);
+#else
+        // Preserve native glow alpha on new-engine opaque programs. Blended programs can
+        // export coverage instead, so use the emissive map for those draws.
+        gGlow = bloomMask(gBeforeAtmosphere || RSX_OPAQUE_PROGRAM != 0 ? litAlpha : rsxEmissive0, 0.0);
+#endif
+    }
 #if RSX_OPAQUE_PROGRAM
     // The EBOOT's opaque shaders leave fog out and write the glow mask (the bloom source) to alpha:
     // fog with the group-0 colour and amount the blended ones use, and take coverage - the cut-out
@@ -1070,7 +1103,8 @@ public sealed unsafe partial class VulkanRenderer
     public static string? CheckRetailShader(Loading.Shaders.NewEngineShaderVariant variant, int route, out string? glsl, int k = 0)
     {
         glsl = null;
-        var shader = RsxFragmentTranslator.Translate(variant.Microcode, variant.SlotGroups(), variant.Exports32, out string? failure);
+        var shader = RsxFragmentTranslator.Translate(variant.Microcode, variant.SlotGroups(),
+            variant.Exports32, out string? failure, captureOldReflectionGlow: route is RouteTodBaked or RouteTodPrelit);
         if (shader == null)
             return "translation: " + failure;
         foreach (var (generic, blended) in new[] { (FragmentOpaqueGlsl, false), (FragmentAccumGlsl, true), (FragmentAdditiveGlsl, true) })

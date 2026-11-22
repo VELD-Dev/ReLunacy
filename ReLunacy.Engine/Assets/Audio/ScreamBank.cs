@@ -83,7 +83,8 @@ public sealed class ScreamBank
                 var tone = GrainData(sound, g, 0x18);
                 if (tone.IsEmpty) break;
                 yield return (i, new ResidentSample(_sampleData + BinaryPrimitives.ReadUInt32BigEndian(tone[0x10..]),
-                    (int)BinaryPrimitives.ReadUInt32BigEndian(tone[0x14..]), (int)Math.Round(ToneRate((sbyte)tone[2], tone[3]))));
+                    (int)BinaryPrimitives.ReadUInt32BigEndian(tone[0x14..]), (int)Math.Round(ToneRate((sbyte)tone[2], tone[3])),
+                    BinaryPrimitives.ReadUInt16BigEndian(tone[0xE..])));
                 break;
             }
         }
@@ -163,11 +164,16 @@ public sealed class ScreamBank
     {
         var key = (offset, (ushort)(flags & 0x20C0));
         if (_samples.TryGetValue(key, out var cached)) return cached;
-        ToneSample? sample = null;
-        if (size is > 16 and < 32 << 20 && PsarcRanges.Read(_file.Archive, _file.Entry, _sampleData + offset, size) is { Length: > 16 } data)
-            sample = (flags & 0x80) != 0 ? Pcm16(data, flags) : Adpcm(data, flags);
+        var sample = ReadSample(_file, _sampleData + offset, size, flags);
         _samples[key] = sample;
         return sample;
+    }
+
+    internal static ToneSample? ReadSample((string Archive, string Entry) file, long offset, int size, ushort flags)
+    {
+        if (size is <= 16 or >= 32 << 20 || PsarcRanges.Read(file.Archive, file.Entry, offset, size) is not { } data ||
+            data.Length != size) return null;
+        return (flags & 0x80) != 0 ? Pcm16(data, flags) : Adpcm(data, flags);
     }
 
     private static ToneSample Pcm16(byte[] data, ushort flags)

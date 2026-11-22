@@ -49,13 +49,22 @@ public sealed class LevelReader
     public LevelReader(FileManager fileManager)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
-        _gameDefinition = Games.GameDefinitions.FromLevelPath(fileManager.SourcePath);
+        _gameDefinition = fileManager.GameDefinition;
         _textureShaderLoader = new TextureShaderLoader(fileManager);
         _materialReader = new MaterialReader(_textureShaderLoader)
         {
             CrackInTimeLayout = _gameDefinition?.Id == Games.GameId.ACrackInTime,
         };
         _debugReader = new DebugReader(fileManager);
+    }
+
+    /// <summary>Resolves a loaded shader even when no loaded mesh uses it.</summary>
+    public Assets.Interfaces.IMaterial? FindShaderMaterial(ulong tuid)
+    {
+        lock (_fileLock)
+            return _textureShaderLoader.Shaders.ContainsKey(tuid)
+                ? _materialReader.GetMaterialByTuid(tuid)
+                : null;
     }
 
     /// <summary>The level's regions, in gameplay.dat's order (bit N of the assetlookup region masks is

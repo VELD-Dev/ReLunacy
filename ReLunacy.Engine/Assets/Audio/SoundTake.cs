@@ -20,6 +20,7 @@ public sealed class SoundTake : ISoundSource
 
     public int Channels { get; }
     public int SampleRate { get; }
+    public IReadOnlyList<SoundPart> Parts { get; }
 
     /// <summary>True when the source ended within the head: <see cref="Written"/> frames are the whole take.</summary>
     public bool Complete { get; }
@@ -29,6 +30,7 @@ public sealed class SoundTake : ISoundSource
     public SoundTake(ISoundSource source, double headSeconds, double ringSeconds)
     {
         _source = source;
+        Parts = source is PcmSource pcm ? pcm.Parts : [];
         Channels = Math.Max(1, source.Channels);
         SampleRate = Math.Max(1, source.SampleRate);
         long headFrames = (long)(headSeconds * SampleRate);
@@ -85,6 +87,21 @@ public sealed class SoundTake : ISoundSource
                 done += got;
             }
             return done * Channels;
+        }
+    }
+
+    /// <summary>Reuses a fully buffered take for playback from the beginning.</summary>
+    public bool Rewind() => Complete && TrySeek(0);
+
+    /// <summary>Moves playback within the frames still buffered by this take.</summary>
+    public bool TrySeek(long frame)
+    {
+        lock (_sync)
+        {
+            if (frame < Math.Max(0, _written - _capacity) || frame > _written) return false;
+            _served = frame;
+            _cut = false;
+            return true;
         }
     }
 

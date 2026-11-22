@@ -32,9 +32,15 @@ public sealed class RegionReader
 
     private Assets.Levels.Region ReadRegionOld(LevelLoadProgress? progress = null)
     {
-        IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
-
         progress?.SetTotal(1);
+        if (_fileManager.IsFallOfMan)
+        {
+            var instances = FallOfManGeometry.ReadMobyInstances(_fileManager.igfiles["gameplay.dat"], _mobys);
+            progress?.Advance();
+            return new Assets.Levels.Region(0, instances, [], null, true, "OldRegion") { Game = Game };
+        }
+
+        IGFile gameplayFile = _fileManager.igfiles["gameplay.dat"]!;
         var gameplay = new OldGameplayReader(gameplayFile, _debugReader, Game);
         var mobyInstances = ReadMobyInstancesOld(gameplayFile, gameplay);
         var volumes = ReadVolumesOld(gameplayFile, _debugReader);
@@ -337,7 +343,7 @@ public sealed class RegionReader
     }
 
     /// <summary>The level's game, for the class tables only that game's EBOOT gives (GameClassNames).</summary>
-    private Games.GameId? Game => Games.GameDefinitions.FromLevelPath(_fileManager.SourcePath)?.Id;
+    private Games.GameId? Game => _fileManager.GameDefinition?.Id;
 
     private static List<Volume> ReadVolumesNew(IGFile prius, Games.GameId? game)
     {

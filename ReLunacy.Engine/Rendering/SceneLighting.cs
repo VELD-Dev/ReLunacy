@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeoVeldrid;
+using ReLunacy.Engine.Assets.Lighting;
 
 namespace ReLunacy.Engine.Rendering;
 
@@ -50,6 +51,17 @@ public sealed class SceneLighting
     public bool BakedDebugView;
     public Vector2 LightmapUVPivot = new(0.5f, 0.5f);
     public float LightmapUVRotation;
+
+    public void SetEnvironment(LightingEnvironment? environment)
+    {
+        var sample = OldEngineLightingSampler.Global(environment);
+        HasLightingEnvironment = sample.HasLighting;
+        EnvAmbient = sample.Ambient;
+        EnvLight0Colour = sample.Light0Colour;
+        EnvLight1Colour = sample.Light1Colour;
+        EnvDirection0 = sample.HasLighting ? sample.Direction0 : Vector3.UnitY;
+        EnvDirection1 = sample.HasLighting ? sample.Direction1 : Vector3.UnitY;
+    }
 
     public LightData BuildLightData(Vector3 cameraPosition)
     {

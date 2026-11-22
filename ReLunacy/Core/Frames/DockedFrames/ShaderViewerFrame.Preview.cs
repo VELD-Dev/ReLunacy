@@ -73,7 +73,8 @@ public sealed partial class ShaderViewerFrame
                 RebuildPreview();
             }
 
-            if (_renderer != null)
+            bool waitingForTextures = _builtWhileUploading && assets?.HasPendingUploads == true;
+            if (_renderer != null && !waitingForTextures)
             {
                 try
                 {
@@ -92,7 +93,7 @@ public sealed partial class ShaderViewerFrame
                 }
             }
 
-            if (_renderer != null)
+            if (_renderer != null && !waitingForTextures)
                 _viewport.DrawImage(LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, _renderer.ColorTexture));
             else
                 _viewport.DrawEmpty();
@@ -184,6 +185,9 @@ public sealed partial class ShaderViewerFrame
         var assets = window.AssetManager;
         if (assets == null || EnsureRenderMaterial() is not { } material) return;
 
+        _lighting.OldEngineMode = assets.OldEngineMobys;
+        _lighting.SetEnvironment(_lighting.OldEngineMode ? window.Level?.LightingEnvironment : null);
+
         foreach (var key in material.GetMaterialMapKeys())
             if (material.GetMaterialMap(key)?.Texture is { } gpu)
                 _builtTextures.Add((gpu, gpu.DeviceTexture));
@@ -212,6 +216,8 @@ public sealed partial class ShaderViewerFrame
             _renderer = null;
         }
     }
+
+    internal static (float[] Vertices, uint[] Indices) SphereGeometry() => ShapeGeometry(PreviewShape.Sphere);
 
     private static (float[] Vertices, uint[] Indices) ShapeGeometry(PreviewShape shape)
     {

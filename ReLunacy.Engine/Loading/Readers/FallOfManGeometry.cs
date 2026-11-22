@@ -1,0 +1,256 @@
+using System.Numerics;
+using ReLunacy.Engine.Assets.Geometry;
+using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Assets.Mobys;
+using ReLunacy.Engine.Assets.Primitives;
+using ReLunacy.Engine.Assets.Ties;
+using ReLunacy.Engine.Assets.UFrags;
+using ReLunacy.Engine.Loading.IO;
+using ReLunacy.Engine.Loading.Vertices;
+
+namespace ReLunacy.Engine.Loading.Readers;
+
+/// <summary>Fall of Man's retail IGHW records, which precede the Tools of Destruction layouts.</summary>
+internal static class FallOfManGeometry
+{
+    public static Dictionary<ulong, Tie> ReadTies(FileManager files, MaterialReader materials, LevelLoadProgress? progress)
+    {
+        IGFile main = files.igfiles["main.dat"]!;
+        IGFile vertices = files.igfiles["vertices.dat"]!;
+        var records = main.QuerySection(0x3400);
+        uint vertexBase = vertices.QuerySection(0x9000).offset;
+        uint indexBase = vertices.QuerySection(0x9100).offset;
+        var ties = new Dictionary<ulong, Tie>();
+        progress?.SetTotal(records.count);
+        for (uint i = 0; i < records.count; i++)
+        {
+            uint offset = records.offset + i * records.length;
+            uint primitive = main.sh.ReadUInt32(offset);
+            int count = main.sh.ReadUInt16(offset + 8);
+            uint vertexOffset = main.sh.ReadUInt32(offset + 0x10);
+            uint secondaryUvOffset = main.sh.ReadUInt32();
+            ushort classId = main.sh.ReadUInt16();
+            main.sh.Seek(offset + 0x20);
+            Vector3 scale = ReadVector(main.sh);
+            var meshes = new List<IMesh>(count);
+            for (uint p = 0; p < count; p++)
+            {
+                main.sh.Seek(primitive + p * 0x20);
+                ushort material = main.sh.ReadUInt16();
+                main.sh.ReadUInt16();
+                uint firstIndex = main.sh.ReadUInt32();
+                ushort indexCount = main.sh.ReadUInt16();
+                ushort vertexCount = main.sh.ReadUInt16();
+                ushort firstVertex = main.sh.ReadUInt16();
+                ushort firstSecondaryUv = main.sh.ReadUInt16();
+                bool hasSecondaryUvs = main.sh.ReadByte() != 0;
+                var data = ReadGeometry(vertices.sh, vertexBase + (long)vertexOffset + firstVertex * 20L,
+                    indexBase + firstIndex * 2L, vertexCount, indexCount, 20, 8, scale, hasVertexAlpha: true,
+                    secondaryUvs: hasSecondaryUvs ? vertexBase + (long)secondaryUvOffset + firstSecondaryUv * 4L : null);
+                if (data != null)
+                    meshes.Add(new Mesh(data, materials.GetMaterialByIndex(material), $"Mesh_{p}"));
+            }
+            ties.Add(offset, new Tie(offset, meshes, name: $"Tie_{classId}"));
+            progress?.Advance();
+        }
+        return ties;
+    }
+
+    public static Assets.Levels.Zone ReadZone(FileManager files, MaterialReader materials, AssetLibrary<Tie> ties)
+    {
+        IGFile main = files.igfiles["main.dat"]!;
+        IGFile vertices = files.igfiles["vertices.dat"]!;
+        var records = main.QuerySection(0x6200);
+        uint vertexBase = vertices.QuerySection(0x9000).offset;
+        uint indexBase = vertices.QuerySection(0x9100).offset;
+        var terrain = new List<IUFrag>((int)records.count);
+        for (uint i = 0; i < records.count; i++)
+        {
+            uint offset = records.offset + i * records.length;
+            main.sh.Seek(offset + 0x30);
+            Vector3 center = ReadVector(main.sh);
+            float radius = main.sh.ReadSingle();
+            Vector3 anchor = ReadVector(main.sh) / 256f;
+            ushort material = main.sh.ReadUInt16();
+            main.sh.Seek(offset + 0x54);
+            uint firstIndex = main.sh.ReadUInt32();
+            uint vertexOffset = main.sh.ReadUInt32();
+            ushort indexCount = main.sh.ReadUInt16();
+            ushort vertexCount = main.sh.ReadUInt16();
+            main.sh.ReadUInt16();
+            ushort lightmap = main.sh.ReadUInt16();
+            var data = ReadGeometry(vertices.sh, vertexBase + (long)vertexOffset, indexBase + firstIndex * 2L,
+                vertexCount, indexCount, 26, 8, Vector3.One, terrain: true, hasVertexAlpha: true);
+            if (data != null)
+                terrain.Add(new OldUFrag(i, data.GetVertexPositions(), data.GetTextureCoordinates(), data.GetIndices(),
+                    materials.GetMaterialByIndex(material), anchor, center, radius, data.GetNormals(), data.GetTangents(),
+                    data.GetLightmapUVs(), data.GetVertexAlpha(), lightmapIndex: lightmap));
+        }
+
+        records = main.QuerySection(0x9300);
+        var placements = new List<IPlacedInstance<ITie>>((int)records.count);
+        for (uint i = 0; i < records.count; i++)
+        {
+            uint offset = records.offset + i * records.length;
+            uint classOffset = main.sh.ReadUInt32(offset + 0x8C);
+            if (ties.Get(classOffset) is not { } tie) continue;
+            main.sh.Seek(offset);
+            var matrix = new Matrix4x4(
+                main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(), 0,
+                ReadSingleAt(main.sh, offset + 0x10), main.sh.ReadSingle(), main.sh.ReadSingle(), 0,
+                ReadSingleAt(main.sh, offset + 0x20), main.sh.ReadSingle(), main.sh.ReadSingle(), 0,
+                ReadSingleAt(main.sh, offset + 0x30), main.sh.ReadSingle(), main.sh.ReadSingle(), 1);
+            placements.Add(new PlacedInstance<ITie>(tie, matrix, i, name: $"{tie.Name}_Instance_{i}")
+            {
+                LightmapIndex = main.sh.ReadUInt16(offset + 0x80),
+            });
+        }
+        return new Assets.Levels.Zone(0, terrain, placements);
+    }
+
+    public static Dictionary<ulong, Moby> ReadMobys(FileManager files, MaterialReader materials, LevelLoadProgress? progress)
+    {
+        IGFile main = files.igfiles["main.dat"]!;
+        var records = main.QuerySection(0xD100);
+        var pixels = new StreamHelper(files.rawfiles["textures.dat"]!, StreamHelper.Endianness.Big);
+        var mobys = new Dictionary<ulong, Moby>();
+        progress?.SetTotal(records.count);
+        for (uint i = 0; i < records.count; i++)
+        {
+            uint offset = records.offset + i * records.length;
+            int meshCount = main.sh.ReadUInt16(offset + 0x18);
+            ushort classId = main.sh.ReadUInt16();
+            uint meshOffset = main.sh.ReadUInt32(offset + 0x28);
+            uint indexBase = main.sh.ReadUInt32(offset + 0x34);
+            int vertexBase = main.sh.ReadInt32();
+            float scale = main.sh.ReadSingle();
+            var bangles = new List<IBangle>(meshCount);
+            for (uint b = 0; b < meshCount && meshOffset != 0; b++)
+            {
+                uint firstPrimitive = main.sh.ReadUInt32(meshOffset + b * 8);
+                uint count = main.sh.ReadUInt32();
+                if (!Fits(main.sh, firstPrimitive, count * 0x20L)) continue;
+                var meshes = new List<IMesh>((int)count);
+                for (uint p = 0; p < count; p++)
+                {
+                    main.sh.Seek(firstPrimitive + p * 0x20);
+                    ushort material = main.sh.ReadUInt16();
+                    ushort vertexCount = main.sh.ReadUInt16();
+                    ushort indexCount = main.sh.ReadUInt16();
+                    main.sh.ReadByte();
+                    bool skinned = main.sh.ReadByte() != 0;
+                    uint firstIndex = main.sh.ReadUInt32();
+                    uint firstVertex = main.sh.ReadUInt32();
+                    var data = ReadGeometry(pixels, vertexBase + (long)firstVertex, indexBase + firstIndex * 2L,
+                        vertexCount, indexCount, skinned ? 28 : 20, skinned ? 16 : 8, new Vector3(scale));
+                    if (data != null)
+                        meshes.Add(new Mesh(data, materials.GetMaterialByIndex(material), $"Mesh_{p}"));
+                }
+                bangles.Add(new Bangle(meshes));
+            }
+            mobys.TryAdd(classId, new Moby(classId, bangles, name: $"Moby_{classId}"));
+            progress?.Advance();
+        }
+        return mobys;
+    }
+
+    public static IReadOnlyList<IPlacedInstance<IMoby>> ReadMobyInstances(IGFile? gameplay, AssetLibrary<Moby> mobys)
+    {
+        var instances = new List<IPlacedInstance<IMoby>>();
+        if (gameplay?.QuerySection(0x25000) is not { id: 0x25000 } section) return instances;
+        var stream = gameplay.sh;
+        uint group = stream.ReadUInt32(section.offset + 0x20);
+        if (group == 0 || !Fits(stream, group, 0x48)) return instances;
+        uint start = stream.ReadUInt32(group + 0x40);
+        uint count = stream.ReadUInt32();
+        if (!Fits(stream, start, count * 0x40L)) return instances;
+
+        for (uint i = 0; i < count; i++)
+        {
+            uint offset = start + i * 0x40;
+            stream.Seek(offset + 0x08);
+            float displayDistance = stream.ReadSingle();
+            float updateDistance = stream.ReadSingle();
+            Vector3 position = ReadVector(stream);
+            Vector3 rotation = ReadVector(stream);
+            float scale = ReadSingleAt(stream, offset + 0x38);
+            ushort classId = stream.ReadUInt16();
+            if (mobys.Get(classId) is not { } moby) continue;
+            var transform = new Transform3D(position, rotation, scale);
+            instances.Add(new PlacedInstance<IMoby>(moby, transform, i, name: $"{moby.Name}_Instance_{i}",
+                displayDistance: displayDistance > 0 ? displayDistance : -1, updateDistance: updateDistance > 0 ? updateDistance : -1)
+            {
+                GameplayIndex = (int)i,
+            });
+        }
+        return instances;
+    }
+
+    private static GeometryData? ReadGeometry(StreamHelper stream, long vertexOffset, long indexOffset,
+        int vertexCount, int indexCount, int stride, int uvOffset, Vector3 scale,
+        bool terrain = false, bool hasVertexAlpha = false, long? secondaryUvs = null)
+    {
+        if (vertexCount == 0 || indexCount == 0 || indexCount % 3 != 0
+            || !Fits(stream, vertexOffset, vertexCount * stride) || !Fits(stream, indexOffset, indexCount * 2))
+            return null;
+        var indices = new uint[indexCount];
+        stream.Seek(indexOffset);
+        for (int i = 0; i < indices.Length; i++)
+        {
+            uint index = stream.ReadUInt16();
+            if (index >= vertexCount) return null;
+            indices[i] = index;
+        }
+
+        var positions = new float[vertexCount * 3];
+        var uvs = new float[vertexCount * 2];
+        var normals = new float[vertexCount * 3];
+        var tangents = new float[vertexCount * 3];
+        float[]? alpha = hasVertexAlpha ? new float[vertexCount] : null;
+        bool separateUvs = secondaryUvs is { } uvStart && Fits(stream, uvStart, vertexCount * 4);
+        float[]? lightmapUvs = terrain || separateUvs ? new float[vertexCount * 2] : null;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            long vertex = vertexOffset + i * stride;
+            stream.Seek(vertex);
+            Store(positions, i, new Vector3(stream.ReadInt16(), stream.ReadInt16(), stream.ReadInt16()) * scale);
+            if (alpha != null) alpha[i] = (Math.Abs((int)stream.ReadInt16()) & 0x7F) / 128f;
+            stream.Seek(vertex + uvOffset);
+            ReadUv(stream, uvs, i);
+            if (terrain) ReadUv(stream, lightmapUvs!, i);
+            Store(normals, i, PackedNormal.Decode(stream.ReadUInt32()));
+            Store(tangents, i, PackedNormal.Decode(stream.ReadUInt32()));
+        }
+        if (separateUvs)
+        {
+            stream.Seek(secondaryUvs!.Value);
+            for (int i = 0; i < vertexCount; i++)
+                ReadUv(stream, lightmapUvs!, i);
+        }
+        return new GeometryData(0, positions, uvs, indices, normals, vertexAlpha: alpha, tangents: tangents, lightmapUVs: lightmapUvs);
+    }
+
+    private static void ReadUv(StreamHelper stream, float[] output, int index)
+    {
+        output[index * 2] = (float)stream.ReadHalf();
+        output[index * 2 + 1] = (float)stream.ReadHalf();
+    }
+
+    private static void Store(float[] output, int index, Vector3 value)
+    {
+        output[index * 3] = value.X;
+        output[index * 3 + 1] = value.Y;
+        output[index * 3 + 2] = value.Z;
+    }
+
+    private static Vector3 ReadVector(StreamHelper stream) => new(stream.ReadSingle(), stream.ReadSingle(), stream.ReadSingle());
+
+    private static float ReadSingleAt(StreamHelper stream, uint offset)
+    {
+        stream.Seek(offset);
+        return stream.ReadSingle();
+    }
+
+    private static bool Fits(StreamHelper stream, long offset, long length) =>
+        offset >= 0 && offset + length <= stream.BaseStream.Length;
+}

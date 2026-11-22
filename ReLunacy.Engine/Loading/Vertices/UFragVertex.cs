@@ -78,6 +78,9 @@ public record struct UFragVertex
     /// textures (sections 0x5400 / 0x5410). Half-floats, same as the base UVs above.</summary>
     public (float, float) UVs2;
 
+    /// <summary>Unbaked old-engine UFrags read vertex +0x0C as four prelight bytes.</summary>
+    public uint PackedLightmapAttribute { get; }
+
     public uint normal;
     public uint tangent;
 
@@ -93,8 +96,11 @@ public record struct UFragVertex
         sh.Seek(recordBase + 0x08);
         UVs.Item1 = sh.ReadHalf();
         UVs.Item2 = sh.ReadHalf();
-        UVs2.Item1 = (float)sh.ReadHalf();
-        UVs2.Item2 = (float)sh.ReadHalf();
+        ushort lightmapU = sh.ReadUInt16();
+        ushort lightmapV = sh.ReadUInt16();
+        UVs2.Item1 = (float)BitConverter.UInt16BitsToHalf(lightmapU);
+        UVs2.Item2 = (float)BitConverter.UInt16BitsToHalf(lightmapV);
+        PackedLightmapAttribute = ((uint)lightmapU << 16) | lightmapV;
         normal = sh.ReadUInt32(recordBase + 0x10);
         tangent = sh.ReadUInt32(recordBase + 0x14);
     }

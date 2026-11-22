@@ -121,6 +121,14 @@ public class Shader
         metadataOld = metadata;
     }
 
+    internal Shader(StreamHelper sh, uint index, ShaderMetadataOld metadata)
+    {
+        shaderStream = sh;
+        isOld = true;
+        TUID = index;
+        metadataOld = metadata;
+    }
+
     public Shader(StreamHelper sh, bool isOld = false, uint index = 0, ulong? tuidOverride = null)
     {
         this.isOld = isOld;

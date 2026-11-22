@@ -3,6 +3,9 @@ using NativeFileDialogSharp;
 using NAudio.SoundFile;
 using ReLunacy.Engine.Assets.Audio;
 using ReLunacy.Engine.Assets.LevelElements;
+using ReLunacy.Engine.Config;
+using ReLunacy.Engine.Games;
+using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
@@ -11,8 +14,8 @@ using ReLunacy.Utility.Localization;
 namespace ReLunacy.Core.Frames.DockedFrames;
 
 /// <summary>
-/// View > Sound Banks: the level's sounds (A Crack in Time's resident and streamed banks; docs/reverse/acit_audio.md),
-/// grouped by bank, mixer group or name prefix. The selected sound shows the SoundSpecs ids that play it (what a
+/// View > Sound Banks: the level's resident and streamed sounds (Tools of Destruction, Quest for Booty and A Crack in Time),
+/// grouped by bank and mixer group, mixer group alone or name prefix. The selected sound shows the SoundSpecs ids that play it (what a
 /// settings field holds), its sample, its Scream grains and the instances whose sound fields name it; Play renders a
 /// new take, drawn as a waveform with a cursor, levels and a spectrum.
 /// </summary>
@@ -29,13 +32,19 @@ public sealed class SoundBanksFrame : DockedFrame
     private const int FftSize = 1024, Bands = 48;
 
     private LevelSounds? _sounds;
+    private FileManager? _bankFiles;
+    private string? _gameFolder;
+    private Task<IReadOnlyList<SoundReader.LevelBankArchive>>? _bankDiscovery;
+    private SoundReader.LevelBankArchive? _alternateBank;
+    private Task<LevelSounds?>? _alternateSounds;
     private GroupMode _mode = GroupMode.Bank;
     private string _filter = "";
     private BankSound? _selected;
     private bool _reveal, _treeChanged;
 
     private (LevelSounds Sounds, GroupMode Mode, string Filter)? _treeFor;
-    private List<(string Key, string Label, List<BankSound> Sounds)> _tree = [];
+    private sealed record SoundGroup(string Key, string Label, List<BankSound> Sounds);
+    private List<(SoundBank? Bank, List<SoundGroup> Groups)> _tree = [];
 
     // The selected sound's details, read once.
     private BankSound? _detailsOf;
@@ -44,9 +53,11 @@ public sealed class SoundBanksFrame : DockedFrame
     private List<(EntityRegion Region, string Kind, string Name, int Index, string Field, int Id)> _usedBy = [];
     private double _usedByTime = -10.0;
 
-    // The last take and what it is of; set from the rendering task.
-    private volatile SoundTake? _take;
-    private volatile BankSound? _takeOf, _rendering, _unplayable;
+    private SoundTake? _take;
+    private SoundTake? _playingTake;
+    private BankSound? _takeOf, _rendering, _unplayable;
+    private Task<SoundTake?>? _takeJob;
+    private bool _playWhenReady;
     private readonly float[] _meterHold = new float[2];
     private readonly float[] _bands = new float[Bands];
 
@@ -63,8 +74,11 @@ public sealed class SoundBanksFrame : DockedFrame
         ".opus",
         ".mp3"
     };
-    private int _selectedExportFormat = 0;
+    private int _selectedExportFormat = 6;
     private bool _exportAsSoundtrack = false;
+    private HashSet<int>? _exportParts;
+    private Task<string>? _exportJob;
+    private string? _exportError;
     private bool _hasExportedTrack = false;
     private string _exportedPath = "";
     private double _exportedSince = 0.0;
@@ -86,6 +100,7 @@ public sealed class SoundBanksFrame : DockedFrame
     public void Show(int id)
     {
         if (CurrentSounds() is not { } sounds || sounds.Find(id) is not { } sound) return;
+        SelectBank(null);
         _sounds = sounds;
         _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == sound.NameIndex);
         _filter = "";
@@ -96,6 +111,7 @@ public sealed class SoundBanksFrame : DockedFrame
     public void ShowSound(int nameIndex)
     {
         if (CurrentSounds() is not { } sounds) return;
+        SelectBank(null);
         _sounds = sounds;
         _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == nameIndex);
         _filter = "";
@@ -107,17 +123,32 @@ public sealed class SoundBanksFrame : DockedFrame
 
     protected override void Render(double deltaTime)
     {
-        var files = LunaWindow.Instance.fileManager;
-        var sounds = files != null ? SoundReader.For(files) : null;
+        var window = LunaWindow.Instance;
+        var files = window.Level == null ? null : window.fileManager;
+        if (!ReferenceEquals(files, _bankFiles))
+        {
+            _bankFiles = files;
+            SelectBank(null);
+            _gameFolder = files != null && window.Level?.GameDefinition?.Id is GameId.ToolsOfDestruction or GameId.QuestForBooty or GameId.ACrackInTime
+                ? GameConfigs.GameFolderFor(files.SourcePath) : null;
+            _bankDiscovery = _gameFolder is { } gameFolder ? Task.Run(() => SoundReader.ListLevelBanks(gameFolder)) : null;
+        }
+
+        DrawBankSelector();
+        var sounds = _alternateSounds is { } alternate
+            ? (alternate.IsCompletedSuccessfully ? alternate.Result : null)
+            : files != null ? SoundReader.For(files) : null;
         if (sounds == null)
         {
-            ImGui.TextDisabled(LM.Get(files != null && SoundReader.Pending(files) ? "GUI_SoundBanks_Loading" : "GUI_SoundBanks_None"));
+            bool pending = _alternateSounds is { } load ? !load.IsCompleted : files != null && SoundReader.Pending(files);
+            ImGui.TextDisabled(LM.Get(pending ? "GUI_SoundBanks_Loading" : "GUI_SoundBanks_None"));
             return;
         }
         if (!ReferenceEquals(sounds, _sounds))
         {
             _sounds = sounds;
             _selected = null;
+            ClearTake();
         }
         if (sounds.BankSounds.Count == 0)
         {
@@ -137,6 +168,48 @@ public sealed class SoundBanksFrame : DockedFrame
         ImGui.EndChild();
     }
 
+    private void DrawBankSelector()
+    {
+        if (_bankDiscovery is not { IsCompletedSuccessfully: true } sources || sources.Result.Count == 0)
+            return;
+
+        string current = LM.Get("GUI_SoundBanks_CurrentLevel");
+        if (!ImGui.BeginCombo(LM.Get("GUI_SoundBanks_Source") + "##bank_source", _alternateBank?.LevelName ?? current))
+            return;
+        if (ImGui.Selectable(current, _alternateBank == null))
+            SelectBank(null);
+        string? currentLevel = Path.GetFileName(Path.GetDirectoryName(_bankFiles?.SourcePath));
+        foreach (var bank in sources.Result)
+        {
+            if (bank.LevelName.Equals(currentLevel, StringComparison.OrdinalIgnoreCase)) continue;
+            if (ImGui.Selectable(bank.LevelName, bank == _alternateBank))
+                SelectBank(bank);
+        }
+        ImGui.EndCombo();
+    }
+
+    private void SelectBank(SoundReader.LevelBankArchive? bank)
+    {
+        if (_alternateBank == bank) return;
+        _alternateBank = bank;
+        _alternateSounds = bank != null && _gameFolder is { } gameFolder
+            ? Task.Run(() => SoundReader.ReadLevelBank(bank, gameFolder)) : null;
+
+        ClearTake();
+        _selected = null;
+        _detailsOf = null;
+    }
+
+    private void ClearTake()
+    {
+        if (_playingTake != null && ReferenceEquals(SoundPlayer.Status.Key, _playingTake))
+            SoundPlayer.Stop();
+        _takeJob = null;
+        _take = null;
+        _playingTake = null;
+        _takeOf = _rendering = _unplayable = null;
+    }
+
     // ---------------------------------------------------------------- tree
 
     private void RenderTree(LevelSounds sounds)
@@ -154,59 +227,86 @@ public sealed class SoundBanksFrame : DockedFrame
             _tree = BuildTree(sounds);
             _treeFor = (sounds, _mode, _filter);
         }
-        ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Count", _tree.Sum(g => g.Sounds.Count), sounds.BankSounds.Count));
+        ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Count", _tree.Sum(bank => bank.Groups.Sum(group => group.Sounds.Count)), sounds.BankSounds.Count));
         ImGui.Separator();
 
         if (!ImGui.BeginChild("##soundlist", Vector2.Zero)) { ImGui.EndChild(); return; }
-        foreach (var (key, label, members) in _tree)
+        foreach (var (bank, groups) in _tree)
         {
-            bool holdsSelected = _selected != null && members.Contains(_selected);
-            if (_treeChanged && _filter.Length > 0) ImGui.SetNextItemOpen(true);
-            else if (_reveal && holdsSelected) ImGui.SetNextItemOpen(true);
-            if (!ImGui.TreeNodeEx($"{label}  ({members.Count})##{key}", ImGuiTreeNodeFlags.SpanAvailWidth)) continue;
-            foreach (var sound in members)
+            if (bank is { } kind && !OpenSoundTreeNode(
+                    BankLabel(kind), $"bank_{kind}", groups.Sum(g => g.Sounds.Count),
+                    _selected != null && groups.Any(g => g.Sounds.Contains(_selected))))
+                continue;
+
+            foreach (var (key, label, members) in groups)
             {
-                var ids = sounds.IdsOf(sound).ToList();
-                bool reached = ids.Count > 0;
-                if (!reached) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-                bool selected = ReferenceEquals(sound, _selected);
-                if (ImGui.Selectable($"{sound.Name}##{sound.NameIndex}", selected)) _selected = sound;
-                if (!reached) ImGui.PopStyleColor();
-                if (selected && _reveal) { ImGui.SetScrollHereY(0.5f); _reveal = false; }
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(reached ? string.Join("\n", ids.Select(i => $"{i.Id}  {i.SpecName}")) : LM.Get("GUI_SoundBanks_NoIds"));
+                if (!OpenSoundTreeNode(label, key, members.Count, _selected != null && members.Contains(_selected)))
+                    continue;
+                foreach (var sound in members)
+                {
+                    var ids = sounds.IdsOf(sound).ToList();
+                    bool reached = ids.Count > 0;
+                    if (!reached) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
+                    bool selected = ReferenceEquals(sound, _selected);
+                    if (ImGui.Selectable($"{sound.Name}##{sound.NameIndex}", selected)) _selected = sound;
+                    if (!reached) ImGui.PopStyleColor();
+                    if (selected && _reveal) { ImGui.SetScrollHereY(0.5f); _reveal = false; }
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(reached ? string.Join("\n", ids.Select(i => $"{i.Id}  {i.SpecName}")) : LM.Get("GUI_SoundBanks_NoIds"));
+                }
+                ImGui.TreePop();
             }
-            ImGui.TreePop();
+
+            if (bank != null) ImGui.TreePop();
         }
         _treeChanged = false;
         ImGui.EndChild();
     }
 
-    private List<(string, string, List<BankSound>)> BuildTree(LevelSounds sounds)
+    private bool OpenSoundTreeNode(string label, string key, int count, bool holdsSelected)
+    {
+        if (_treeChanged && _filter.Length > 0 || _reveal && holdsSelected)
+            ImGui.SetNextItemOpen(true);
+        return ImGui.TreeNodeEx($"{label}  ({count})###{key}", ImGuiTreeNodeFlags.SpanAvailWidth);
+    }
+
+    private List<(SoundBank? Bank, List<SoundGroup> Groups)> BuildTree(LevelSounds sounds)
     {
         bool Matches(BankSound s)
         {
-            if (_filter.Length == 0 || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)) return true;
+            if (_filter.Length == 0 || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || BankLabel(s.Bank).Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || GroupName(sounds, s.Group).Contains(_filter, StringComparison.OrdinalIgnoreCase))
+                return true;
             foreach (var id in sounds.IdsOf(s))
                 if (id.SpecName.Contains(_filter, StringComparison.OrdinalIgnoreCase) || id.Id.ToString().StartsWith(_filter, StringComparison.Ordinal))
                     return true;
             return false;
         }
-        (string Key, string Label) GroupOf(BankSound s) => _mode switch
+        (string Key, string Label) GroupOf(BankSound s)
         {
-            GroupMode.Bank => s.Bank == SoundBank.Resident ? ("0", LM.Get("GUI_SoundBanks_Resident")) : ("1", LM.Get("GUI_SoundBanks_Streamed")),
-            GroupMode.Group => s.Group < 0 ? ("~", LM.Get("GUI_SoundBanks_NoGroup")) : (s.Group.ToString("D6"), GroupName(sounds, s.Group)),
-            _ => s.Name.IndexOf('_') is > 0 and var cut ? (s.Name[..cut].ToLowerInvariant(), s.Name[..cut].ToLowerInvariant() + "_") : ("~", s.Name),
-        };
+            if (_mode != GroupMode.Prefix)
+                return (s.Group < 0 ? "~" : s.Group.ToString("D6"), GroupName(sounds, s.Group));
+            return s.Name.IndexOf('_') is > 0 and var cut
+                ? (s.Name[..cut].ToLowerInvariant(), s.Name[..cut].ToLowerInvariant() + "_")
+                : (s.Name, s.Name);
+        }
         return sounds.BankSounds.Where(Matches)
-            .GroupBy(GroupOf)
-            .OrderBy(g => _mode == GroupMode.Group ? g.Key.Key : g.Key.Label, StringComparer.OrdinalIgnoreCase)
-            .Select(g => (g.Key.Key, g.Key.Label, g.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+            .GroupBy(s => _mode == GroupMode.Bank ? (SoundBank?)s.Bank : null)
+            .OrderBy(bank => bank.Key)
+            .Select(bank => (bank.Key, bank.GroupBy(GroupOf)
+                .OrderBy(group => group.Key.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new SoundGroup(group.Key.Key, group.Key.Label,
+                    group.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+                .ToList()))
             .ToList();
     }
 
+    private static string BankLabel(SoundBank bank) =>
+        LM.Get(bank == SoundBank.Resident ? "GUI_SoundBanks_Resident" : "GUI_SoundBanks_Streamed");
+
     private static string GroupName(LevelSounds sounds, int group) =>
-        sounds.GroupNames.TryGetValue(group, out var name) ? (name.StartsWith("SOUND_GROUP_EX_") ? name[15..] : name) : group.ToString();
+        sounds.GroupLabel(group, LM.Get("GUI_SoundBanks_NoGroup"));
 
     // ---------------------------------------------------------------- details
 
@@ -215,6 +315,7 @@ public sealed class SoundBanksFrame : DockedFrame
         if (!ReferenceEquals(sound, _detailsOf))
         {
             _detailsOf = sound;
+            _exportParts = null;
             _format = SoundReader.Format(sounds, sound.Bank, sound.BankIndex);
             _summary = sound.Bank == SoundBank.Resident ? sounds.Scream?.Describe(sound.BankIndex) : null;
             _usedByTime = -10.0;
@@ -223,7 +324,7 @@ public sealed class SoundBanksFrame : DockedFrame
         // Recounted each second, so edits show.
         if (ImGui.GetTime() - _usedByTime > 1.0)
         {
-            _usedBy = UsersOf(ids.Select(i => i.Id).ToHashSet());
+            _usedBy = _alternateBank == null ? UsersOf(ids.Select(i => i.Id).ToHashSet()) : [];
             _usedByTime = ImGui.GetTime();
         }
 
@@ -246,7 +347,7 @@ public sealed class SoundBanksFrame : DockedFrame
             Row("GUI_SoundBanks_Bank");
             ImGui.TextUnformatted(LM.Get(sound.Bank == SoundBank.Resident ? "GUI_SoundBanks_BankResident" : "GUI_SoundBanks_BankStreamed", sound.BankIndex));
             Row("GUI_SoundBanks_Group");
-            ImGui.TextUnformatted(sound.Group < 0 ? LM.Get("GUI_SoundBanks_NoGroup") : GroupName(sounds, sound.Group));
+            ImGui.TextUnformatted(GroupName(sounds, sound.Group));
 
             Row("GUI_SoundBanks_Ids");
             if (ids.Count == 0) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_NoIds"));
@@ -320,6 +421,7 @@ public sealed class SoundBanksFrame : DockedFrame
             ImGui.EndTable();
         }
         
+        var parts = ReferenceEquals(_takeOf, sound) ? _take?.Parts : null;
         ImGui.SeparatorText(LM.Get("GUI_SoundBanks_ExportSection"));
         if(ImGui.BeginTable("###export", 2, ImGuiTableFlags.SizingStretchProp))
         {
@@ -331,6 +433,12 @@ public sealed class SoundBanksFrame : DockedFrame
                 ImGui.TableNextColumn();
             }
             
+            if (parts is { Count: > 1 })
+            {
+                Row("GUI_SoundBanks_ExportParts");
+                DrawExportPartsCombo(parts);
+            }
+
             Row("GUI_SoundBanks_ExportAsSoundtrack");
             ImGui.Checkbox("##export_as_soundtrack", ref _exportAsSoundtrack);
             ImGui.SameLine();
@@ -356,21 +464,40 @@ public sealed class SoundBanksFrame : DockedFrame
             ImGui.EndTable();
         }
         
+        if (_exportJob is { IsCompleted: true } job)
+        {
+            _hasExportedTrack = job.IsCompletedSuccessfully;
+            _exportedPath = _hasExportedTrack ? job.Result : "";
+            _exportError = job.Exception?.GetBaseException().Message;
+            _exportedSince = 0;
+            _exportJob = null;
+        }
+
+        ImGui.BeginDisabled(_exportJob != null || _exportParts is { Count: 0 });
         if (ImGui.Button(LM.Get("GUI_SoundBanks_ExportButton")))
         {
-            _exportedPath = Path.Combine(Program.EditorPath, "Extracted", "Audio", LunaWindow.Instance.LevelMetadata.Name, sound.Name + _exportFormats[_selectedExportFormat]);
-            
-            Task.Run(() => SoundExporter.ExportSoundAsFormat(
-                _exportedPath,
-                sounds,
-                sound,
-                (SoundFileMajorFormat)_selectedExportFormat,
-                LunaWindow.Instance.LevelMetadata,
-                _exportAsSoundtrack,
-                _exportCompressionLevels[_exportCompression].Value
-            ));
-            _hasExportedTrack = true;
+            var level = LunaWindow.Instance.LevelMetadata;
+            string levelName = _alternateBank?.LevelName ?? level?.Name ?? "Sounds";
+            var selectedParts = _exportParts != null && parts != null && _exportParts.Count < parts.Count
+                ? new HashSet<int>(_exportParts) : null;
+            string suffix = selectedParts == null ? "" : "_parts_" + string.Join("-", selectedParts.Order().Select(i => i + 1));
+            string output = Path.Combine(Program.EditorPath, "Extracted", "Audio", levelName,
+                sound.Name + suffix + _exportFormats[_selectedExportFormat]);
+            var format = (SoundFileMajorFormat)_selectedExportFormat;
+            bool isSoundtrack = _exportAsSoundtrack;
+            double compression = _exportCompressionLevels[_exportCompression].Value;
+
+            _hasExportedTrack = false;
+            _exportError = null;
+            _exportJob = Task.Run(() =>
+            {
+                SoundExporter.ExportSoundAsFormat(output, sounds, sound, format, level, isSoundtrack, compression, selectedParts);
+                return output;
+            });
         }
+        ImGui.EndDisabled();
+        if (_exportJob != null) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_Exporting"));
+        if (_exportError != null) ImGui.TextWrapped(LM.Get("GUI_SoundBanks_ExportFailed", _exportError));
 
         if (_hasExportedTrack)
         {
@@ -382,13 +509,13 @@ public sealed class SoundBanksFrame : DockedFrame
                 {
                     Process.Start(new ProcessStartInfo()
                     {
-                        FileName = Path.GetFullPath(Path.GetDirectoryName(_exportedPath)),
+                        FileName = Path.GetDirectoryName(_exportedPath),
                         UseShellExecute = true
                     });
                 }
                 catch (Exception e)
                 {
-                    LunaLog.LogError("An error occurred when trying to open exportation folder.");
+                    LunaLog.LogError($"Could not open the sound export folder. {e.Message}");
                 }
             }
             ImGui.PopStyleColor();
@@ -400,6 +527,48 @@ public sealed class SoundBanksFrame : DockedFrame
                 _exportedSince = 0;
             }
         }
+    }
+
+    private void DrawExportPartsCombo(IReadOnlyList<SoundPart> parts)
+    {
+        string[] names = PartNames(parts);
+        string entire = LM.Get("GUI_SoundBanks_EntireSong");
+        string preview = _exportParts switch
+        {
+            null => entire,
+            { Count: 0 } => LM.Get("GUI_SoundBanks_NoParts"),
+            { Count: 1 } => names[_exportParts.Single()],
+            _ => LM.Get("GUI_SoundBanks_SelectedParts", _exportParts.Count),
+        };
+        if (!ImGui.BeginCombo("##export_parts", preview)) return;
+
+        const ImGuiSelectableFlags keepOpen = ImGuiSelectableFlags.NoAutoClosePopups;
+        if (ImGui.Selectable(entire, _exportParts == null, keepOpen))
+            _exportParts = null;
+        ImGui.Separator();
+        for (int i = 0; i < names.Length; i++)
+        {
+            bool selected = _exportParts?.Contains(i) == true;
+            if (!ImGui.Selectable($"{names[i]}##part{i}", selected, keepOpen)) continue;
+            _exportParts ??= [];
+            if (selected) _exportParts.Remove(i);
+            else _exportParts.Add(i);
+        }
+        ImGui.EndCombo();
+    }
+
+    private static string[] PartNames(IReadOnlyList<SoundPart> parts)
+    {
+        int loops = parts.Count(part => part.Kind == SoundPartKind.Loop);
+        int loop = 0;
+        return parts.Select((part, i) => part.Kind switch
+        {
+            SoundPartKind.Intro => LM.Get("GUI_SoundBanks_PartIntro"),
+            SoundPartKind.Loop when loops == 1 => LM.Get("GUI_SoundBanks_PartLoop"),
+            SoundPartKind.Loop => LM.Get("GUI_SoundBanks_PartNumberedLoop", ++loop),
+            SoundPartKind.Outro => LM.Get("GUI_SoundBanks_PartOutro"),
+            _ => LM.Get("GUI_SoundBanks_PartNumbered", i + 1),
+        }).ToArray();
     }
 
     /// <summary>Every Clue, controller and Moby of the loaded regions whose documented sound fields hold one of the
@@ -440,17 +609,21 @@ public sealed class SoundBanksFrame : DockedFrame
 
     private void RenderPlayer(LevelSounds sounds, BankSound sound)
     {
-        var take = ReferenceEquals(_takeOf, sound) ? _take : null;
-        if (take == null)
+        if (ReferenceEquals(_rendering, sound) && _takeJob is { IsCompleted: true } job)
         {
-            var source = SoundReader.Open(sounds, sound.Bank, sound.BankIndex);
-            _take = source == null
-                ? null
-                : new SoundTake(source, source is PcmSource ? 900.0 : WindowSeconds, WindowSeconds * 2.0);
+            _take = job.IsCompletedSuccessfully ? job.Result : null;
             _takeOf = sound;
-            take = _take;
+            _takeJob = null;
+            _rendering = null;
+            if (_take == null || _playWhenReady && !StartPlayback(_take))
+                _unplayable = sound;
         }
+
+        var take = ReferenceEquals(_takeOf, sound) ? _take : null;
+        if (take == null && !ReferenceEquals(_rendering, sound) && !ReferenceEquals(_unplayable, sound))
+            PrepareTake(sounds, sound, play: false);
         var (key, queued) = SoundPlayer.Status;
+        if (!ReferenceEquals(key, _playingTake)) _playingTake = null;
         bool playing = take != null && ReferenceEquals(key, take);
         bool rendering = ReferenceEquals(_rendering, sound);
 
@@ -458,7 +631,9 @@ public sealed class SoundBanksFrame : DockedFrame
         if (ImGui.Button(LM.Get(playing ? "GUI_SoundBanks_Stop" : "GUI_SoundBanks_Play") + "##play", new Vector2(80f, 0f)))
         {
             if (playing) SoundPlayer.Stop();
-            else Play(sounds, sound);
+            else if (sound.Bank == SoundBank.Streamed && take?.Rewind() == true)
+                _unplayable = StartPlayback(take) ? null : sound;
+            else PrepareTake(sounds, sound, play: true);
         }
         ImGui.EndDisabled();
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
@@ -479,34 +654,52 @@ public sealed class SoundBanksFrame : DockedFrame
 
         if (take == null) return;
         long cursor = playing ? Math.Max(0, take.Served - queued) : -1;
-        RenderWaveform(take, cursor);
+        if (RenderWaveform(take, cursor) is { } frame)
+        {
+            if (SoundPlayer.TrySeek(take, frame))
+            {
+                if (rendering)
+                {
+                    _takeJob = null;
+                    _rendering = null;
+                }
+                _playingTake = take;
+                _unplayable = null;
+                Array.Clear(_meterHold);
+                Array.Clear(_bands);
+                cursor = frame;
+                playing = true;
+            }
+            else _unplayable = sound;
+        }
         RenderMeters(take, cursor, playing);
     }
 
-    private void Play(LevelSounds sounds, BankSound sound)
+    private void PrepareTake(LevelSounds sounds, BankSound sound, bool play)
     {
         _rendering = sound;
         _unplayable = null;
-        Task.Run(() =>
+        _playWhenReady = play;
+        _takeJob = Task.Run(() =>
         {
-            try
-            {
-                var source = SoundReader.Open(sounds, sound.Bank, sound.BankIndex);
-                // A stream is decoded whole and kept whole; a Scream sound is rendered a window ahead.
-                var take = source == null ? null : new SoundTake(source, source is PcmSource ? 900.0 : WindowSeconds, WindowSeconds * 2.0);
-                if (take == null || !SoundPlayer.Play(take, take)) { _unplayable = sound; return; }
-                _take = take;
-                _takeOf = sound;
-                Array.Clear(_meterHold);
-                Array.Clear(_bands);
-            }
-            finally { if (ReferenceEquals(_rendering, sound)) _rendering = null; }
+            var source = SoundReader.Open(sounds, sound.Bank, sound.BankIndex);
+            // A stream is kept whole for its waveform; a Scream sound is rendered a window ahead.
+            return source == null ? null : new SoundTake(source, source is PcmSource ? 900.0 : WindowSeconds, WindowSeconds * 2.0);
         });
+    }
+
+    private bool StartPlayback(SoundTake take)
+    {
+        if (!SoundPlayer.Play(take, take)) return false;
+        _playingTake = take;
+        Array.Clear(_meterHold);
+        Array.Clear(_bands);
+        return true;
     }
 
     /// <summary>The take's waveform, its channels mixed: the whole take, or a window of a looping one that follows
     /// the cursor.</summary>
-    private void RenderWaveform(SoundTake take, long cursor)
+    private long? RenderWaveform(SoundTake take, long cursor)
     {
         long written = take.Written, oldest = take.Oldest;
         long window = take.Complete ? Math.Max(1, written) : (long)(WindowSeconds * take.SampleRate);
@@ -518,7 +711,13 @@ public sealed class SoundBanksFrame : DockedFrame
         var draw = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var size = new Vector2(MathF.Max(64f, ImGui.GetContentRegionAvail().X), 110f);
-        ImGui.Dummy(size);
+        var markers = LayoutPartMarkers(take.Parts, start, window, size.X);
+        float rowHeight = ImGui.GetTextLineHeight() + 4f;
+        float labelHeight = markers.Count == 0 ? 0f : (markers.Max(marker => marker.Row) + 1) * rowHeight + 4f;
+        bool clicked = ImGui.InvisibleButton("##waveform", size + new Vector2(0f, labelHeight));
+        bool hovered = ImGui.IsItemHovered();
+        var labelOrigin = origin;
+        origin.Y += labelHeight;
         draw.AddRectFilled(origin, origin + size, ImGui.GetColorU32(new Vector4(0.06f, 0.07f, 0.09f, 1f)));
         float mid = origin.Y + size.Y * 0.5f, half = size.Y * 0.5f - 2f;
         draw.AddLine(new Vector2(origin.X, mid), new Vector2(origin.X + size.X, mid), ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.12f)));
@@ -534,6 +733,17 @@ public sealed class SoundBanksFrame : DockedFrame
             draw.AddLine(new Vector2(origin.X + x + 0.5f, top), new Vector2(origin.X + x + 0.5f, MathF.Max(bottom, top + 1f)),
                 cursor < 0 || from < cursor ? played : ahead);
         }
+        uint markerColor = ImGui.GetColorU32(new Vector4(1f, 0.35f, 0.35f, 1f));
+        foreach (var marker in markers)
+        {
+            float leftEdge = origin.X + marker.Left;
+            float rightEdge = origin.X + marker.Right;
+            if (marker.Left > 0f)
+                draw.AddLine(new Vector2(leftEdge, origin.Y - 2f), new Vector2(leftEdge, origin.Y + size.Y), markerColor);
+            float gap = MathF.Min(1f, (rightEdge - leftEdge) * 0.25f);
+            draw.AddLine(new Vector2(leftEdge + gap, origin.Y - 2f), new Vector2(rightEdge - gap, origin.Y - 2f), markerColor, 2f);
+            draw.AddText(labelOrigin + new Vector2(marker.LabelX, marker.Row * rowHeight), markerColor, marker.Label);
+        }
         if (cursor >= start && cursor <= start + window)
         {
             float cx = origin.X + (cursor - start) / (float)window * size.X;
@@ -548,6 +758,53 @@ public sealed class SoundBanksFrame : DockedFrame
             string now = $"{FormatTimecode(cursor / (double)take.SampleRate)}";
             draw.AddText(origin + new Vector2((size.X - ImGui.CalcTextSize(now).X) * 0.5f, 2f), ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.3f, 1f)), now);
         }
+
+        var mouse = ImGui.GetMousePos();
+        if (!hovered || mouse.Y < origin.Y) return null;
+        float xOffset = Math.Clamp(mouse.X - origin.X, 0f, size.X);
+        long frame = start + Math.Min(window - 1, (long)(xOffset / (double)size.X * window));
+        if (frame < oldest || frame >= written) return null;
+
+        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+        float xHover = origin.X + xOffset;
+        uint preview = ImGui.GetColorU32(new Vector4(0.68f, 0.70f, 0.74f, 1f));
+        draw.AddLine(new Vector2(xHover, origin.Y), new Vector2(xHover, origin.Y + size.Y), preview);
+        string timecode = FormatTimecode(frame / (double)take.SampleRate);
+        var textSize = ImGui.CalcTextSize(timecode);
+        float labelX = Math.Clamp(xOffset - textSize.X * 0.5f, 4f, MathF.Max(4f, size.X - textSize.X - 4f));
+        var label = origin + new Vector2(labelX, size.Y - textSize.Y - 3f);
+        var padding = new Vector2(3f, 2f);
+        draw.AddRectFilled(label - padding, label + textSize + padding, ImGui.GetColorU32(new Vector4(0.06f, 0.07f, 0.09f, 0.94f)));
+        draw.AddText(label, preview, timecode);
+        return clicked ? frame : null;
+    }
+
+    private static List<(float Left, float Right, float LabelX, int Row, string Label)> LayoutPartMarkers(
+        IReadOnlyList<SoundPart> parts, long start, long window, float width)
+    {
+        if (parts.Count < 2) return [];
+        var markers = new List<(float, float, float, int, string)>();
+        var rowEnds = new List<float>();
+        string[] names = PartNames(parts);
+        for (int i = 0; i < parts.Count; i++)
+        {
+            var part = parts[i];
+            long from = Math.Max(start, part.StartFrame), to = Math.Min(start + window, (long)part.StartFrame + part.FrameCount);
+            if (from >= to) continue;
+            float left = (from - start) / (float)window * width, right = (to - start) / (float)window * width;
+            string label = names[i];
+            float textWidth = ImGui.CalcTextSize(label).X;
+            float labelX = Math.Clamp((left + right - textWidth) * 0.5f, 2f, MathF.Max(2f, width - textWidth - 2f));
+            int row = rowEnds.FindIndex(end => end + 6f <= labelX);
+            if (row < 0)
+            {
+                row = rowEnds.Count;
+                rowEnds.Add(0f);
+            }
+            rowEnds[row] = labelX + textWidth;
+            markers.Add((left, right, labelX, row, label));
+        }
+        return markers;
     }
 
     /// <summary>Peak and RMS of each channel over the 50 ms before the cursor (dB, -60..0), and a spectrum of the
@@ -660,10 +917,11 @@ public sealed class SoundBanksFrame : DockedFrame
     /// </summary>
     /// <param name="seconds"></param>
     /// <returns></returns>
-    private static string FormatTimecode(in double seconds) =>
-        seconds >= 60
-            ? Math.Floor(seconds / 60) + ":" + (seconds % 60).ToString("00.00")
-            : seconds.ToString("00:00.00") ;
+    private static string FormatTimecode(in double seconds)
+    {
+        long centiseconds = (long)Math.Round(seconds * 100);
+        return $"{centiseconds / 6000:00}:{centiseconds / 100 % 60:00}.{centiseconds % 100:00}";
+    }
     
     private static string FormatTimecode(in TimeSpan timespan) => FormatTimecode(timespan.TotalSeconds);
 }

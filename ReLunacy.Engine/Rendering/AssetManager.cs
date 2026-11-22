@@ -370,18 +370,21 @@ public sealed class AssetManager : IDisposable
     {
         var built = new List<(float[], uint[], RenderMaterial)>();
         foreach (var mesh in meshes)
-        {
-            var source = mesh.Material;
-            var twoLayer = mesh as Assets.Geometry.Mesh is { SecondMaterial: not null, BlendMask: not null } layered ? layered : null;
-            var material = twoLayer != null
-                ? GetOrBuildMaterial(source, Loading.Objects.UFragMetadata.NoLightmap, twoLayer.SecondMaterial, twoLayer.BlendMask)
-                : GetOrBuildMaterial(source);
-            var vertices = ConvertGeometryToVertices(mesh.Geometry, source.UsesVertexAlpha || twoLayer != null);
-            var indices = mesh.Geometry.GetIndices();
-            if (vertices.Length == 0 || indices.Length == 0) continue;
-            built.Add((Loading.PreparedGeometry.Interleaved(vertices, indices), indices, material));
-        }
+            if (BuildDetachedMesh(mesh, mesh.Material) is { } part)
+                built.Add(part);
         return built;
+    }
+
+    /// <summary>Packs a mesh with a preview material while retaining any secondary layer and blend mask.</summary>
+    public (float[] Vertices, uint[] Indices, RenderMaterial Material)? BuildDetachedMesh(IMesh mesh, IMaterial material)
+    {
+        var twoLayer = mesh is Assets.Geometry.Mesh { SecondMaterial: not null, BlendMask: not null } layered ? layered : null;
+        var vertices = ConvertGeometryToVertices(mesh.Geometry, material.UsesVertexAlpha || twoLayer != null);
+        var indices = mesh.Geometry.GetIndices();
+        if (vertices.Length == 0 || indices.Length == 0) return null;
+        var renderMaterial = GetOrBuildMaterial(material, Loading.Objects.UFragMetadata.NoLightmap,
+            twoLayer?.SecondMaterial, twoLayer?.BlendMask);
+        return (Loading.PreparedGeometry.Interleaved(vertices, indices), indices, renderMaterial);
     }
 
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run
@@ -978,11 +981,10 @@ public sealed class AssetManager : IDisposable
                 nativeMaterial.NewEngineShaderFlags);
             if (!nativeMaterial.IsNewEngineMaterial && (nativeMaterial.OldRenderFlags & 0x02) == 0)
                 _vkOldEngineCulled.Add(bMat);
-            // Old engine: .x = +0x58, the detail tiling the ToD Tie vertex shaders apply (c[21].x); the
-            // generic shader reads uMat6 on the new engine only.
+            // Old engine: .x is detail tiling and .w carries the authored Moby material feature bits.
             _vkMaterialPermutation[bMat] = nativeMaterial.IsNewEngineMaterial
                 ? NewEnginePermutation(nativeMaterial, hasDetail)
-                : new Vector4(nativeMaterial.DetailTiling, 0f, 0f, 0f);
+                : new Vector4(nativeMaterial.DetailTiling, 0f, 0f, nativeMaterial.OldFeatureFlags);
             _vkMobyTint[bMat] = nativeMaterial.IsNewEngineMaterial && nativeMaterial.GameRenderMode is 1 or 2 or 6
                 ? new Vector4(nativeMaterial.MaterialTintSource, 1f)
                 : Vector4.Zero;

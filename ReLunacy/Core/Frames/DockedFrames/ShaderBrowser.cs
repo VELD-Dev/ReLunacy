@@ -1,6 +1,8 @@
 using System.Numerics;
 using System.Text;
+using ReLunacy.Core.Placement;
 using ReLunacy.Core.Selection;
+using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Assets.Mobys;
 using ReLunacy.Engine.Assets.Ties;
@@ -29,6 +31,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     private List<Shader> shaders = [];
     private int selectedShader = -1;
     private ShaderUsageResult? usageResults;
+    private readonly ResizablePane shaderGridPane = new(350f);
+    private AssetIndex? shaderGridIndex;
+    private List<AssetEntry>? shaderGridEntries;
+    private bool scrollToShader;
 
     // null = no filter. Filtering by the raw byte rather than the RenderingMode enum so values not
     // named yet can still be isolated and inspected.
@@ -61,6 +67,7 @@ public class ShaderBrowser : DockedFrame, ILevelListener
     public void TransmitShaders(LevelData level)
     {
         shaders = [.. level.Shaders.Values];
+        shaderGridEntries = null;
         renderModeCounts.Clear();
         renderModeCounts.AddRange(shaders
             .GroupBy(s => (byte)s.RenderingMode)
@@ -97,6 +104,11 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         selectedShader = index;
         usageResults = null;
+        inputText = "";
+        renderModeFilter = null;
+        usedFilter = null;
+        shaderGridEntries = null;
+        scrollToShader = true;
         return true;
     }
 
@@ -109,6 +121,8 @@ public class ShaderBrowser : DockedFrame, ILevelListener
         usedFilter = null;
         selectedShader = -1;
         usageResults = null;
+        shaderGridIndex = null;
+        shaderGridEntries = null;
     }
 
     // ShaderMetadataOld 0x50/0x54. The new engine's metadata has no identified equivalent - see
@@ -132,26 +146,23 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             ? $"0x{value:X2} ({(RenderingMode)value})"
             : $"0x{value:X2} ({LM.Get("GUI_Frame_ShaderBrowser_Unknown")})";
 
-    private IEnumerable<Shader> FilteredShaders()
+    private List<AssetEntry> FilteredShaders(AssetIndex? index)
     {
-        IEnumerable<Shader> result = shaders;
-
-        if (renderModeFilter.HasValue)
-            result = result.Where(s => (byte)s.RenderingMode == renderModeFilter.Value);
-
-        if (usedFilter.HasValue)
-            result = result.Where(s => usedShaderTuids.Contains(s.TUID) == usedFilter.Value);
-
-        if (!string.IsNullOrWhiteSpace(inputText))
-            result = result.Where(s =>
-                TuidLink.Matches(inputText, s.name, s.TUID));
-
-        return result;
+        if (index == null) return [];
+        var query = inputText.Trim();
+        return index.Entries.Where(entry =>
+            entry.Kind == AssetKind.Shader && entry.Tag is Shader shader &&
+            (!renderModeFilter.HasValue || (byte)shader.RenderingMode == renderModeFilter.Value) &&
+            (!usedFilter.HasValue || usedShaderTuids.Contains(entry.Id) == usedFilter.Value) &&
+            (TuidLink.Matches(query, entry.Path, entry.Id) || TuidLink.Matches(query, shader.name, entry.Id))).ToList();
     }
 
     protected override void Render(double deltaTime)
     {
-        ImGui.InputTextWithHint(LM.Get("GUI_Frame_ShaderBrowser_SearchLabel"), LM.Get("GUI_Frame_ShaderBrowser_SearchHint", shaders.Count), ref inputText, 128);
+        bool filtersChanged = ImGui.InputTextWithHint(LM.Get("GUI_Frame_ShaderBrowser_SearchLabel"),
+            LM.Get("GUI_Frame_ShaderBrowser_SearchHint", shaders.Count), ref inputText, 128);
+        var previousMode = renderModeFilter;
+        var previousUsage = usedFilter;
 
         string comboPreview = renderModeFilter.HasValue ? RenderModeLabel(renderModeFilter.Value) : LM.Get("GUI_Common_FilterAll");
         if (ImGui.BeginCombo(LM.Get("GUI_Frame_ShaderBrowser_FilterRenderMode"), comboPreview))
@@ -187,22 +198,28 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             ImGui.EndCombo();
         }
 
-        var filtered = FilteredShaders().ToList();
-
-        if (ImGui.BeginChild("shader_list", new(ImGui.GetContentRegionAvail().X / 3, ImGui.GetContentRegionAvail().Y), ImGuiChildFlags.Borders))
+        filtersChanged |= previousMode != renderModeFilter || previousUsage != usedFilter;
+        var index = AssetsBrowserFrame.EnsureIndex();
+        if (filtersChanged || !ReferenceEquals(index, shaderGridIndex))
         {
-            foreach (var shader in filtered)
+            shaderGridIndex = index;
+            shaderGridEntries = null;
+        }
+        shaderGridEntries ??= FilteredShaders(index);
+        ThumbnailService.Singleton.Pump();
+        if (shaderGridPane.Begin("shader_list"))
+        {
+            if (filtersChanged) ImGui.SetScrollY(0f);
+            if (shaderGridEntries.Count == 0)
+                ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_NoMatchingShaders"));
+            ulong? selected = selectedShader >= 0 && selectedShader < shaders.Count ? shaders[selectedShader].TUID : null;
+            if (ShaderThumbnailGrid.Draw(shaderGridEntries, selected, ref scrollToShader)?.Tag is Shader shader)
             {
-                bool isSelected = selectedShader >= 0 && selectedShader < shaders.Count && ReferenceEquals(shaders[selectedShader], shader);
-                string label = string.IsNullOrEmpty(shader.name) ? shader.TUID.ToString() : shader.name;
-                if (ImGui.Selectable($"{label}##shader_{shader.TUID:X}", isSelected))
-                {
-                    selectedShader = shaders.IndexOf(shader);
-                    usageResults = null;
-                }
+                selectedShader = shaders.IndexOf(shader);
+                usageResults = null;
             }
         }
-        ImGui.EndChild();
+        ResizablePane.End();
 
         ImGui.SameLine();
 
@@ -211,9 +228,27 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             if (selectedShader < 0 || selectedShader >= shaders.Count)
                 ImGui.TextDisabled(LM.Get("GUI_Frame_ShaderBrowser_NoSelection"));
             else
-                DrawShaderDetail(shaders[selectedShader]);
+                DrawShaderTabs(shaders[selectedShader]);
         }
         ImGui.EndChild();
+    }
+
+    private void DrawShaderTabs(Shader shader)
+    {
+        if (ImGui.Button(LM.Get("GUI_Frame_ShaderBrowser_OpenPreview")))
+            ShaderViewerFrame.Show(shader.TUID);
+        if (!ImGui.BeginTabBar("##shader_details")) return;
+        if (ImGui.BeginTabItem(LM.Get("GUI_Frame_ShaderViewer_Tab_Details")))
+        {
+            DrawShaderDetail(shader);
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem(LM.Get("GUI_Frame_ShaderViewer_Tab_Raw")))
+        {
+            DrawRawMetadata(shader);
+            ImGui.EndTabItem();
+        }
+        ImGui.EndTabBar();
     }
 
     private void DrawShaderDetail(Shader shader)
@@ -274,7 +309,11 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             }
         }
 
-        ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_RawMetadataSection"));
+        DrawShaderUsages(shader);
+    }
+
+    private void DrawRawMetadata(Shader shader)
+    {
         ImGui.Checkbox(LM.Get("GUI_Frame_ShaderBrowser_ShowAsFloats"), ref showFloatInterpretation);
         if (shader.isOld && shader.metadataOld.HasValue)
         {
@@ -303,7 +342,10 @@ public class ShaderBrowser : DockedFrame, ILevelListener
             ImGui.Text($"0x30 normal strength: {meta.parameter30:0.###}  0x34 reflection strength: {meta.parameter34:0.###}");
             ImGui.Text($"0x50 reflection tint: ({meta.reflectionTintR:0.###}, {meta.reflectionTintG:0.###}, {meta.reflectionTintB:0.###}), albedo mix {meta.reflectionTintAlbedoMix:0.###}");
         }
+    }
 
+    private void DrawShaderUsages(Shader shader)
+    {
         ImGui.Separator();
         if (ImGui.Button(LM.Get("GUI_Frame_ShaderBrowser_FindUsages")))
             usageResults = FindShaderUsages(shader.TUID);
@@ -359,13 +401,14 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
         ImGui.Text($"{label}: {(string.IsNullOrEmpty(tex.name) ? tex.id.ToString("X") : tex.name)} (0x{tex.id:X}, {tex.Width}x{tex.Height}, {tex.TexFormat})");
 
-        var am = LunaWindow.Instance.AssetManager;
-        if (am != null && am.BuiltTextures.TryGetValue(tex.id, out var tex2d))
+        if (shaderGridIndex?.Get(new AssetKey(AssetKind.Texture, tex.id)) is { } entry)
         {
-            var ptr = LunaWindow.Instance.imGuiController.GetOrCreateImGuiBinding(LunaWindow.Instance.GraphicsDevice.ResourceFactory, tex2d.DeviceTexture);
-            ImGui.Image(ptr, new(64, 64), Vector2.UnitY, Vector2.UnitX);
-            if (ImGui.IsItemClicked())
+            var min = ImGui.GetCursorScreenPos();
+            if (ImGui.InvisibleButton($"##texture_{label}", new Vector2(64f), ImGuiButtonFlags.EnableNav))
                 OpenTextureInExplorer(tex.id);
+            AssetsBrowserFrame.DrawThumbnail(ImGui.GetWindowDrawList(), entry, min, min + new Vector2(64f));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(LM.Get("GUI_Frame_ShaderViewer_OpenTexture"));
         }
     }
 

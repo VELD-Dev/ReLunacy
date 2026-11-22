@@ -1,6 +1,7 @@
 using System.Numerics;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
+using ReLunacy.Engine.Rendering.Vulkan;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -123,6 +124,7 @@ public static class GltfExporter
             }
         }
 
+        LunaLog.LogInfo("Built skinned mesh successfully.");
         return (sceneBuilder.ToGltf2(), textureNames);
     }
 
@@ -236,45 +238,58 @@ public static class GltfExporter
         return new VertexJoints4(rootBoneIndex);
     }
 
-    /// <summary>One NodeBuilder per bone, parented to mirror the skeleton hierarchy, with each
-    /// node's LocalTransform set to `bone.WorldBindPose * parent.InverseBindPose` (row-vector
-    /// convention). Returned in skeleton bone-index order, matching glTF's JOINTS_0 indices.</summary>
-    private static NodeBuilder[] BuildJointNodes(ISkeleton skeleton, NodeBuilder? rootParent = null)
+    /// <summary>Builds the glTF joint hierarchy in skeleton bone-index order, matching JOINTS_0.</summary>
+    private static (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[] BuildSkinnedJoints(ISkeleton skeleton)
     {
-        var nodes = new NodeBuilder[skeleton.Bones.Count];
+        var bindings = new (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[skeleton.Bones.Count];
 
-        void CreateNode(int index, NodeBuilder? parent)
+        void CreateNode(int index, NodeBuilder? parent, Matrix4x4 parentInverseBind)
         {
             var bone = skeleton.Bones[index];
             var node = parent != null ? parent.CreateNode($"Bone_{index}") : new NodeBuilder($"Bone_{index}");
 
-            var local = index == skeleton.RootBoneIndex
-                ? bone.WorldBindPose
-                : bone.WorldBindPose * skeleton.Bones[bone.ParentIndex].InverseBindPose;
-            node.LocalTransform = new AffineTransform(EnsureAffine(local));
+            // Removing shear from a parent's local transform changes its world basis. Compute each
+            // child's local transform relative to that exported basis to keep its bind position.
+            var local = EnsureAffine(bone.WorldBindPose) * parentInverseBind;
+            node.LocalTransform = ToJointTransform(local);
 
-            nodes[index] = node;
+            // The original inverse bind would deform the mesh at rest after removing shear.
+            if (!Matrix4x4.Invert(node.WorldMatrix, out var inverseBind))
+                throw new InvalidOperationException($"Bone {index} has a singular glTF bind transform.");
+            inverseBind = EnsureAffine(inverseBind);
+            bindings[index] = (node, inverseBind);
 
             for (int i = 0; i < skeleton.Bones.Count; i++)
                 if (skeleton.Bones[i].ParentIndex == index)
-                    CreateNode(i, node);
+                    CreateNode(i, node, inverseBind);
         }
 
-        CreateNode(skeleton.RootBoneIndex, rootParent);
-        return nodes;
+        CreateNode(skeleton.RootBoneIndex, null, Matrix4x4.Identity);
+        return bindings;
     }
 
-    /// <summary>Builds a fresh joint hierarchy plus its glTF skin bindings (joint node, inverse
-    /// bind matrix). Each placed instance of a skinned asset needs its own joint hierarchy; pass
-    /// `rootParent` (the instance's own transform node) so instances don't collapse onto the same
-    /// placement.</summary>
-    internal static (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[] BuildSkinnedJoints(ISkeleton skeleton, NodeBuilder? rootParent = null)
+    private static AffineTransform ToJointTransform(Matrix4x4 local)
     {
-        var joints = BuildJointNodes(skeleton, rootParent);
-        return joints.Select((node, i) => (node, EnsureAffine(skeleton.Bones[i].InverseBindPose))).ToArray();
+        if (!Matrix4x4.Decompose(local, out var scale, out var rotation, out var translation))
+        {
+            // glTF node transforms require orthogonal axes. Preserve the first axis and each
+            // axis length, and carry any reflection in the Z scale.
+            var x = new Vector3(local.M11, local.M12, local.M13);
+            var y = new Vector3(local.M21, local.M22, local.M23);
+            var z = new Vector3(local.M31, local.M32, local.M33);
+            scale = new Vector3(x.Length(), y.Length(), z.Length());
+            x /= scale.X;
+            y = Vector3.Normalize(y - Vector3.Dot(y, x) * x);
+            var orthogonalZ = Vector3.Cross(x, y);
+            if (Vector3.Dot(orthogonalZ, z) < 0f)
+                scale.Z = -scale.Z;
+            rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4Factory.CreateFromRows(x, y, orthogonalZ));
+        }
+
+        return new AffineTransform(scale, Quaternion.Normalize(rotation), translation);
     }
 
-    /// <summary>Zeroes the W column of the top 3 rows and forces M44=1, correcting for non-affine drift in source matrices.</summary>
+    /// <summary>Sets the homogeneous column to (0, 0, 0, 1) to remove affine rounding drift.</summary>
     private static Matrix4x4 EnsureAffine(Matrix4x4 m)
     {
         m.M14 = 0;

@@ -44,7 +44,8 @@ public static class RsxFragmentTranslator
     /// is the shader-control 32-bit-exports bit: r0 is then the colour, else h0. Null with a reason when the
     /// shader uses something the translator does not implement.
     /// </summary>
-    public static Result? Translate(ReadOnlySpan<byte> microcode, IReadOnlyDictionary<int, int> slotGroups, bool exports32, out string? failure)
+    public static Result? Translate(ReadOnlySpan<byte> microcode, IReadOnlyDictionary<int, int> slotGroups,
+        bool exports32, out string? failure, bool captureOldReflectionGlow = false)
     {
         failure = null;
         var shader = Decode(microcode);
@@ -82,7 +83,8 @@ public static class RsxFragmentTranslator
                 depth++;
             }
 
-            string? error = Emit(ins, Line, registers, units, inputs, groups, slotGroups, elseOffsets, endOffsets, ref depth);
+            string? error = Emit(ins, Line, registers, units, inputs, groups, slotGroups, elseOffsets,
+                endOffsets, captureOldReflectionGlow, ref depth);
             // Debugging: RELUNACY_RSX_DEBUG_AT=<index> returns RELUNACY_RSX_DEBUG_REG right after that instruction.
             if (int.TryParse(Environment.GetEnvironmentVariable("RELUNACY_RSX_DEBUG_AT"), out int stopAt) && stopAt == ins.Index &&
                 Environment.GetEnvironmentVariable("RELUNACY_RSX_DEBUG_REG") is { Length: > 0 } stopRegister)
@@ -159,6 +161,7 @@ public static class RsxFragmentTranslator
         IReadOnlyDictionary<int, int> slotGroups,
         List<int> elseOffsets,
         List<int> endOffsets,
+        bool captureOldReflectionGlow,
         ref int depth)
     {
         int op = ins.Op;
@@ -215,8 +218,8 @@ public static class RsxFragmentTranslator
             0x16 => $"dFdy({Src(0)})",
             0x17 => Texture(ins, Src(0), units),
             0x18 => Texture(ins, $"rsxProject({Src(0)})", units),
-            // TXL / TXB (Tools of Destruction's cube reflection: lod = props.r x fade): the editor's
-            // texture functions sample with the hardware's own level, the lod / bias is not applied.
+            // Unit 7 is the reflection cube. TXL reads the explicit mip from source 1.x.
+            0x2F when Bits(ins.D0, 17, 4) == 7 => Texture(ins, Src(0), units, $"({Src(1)}).x"),
             0x2F or 0x31 => Texture(ins, Src(0), units),
             0x1A => $"vec4(1.0 / ({Src(0)}).x)",
             0x1B => $"vec4(inversesqrt(abs(({Src(0)}).x)))",
@@ -270,11 +273,22 @@ public static class RsxFragmentTranslator
         if (!noDest)
             registers.Add(target);
 
+        // The old reflective Tie variants compute reflection luminance once, before adding it to
+        // their alpha output. Capture the same predicated write independently of coverage.
+        if (captureOldReflectionGlow && op == 0x05 &&
+            (IsReflectionLuminance(ins.Constant, ins.S0) || IsReflectionLuminance(ins.Constant, ins.S1)))
+            WriteMasked(ins, line, "rsxReflectionGlow", temp, mask);
         WriteMasked(ins, line, target, temp, mask);
         if (setCond && !noDest)
             line($"{ccSet}.{mask} = {target}.{mask};");
         return null;
     }
+
+    private static bool IsReflectionLuminance(float[]? constant, uint source) =>
+        constant != null && Bits(source, 0, 2) == 2 &&
+        MathF.Abs(constant[Bits(source, 9, 2)] - 0.299f) < 0.0005f &&
+        MathF.Abs(constant[Bits(source, 11, 2)] - 0.587f) < 0.0005f &&
+        MathF.Abs(constant[Bits(source, 13, 2)] - 0.114f) < 0.0005f;
 
     private static void WriteMasked(in Instruction ins, Action<string> line, string target, string value, string mask)
     {
@@ -319,11 +333,11 @@ public static class RsxFragmentTranslator
         _ => $"{x} != 0.0",
     };
 
-    private static string Texture(in Instruction ins, string coordinate, SortedSet<int> units)
+    private static string Texture(in Instruction ins, string coordinate, SortedSet<int> units, string? lod = null)
     {
         int unit = Bits(ins.D0, 17, 4);
         units.Add(unit);
-        return $"rsxTex{unit}({coordinate})";
+        return lod == null ? $"rsxTex{unit}({coordinate})" : $"rsxTex{unit}Lod({coordinate}, {lod})";
     }
 
     private static string Source(

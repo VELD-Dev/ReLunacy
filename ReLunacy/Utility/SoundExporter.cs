@@ -40,9 +40,9 @@ public static class SoundExporter
         }
     }
     
-    public static IWaveProvider? GetWaveFromSourceAudio(LevelSounds sounds, BankSound sound)
+    public static IWaveProvider? GetWaveFromSourceAudio(LevelSounds sounds, BankSound sound, IReadOnlySet<int>? selectedParts = null)
     {
-        var pcm = SoundReader.Decode(sounds, sound.Bank, sound.BankIndex);
+        var pcm = SoundReader.Decode(sounds, sound.Bank, sound.BankIndex, selectedParts);
         if (pcm is null)
         {
             return null;
@@ -53,29 +53,18 @@ public static class SoundExporter
     }
 
     public static void ExportSoundAsFormat(string filepath, LevelSounds sounds, BankSound sound, SoundFileMajorFormat format,
-        Level? level, bool isSoundtrack, double compressionLevel = 0)
+        Level? level, bool isSoundtrack, double compressionLevel = 0, IReadOnlySet<int>? selectedParts = null)
     {
-        var wave = GetWaveFromSourceAudio(sounds, sound);
-        if (wave is null) return;
+        var wave = GetWaveFromSourceAudio(sounds, sound, selectedParts)
+            ?? throw new InvalidDataException($"Could not decode {sound.Name}.");
         
-        if(!Directory.Exists(Path.GetDirectoryName(filepath)))
-            Directory.CreateDirectory(Path.GetDirectoryName(filepath));
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(filepath))!);
         
         LunaLog.LogDebug($"[sound-exporter] Exporting sound as {format}");
         SoundFileWriter.CreateSoundFile(filepath, wave, format, new()
         {
-            CompressionLevel = format switch
-            {
-                SoundFileMajorFormat.Flac => compressionLevel,
-                _ => 0
-            },
-            VbrQuality = format switch
-            {
-                SoundFileMajorFormat.Mp3
-                or SoundFileMajorFormat.OggVorbis
-                or SoundFileMajorFormat.Opus => 0.0,
-                _ => 0
-            },
+            CompressionLevel = format == SoundFileMajorFormat.Flac ? compressionLevel : null,
+            VbrQuality = format is SoundFileMajorFormat.OggVorbis or SoundFileMajorFormat.Opus ? 0.0 : null,
             Clipping = false,
             Subtype = SoundFileSubtype.Default,
             Tags = isSoundtrack && level is {} l and not { Game: null } ? new()

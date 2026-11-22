@@ -72,6 +72,7 @@ Sorry for this message, please proceed to the rest of the readme :)
 | Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
 
 Notes:
+- For Resistance: Fall of Man, open the game's `USRDIR` in Game Browser. It can discover levels in the digital release's `game.psarc` and in extracted `packed/levels` folders.
 - **¹** : Textures are supported but some artifacts remain.
 - **²** : Textures are supported but some artifacts remain and some meshes have wrong UVs
 - **³** : Lighting/Shading will "work" but it will NOT look correct at all. Lighting is currently only supported on ToD, QfB and R:FoM.
