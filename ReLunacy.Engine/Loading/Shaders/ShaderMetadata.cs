@@ -80,8 +80,8 @@ public record struct ShaderMetadataOld : ILunaSerializable
                 System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(Unk2b.AsSpan(0x10, 4)),
                 System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(Unk2b.AsSpan(0x14, 4)))
             : System.Numerics.Vector4.Zero;
-    /// <summary>+0x30..+0x3C: the Tie shaders' patch group 1 (PROVEN, 43/43 cached values; TodTieShaders).
-    /// .x = 1 iff use bit 0x01, .z a gloss-like scalar, .w integer 0..5.</summary>
+    /// <summary>+0x30..+0x3C: patch group 1. Reflective Tie and UFrag programs add .x to the vertex
+    /// fade and supply .w to the cube TXL. Moby specular programs use .z as the gloss exponent.</summary>
     public readonly System.Numerics.Vector4 Vector30 =>
         new(value1X, value1Y,
             Unk2b != null && Unk2b.Length >= 8 ? System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(Unk2b.AsSpan(0, 4)) : 0f,

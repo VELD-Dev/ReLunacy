@@ -94,11 +94,18 @@ public sealed class ZoneReader
 
     private Dictionary<ulong, Assets.Levels.Zone> ReadZonesOld(LevelLoadProgress? progress)
     {
+        progress?.SetTotal(1);
+        if (_fileManager.IsFallOfMan)
+        {
+            var zone = FallOfManGeometry.ReadZone(_fileManager, _materialReader, _ties);
+            progress?.Advance();
+            return new() { [0] = zone };
+        }
+
         var zones = new Dictionary<ulong, Assets.Levels.Zone>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile verticesFile = _fileManager.igfiles["vertices.dat"]!;
 
-        progress?.SetTotal(1);
         var legacyZone = new Objects.Zone(main.sh, old: true, verticesFile: verticesFile);
         zones.Add(0, ConvertZone(legacyZone, 0, 0));
         progress?.Advance();

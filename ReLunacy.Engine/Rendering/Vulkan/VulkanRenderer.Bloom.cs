@@ -10,9 +10,8 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// a quarter-size extract scales the colour by (k x a)^e; three levels (1/4, 1/8, 1/16) are blurred by a
 /// 3-tap horizontal + vertical kernel, combined (s', 1/3, 2/3 - s'), mixed with last frame's result (h),
 /// blurred twice more by a 5-tap Gaussian and added to the scene, x I. k, e, s, h, I come from region.dat
-/// 0x34000 (<see cref="Assets.Lighting.BloomParameters"/>). Drawn when the level carries them and the
-/// game's shaders are on; the glow mask then lives in the colour target's alpha until the composite
-/// writes it back to 1.
+/// 0x34000 (<see cref="Assets.Lighting.BloomParameters"/>). The colour target alpha carries the sky,
+/// opaque and additive glow masks. Extraction also reads the translucent resolve's two reveal channels.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
@@ -53,11 +52,9 @@ public sealed unsafe partial class VulkanRenderer
     private static readonly bool BloomAllowed = Environment.GetEnvironmentVariable("RELUNACY_BLOOM") != "0";
 
     private bool BloomWanted =>
-        BloomAllowed && UseRetailEmbeddedShaders && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
+        BloomAllowed && _lit && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
 
-    /// <summary>The bloom is on and its glow mask is the old engine's destination alpha, which only the Sky
-    /// writes: the Dome its colour's alpha, the Color shells and Clouds attenuate it, the Bloom shells add
-    /// to it (VulkanRenderer.Sky.cs). The opaque world leaves 0 there.</summary>
+    /// <summary>Use the old engine's destination-alpha blend states for the sky passes.</summary>
     private bool DestinationAlphaGlow => _bloomActive && _oldLightingEnvironment?.Bloom is { DestinationAlpha: true };
 
     private const string BloomVertexGlsl = @"#version 450
@@ -79,10 +76,16 @@ layout(location = 0) out vec4 o;
     // a.xy = 1 / source size; b.xy = (k, e), b.z = 0: ToD's alpha-only extract (post table 0x100C3660
     // entry 95, picked by main.dat 0x7100 +0x8C = 0) outputs (k * glow)^e alone, a white glow.
     private const string BloomExtractGlsl = BloomHead + @"
+vec4 bloomInput(vec2 uv) {
+    vec4 scene = texture(s0, uv);
+    vec2 reveal = texture(s1, uv).rg;
+    scene.a = clamp(scene.a * reveal.r + (1.0 - reveal.g), 0.0, 1.0);
+    return scene;
+}
 void main() {
     vec2 t = gl_FragCoord.xy * 4.0;
-    vec4 c = (texture(s0, t * p.a.xy) + texture(s0, (t - vec2(0.0, 2.0)) * p.a.xy)
-            + texture(s0, (t - vec2(2.0, 0.0)) * p.a.xy) + texture(s0, (t - vec2(2.0)) * p.a.xy)) * 0.25;
+    vec4 c = (bloomInput(t * p.a.xy) + bloomInput((t - vec2(0.0, 2.0)) * p.a.xy)
+            + bloomInput((t - vec2(2.0, 0.0)) * p.a.xy) + bloomInput((t - vec2(2.0)) * p.a.xy)) * 0.25;
     float m = p.b.x * c.a;
     float g = m > 0.0 ? exp2(log2(m) * p.b.y) : 0.0;
     o = p.b.z > 0.5 ? c * g : vec4(g);
@@ -128,7 +131,7 @@ void main() {
     // composites with it). a.xy = 1 / scene size, b.x = I.
     private const string BloomCompositeGlsl = BloomHead + @"
 void main() {
-    o = vec4(texture(s0, gl_FragCoord.xy * p.a.xy).rgb * p.b.x, 1.0);
+    o = vec4(max(texture(s0, gl_FragCoord.xy * p.a.xy).rgb, vec3(0.0)) * p.b.x, 1.0);
 }";
 
     private void CreateBloomPipelines()
@@ -358,7 +361,7 @@ void main() {
 
         // Extract + 4x downsample into L0.
         ref BloomTarget l0 = ref _bloomLevels[0];
-        BloomPass(_bloomExtract, _rpBloom, l0.Framebuffer, l0.Width, l0.Height, BloomSet(_colorView[_slot]),
+        BloomPass(_bloomExtract, _rpBloom, l0.Framebuffer, l0.Width, l0.Height, BloomSet(_colorView[_slot], _revealView),
             Inv(_width, _height), new Vector4(p.ExtractScale, p.ExtractExponent, p.ColourExtract ? 1f : 0f, 0f));
 
         // Per level: horizontal from the level above (2x down for 1, 2), vertical back into the level.

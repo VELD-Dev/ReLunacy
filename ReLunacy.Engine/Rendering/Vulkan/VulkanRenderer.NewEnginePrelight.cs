@@ -46,6 +46,7 @@ public sealed unsafe partial class VulkanRenderer
     /// <summary>Marks the draws of prelit placements and returns the words they read.</summary>
     private static uint[] BuildNewEnginePrelight(
         List<float[]> geomVerts,
+        List<VkMaterialDesc> materials,
         List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances,
         int[] order,
         int[] drawVertexOffset,
@@ -60,7 +61,28 @@ public sealed unsafe partial class VulkanRenderer
         int oldPrelit = 0;
         for (int i = 0; i < order.Length; i++)
         {
-            var (g, _, _, _, owner, _, _) = instances[order[i]];
+            var (g, mat, _, _, owner, _, _) = instances[order[i]];
+            if ((owner as Scene.EntityUFrag)?.UFrag is Assets.UFrags.OldUFrag
+                { Metadata: { OldEngineLightScales: { } scales, OldEngineMaterialUse: { } use } } oldUFrag)
+            {
+                // An authored lightmap with an unavailable atlas or invalid UVs keeps the fallback.
+                // With no authored atlas, attr2 is prelight instead of a Half2 UV.
+                bool prelit = oldUFrag.LightmapIndex == Loading.Objects.UFragMetadata.NoLightmap;
+                var vertices = oldUFrag.GetRawVertices();
+                int vertexCount = geomVerts[g].Length / VulkanSceneCapture.FloatsPerVertex;
+                if ((prelit || materials[mat].HasBaked > 0.5f) && vertexCount > 0 && vertices.Length == vertexCount)
+                {
+                    int wordDelta = words.Count - drawVertexOffset[i] * 2;
+                    foreach (var vertex in vertices)
+                    {
+                        words.Add((uint)Math.Abs((int)vertex.unk));
+                        words.Add(vertex.PackedLightmapAttribute);
+                    }
+                    int features = use.Mask & (int)materials[mat].MaterialPermutation.W;
+                    lights[i] = VkInstanceLight.ForOldUFrag(scales, prelit, wordDelta, features, use.CubeSlot == 0);
+                }
+                continue;
+            }
             // ToD: the unbaked placement's words, indexed by the primitive's first vertex in its Tie.
             if (owner is Scene.EntityTie { OldEnginePrelight: { } oldBytes, OldBakedLightScale: { } f } oldTie && f > 0f)
             {

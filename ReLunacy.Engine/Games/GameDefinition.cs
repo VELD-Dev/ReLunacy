@@ -14,7 +14,7 @@ public enum GameId
 public sealed record GameDefinition(GameId Id, string DisplayName, bool IsOldEngine, IReadOnlyList<string> KnownLevels);
 
 // TODO: Add all Ratchet & Clank level names
-// TODO: Add Resistance games and their levels
+// TODO: Add later Resistance games and their levels
 public static class GameDefinitions
 {
     /// <summary>The game whose <see cref="GameDefinition.KnownLevels"/> lists the level at
@@ -70,6 +70,15 @@ public static class GameDefinitions
         new(GameId.FullFrontalAssault, "Ratchet & Clank: Full Frontal Assault", IsOldEngine: false, KnownLevels: ["acid_refinery_pre", "acid_refinery_pvp", "jungle_ruins_boss", "jungle_ruins_pre", "jungle_ruins_post", "jungle_ruins_pvp", "lobby", "phoenix_ph1", "phoenix_ph2", "phoenix_ph3", "plasma_harvester_pre", "plasma_harvester_pvp_pre", "pvp_dlc_0", "pvp_dlc_1", "pvp_dlc_2", "pvp_dlc_3"]),
         new(GameId.All4One, "Ratchet & Clank: All 4 One", IsOldEngine: false, KnownLevels: ["creature_collector", "crumbler", "lobby", "luminopolis", "nest", "phonica_moon", "polar_sea", "rootworm", "seaside", "terawatt"]),
         new(GameId.IntoTheNexus, "Ratchet & Clank: Into the Nexus", IsOldEngine: false, KnownLevels: ["battle_arena", "clank_puzzles", "haunted_city", "lobby", "meridian_city", "prison_transport", "swamp_wasteland", "vendra_homeworld"]),
-        new(GameId.RFallOfMan, "Resistance Fall Of Man", IsOldEngine: true, KnownLevels: ["level20", "level21", "level22", "level30", "level31", "level32", "level40", "level41", "level42", "level50", "level51", "level52"])
+        new(GameId.RFallOfMan, "Resistance: Fall of Man", IsOldEngine: true, KnownLevels:
+        [
+            "level20", "level21", "level22", "level30", "level31", "level32", "level40", "level41", "level42",
+            "level50", "level51", "level52", "level60", "level61", "level62", "level70", "level71", "level72",
+            "level80", "level81", "level82", "level90", "level91", "level100", "level101", "level110", "level111",
+            "level112", "level120", "level121", "level200", "level210", "level220", "level230", "level240",
+            "level250", "level260", "level270", "level280", "level290", "level299",
+        ]),
     ];
+
+    internal static GameDefinition FallOfMan => All.First(game => game.Id == GameId.RFallOfMan);
 }

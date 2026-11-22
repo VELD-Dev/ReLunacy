@@ -49,7 +49,7 @@ public sealed class LevelReader
     public LevelReader(FileManager fileManager)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
-        _gameDefinition = Games.GameDefinitions.FromLevelPath(fileManager.SourcePath);
+        _gameDefinition = fileManager.GameDefinition;
         _textureShaderLoader = new TextureShaderLoader(fileManager);
         _materialReader = new MaterialReader(_textureShaderLoader)
         {

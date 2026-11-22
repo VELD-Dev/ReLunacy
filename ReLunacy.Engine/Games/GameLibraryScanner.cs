@@ -1,4 +1,6 @@
 using LibreFios;
+using ReLunacy.Engine.Loading.IO;
+using ReLunacy.Engine.Projects;
 
 namespace ReLunacy.Engine.Games;
 
@@ -8,20 +10,22 @@ public sealed record GameLibrary(GameDefinition? DetectedGame, string RootPath, 
 /// <summary>Scans a game's USRDIR for levels: old-engine games keep extracted level folders under
 /// packed/levels/&lt;name&gt;, new-engine games (and repacked old-engine dumps) may ship the same data
 /// as .psarc archives anywhere under the root. A folder/archive only counts as a level if it
-/// contains main.dat (old engine) or gameplay.dat (new engine).</summary>
+/// contains a level's main or gameplay data. Fall of Man can also store many levels inside game.psarc.</summary>
 public static class GameLibraryScanner
 {
     public static GameLibrary Scan(string rootPath)
     {
         var levels = new List<Level>();
         levels.AddRange(ScanFolderLevels(rootPath));
+        levels.AddRange(ScanFallOfManArchive(rootPath, levels.Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase)));
         levels.AddRange(ScanPsarcLevels(rootPath));
 
-        var game = MatchGame(levels.Select(l => l.Name));
+        var game = levels.Any(l => l.Game?.Id == GameId.RFallOfMan)
+            ? GameDefinitions.FallOfMan : MatchGame(levels.Select(l => l.Name));
         if (game is { } g)
         {
             foreach (var l in levels)
-                l.Game = g;
+                l.Game ??= g;
         }
         return new GameLibrary(game, rootPath, levels);
     }
@@ -34,15 +38,44 @@ public static class GameLibraryScanner
 
         foreach (var dir in Directory.EnumerateDirectories(levelsDir))
         {
-            if (!LooksLikeLevelFolder(dir)) continue;
+            bool fallOfMan = File.Exists(Path.Combine(dir, FallOfManFiles.Main));
+            if (!fallOfMan && !LooksLikeLevelFolder(dir)) continue;
             string name = Path.GetFileName(dir);
-            yield return new Level(name, dir, LevelSourceKind.Folder, debugDatPath: ResolveDebugDatPath(rootPath, name));
+            var game = fallOfMan ? GameDefinitions.FallOfMan : null;
+            yield return new Level(name, dir, LevelSourceKind.Folder, game, ResolveDebugDatPath(rootPath, name));
         }
     }
 
     private static bool LooksLikeLevelFolder(string dir) =>
         File.Exists(Path.Combine(dir, "main.dat"))
         || (File.Exists(Path.Combine(dir, "gameplay.dat")) && File.Exists(Path.Combine(dir, "assetlookup.dat")));
+
+    private static List<Level> ScanFallOfManArchive(string rootPath, HashSet<string> extracted)
+    {
+        var levels = new List<Level>();
+        string archivePath = Path.Combine(rootPath, FallOfManFiles.Archive);
+        if (!File.Exists(archivePath)) return levels;
+
+        try
+        {
+            using var stream = File.OpenRead(GameFileOverlay.BaseOf(archivePath));
+            using var archive = new PSARC(stream);
+            foreach (string entry in FallOfManFiles.LevelEntries(archive))
+            {
+                string name = Path.GetFileName(Path.GetDirectoryName(entry))!;
+                if (!extracted.Add(name)) continue;
+                // Use the level folder as its source identity so reloads and projects reopen the same level.
+                string folder = Path.Combine(rootPath, "packed", "levels", name);
+                levels.Add(new Level(name, folder, LevelSourceKind.Folder, GameDefinitions.FallOfMan,
+                    ResolveDebugDatPath(rootPath, name)));
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or NotSupportedException)
+        {
+            Console.WriteLine($"Could not scan {archivePath}: {e.Message}");
+        }
+        return levels;
+    }
 
     private static IEnumerable<Level> ScanPsarcLevels(string rootPath)
     {
@@ -61,13 +94,14 @@ public static class GameLibraryScanner
 
         foreach (var psarcPath in psarcFiles)
         {
-            if (!LooksLikeLevelPsarc(psarcPath))
+            if (!LooksLikeLevelPsarc(psarcPath, out bool fallOfMan))
                 continue;
 
             // The archive's filename is one of a fixed handful (level_cached, level_uncached,
             // level_textures) - the level name is its containing folder.
             string levelName = Path.GetFileName(Path.GetDirectoryName(psarcPath)) ?? Path.GetFileNameWithoutExtension(psarcPath);
-            yield return new Level(levelName, psarcPath, LevelSourceKind.Psarc, debugDatPath: ResolveDebugDatPath(rootPath, levelName));
+            yield return new Level(levelName, psarcPath, LevelSourceKind.Psarc,
+                fallOfMan ? GameDefinitions.FallOfMan : null, ResolveDebugDatPath(rootPath, levelName));
         }
     }
 
@@ -76,6 +110,8 @@ public static class GameLibraryScanner
     private static string? ResolveDebugDatPath(string rootPath, string levelName)
     {
         string candidate = Path.Combine(rootPath, "built", "levels", levelName, "debug.dat");
+        if (File.Exists(candidate)) return candidate;
+        candidate = Path.Combine(rootPath, "built", "levels", levelName, FallOfManFiles.RetailName("debug.dat"));
         return File.Exists(candidate) ? candidate : null;
     }
 
@@ -111,14 +147,21 @@ public static class GameLibraryScanner
         }
     }
 
-    private static bool LooksLikeLevelPsarc(string path)
+    private static bool LooksLikeLevelPsarc(string path, out bool fallOfMan)
     {
+        fallOfMan = false;
         try
         {
             using var stream = File.OpenRead(path);
             using var archive = new PSARC(stream);
-            return archive.Paths.Any(p => p.EndsWith("main.dat", StringComparison.OrdinalIgnoreCase))
-                || archive.Paths.Any(p => p.EndsWith("gameplay.dat", StringComparison.OrdinalIgnoreCase));
+            if (Path.GetFileName(path).Equals(FallOfManFiles.Archive, StringComparison.OrdinalIgnoreCase)
+                && FallOfManFiles.LevelEntries(archive).Any())
+                return false;
+
+            bool HasFile(string name) => archive.Paths.Any(p =>
+                Path.GetFileName(p).Equals(name, StringComparison.OrdinalIgnoreCase));
+            fallOfMan = HasFile(FallOfManFiles.Main);
+            return fallOfMan || HasFile("main.dat") || HasFile("gameplay.dat");
         }
         catch
         {

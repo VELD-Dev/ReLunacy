@@ -141,6 +141,19 @@ public struct VkInstanceLight
         return light;
     }
 
+    public const float OldUFragFlag = 7f;
+
+    /// <summary>Old UFrag c[4].z (diffuse scale), c[4].w (cube gain), and its two packed words per vertex.</summary>
+    public static VkInstanceLight ForOldUFrag(Vector2 scales, bool prelit, int wordDelta, int features, bool usesDefaultCube)
+    {
+        var light = default(VkInstanceLight);
+        light.Direction0 = new Vector4(prelit ? 1f : 0f, 0f, BitConverter.Int32BitsToSingle(wordDelta), OldUFragFlag);
+        light.Direction1.W = scales.X;
+        light.TieShaderUse0.Z = features;
+        light.TieShaderUseMeta.W = usesDefaultCube ? scales.Y : 0f;
+        return light;
+    }
+
     /// <summary>
     /// New-engine distance fades: TieShaderUse1 = (1/d0, 1/d1, 1/d2, 1) from the primitive's (Tie) or
     /// record's (UFrag) fade distances. The lit shader never reads TieShaderUse1 otherwise.

@@ -27,7 +27,8 @@ public sealed class TieReader
 
     /// <param name="progress">The level load's bar; the Tie phase counts one item per class.</param>
     public Dictionary<ulong, Assets.Ties.Tie> ReadAllTies(LevelLoadProgress? progress = null) =>
-        _fileManager.isOld ? ReadTiesOld(progress) : ReadTiesNew(progress);
+        _fileManager.IsFallOfMan ? FallOfManGeometry.ReadTies(_fileManager, _materialReader, progress)
+            : _fileManager.isOld ? ReadTiesOld(progress) : ReadTiesNew(progress);
 
     private Dictionary<ulong, Assets.Ties.Tie> ReadTiesOld(LevelLoadProgress? progress)
     {
@@ -89,7 +90,7 @@ public sealed class TieReader
     public AssetLibrary<Assets.Ties.Tie> CreateLibrary(object fileLock, LevelLoadProgress? progress = null)
     {
         if (_fileManager.isOld)
-            return AssetLibrary<Assets.Ties.Tie>.FromLoaded(ReadTiesOld(progress));
+            return AssetLibrary<Assets.Ties.Tie>.FromLoaded(ReadAllTies(progress));
 
         AssetPointer[] tiePtrs = NewEngineAssetLookup.ReadPointers(
             _fileManager, NewEngineAssetLookup.TiePointers, "Ties");

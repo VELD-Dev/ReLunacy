@@ -102,6 +102,24 @@ public sealed class TextureShaderLoader
 
         var mainStream = main.sh;
         var textures = new StreamHelper(textureStream, StreamHelper.Endianness.Big);
+        if (_fileManager.IsFallOfMan)
+        {
+            var descriptors = main.QuerySection(0x5300);
+            if (descriptors.length != TextureMetadataOld.Size)
+                throw new InvalidDataException($"Unexpected Fall of Man texture stride 0x{descriptors.length:X}.");
+            _progress?.SetTotal(descriptors.count);
+            for (uint i = 0; i < descriptors.count; i++)
+            {
+                mainStream.Seek(descriptors.offset + descriptors.length * i);
+                var texture = new Texture(mainStream, old: true) { ReadAuthoredMipChain = true };
+                texture.ReadTexture(textures);
+                Textures.Add(texture.id, texture);
+                OldTexturesByIndex.Add(texture);
+                _progress?.Advance();
+            }
+            return;
+        }
+
         var residentSection = main.QuerySection(ResidentTextureDataSectionId);
         StreamHelper? residentTextures = null;
         if (residentSection.id == ResidentTextureDataSectionId && residentSection.count != 0 && residentSection.length > 0)
@@ -526,7 +544,8 @@ public sealed class TextureShaderLoader
         if (!_fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
             throw new FileNotFoundException("Main file is missing.", "main.dat");
         var mainstream = main.sh;
-        var shaderMetadataSec = main.QuerySection(ShaderMetadataOld.ID);
+        bool fallOfMan = _fileManager.IsFallOfMan;
+        var shaderMetadataSec = main.QuerySection(fallOfMan ? 0x5001u : ShaderMetadataOld.ID);
         if (shaderMetadataSec.length != ShaderMetadataOld.Size)
             throw new InvalidDataException($"Old shader metadata stride is 0x{shaderMetadataSec.length:X}, expected 0x{ShaderMetadataOld.Size:X}.");
         uint shaderCount = shaderMetadataSec.count;
@@ -535,7 +554,25 @@ public sealed class TextureShaderLoader
         {
             _progress?.Advance();
             mainstream.Seek(shaderMetadataSec.offset + ShaderMetadataOld.Size * i);
-            var shader = new Shader(mainstream, true, i);
+            Shader shader;
+            if (fallOfMan)
+            {
+                // The texture bindings begin at +0x20 in 0x5001. Its constants and feature
+                // byte have their own layout, so use the common material's default parameters.
+                mainstream.Seek(shaderMetadataSec.offset + ShaderMetadataOld.Size * i + 0x1D);
+                byte mode = mainstream.ReadByte();
+                mainstream.Seek(2, SeekOrigin.Current);
+                shader = new Shader(mainstream, i, new ShaderMetadataOld
+                {
+                    renderingMode = mode,
+                    albedo = mainstream.ReadUInt32(),
+                    normal = mainstream.ReadUInt32(),
+                    expensive = mainstream.ReadUInt32(),
+                    detailMap = mainstream.ReadUInt32(),
+                });
+            }
+            else
+                shader = new Shader(mainstream, true, i);
             if (Textures.Count < 1) throw new InvalidOperationException("Textures must be loaded before shaders.");
             var meta = shader.metadataOld!.Value;
             if (meta.albedo != 0 && Textures.TryGetValue(meta.albedo, out var albedo)) shader.Albedo = albedo;

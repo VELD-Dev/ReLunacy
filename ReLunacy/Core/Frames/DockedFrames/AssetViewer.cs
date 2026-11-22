@@ -1163,8 +1163,11 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     /// produced no entity for it. Borrowed, never owned, so the preview stays byte-identical to what
     /// the 3D view renders (lightmap material included).</summary>
     private static RenderMesh? ResolveUFragMesh(UFragAsset asset) =>
+        ResolveUFragEntity(asset)?.UFragMesh;
+
+    private static EntityUFrag? ResolveUFragEntity(UFragAsset asset) =>
         EntityManager.Singleton.AllEntities().OfType<EntityUFrag>()
-            .FirstOrDefault(e => ReferenceEquals(e.UFrag, asset.UFrag))?.UFragMesh;
+            .FirstOrDefault(e => ReferenceEquals(e.UFrag, asset.UFrag));
 
     private void FrameMobyInPreview(Moby moby)
     {
@@ -1937,9 +1940,11 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         var materials = new List<Engine.Rendering.Vulkan.VkMaterialDesc>();
         var instances = new List<(int, int, Matrix4x4, Vector4, object, float, uint)>();
         var moby = selectedMobyAsset?.Moby;
+        var oldUFrag = selectedUFragAsset is { UFrag.IsOldEngine: true } terrain ? ResolveUFragEntity(terrain) : null;
         var level = LunaWindow.Instance.Level;
-        _lighting.OldEngineMode = moby != null && level?.IsOldEngine == true;
+        _lighting.OldEngineMode = oldUFrag != null || (moby != null && level?.IsOldEngine == true);
         _lighting.SetEnvironment(_lighting.OldEngineMode ? level?.LightingEnvironment : null);
+        object? owner = moby != null ? MobyPreviewOwner : oldUFrag;
         int boneCount = moby?.Skeleton?.Bones.Count ?? 0;
         var geoRemap = new Dictionary<int, int>();
         var matRemap = new Dictionary<RenderMaterial, int>(ReferenceEqualityComparer.Instance);
@@ -1973,7 +1978,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                 matRemap[material] = matSlot;
             }
             // Keep preview geometry in the frustum even when its pose extends beyond the bind bounds.
-            instances.Add((geoSlot, matSlot, world, new Vector4(0f, 0f, 0f, 1e9f), moby != null ? MobyPreviewOwner : null!, -1f, pickId));
+            instances.Add((geoSlot, matSlot, world, new Vector4(0f, 0f, 0f, 1e9f), owner!, -1f, pickId));
         }
 
         // Null when no level is loaded (the placeholder case) - the renderer falls back to a neutral
