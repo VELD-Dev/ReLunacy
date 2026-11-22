@@ -92,8 +92,8 @@ public sealed record VolumeClue(uint Class, string Name, string ClassName)
     /// <summary>The Clue's place in the region's Clue table (see <see cref="Volume.Index"/>).</summary>
     public int Index { get; init; } = -1;
 
-    /// <summary>The class's struct as the level stores it, big-endian, starting with the class number. Its
-    /// fields are not named yet beyond <see cref="References"/>.</summary>
+    /// <summary>The class's big-endian settings struct. Fall of Man stores the Clue type in the
+    /// placement, so its settings start with the type-specific payload.</summary>
     public byte[] Settings { get; init; } = [];
 
     /// <summary>The Clue's settings block is its class's default one (gp_prius 0x25030, shared), as the file holds it.</summary>
