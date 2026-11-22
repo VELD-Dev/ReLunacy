@@ -52,6 +52,7 @@ internal static class FallOfManGeometry
                     meshes.Add(new Mesh(data, materials.GetMaterialByIndex(material), $"Mesh_{p}")
                     {
                         SourceVertexBase = data.GetLightmapUVs() != null ? firstSecondaryUv : -1,
+                        FallOfManTiePrimitive = new FallOfManTiePrimitive(firstVertex, firstSecondaryUv, hasSecondaryUvs),
                     });
             }
             ties.Add(offset, new Tie(offset, meshes, name: $"Tie_{classId}"));
@@ -88,16 +89,21 @@ internal static class FallOfManGeometry
             // game.self 0x153628..0x153658 passes the index and +0x74 to the terrain
             // material setup. At 0x150454 that setup uploads the scale in c[5].z.
             float bakeScale = ReadSingleAt(main.sh, offset + 0x74);
-            byte[]? chroma = lightmap < mapCount && float.IsFinite(bakeScale) && bakeScale >= 0
+            byte[]? chroma = float.IsFinite(bakeScale) && bakeScale >= 0
                 ? new byte[vertexCount * 2] : null;
+            // 0x1537A8 configures attribute 2 as unsigned bytes for this route, instead of Half2.
+            byte[]? prelightDirections = chroma != null && lightmap == ushort.MaxValue
+                ? new byte[vertexCount * 3] : null;
             var data = ReadGeometry(vertices.sh, vertexBase + (long)vertexOffset, indexBase + firstIndex * 2L,
-                vertexCount, indexCount, 26, 8, Vector3.One, terrain: true, hasVertexAlpha: true, chroma: chroma);
+                vertexCount, indexCount, 26, 8, Vector3.One, terrain: true, hasVertexAlpha: true, chroma: chroma,
+                prelightDirections: prelightDirections);
             if (data != null)
                 terrain.Add(new OldUFrag(i, data.GetVertexPositions(), data.GetTextureCoordinates(), data.GetIndices(),
                     materials.GetMaterialByIndex(material), anchor, center, radius, data.GetNormals(), data.GetTangents(),
                     data.GetLightmapUVs(), data.GetVertexAlpha(), lightmapIndex: lightmap)
                 {
-                    FallOfManBake = chroma == null ? null : new FallOfManBake(chroma, bakeScale, data.GetVertexBakedLightScales()),
+                    FallOfManBake = chroma == null ? null : new FallOfManBake(chroma, bakeScale,
+                        data.GetVertexBakedLightScales(), prelightDirections),
                 });
         }
 
@@ -106,6 +112,8 @@ internal static class FallOfManGeometry
             .Where(mesh => mesh.SourceVertexBase >= 0)
             .Select(mesh => mesh.SourceVertexBase * 2 + mesh.Geometry.GetLightmapUVs()!.Length)
             .DefaultIfEmpty().Max());
+        var prelightSizes = ties.Loaded.ToDictionary(entry => entry.Key, entry =>
+            (Lightmapped: PrelightSize(entry.Value, true), Unmapped: PrelightSize(entry.Value, false)));
         var placements = new List<IPlacedInstance<ITie>>((int)records.count);
         for (uint i = 0; i < records.count; i++)
         {
@@ -119,30 +127,59 @@ internal static class FallOfManGeometry
                 ReadSingleAt(main.sh, offset + 0x20), main.sh.ReadSingle(), main.sh.ReadSingle(), 0,
                 ReadSingleAt(main.sh, offset + 0x30), main.sh.ReadSingle(), main.sh.ReadSingle(), 1);
             ushort lightmap = main.sh.ReadUInt16(offset + 0x80);
+            bool hasLightmap = lightmap < mapCount;
+            float lightmappedScale = ReadSingleAt(main.sh, offset + 0x98);
+            float prelightScale = ReadSingleAt(main.sh, offset + 0x9C);
             FallOfManBake? bake = null;
-            if (lightmap < mapCount)
+            if (hasLightmap)
             {
                 uint start = main.sh.ReadUInt32(offset + 0x84);
                 int size = chromaSizes[classOffset];
-                float scale = ReadSingleAt(main.sh, offset + 0x98);
                 // game.self 0x14E7F4 indexes chroma and Half2 UVs by the same primitive field.
                 // Bound chroma by those vertex windows. The +0x88 stream can overlap it (level41).
                 if (start != 0 && size > 0 && start + (long)size <= textures.Length
-                    && float.IsFinite(scale) && scale >= 0)
+                    && float.IsFinite(lightmappedScale) && lightmappedScale >= 0)
                 {
                     var chroma = new byte[size];
                     textures.Position = start;
                     textures.ReadExactly(chroma);
-                    bake = new FallOfManBake(chroma, scale);
+                    bake = new FallOfManBake(chroma, lightmappedScale);
                 }
+            }
+            // game.self 0x14E384 / 0x14ED64 bind attribute 4 from placement +0x88.
+            // 0x14E22C picks +0x98 for primitive bit 0 set and +0x9C for bit 0 clear.
+            uint prelightStart = main.sh.ReadUInt32(offset + 0x88);
+            var sizes = prelightSizes[classOffset];
+            int prelightSize = hasLightmap ? sizes.Lightmapped : sizes.Unmapped;
+            FallOfManTiePrelight? prelight = null;
+            if (prelightStart != 0 && prelightSize > 0 && prelightStart + (long)prelightSize <= textures.Length)
+            {
+                var words = new byte[prelightSize];
+                textures.Position = prelightStart;
+                textures.ReadExactly(words);
+                prelight = new FallOfManTiePrelight(words, hasLightmap, lightmappedScale, prelightScale);
             }
             placements.Add(new PlacedInstance<ITie>(tie, matrix, i, name: $"{tie.Name}_Instance_{i}")
             {
                 LightmapIndex = lightmap,
                 FallOfManBake = bake,
+                FallOfManTiePrelight = prelight,
             });
         }
         return new Assets.Levels.Zone(0, terrain, placements);
+    }
+
+    private static int PrelightSize(Tie tie, bool placementHasLightmap)
+    {
+        int vertices = 0;
+        foreach (var mesh in tie.Meshes.OfType<Mesh>())
+        {
+            if (mesh.FallOfManTiePrimitive is not { } primitive) continue;
+            int first = primitive.PrelightFirstWord(placementHasLightmap);
+            if (first >= 0)
+                vertices = Math.Max(vertices, first + mesh.Geometry.GetVertexPositions().Length / 3);
+        }
+        return vertices * 4;
     }
 
     public static Dictionary<ulong, Moby> ReadMobys(FileManager files, MaterialReader materials, LevelLoadProgress? progress)
@@ -225,7 +262,8 @@ internal static class FallOfManGeometry
 
     private static GeometryData? ReadGeometry(StreamHelper stream, long vertexOffset, long indexOffset,
         int vertexCount, int indexCount, int stride, int uvOffset, Vector3 scale,
-        bool terrain = false, bool hasVertexAlpha = false, long? secondaryUvs = null, byte[]? chroma = null)
+        bool terrain = false, bool hasVertexAlpha = false, long? secondaryUvs = null, byte[]? chroma = null,
+        byte[]? prelightDirections = null)
     {
         if (vertexCount == 0 || indexCount == 0 || indexCount % 3 != 0
             || !Fits(stream, vertexOffset, vertexCount * stride) || !Fits(stream, indexOffset, indexCount * 2))
@@ -246,7 +284,7 @@ internal static class FallOfManGeometry
         float[]? alpha = hasVertexAlpha ? new float[vertexCount] : null;
         float[]? lightScales = hasVertexAlpha ? new float[vertexCount] : null;
         bool separateUvs = secondaryUvs is { } uvStart && Fits(stream, uvStart, vertexCount * 4);
-        float[]? lightmapUvs = terrain || separateUvs ? new float[vertexCount * 2] : null;
+        float[]? lightmapUvs = (terrain && prelightDirections == null) || separateUvs ? new float[vertexCount * 2] : null;
         for (int i = 0; i < vertexCount; i++)
         {
             long vertex = vertexOffset + i * stride;
@@ -260,7 +298,14 @@ internal static class FallOfManGeometry
             }
             stream.Seek(vertex + uvOffset);
             ReadUv(stream, uvs, i);
-            if (terrain) ReadUv(stream, lightmapUvs!, i);
+            if (prelightDirections != null)
+            {
+                prelightDirections[i * 3] = stream.ReadByte();
+                prelightDirections[i * 3 + 1] = stream.ReadByte();
+                prelightDirections[i * 3 + 2] = stream.ReadByte();
+                stream.ReadByte();
+            }
+            else if (terrain) ReadUv(stream, lightmapUvs!, i);
             Store(normals, i, PackedNormal.Decode(stream.ReadUInt32()));
             Store(tangents, i, PackedNormal.Decode(stream.ReadUInt32()));
             if (chroma != null)

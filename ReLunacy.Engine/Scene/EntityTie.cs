@@ -77,6 +77,7 @@ public class EntityTie : Entity
         NewEnginePrelight = tieInstance.NewEnginePrelight;
         OldEnginePrelight = tieInstance.OldEnginePrelight;
         FallOfManBake = (tieInstance as PlacedInstance<ITie>)?.FallOfManBake;
+        FallOfManTiePrelight = (tieInstance as PlacedInstance<ITie>)?.FallOfManTiePrelight;
         NewEnginePrelightBaked = tieInstance.NewEnginePrelightBaked;
 
         // The game reads this as a BE ushort at instance+0x5A, then sanitizes values outside the
@@ -124,6 +125,7 @@ public class EntityTie : Entity
     /// <summary>Old engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
     public byte[]? OldEnginePrelight { get; }
     public Assets.Lighting.FallOfManBake? FallOfManBake { get; }
+    public Assets.Lighting.FallOfManTiePrelight? FallOfManTiePrelight { get; }
 
     /// <summary>New engine: whether the placement record carries a bake (+0x5A != 0xFFFF).</summary>
     public bool NewEnginePrelightBaked { get; }

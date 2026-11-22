@@ -40,6 +40,7 @@ public sealed class Mesh : IMesh
     /// (0x3300 +0x0E). Vertex i of this mesh reads SourceVertexBase + i. -1 when unavailable.
     /// </summary>
     public int SourceVertexBase { get; init; } = -1;
+    public Lighting.FallOfManTiePrimitive? FallOfManTiePrimitive { get; init; }
 
     /// <summary>Animated UVs (section 0x5C00), or null.</summary>
     public UvAnimation? UvAnimation { get; init; }

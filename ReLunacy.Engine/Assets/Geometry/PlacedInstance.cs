@@ -18,6 +18,7 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     public ushort LightmapIndex { get; init; } = 0xFFFF;
     public float? OldBakedLightScale { get; init; }
     public Assets.Lighting.FallOfManBake? FallOfManBake { get; init; }
+    public Assets.Lighting.FallOfManTiePrelight? FallOfManTiePrelight { get; init; }
     public Vector4? NewEngineBakedLight { get; init; }
     public ulong NewEngineCubeTuid { get; init; }
     public byte[]? NewEnginePrelight { get; init; }

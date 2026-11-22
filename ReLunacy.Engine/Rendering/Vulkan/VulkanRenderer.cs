@@ -224,6 +224,27 @@ void main() {
         uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.direction0.z)];
         vec2 ab = vec2(float(word & 255u), float((word >> 8) & 255u)) / 255.0;
         fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193) * il.direction1.w;
+    } else if (il.direction0.w == 9.0) {
+        int delta = floatBitsToInt(il.direction0.z);
+        vec3 basis;
+        vec2 ab;
+        if (il.direction0.x > 0.5) {
+            // Fall of Man UFrag VP 0x10121250 uses three U8 direction components in its UV2 slot.
+            int at = gl_VertexIndex * 2 + delta;
+            uint chroma = uPrelight.words[at];
+            uint direction = uPrelight.words[at + 1];
+            ab = vec2(float(chroma & 255u), float((chroma >> 8) & 255u)) / 255.0;
+            basis = vec3(float(direction & 255u), float((direction >> 8) & 255u),
+                float((direction >> 16) & 255u)) / 255.0;
+        } else {
+            // Tie VP 0x101237E0, c[20..21] at 0x100DA794 in game.self.
+            uint word = uPrelight.words[gl_VertexIndex + delta];
+            float packed = float(word & 255u) * 256.0 + float((word >> 8) & 255u);
+            basis = fract(packed * vec3(1.0 / 65536.0, 1.0 / 2048.0, 1.0 / 64.0));
+            ab = vec2(float((word >> 16) & 255u), float(word >> 24)) / 255.0;
+        }
+        fPrelightChroma = vec3(ab, 1.0 - ab.x - ab.y) * vec3(3.34448, 1.70358, 8.77193);
+        fPrelightIntensity.xyz = vec3(basis.xy * 2.0 - 1.0, basis.z) * il.direction1.w;
     }
     mat3 m3 = mat3(m);
     mat3 nrm = transpose(inverse(m3));

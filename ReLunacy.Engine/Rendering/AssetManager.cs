@@ -859,6 +859,7 @@ public sealed class AssetManager : IDisposable
             {
                 NewEngineTiePrimitive = sourceMesh?.NewEngineTiePrimitive,
                 SourceVertexBase = sourceMesh?.SourceVertexBase ?? -1,
+                FallOfManTiePrimitive = sourceMesh?.FallOfManTiePrimitive,
                 NewEngineFadeDistances = sourceMesh?.NewEngineFadeDistances ?? sourceMesh?.NewEngineTiePrimitive?.FadeDistances,
                 UvAnimation = sourceMesh?.UvAnimation,
             };

@@ -29,6 +29,7 @@ public sealed class RenderMesh(
     /// <summary>New-engine Tie primitive window, for the per-placement prelight (null elsewhere).</summary>
     public NewEngineTiePrimitive? NewEngineTiePrimitive { get; init; }
     internal int SourceVertexBase { get; init; } = -1;
+    internal Assets.Lighting.FallOfManTiePrimitive? FallOfManTiePrimitive { get; init; }
 
     /// <summary>New-engine fade distances of the source primitive (Tie or Moby), or null.</summary>
     public System.Numerics.Vector3? NewEngineFadeDistances { get; init; }

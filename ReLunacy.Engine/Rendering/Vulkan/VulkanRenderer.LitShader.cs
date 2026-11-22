@@ -295,6 +295,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     InstanceLight instanceLight = uInstanceLights.values[fInstanceIndex];
     bool oldUFrag = uOldEngineMode > 0.5 && instanceLight.direction0.w > 6.5 && instanceLight.direction0.w < 7.5;
     bool fallOfManBake = instanceLight.direction0.w == 8.0;
+    bool fallOfManPrelight = instanceLight.direction0.w == 9.0;
     int oldUFragFeatures = int(instanceLight.tieShaderUse0.z + 0.5);
     // New-engine distance fades (VkInstanceLight.ApplyNewEngineFades: tieShaderUse1 = 1/d, from the
     // Tie primitive's +0x30 or the UFrag record's +0x60). The retail VPs build c[19] = K / d with
@@ -361,7 +362,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     if (layerWeight > 0.0) nrmSample = mix(nrmSample, texture(uNormal2, uv), layerWeight);
     // TextureUploadPreparer already applies NV4097_SET_TEXTURE_CONTROL1. The normal derivative
     // pair is therefore the LOGICAL R/G pair for both DXT5 (0x6AE0) and G8B8 (0x6AF0).
-    vec2 normalChannels = fallOfManBake ? nrmSample.ag : nrmSample.rg;
+    vec2 normalChannels = (fallOfManBake || fallOfManPrelight) ? nrmSample.ag : nrmSample.rg;
     vec2 derivativeRaw = allowNormalMap ? normalChannels * 2.0 - 1.0 : vec2(0.0);
     vec4 props = texture(uProps, uv);
     if (layerWeight > 0.0) props = mix(props, texture(uProps2, uv), layerWeight);
@@ -578,6 +579,12 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // intensities by the squared RNM weights of the tangent normal; the flat ones average them
     // (c[4].w = c[4].z / 3). The key light takes S like every other shader's sun.
     vec3 unbakedFill = undecodedFill;
+    if (fallOfManPrelight) {
+        // Flat Tie VP 0x10124C10 and normal-mapped FP 0x101067C8, game.self.
+        vec2 xy = normalPermutation ? derivativeSum * uBakedBumpFade : vec2(0.0);
+        vec3 normal = vec3(xy, sqrt(abs(1.0 - dot(xy, xy))));
+        unbakedFill = fPrelightChroma * max(dot(normal, fPrelightIntensity.xyz), 0.0);
+    }
     if (oldUFrag && instanceLight.direction0.x > 0.5)
         unbakedFill = fPrelightChroma * (allowNormalMap
             ? max(dot(normalize(vec3(derivativeSum, 1.0)), fPrelightIntensity.xyz), 0.0)
@@ -733,7 +740,7 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     else if (lightMode == 3) litColor = fallOfManBake ? bakedColour.rgb : bakedDirSample.rgb;
     else if (lightMode == 4) litColor = vec3(fallOfManBake ? 1.0 : bakedColour.a); // Baked sun visibility when separate.
     else if (lightMode == 5) litColor = unbakedFill;                     // what a Moby uses instead
-    else if (lightMode == 6) litColor = max(bakedDiffuseLight, vec3(0.0));
+    else if (lightMode == 6) litColor = max(fallOfManPrelight ? unbakedFill : bakedDiffuseLight, vec3(0.0));
     else if (lightMode == 7) litColor = albedo;                          // the albedo alone, no lighting
     // Class 0x13 with a decoded shader (uMat1.x, NewEngineEmbeddedShaders): its own equation replaces
     // the generic one. 1 = family be10f7bae86f, a veil whose albedo holds masks: scrolling, facing-weighted

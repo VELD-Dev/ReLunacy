@@ -145,6 +145,7 @@ public struct VkInstanceLight
 
     public const float OldUFragFlag = 7f;
     public const float FallOfManBakeFlag = 8f;
+    public const float FallOfManPrelightFlag = 9f;
 
     public static VkInstanceLight ForFallOfManBake(float scale, int wordDelta)
     {
@@ -152,6 +153,14 @@ public struct VkInstanceLight
         light.Direction0.W = FallOfManBakeFlag;
         light.Direction0.Z = BitConverter.Int32BitsToSingle(wordDelta);
         light.Direction1.W = scale;
+        return light;
+    }
+
+    public static VkInstanceLight ForFallOfManPrelight(float scale, int wordDelta, bool terrain = false)
+    {
+        var light = ForFallOfManBake(scale, wordDelta);
+        light.Direction0.W = FallOfManPrelightFlag;
+        light.Direction0.X = terrain ? 1f : 0f;
         return light;
     }
 
