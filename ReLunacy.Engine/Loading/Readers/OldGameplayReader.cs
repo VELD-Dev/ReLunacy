@@ -76,9 +76,12 @@ public sealed class OldGameplayReader
 
     /// <summary>The class struct of a controller's or Moby's mini-IGHW (section 0x25200): class number first. Null when
     /// the blob is not one.</summary>
-    private byte[]? ClassStruct(uint offset, uint size)
+    internal static byte[]? ReadClassStruct(StreamHelper stream, uint offset, uint size)
     {
-        if (Slice(offset, size) is not { Length: >= 0x20 } blob || BinaryPrimitives.ReadUInt32BigEndian(blob) != 0x49474857) return null;
+        if (offset == 0 || size < 0x20 || size > 1 << 24 || offset + (long)size > stream.BaseStream.Length) return null;
+        stream.Seek(offset);
+        byte[] blob = stream.ReadBytes((int)size);
+        if (BinaryPrimitives.ReadUInt32BigEndian(blob) != 0x49474857) return null;
         // Major 0 or 1: the section table follows a 0x10 or 0x20 byte header (the dump's second word is 0x00000002 here, major 0).
         int count = (int)BinaryPrimitives.ReadUInt32BigEndian(blob.AsSpan(8));
         if (count < 1 || count > 16) return null;
@@ -101,7 +104,7 @@ public sealed class OldGameplayReader
         uint pointer = _file.sh.ReadUInt32();
         _file.sh.Seek(record + 0x38);
         uint size = _file.sh.ReadUInt32();
-        if (pointer == 0 || ClassStruct(pointer, size) is not { Length: >= 4 } settings) return ([], []);
+        if (ReadClassStruct(_file.sh, pointer, size) is not { Length: >= 4 } settings) return ([], []);
         return (settings, References(settings, BinaryPrimitives.ReadUInt32BigEndian(settings), sink));
     }
 
@@ -204,7 +207,7 @@ public sealed class OldGameplayReader
             var rotation = new Vector3(_file.sh.ReadSingle(), _file.sh.ReadSingle(), _file.sh.ReadSingle());
             var scale = new Vector3(_file.sh.ReadSingle(), _file.sh.ReadSingle(), _file.sh.ReadSingle());
             uint size = _file.sh.ReadUInt32();
-            byte[] settings = pointer != 0 && ClassStruct(pointer, size) is { Length: >= 4 } s ? s : [];
+            byte[] settings = ReadClassStruct(_file.sh, pointer, size) is { Length: >= 4 } s ? s : [];
             uint cls = settings.Length >= 4 ? BinaryPrimitives.ReadUInt32BigEndian(settings) : 0;
             string? className = GameClassNames.Name(_game, cls);
             data.Controllers.Add(new GameplayController

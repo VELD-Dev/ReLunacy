@@ -267,10 +267,13 @@ internal static class FallOfManGeometry
             if (mobys.Get(classId) is not { } moby) continue;
             var transform = new Transform3D(position, rotation, scale);
             string name = names.GetValueOrDefault(i) ?? legacyDebug?.GetMobyInstanceName((int)i) ?? $"{moby.Name}_Instance_{i}";
+            uint settingsOffset = stream.ReadUInt32(offset);
+            uint settingsSize = stream.ReadUInt32(offset + 0x34);
             instances.Add(new PlacedInstance<IMoby>(moby, transform, i, name: name,
                 displayDistance: displayDistance > 0 ? displayDistance : -1, updateDistance: updateDistance > 0 ? updateDistance : -1)
             {
                 GameplayIndex = (int)i,
+                Settings = OldGameplayReader.ReadClassStruct(stream, settingsOffset, settingsSize) ?? [],
             });
         }
         return instances;

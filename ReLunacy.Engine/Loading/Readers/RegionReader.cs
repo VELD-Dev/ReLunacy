@@ -81,13 +81,14 @@ public sealed class RegionReader
 
         var group = source.Groups.FirstOrDefault(group => group.Name == (name ?? "default"));
         if (group.Offset == 0) group = source.Groups[0];
-        var (volumes, paths, mobyNames) = source.Read(group);
+        var data = source.Read(group);
         var instances = FallOfManGeometry.ReadMobyInstances(_fileManager.igfiles["gameplay.dat"]!, group.Offset, _mobys,
-            mobyNames, group == source.Groups[0] ? _debugReader : null);
-        return new Assets.Levels.Region(0, instances, volumes, null, true, group.Name)
+            data.MobyNames, group == source.Groups[0] ? _debugReader : null);
+        return new Assets.Levels.Region(0, instances, data.Volumes, null, true, group.Name)
         {
             Game = Game,
-            Paths = paths,
+            Paths = data.Paths,
+            Controllers = data.Controllers,
         };
     }
 

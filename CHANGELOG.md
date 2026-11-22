@@ -6,8 +6,8 @@ Because the European date format is better, please keep date format like this: `
 ## [v0.06-alpha.2](https://github.com/VELD-Dev/ReLunacy/releases/0.06-alpha.2) - 22-11-2026
 
 - Added **Resistance: Fall of Man** support.
-  - Currently supported: Ties, UFrags, Mobys, Volumes, Paths/Splines, Baked Lightmaps, Directional Lighting, Reflection Cubemaps, Instance names (when `ps3debug.dat` has the required data).
-  - Currently **NOT** supported: Level Editing, Instances parameters editing, Clues, Controllers, Effects, Foliages, Shrubs, Sound Banks, Model Importation, Collision Importation.
+  - Currently supported: Ties, UFrags, Mobys, Volumes, Paths/Splines, Clue, Controllers, Baked Lightmaps, Directional Lighting, Reflection Cubemaps, Instance names (when `ps3debug.dat` has the required data) and Instance Parameters basic support.
+  - Currently **NOT** supported: Level Editing, Effects, Foliages, Shrubs, Sound Banks, Model Importation, Collision Importation.
 - New level editing and saving on A Crack in Time, Full Frontal Assault, All 4 One and Into the Nexus: Mobys, Ties, UFrags, volumes, cameras, paths, and Clue and Moby settings.
 - New project system (`.lunaproj`): File > Save keeps your edits in a project, and Install to Game writes them into the game.
 - New Asset Explorer (View menu): drag Mobys and Ties into the 3D view to place them. Favourites are listed first.
@@ -67,7 +67,7 @@ Because the European date format is better, please keep date format like this: `
   - Shareable colour themes (`ReLunacy/Themes/`).
   - API documentation in `ReLunacy/LuaApi/<game name>/api.lua`; see `ReLunacy/LuaApi/README.md` before editing it.
 - New sky rendering on both engines (Render > Sky), by @Fianshoo.
-- New animation support, by @Zairata in PRs #59 and #60.
+- New animation support, by @Fianshoo in PRs #59 and #60.
 - Improved rendering, much closer to the games on both engines, by @Fianshoo:
   - Textures sampled like on the console.
   - The game's own shaders (needs a decrypted EBOOT in the game's install; Render > Game shaders).
@@ -103,7 +103,7 @@ Because the European date format is better, please keep date format like this: `
 - Fixed levels shared by several games (lobby, level_transitions) opening as the wrong game.
 - Fixed "Open in Asset Viewer" opening the wrong UFrag on new-engine levels.
 - Fixed the Asset Viewer preview looking different from the 3D view.
-- Fixed an Asset Viewer crash during a level reload, by @Zairata in PR #58.
+- Fixed an Asset Viewer crash during a level reload, by @Fianshoo in PR #58.
 - Fixed some Mobys and new-engine materials drawing wrong.
 - Fixed a crash while loading some levels.
 

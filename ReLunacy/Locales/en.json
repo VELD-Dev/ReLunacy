@@ -12,7 +12,7 @@
         "GUI_StartupConfigModal_Frame": "Startup Config",
         "GUI_StartupConfigModal_Title": "Welcome to ReLunacy",
         "GUI_StartupConfigModal_Subtitle": "ReLunacy v{0}",
-        "GUI_StartupConfigModal_Message": "There are a few settings that must be set first\nbefore proceeding. It will be quick.",
+        "GUI_StartupConfigModal_Message": "There are a few settings that must be set first\nbefore proceeding. It will be quick.\nThese settings can be edited anytime in the Editor Settings.",
         "GUI_StartupConfigModal_ConfigUpdateChannel": "Update channel",
         "GUI_StartupConfigModal_ConfigInculdePrereleases": "Include prereleases",
         "GUI_StartupConfigModal_CreateDesktopShortcut": "Create Desktop shortcut",

@@ -50,6 +50,13 @@ public static class ClueClasses
         [0x4BC] = "SpaceMoon",
     };
 
+    // Fall of Man stores a separate Clue type enum. These roles recur in the retail debug names.
+    private static readonly Dictionary<uint, string> FallOfManTypes = new()
+    {
+        [1] = "Cover", [2] = "Cover", [0x11] = "Camera", [0x15] = "Multiplayer Spawn",
+        [0x19] = "Wind", [0x1B] = "Reactor Camera",
+    };
+
     /// <summary>Settings fields with a known meaning, by game, class and offset in the class's struct.</summary>
     private static readonly Dictionary<(Games.GameId Game, uint Class, int Offset), string> KnownFields = new()
     {
@@ -215,6 +222,7 @@ public static class ClueClasses
     /// else its number.</summary>
     public static string Name(uint cls, IEnumerable<string> instanceNames, Games.GameId? game = null)
     {
+        if (game == Games.GameId.RFallOfMan) return FallOfManTypes.GetValueOrDefault(cls) ?? $"0x{cls:X}";
         if (game == Games.GameId.ACrackInTime && KnownCrackInTime.TryGetValue(cls, out var crackInTime)) return crackInTime;
         // The game's own class table first, when it has one (All 4 One, QForce), without the "Clue" prefix.
         if (GameClassNames.Name(game, cls) is { } official)

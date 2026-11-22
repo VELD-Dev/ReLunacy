@@ -703,7 +703,10 @@ public class PropertyInspectorFrame : DockedFrame
             LoadedSettings.Add(settings, loaded = (byte[])settings.Clone());
         var settingsBefore = new Lazy<Core.Undo.UndoManager.Session>(() => Core.Undo.UndoManager.Singleton.Begin([settings]));
         if (!ImGui.IsAnyItemActive()) _ = settingsBefore.Value;
-        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowUndocumented"), ref _showUndocumented);
+        ref bool showUndocumentedOption = ref (game == Engine.Games.GameId.RFallOfMan
+            ? ref _showFallOfManUndocumented : ref _showUndocumented);
+        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsShowUndocumented"), ref showUndocumentedOption);
+        bool showUndocumented = showUndocumentedOption;
         ImGui.SameLine();
         ImGui.BeginDisabled(game == null);
         ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsEditFields"), ref _editFields);
@@ -748,7 +751,7 @@ public class PropertyInspectorFrame : DockedFrame
             // What no field covers: shown when asked for, and always when it was edited or names an instance. What
             // fields leave of a word also shows when not zero, and while documenting, so it can be typed in turn.
             bool edited = !settings.AsSpan(offset, size).SequenceEqual(loaded.AsSpan(offset, size));
-            bool show = _showUndocumented || edited || (size < 4
+            bool show = showUndocumented || edited || (size < 4
                 ? _editFields || settings.AsSpan(offset, size).IndexOfAnyExcept((byte)0) >= 0
                 : ReferenceAt(offset) != null);
             if (show) rows.Add(new SettingRow(OwnerOf(offset), offset, size, null, ComponentOf(offset)));
@@ -769,7 +772,7 @@ public class PropertyInspectorFrame : DockedFrame
             if (row.RunTime) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Frame_InstanceInspector_FieldRunTimeHint"));
             ImGui.TextDisabled($"+0x{row.Offset:X2}  {type}");
             // Across the class: what every instance of it in the level holds in this word.
-            if (_showUndocumented && survey.Count > 1 && survey.Words.TryGetValue(row.Offset & ~3, out var across))
+            if (showUndocumented && survey.Count > 1 && survey.Words.TryGetValue(row.Offset & ~3, out var across))
             {
                 ImGui.Separator();
                 ImGui.TextDisabled(across.Distinct == 1
@@ -1596,6 +1599,7 @@ public class PropertyInspectorFrame : DockedFrame
     private static readonly Dictionary<(uint Class, int Offset), SettingType> SettingTypes = [];
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> LoadedSettings = new();
     private static bool _showUndocumented, _editFields;
+    private static bool _showFallOfManUndocumented = true;
 
     /// <summary>The settings of every Clue and camera of a class in the level.</summary>
     private static IEnumerable<byte[]> SettingsOfClass(uint cls)
