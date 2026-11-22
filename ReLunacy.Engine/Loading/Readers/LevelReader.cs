@@ -67,8 +67,7 @@ public sealed class LevelReader
                 : null;
     }
 
-    /// <summary>The level's regions, in gameplay.dat's order (bit N of the assetlookup region masks is
-    /// region N). Empty on the old engine, whose one region has no name.</summary>
+    /// <summary>The level's regions in gameplay.dat order, or the named gameplay groups on Fall of Man.</summary>
     public IReadOnlyList<string> RegionNames => _regionNames;
 
     /// <summary>The region a level opens on: the one called "default" when the level names one - the
@@ -130,6 +129,11 @@ public sealed class LevelReader
         };
         _regionReader = new RegionReader(_fileManager, _mobys, _zones, _debugReader);
 
+        if (_fileManager.IsFallOfMan)
+        {
+            _regionNames = _regionReader.ReadFallOfManGroupNames();
+            return;
+        }
         if (_fileManager.isOld || _fileManager.igfiles.GetValueOrDefault("gameplay.dat") is not { } gameplay)
             return;
 
@@ -154,7 +158,7 @@ public sealed class LevelReader
     /// <see cref="LevelData.MobyLibrary"/> and <see cref="LevelData.TieLibrary"/>).
     /// </summary>
     /// <param name="regionName">One of <see cref="RegionNames"/>; <see cref="DefaultRegion"/> when null or
-    /// unknown. Ignored on the old engine.</param>
+    /// unknown. Legacy levels without named groups always return their only region.</param>
     public LevelData LoadRegion(string? regionName, LevelLoadProgress? progress = null)
     {
         if (!_opened) throw new InvalidOperationException("LoadLevel opens the level before a region can be read.");
@@ -184,7 +188,9 @@ public sealed class LevelReader
             _zones[id] = zone;
 
         progress?.Begin(LoadPhase.Regions, 1);
-        _region = _fileManager.isOld
+        _region = _fileManager.IsFallOfMan
+            ? _regionReader.ReadFallOfManRegion(name)
+            : _fileManager.isOld
             ? _regionReader.ReadAllRegions()[0]
             : name != null && _regionReader.ReadOneRegionNew(name, (ulong)index + 1) is { } read
                 ? read
@@ -229,8 +235,9 @@ public sealed class LevelReader
         // (six resources here, against five for a_start alone). Read once for the level.
         if (_cubemaps == null)
         {
-            foreach (var region in _regionNames)
-                _cubemapsByRegion[region] = new CubemapReader(_fileManager, region).ReadAll();
+            if (!_fileManager.isOld)
+                foreach (var region in _regionNames)
+                    _cubemapsByRegion[region] = new CubemapReader(_fileManager, region).ReadAll();
             var unionCubemaps = new List<Assets.Cubemaps.Cubemap>();
             var seenCubes = new HashSet<ulong>();
             foreach (var set in _cubemapsByRegion.Values)

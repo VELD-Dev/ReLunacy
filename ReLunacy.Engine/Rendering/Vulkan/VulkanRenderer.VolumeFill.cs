@@ -18,15 +18,15 @@ layout(location = 0) out vec4 o;
 void main() { o = uColor; }";
 
     /// <summary>The volumes to fill this frame: world matrix of the unit shape, RGBA colour, shape
-    /// (0 box, 1 cylinder, 2 sphere, 3 capsule). Set by the view before <see cref="Frame"/>.</summary>
+    /// (0 box, 1 cylinder, 2 sphere, 3 capsule, 4 Fall of Man capsule). Set by the view before <see cref="Frame"/>.</summary>
     public IReadOnlyList<(Matrix4x4 World, Vector4 Colour, int Shape)> VolumeFills { get; set; } = [];
+    public const int FallOfManCapsuleFillShape = 4;
 
     private VkShaderModule _volumeFillFs;
     private VkPipeline _volumeFillPipeline;
     private VkBuffer _fillVertexBuffer, _fillIndexBuffer;
     private VkDeviceMemory _fillVbMemory, _fillIbMemory;
-    // Index range per shape: box, cylinder, sphere (capsules use the cylinder).
-    private readonly (uint First, uint Count)[] _fillShapes = new (uint, uint)[3];
+    private readonly (uint First, uint Count)[] _fillShapes = new (uint, uint)[FallOfManCapsuleFillShape + 1];
 
     private void CreateVolumeFillGeometry()
     {
@@ -59,27 +59,40 @@ void main() { o = uColor; }";
         }
         _fillShapes[1] = ((uint)first, (uint)(indices.Count - first));
 
-        // Sphere: radius 0.5.
-        const int rings = 12;
-        start = (uint)vertices.Count;
-        first = indices.Count;
-        for (int r = 0; r <= rings; r++)
+        AddRoundFill((int)Assets.LevelElements.VolumeShape.Sphere, capsule: false);
+        AddRoundFill(FallOfManCapsuleFillShape, capsule: true);
+
+        // Both meshes fit the unit box. The capsule's cap centres are at ±0.25, so the
+        // volume matrix can scale the radial and vertical axes independently.
+        void AddRoundFill(int shape, bool capsule)
         {
-            float phi = r * MathF.PI / rings;
-            for (int s = 0; s < segments; s++)
+            const int rings = 12;
+            uint firstVertex = (uint)vertices.Count;
+            int firstIndex = indices.Count;
+            int spans = capsule ? rings + 1 : rings;
+            for (int r = 0; r <= spans; r++)
             {
-                float a = s * MathF.Tau / segments;
-                vertices.Add(new Vector3(MathF.Sin(phi) * MathF.Cos(a), MathF.Cos(phi), MathF.Sin(phi) * MathF.Sin(a)) * 0.5f);
+                bool lowerCap = r > rings / 2;
+                int ring = capsule && lowerCap ? r - 1 : r;
+                float phi = ring * MathF.PI / rings;
+                float y = MathF.Cos(phi) * 0.5f;
+                if (capsule) y = y * 0.5f + (lowerCap ? -0.25f : 0.25f);
+                float radius = MathF.Sin(phi) * 0.5f;
+                for (int s = 0; s < segments; s++)
+                {
+                    float a = s * MathF.Tau / segments;
+                    vertices.Add(new Vector3(radius * MathF.Cos(a), y, radius * MathF.Sin(a)));
+                }
             }
+            for (uint r = 0; r < spans; r++)
+                for (uint s = 0; s < segments; s++)
+                {
+                    uint a0 = firstVertex + r * segments + s, a1 = firstVertex + r * segments + (s + 1) % segments;
+                    uint b0 = a0 + segments, b1 = a1 + segments;
+                    indices.AddRange([a0, b0, b1, a0, b1, a1]);
+                }
+            _fillShapes[shape] = ((uint)firstIndex, (uint)(indices.Count - firstIndex));
         }
-        for (uint r = 0; r < rings; r++)
-            for (uint s = 0; s < segments; s++)
-            {
-                uint a0 = start + r * segments + s, a1 = start + r * segments + (s + 1) % segments;
-                uint b0 = a0 + segments, b1 = a1 + segments;
-                indices.AddRange([a0, b0, b1, a0, b1, a1]);
-            }
-        _fillShapes[2] = ((uint)first, (uint)(indices.Count - first));
 
         ulong vSize = (ulong)(vertices.Count * 12), iSize = (ulong)(indices.Count * 4);
         (_fillVertexBuffer, _fillVbMemory) = CreateBuffer(vSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
@@ -135,7 +148,7 @@ void main() { o = uColor; }";
         byte* pc = stackalloc byte[80];
         foreach (var (world, colour, shape) in fills)
         {
-            var (first, count) = _fillShapes[shape switch { 1 or 3 => 1, 2 => 2, _ => 0 }];
+            var (first, count) = _fillShapes[shape switch { 1 or 3 => 1, 2 or FallOfManCapsuleFillShape => shape, _ => 0 }];
             *(Matrix4x4*)pc = world;
             *(Vector4*)(pc + 64) = colour;
             _api.vkCmdPushConstants(_cmd, _volumeLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 80, pc);

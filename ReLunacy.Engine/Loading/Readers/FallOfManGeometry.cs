@@ -14,7 +14,7 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// <summary>Fall of Man's retail IGHW records, which precede the Tools of Destruction layouts.</summary>
 internal static class FallOfManGeometry
 {
-    public static Dictionary<ulong, Tie> ReadTies(FileManager files, MaterialReader materials, LevelLoadProgress? progress)
+    public static Dictionary<ulong, Tie> ReadTies(FileManager files, MaterialReader materials, DebugReader debug, LevelLoadProgress? progress)
     {
         IGFile main = files.igfiles["main.dat"]!;
         IGFile vertices = files.igfiles["vertices.dat"]!;
@@ -55,13 +55,13 @@ internal static class FallOfManGeometry
                         FallOfManTiePrimitive = new FallOfManTiePrimitive(firstVertex, firstSecondaryUv, hasSecondaryUvs),
                     });
             }
-            ties.Add(offset, new Tie(offset, meshes, name: $"Tie_{classId}"));
+            ties.Add(offset, new Tie(offset, meshes, name: debug.GetTiePrototypeName(i) ?? $"Tie_{classId}"));
             progress?.Advance();
         }
         return ties;
     }
 
-    public static Assets.Levels.Zone ReadZone(FileManager files, MaterialReader materials, AssetLibrary<Tie> ties)
+    public static Assets.Levels.Zone ReadZone(FileManager files, MaterialReader materials, AssetLibrary<Tie> ties, DebugReader debug)
     {
         IGFile main = files.igfiles["main.dat"]!;
         IGFile vertices = files.igfiles["vertices.dat"]!;
@@ -174,7 +174,8 @@ internal static class FallOfManGeometry
                 textures.ReadExactly(words);
                 prelight = new FallOfManTiePrelight(words, hasLightmap, lightmappedScale, prelightScale);
             }
-            placements.Add(new PlacedInstance<ITie>(tie, matrix, i, name: $"{tie.Name}_Instance_{i}")
+            string name = debug.GetTieInstanceName((int)i) ?? $"{tie.Name}_Instance_{i}";
+            placements.Add(new PlacedInstance<ITie>(tie, matrix, i, name: name)
             {
                 LightmapIndex = lightmap,
                 FallOfManCubeIndex = ReadCubeIndex(offset + 0x94),
@@ -198,7 +199,7 @@ internal static class FallOfManGeometry
         return vertices * 4;
     }
 
-    public static Dictionary<ulong, Moby> ReadMobys(FileManager files, MaterialReader materials, LevelLoadProgress? progress)
+    public static Dictionary<ulong, Moby> ReadMobys(FileManager files, MaterialReader materials, DebugReader debug, LevelLoadProgress? progress)
     {
         IGFile main = files.igfiles["main.dat"]!;
         var records = main.QuerySection(0xD100);
@@ -238,22 +239,20 @@ internal static class FallOfManGeometry
                 }
                 bangles.Add(new Bangle(meshes));
             }
-            mobys.TryAdd(classId, new Moby(classId, bangles, name: $"Moby_{classId}"));
+            mobys.TryAdd(classId, new Moby(classId, bangles, name: debug.GetMobyPrototypeName(i) ?? $"Moby_{classId}"));
             progress?.Advance();
         }
         return mobys;
     }
 
-    public static IReadOnlyList<IPlacedInstance<IMoby>> ReadMobyInstances(IGFile? gameplay, AssetLibrary<Moby> mobys)
+    public static IReadOnlyList<IPlacedInstance<IMoby>> ReadMobyInstances(IGFile gameplay, uint group, AssetLibrary<Moby> mobys,
+        IReadOnlyDictionary<uint, string> names, DebugReader? legacyDebug)
     {
         var instances = new List<IPlacedInstance<IMoby>>();
-        if (gameplay?.QuerySection(0x25000) is not { id: 0x25000 } section) return instances;
         var stream = gameplay.sh;
-        uint group = stream.ReadUInt32(section.offset + 0x20);
-        if (group == 0 || !Fits(stream, group, 0x48)) return instances;
         uint start = stream.ReadUInt32(group + 0x40);
         uint count = stream.ReadUInt32();
-        if (!Fits(stream, start, count * 0x40L)) return instances;
+        if (start == 0 || !Fits(stream, start, count * 0x40L)) return instances;
 
         for (uint i = 0; i < count; i++)
         {
@@ -267,7 +266,8 @@ internal static class FallOfManGeometry
             ushort classId = stream.ReadUInt16();
             if (mobys.Get(classId) is not { } moby) continue;
             var transform = new Transform3D(position, rotation, scale);
-            instances.Add(new PlacedInstance<IMoby>(moby, transform, i, name: $"{moby.Name}_Instance_{i}",
+            string name = names.GetValueOrDefault(i) ?? legacyDebug?.GetMobyInstanceName((int)i) ?? $"{moby.Name}_Instance_{i}";
+            instances.Add(new PlacedInstance<IMoby>(moby, transform, i, name: name,
                 displayDistance: displayDistance > 0 ? displayDistance : -1, updateDistance: updateDistance > 0 ? updateDistance : -1)
             {
                 GameplayIndex = (int)i,
