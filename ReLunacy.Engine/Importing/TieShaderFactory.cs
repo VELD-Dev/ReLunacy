@@ -188,6 +188,19 @@ public sealed class NewShaderResult
     public List<string> Problems { get; } = [];
 }
 
+/// <summary>The on-disc properties needed to bind a texture that already has a TUID.</summary>
+public sealed record ShaderTextureBinding(ulong Tuid, string Name, ImportTextureKind Kind, byte Format,
+    int Width, int Height, int MipCount, int AllocationSize)
+{
+    public uint Id => (uint)Tuid;
+
+    public static ShaderTextureBinding From(PendingTexture pending)
+    {
+        var t = pending.Texture;
+        return new(pending.Tuid, t.Name, t.Kind, t.Format, t.Width, t.Height, t.MipCount, t.AllocationSize);
+    }
+}
+
 /// <summary>
 /// Makes new shaders for imported Ties by cloning a standard shader (<see cref="ShaderTemplate"/>): the template keeps its program
 /// choice, flags and material constants; the clone gets a fresh TUID, its own name and new textures. A slot the material fills
@@ -303,11 +316,15 @@ public static class TieShaderFactory
     /// <summary>The template for a material: the class, then the render mode, then lit or unlit as asked (a lit template carries the
     /// lit fades), then the slots (the most filled slots it already has, then the fewest unused ones), then the most used. Null when
     /// none has the class.</summary>
-    public static ShaderTemplate? Pick(IReadOnlyList<ShaderTemplate> templates, NewShaderRequest request, bool lightmapped = false)
+    public static ShaderTemplate? Pick(IReadOnlyList<ShaderTemplate> templates, NewShaderRequest request, bool lightmapped = false,
+        IReadOnlyDictionary<ImportTextureKind, ShaderTextureBinding>? bindings = null)
     {
-        bool[] want = [true, request.Normal != null, request.WritesExpensive, request.Detail != null, false, false];
+        bool[] want = [true, request.Normal != null, request.WritesExpensive, request.WritesDetail, false, false];
+        if (bindings != null)
+            foreach (var kind in bindings.Keys)
+                if ((uint)kind <= 3) want[(int)kind] = true;
         return templates.Where(t => t.Class == request.Class)
-            .OrderBy(t => t.Alpha == request.Alpha ? 0 : 1)
+            .OrderBy(t => t.RenderMode == RenderModeFor(request.Alpha) ? 0 : t.Alpha == request.Alpha ? 1 : 2)
             .ThenBy(t => t.Candidate.Lightmapped != lightmapped)
             .ThenBy(t => Enumerable.Range(0, 6).Count(s => want[s] && !t.Uses(s)))
             .ThenBy(t => Enumerable.Range(0, 6).Count(s => !want[s] && t.Uses(s)))
@@ -320,7 +337,8 @@ public static class TieShaderFactory
     /// textures' ids. <paramref name="encode"/> encodes one image (null: <see cref="TextureImporter.Encode(Image, ImportTextureKind, TextureImportOptions?)"/>),
     /// so a caller can cache.</summary>
     public static NewShaderResult Build(ShaderTemplate template, NewShaderRequest request, ulong shaderTuid, ISet<uint> takenTextureIds,
-        Func<ImportImage, ImportTextureKind, TextureImportOptions, EncodedTexture>? encode = null)
+        Func<ImportImage, ImportTextureKind, TextureImportOptions, EncodedTexture>? encode = null,
+        IReadOnlyDictionary<ImportTextureKind, ShaderTextureBinding>? bindings = null, bool standalone = false)
     {
         var result = new NewShaderResult { Template = template };
         encode ??= TextureImporter.Encode;
@@ -329,19 +347,31 @@ public static class TieShaderFactory
         if (ShaderClasses.Find(request.Class) is not { Creatable: true } info)
         { result.Problems.Add($"{request.Name}: shader class 0x{request.Class:X2} can not be created."); return result; }
         if (template.Class != request.Class) { result.Problems.Add($"{request.Name}: the template is not a {info.Name} shader."); return result; }
-        if (template.Alpha != request.Alpha) result.Warnings.Add($"{request.Name}: no {request.Alpha.ToString().ToLowerInvariant()} template in the region; render mode changed on another one.");
+        if (standalone ? template.RenderMode != RenderModeFor(request.Alpha) : template.Alpha != request.Alpha)
+            result.Warnings.Add($"{request.Name}: the requested render mode differs from the template's.");
 
-        var textures = new List<(int Slot, PendingTexture Texture)>();
+        var textures = new List<(int Slot, ShaderTextureBinding Texture)>();
+        var imports = new List<PendingTexture>();
+        if (bindings != null && bindings.Any(p => (uint)p.Key > 3 || p.Value.Kind != p.Key))
+        {
+            result.Problems.Add("Each texture must be imported for the shader slot that uses it.");
+            return result;
+        }
+        bool HasBinding(ImportTextureKind kind) => bindings?.ContainsKey(kind) == true;
         try
         {
             var o = new TextureImportOptions { MaxSize = request.EffectiveMaxSize, Factor = request.AlbedoFactor, KeepAlpha = request.Alpha != ImportAlphaMode.Opaque, FlipNormalGreen = request.FlipNormalGreen };
-            EncodedTexture albedo = request.Albedo != null ? encode(request.Albedo, ImportTextureKind.Albedo, o) : TextureImporter.Solid(LinearToSrgb(request.AlbedoFactor), ImportTextureKind.Albedo, o);
-            textures.Add((0, Named(albedo, $"relunacy/{name}_c")));
-            if (request.Normal != null) textures.Add((1, Named(encode(request.Normal, ImportTextureKind.Normal, o), $"relunacy/{name}_n")));
-            if (request.WritesExpensive)
+            if (!HasBinding(ImportTextureKind.Albedo))
+            {
+                EncodedTexture albedo = request.Albedo != null ? encode(request.Albedo, ImportTextureKind.Albedo, o) : TextureImporter.Solid(LinearToSrgb(request.AlbedoFactor), ImportTextureKind.Albedo, o);
+                textures.Add((0, Named(albedo, $"relunacy/{name}_c")));
+            }
+            if (request.Normal != null && !HasBinding(ImportTextureKind.Normal))
+                textures.Add((1, Named(encode(request.Normal, ImportTextureKind.Normal, o), $"relunacy/{name}_n")));
+            if (request.WritesExpensive && !HasBinding(ImportTextureKind.Expensive))
             {
                 // The detail mask (A) is only kept when a detail map reads it.
-                var eo = new TextureImportOptions { MaxSize = request.EffectiveMaxSize, KeepAlpha = request.WritesDetail };
+                var eo = new TextureImportOptions { MaxSize = request.EffectiveMaxSize, KeepAlpha = request.WritesDetail || HasBinding(ImportTextureKind.Detail) };
                 Image Compose()
                 {
                     static Image? Load(ImportImage? i) => i == null ? null : new Image(i.Bytes);
@@ -354,7 +384,7 @@ public static class TieShaderFactory
                 var composed = Compose();
                 textures.Add((2, Named(TextureImporter.Encode(composed, ImportTextureKind.Expensive, eo), $"relunacy/{name}_e")));
             }
-            if (request.WritesDetail)
+            if (request.WritesDetail && !HasBinding(ImportTextureKind.Detail))
             {
                 var dopts = new TextureImportOptions { MaxSize = request.EffectiveMaxSize };
                 var detailTexture = request.Manual && request.DetailSplit
@@ -370,19 +400,24 @@ public static class TieShaderFactory
             result.Problems.Add($"{request.Name}: a texture could not be read ({e.Message}).");
             return result;
         }
-        PendingTexture Named(EncodedTexture t, string textureName)
+        ShaderTextureBinding Named(EncodedTexture t, string textureName)
         {
             var copy = new EncodedTexture
             {
                 Name = textureName, Kind = t.Kind, Format = t.Format, Width = t.Width, Height = t.Height, MipCount = t.MipCount,
                 Chain = t.Chain, Mip0Size = t.Mip0Size, SourceRgba = t.SourceRgba,
             };
-            return new PendingTexture { Tuid = ShaderRegistrar.TextureTuid(textureName, takenTextureIds), Texture = copy };
+            var pending = new PendingTexture { Tuid = ShaderRegistrar.TextureTuid(textureName, takenTextureIds), Texture = copy };
+            imports.Add(pending);
+            return ShaderTextureBinding.From(pending);
         }
 
+        if (bindings != null)
+            textures.AddRange(bindings.Select(p => ((int)p.Key, p.Value)));
+        textures.Sort((a, b) => a.Slot.CompareTo(b.Slot));
         string shaderName = $"{name}/{name}";
         byte[] bytes;
-        try { bytes = Clone(template, shaderTuid, shaderName, textures, request); }
+        try { bytes = Clone(template, shaderTuid, shaderName, textures, request, HasBinding(ImportTextureKind.Expensive), standalone); }
         catch (InvalidDataException e) { result.Problems.Add($"{request.Name}: the template could not be cloned ({e.Message})."); return result; }
 
         var c = template.Candidate;
@@ -396,15 +431,15 @@ public static class TieShaderFactory
         for (int s = 0; s < 6; s++) candidate.TextureNames[s] = textures.FirstOrDefault(t => t.Slot == s).Texture?.Name ?? "";
         result.Shader = new PendingShader
         {
-            Tuid = shaderTuid, Name = shaderName, Bytes = bytes, Textures = [.. textures.Select(t => t.Texture)],
-            TemplateTuid = template.Tuid, Candidate = candidate,
+            Tuid = shaderTuid, Name = shaderName, Bytes = bytes, Textures = imports,
+            TemplateTuid = template.Tuid, Candidate = candidate, Standalone = standalone,
         };
         return result;
     }
 
     /// <summary>The template's resource with the new TUID, name, textures, slot indices, feature bits, render mode and sidedness.</summary>
-    internal static byte[] Clone(ShaderTemplate template, ulong tuid, string shaderName, IReadOnlyList<(int Slot, PendingTexture Texture)> textures,
-        NewShaderRequest request)
+    internal static byte[] Clone(ShaderTemplate template, ulong tuid, string shaderName, IReadOnlyList<(int Slot, ShaderTextureBinding Texture)> textures,
+        NewShaderRequest request, bool boundExpensive, bool standalone)
     {
         byte[] src = template.Bytes;
         var secs = IghwRelayout.Sections(src);
@@ -422,7 +457,7 @@ public static class TieShaderFactory
         features = local[3] >= 0 ? features | 0x10 : features & ~0x10;
         if (local[1] < 0 || local[2] < 0) features &= ~0x01;
         m[0x20] = (byte)features;
-        if (template.Alpha != request.Alpha) m[0x21] = request.Alpha switch { ImportAlphaMode.Cutout => 4, ImportAlphaMode.Blend => 6, _ => 0 };
+        if (standalone || template.Alpha != request.Alpha) m[0x21] = RenderModeFor(request.Alpha);
         m[0x23] = request.DoubleSided ? (byte)(m[0x23] | 0x02) : (byte)(m[0x23] & ~0x02);
         if (request.DetailTiling is { } tiling) BinaryPrimitives.WriteSingleBigEndian(m.AsSpan(0x70), tiling);
 
@@ -432,9 +467,8 @@ public static class TieShaderFactory
         int offset = 0;
         for (int i = 0; i < textures.Count; i++)
         {
-            var (slot, pending) = textures[i];
-            var t = pending.Texture;
-            BinaryPrimitives.WriteUInt32BigEndian(keys.AsSpan(8 * i), pending.Id);
+            var (slot, t) = textures[i];
+            BinaryPrimitives.WriteUInt32BigEndian(keys.AsSpan(8 * i), t.Id);
             BinaryPrimitives.WriteInt32BigEndian(keys.AsSpan(8 * i + 4), t.AllocationSize);
             var d = desc.AsSpan(0x20 * i, 0x20);
             if (template.Descriptors[slot] is { } own) own.CopyTo(d);
@@ -457,7 +491,7 @@ public static class TieShaderFactory
             {
                 0 => request.Alpha == ImportAlphaMode.Opaque ? 0xA9E4u : 0xAAE4u,
                 1 => 0x6AE0u,
-                2 => ShaderClasses.ExpensiveControl1(request.IsEmissive || request.ExpensiveHasImage, t.Format == 0x08),
+                2 => ShaderClasses.ExpensiveControl1(boundExpensive || request.IsEmissive || request.ExpensiveHasImage, t.Format == 0x08),
                 3 => 0xAAE4u,
                 _ => BinaryPrimitives.ReadUInt32BigEndian(d[16..]),
             };
@@ -496,6 +530,13 @@ public static class TieShaderFactory
             [0x5D00] = o => fields.Any(f => o >= f && o < f + 4) ? null : o,
         });
     }
+
+    private static byte RenderModeFor(ImportAlphaMode mode) => mode switch
+    {
+        ImportAlphaMode.Cutout => 4,
+        ImportAlphaMode.Blend => 6,
+        _ => 0,
+    };
 
     /// <summary>Lower case letters, digits and '_' (the retail naming), at most 48 characters.</summary>
     public static string SafeName(string name)

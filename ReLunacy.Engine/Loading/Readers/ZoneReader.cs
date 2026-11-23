@@ -27,6 +27,7 @@ public sealed class ZoneReader
     private readonly List<ITexture> _newZoneLightmaps = [];
     private readonly List<ITexture> _newZoneDirectionals = [];
     private readonly HashSet<ulong> _newZoneLightingTextureIds = [];
+    internal Dictionary<ulong, List<Assets.Foliage.FoliagePlacement>> NewFoliagePlacements { get; } = [];
 
     public IReadOnlyList<ITexture> NewZoneLightmaps => _newZoneLightmaps;
     public IReadOnlyList<ITexture> NewZoneDirectionals => _newZoneDirectionals;
@@ -119,6 +120,7 @@ public sealed class ZoneReader
         _newZoneLightmaps.Clear();
         _newZoneDirectionals.Clear();
         _newZoneLightingTextureIds.Clear();
+        NewFoliagePlacements.Clear();
 
         AssetPointer[] zonePtrs = NewEngineAssetLookup.ReadPointers(
             _fileManager, NewEngineAssetLookup.ZonePointers, "zones");
@@ -140,6 +142,7 @@ public sealed class ZoneReader
             using StreamHelper streamHelper = new(zonems, StreamHelper.Endianness.Big);
 
             var legacyZone = new Objects.Zone(streamHelper, old: false);
+            FoliageReader.CollectNewPlacements(legacyZone.zoneIGFile, zonePtrs[i].TUID, NewFoliagePlacements);
             IReadOnlyList<ZoneLightingPair> lightingPairs = lightingReader.ReadZone(
                 legacyZone.zoneIGFile,
                 zonePtrs[i].TUID,
@@ -193,19 +196,32 @@ public sealed class ZoneReader
             uFrags: ufrags,
             tieInstances: tieInstances,
             // The name comes from the region, not the zone: a zone blob has no name of its own, only
-            // its Tie (0x72C0) and Shrub (0x74C0) instance name tables. See NewEngineZoneNames.
+            // its Tie (0x72C0) and foliage (0x74C0) instance name tables. See NewEngineZoneNames.
             name: ZoneNames.TryGetValue(tuid, out string? zoneName) && !string.IsNullOrEmpty(zoneName)
                 ? zoneName
                 : $"Zone_{tuid:X}",
             shrubInstances: ReadShrubInstances(legacyZone),
             // Only a handful of zones have one, so this is a no-op on most (NavmeshReader returns
             // null when 0x19000/0x19200 are absent).
-            navmesh: NavmeshReader.Read(legacyZone.zoneIGFile, legacyZone.zoneStream));
+            navmesh: NavmeshReader.Read(legacyZone.zoneIGFile, legacyZone.zoneStream))
+        {
+            Waters = legacyZone.isOld ? [] : Assets.Water.WaterSurface.Read(
+                legacyZone.zoneIGFile, legacyZone.zoneStream, sourceFileBaseOffset,
+                CrackInTimeLayout ? ReadCubePalette(legacyZone, 0x71C0) : null,
+                CrackInTimeLayout && lightingReader != null
+                    ? offset => lightingReader.ReadWaterClipMask(legacyZone.zoneIGFile, tuid, sourceFileBaseOffset, offset)
+                    : null),
+        };
     }
 
     /// <summary>
     /// A zone's shrub placements (0x7540), each resolved against the zone's own class table
-    /// (0x7500) by the index at the placement's +0x3C.
+    /// (0x7500) by the index at the placement's +0x3C - a u32 on A Crack in Time and a u16 on the
+    /// later games (see ShrubInstance).
+    ///
+    /// All 4 One and Into the Nexus name every placement in 0x7560, which gives it its name and its
+    /// ID (the record's TUID), as 0x72C0 does for a Tie. A Crack in Time has no such table, so its
+    /// placements take their class's name and the class TUID.
     ///
     /// The culling groups in 0x75D0 are not read: they partition the placements for the game's own
     /// visibility work, and the editor culls its own way. Nothing here depends on them.
@@ -226,21 +242,41 @@ public sealed class ZoneReader
         for (int i = 0; i < classTuids.Length; i++)
             classTuids[i] = legacyZone.zoneStream.ReadUInt64();
 
+        // Only trusted when it has a record per placement, which it does in every zone measured.
+        AssetPointer[]? names = null;
+        IGFile.SectionHeader nameSection = legacyZone.zoneIGFile.QuerySection(Objects.ShrubInstance.NameTableID);
+        if (nameSection.id == Objects.ShrubInstance.NameTableID && nameSection.count == instances.count)
+        {
+            legacyZone.zoneStream.Seek(nameSection.offset);
+            names = AssetPointer.ReadArray(legacyZone.zoneStream, nameSection.count);
+        }
+
         var record = new byte[Objects.ShrubInstance.Size];
         for (int i = 0; i < instances.count; i++)
         {
             legacyZone.zoneStream.Seek(instances.offset + (long)i * Objects.ShrubInstance.Size);
             legacyZone.zoneStream.BaseStream.ReadExactly(record, 0, record.Length);
-            var placement = Objects.ShrubInstance.Read(record);
+            var placement = Objects.ShrubInstance.Read(record, CrackInTimeLayout);
 
-            // Out of range should not happen - it does not on any of the 142,644 measured - but a
-            // bad index would otherwise index the wrong model rather than fail, so it is dropped.
+            // Out of range should not happen - it does not on any of the 181,290 measured over the
+            // three games - but a bad index would otherwise index the wrong model rather than fail, so
+            // it is dropped.
             if (placement.ClassIndex >= classTuids.Length) continue;
             if (Shrubs.Get(classTuids[placement.ClassIndex]) is not { } shrub) continue;
 
-            placements.Add(new PlacedInstance<IShrub>(
-                shrub, placement.ToMatrix(), classTuids[placement.ClassIndex],
-                name: shrub.Name ?? string.Empty));
+            ulong id = classTuids[placement.ClassIndex];
+            string name = shrub.Name ?? string.Empty;
+            if (names != null)
+            {
+                id = names[i].TUID;
+                name = legacyZone.zoneStream.ReadString(names[i].offset);
+            }
+
+            placements.Add(new PlacedInstance<IShrub>(shrub, placement.ToMatrix(), id, name: name)
+            {
+                ShrubLight = placement.Colour,
+                ShrubPhase = (byte)Math.Clamp(placement.Variant, 0f, 31f),
+            });
         }
 
         return placements;

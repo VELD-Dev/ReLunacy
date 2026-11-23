@@ -159,6 +159,14 @@ public sealed class ModelImportSession
         && (m.Overlay == null || m.Overlay.ShaderTuid != 0 || m.Overlay.NewShader != null));
     public bool CanCommit => Built != null && Problems.Count == 0;
 
+    public IReadOnlyDictionary<ulong, ulong> AuthoredShaderTemplates { get; init; } = new Dictionary<ulong, ulong>();
+
+    public IEnumerable<TieShaderCandidate> PendingShaderCandidates =>
+        (_region?.PendingShaders ?? []).Where(s => s.Standalone).Select(s => s.Candidate);
+
+    public TieShaderCandidate? FindShaderCandidate(ulong tuid) =>
+        PendingShaderCandidates.FirstOrDefault(c => c.Tuid == tuid) ?? Catalog.Find(tuid);
+
     /// <summary>Reads the glTF again. The shader choices already made are kept by material name; new materials are auto-matched.</summary>
     public void Parse()
     {
@@ -247,8 +255,9 @@ public sealed class ModelImportSession
         if (!AllMapped) { Problems.Add("Not every material has a shader."); return null; }
 
         var model = new ImportModel { Name = name, Parts = parsed.Model.Parts };
-        var pendingShaders = _region?.PendingShaders ?? [];
-        var pendingClasses = _region?.PendingTieClasses.Select(c => c.Tuid).ToList() ?? [];
+        List<EntityRegion> regions = _region == null ? [] : [.. EntityManager.Singleton.Regions.Append(_region).Distinct()];
+        var pendingShaders = regions.SelectMany(r => r.PendingShaders).ToList();
+        var pendingClasses = regions.SelectMany(r => r.PendingTieClasses).Select(c => c.Tuid).ToList();
         HashSet<uint>? textureIds = null;
 
         // One material slot: an existing shader of the region, or a new one cloned from a template.
@@ -256,21 +265,21 @@ public sealed class ModelImportSession
         {
             if (request == null)
             {
-                var candidate = Catalog.Find(existing);
+                var candidate = FindShaderCandidate(existing);
                 if (candidate == null) { Problems.Add($"The shader of {label} is not in the region."); return null; }
-                if (candidate.Lightmapped && !lightmapped) Warnings.Add($"{label}: the shader is lightmapped, the Tie is unlit.");
-                return candidate.ToSlot(label);
+                var primitive = !candidate.HasTemplate && AuthoredShaderTemplates.TryGetValue(existing, out ulong source)
+                    ? Catalog.Find(source) ?? candidate : candidate;
+                if (primitive.Lightmapped && !lightmapped) Warnings.Add($"{label}: the shader's template is lightmapped, the Tie is unlit.");
+                var slot = primitive.ToSlot(label);
+                slot.ShaderTuid = existing;
+                return slot;
             }
             if (NewShaderProblem is { } why) { Problems.Add(why); return null; }
             var template = request.TemplateTuid != 0
                 ? ShaderTemplates.Concat(ExternalTemplates).FirstOrDefault(t => t.Tuid == request.TemplateTuid)
                 : TieShaderFactory.Pick(ShaderTemplates, request, lightmapped) ?? TieShaderFactory.Pick(ExternalTemplates, request, lightmapped);
             if (template == null) { Problems.Add($"{label}: no {ShaderClasses.Find(request.Class)?.Name ?? "such"} shader of the region can be cloned."); return null; }
-            if (textureIds == null)
-            {
-                textureIds = ShaderRegistrar.TextureIds(_files.ReadOriginal);
-                foreach (var p in pendingShaders) foreach (var t in p.Textures) textureIds.Add(t.Id);
-            }
+            textureIds ??= AcitMaterialAuthoring.ReservedTextureIds(_files, regions);
             ulong shaderTuid = ShaderRegistrar.FreshTuid(_files.ReadOriginal, pendingShaders.Select(p => p.Tuid).Concat(shaders.Select(p => p.Tuid)), pendingClasses);
             if (string.IsNullOrWhiteSpace(request.Name)) request.Name = $"{name}_{label}";
             var made = TieShaderFactory.Build(template, request, shaderTuid, textureIds, Encode);
@@ -410,7 +419,7 @@ public sealed class ModelImportSession
         if (cls == null || !region.RemovePendingTieClass(tuid)) return false;
         // The new shaders only this class used go with it.
         foreach (ulong shader in cls.Render.ShaderTuids)
-            if (region.FindPendingShader(shader) != null && !region.PendingTieClasses.Any(c => c.Render.ShaderTuids.Contains(shader)))
+            if (region.FindPendingShader(shader) is { Standalone: false } && !region.PendingTieClasses.Any(c => c.Render.ShaderTuids.Contains(shader)))
                 region.RemovePendingShader(shader);
         reader.RemovePendingTie(tuid);
         assets?.Ties.Remove(tuid);

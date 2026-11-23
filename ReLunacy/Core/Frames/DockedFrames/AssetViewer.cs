@@ -12,6 +12,7 @@ using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
+using ReLunacy.MenuBar;
 using NeoVeldrid;
 using IMesh = ReLunacy.Engine.Assets.Interfaces.IMesh;
 using SceneEntityKind = ReLunacy.Engine.Rendering.Vulkan.SceneEntityKind;
@@ -159,21 +160,16 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     private const float SelectedVertexPixelRadius = 7f;
     private const float VertexPickPixelRadius = 10f;
 
-    // Persisted, user-draggable pane sizes (pixels) - each tracks the pane immediately BEFORE its
-    // splitter; the trailing pane on the other side of a splitter always just takes whatever
-    // GetContentRegionAvail() leaves over, so only one size needs to be stored per split.
-    private float treeListWidth = 260f;
+    // The user-draggable height (pixels) of the preview above its splitter; the details pane below
+    // takes whatever GetContentRegionAvail() leaves over.
     private float previewHeight = 300f;
-    private float assetInfoWidth = 320f;
     private const float SplitterThickness = 6f;
 
     public List<MobyAsset> mobyAssets = [];
     public List<TieAsset> tieAssets = [];
     public List<UFragAsset> ufragAssets = [];
 
-    // UFrag-tab state. Lightmapped/not gets its own filter rather than reusing the Used/Unused one
-    // above, which is meaningless here since a UFrag is always its own single, "used" placement.
-    private bool? ufragLightmapFilter;
+    // UFrag preview state.
     private bool ufragShowUVOverlay = true;
     private bool ufragShowUVWireframe = true;
     private bool ufragShowFloatInterpretation;
@@ -195,6 +191,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             selectedMobyAsset = value;
             if (value is { } asset)
             {
+                _selectedShrub = null;
+                _selectedFoliage = null;
                 selectedTieAsset = null;
                 selectedUFragAsset = null;
                 _selectedUFragMesh = null;
@@ -216,7 +214,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedTieAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedUFragAsset = null; ClearEffect(); ResetAnimationPreview(); }
+            if (value != null) { _selectedShrub = null; _selectedFoliage = null; selectedMobyAsset = null; selectedUFragAsset = null; ClearEffect(); ResetAnimationPreview(); }
             selectedMesh = null;
             exportNameOverride = "";
             IsDirty = true;
@@ -231,7 +229,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         set
         {
             selectedUFragAsset = value;
-            if (value != null) { selectedMobyAsset = null; selectedTieAsset = null; ClearEffect(); ResetAnimationPreview(); }
+            if (value != null) { _selectedShrub = null; _selectedFoliage = null; selectedMobyAsset = null; selectedTieAsset = null; ClearEffect(); ResetAnimationPreview(); }
             // A UFrag is one single mesh (see ForEachPreviewMesh's pick id 0 for it) - unlike
             // Moby/Tie, which need a viewport click to pick which submesh, there's nothing to
             // disambiguate, so this jumps straight to it instead of leaving the raw-vertex panel
@@ -252,21 +250,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     private string exportNameOverride = "";
 
     private AssetManager? assetManager;
-    private string assetSearch = "";
-
-    private enum UsageFilter { All, Used, Unused }
-    private UsageFilter assetUsageFilter = UsageFilter.All;
-
-    // "Used" = has at least one placed instance in the currently loaded level (same definition
-    // "Find usages" below already uses) - recomputed once per TransmitAssets call rather than
-    // walking EntityManager.AllEntities() on every frame for every asset in the list.
-    private HashSet<ulong> usedMobyIds = [];
-    private HashSet<ulong> usedTieIds = [];
-
-    // The classes the loaded region does not place, which are not read with it: listed by name (read off
-    // each class's header the first time the list is opened) and read from the level's files when picked.
-    private List<(ulong Id, string Name)>? unreadMobys;
-    private List<(ulong Id, string Name)>? unreadTies;
 
     // Moby materials are grouped per bangle (a material used by several bangles shows up under
     // each) since bangles are independently toggleable - seeing which bangle actually pulls in a
@@ -300,6 +283,8 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     /// asset/usage-result state references entities from the same level.</summary>
     public void OnLevelUnloading()
     {
+        _selectedShrub = null;
+        _selectedFoliage = null;
         selectedMobyAsset = null;
         selectedTieAsset = null;
         selectedUFragAsset = null;
@@ -315,10 +300,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         // UFragAsset holds an IUFrag owned by the level being torn down, and the preview borrows the
         // scene entity's mesh - both die with the level, so the list must not outlive it.
         ufragAssets.Clear();
-        usedMobyIds.Clear();
-        usedTieIds.Clear();
-        unreadMobys = null;
-        unreadTies = null;
         assetManager = null;
         // Do not dispose the preview synchronously here. OnLevelUnloading can run while ImGui is
         // still building the current frame, after the preview image has already been queued. The
@@ -338,8 +319,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
     public void TransmitAssets(AssetManager assetManager, IReadOnlyDictionary<ulong, Moby> mobys, IReadOnlyDictionary<ulong, Tie>? ties = null)
     {
         this.assetManager = assetManager;
-        unreadMobys = null;
-        unreadTies = null;
         mobyAssets.Clear();
         foreach (var (tuid, mobyModel) in assetManager.Mobys)
         {
@@ -371,8 +350,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             }
         }
 
-        usedMobyIds = EntityManager.Singleton.AllEntities().OfType<EntityMoby>().Select(e => e.BaseMoby.Id).ToHashSet();
-        usedTieIds = EntityManager.Singleton.AllEntities().OfType<EntityTie>().Select(e => e.BaseTie.Id).ToHashSet();
     }
 
     private void RebuildSelectedAssetMaterials()
@@ -416,160 +393,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         }
     }
 
-    private sealed class HierarchyNode<T>
-    {
-        public Dictionary<string, HierarchyNode<T>> Children { get; } = [];
-        public List<T> Items { get; } = [];
-    }
-
-    // Builds a folder tree out of the "/"-separated path a name selector returns; the last
-    // segment is the leaf's own display name, everything before it becomes nested TreeNodes.
-    private static HierarchyNode<T> BuildHierarchy<T>(List<T> assets, Func<T, string> nameSelector)
-    {
-        var root = new HierarchyNode<T>();
-        foreach (var asset in assets)
-        {
-            var segments = nameSelector(asset).Split('/', StringSplitOptions.RemoveEmptyEntries);
-            var node = root;
-            for (int i = 0; i < segments.Length - 1; i++)
-            {
-                if (!node.Children.TryGetValue(segments[i], out var child))
-                {
-                    child = new HierarchyNode<T>();
-                    node.Children[segments[i]] = child;
-                }
-                node = child;
-            }
-            node.Items.Add(asset);
-        }
-        return root;
-    }
-
-    private static void RenderHierarchyNode<T>(HierarchyNode<T> node, string idPrefix, Func<T, string> nameSelector, Action<T> renderLeaf)
-    {
-        foreach (var (name, child) in node.Children.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            if (ImGui.TreeNode($"{name}##hierarchy_{idPrefix}{name}"))
-            {
-                RenderHierarchyNode(child, $"{idPrefix}{name}/", nameSelector, renderLeaf);
-                ImGui.TreePop();
-            }
-        }
-        foreach (var item in node.Items.OrderBy(nameSelector, StringComparer.OrdinalIgnoreCase))
-            renderLeaf(item);
-    }
-
-    /// <summary>Compact "All / Used / Unused" radio row shared by both the Moby and Tie tabs below
-    /// - one filter for the whole asset library, same as the search box above it.</summary>
-    private void RenderUsageFilterControl()
-    {
-        int filter = (int)assetUsageFilter;
-        ImGui.RadioButton(LM.Get("GUI_Common_FilterAll"), ref filter, (int)UsageFilter.All);
-        ImGui.SameLine();
-        ImGui.RadioButton(LM.Get("GUI_Common_FilterUsed"), ref filter, (int)UsageFilter.Used);
-        ImGui.SameLine();
-        ImGui.RadioButton(LM.Get("GUI_Common_FilterUnused"), ref filter, (int)UsageFilter.Unused);
-        assetUsageFilter = (UsageFilter)filter;
-    }
-
-    private IEnumerable<MobyAsset> FilteredMobyAssets() => assetUsageFilter switch
-    {
-        UsageFilter.Used => mobyAssets.Where(a => usedMobyIds.Contains(a.Moby.Id)),
-        UsageFilter.Unused => mobyAssets.Where(a => !usedMobyIds.Contains(a.Moby.Id)),
-        _ => mobyAssets,
-    };
-
-    private IEnumerable<TieAsset> FilteredTieAssets() => assetUsageFilter switch
-    {
-        UsageFilter.Used => tieAssets.Where(a => usedTieIds.Contains(a.Tie.Id)),
-        UsageFilter.Unused => tieAssets.Where(a => !usedTieIds.Contains(a.Tie.Id)),
-        _ => tieAssets,
-    };
-
-    private void RenderMobyLeaf(MobyAsset asset)
-    {
-        string label = asset.MobyName.Split('/')[^1];
-        bool isSelected = selectedMobyAsset?.Moby.Id == asset.Moby.Id;
-        bool isUsed = usedMobyIds.Contains(asset.Moby.Id);
-
-        if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        if (ImGui.Selectable($"{label}##moby_{asset.Moby.Id:X}", isSelected))
-            SelectedMobyAsset = asset;
-        if (!isUsed) ImGui.PopStyleColor();
-    }
-
-    private void RenderTieLeaf(TieAsset asset)
-    {
-        string label = asset.TieName.Split('/')[^1];
-        bool isSelected = selectedTieAsset?.Tie.Id == asset.Tie.Id;
-        bool isUsed = usedTieIds.Contains(asset.Tie.Id);
-
-        if (!isUsed) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        if (ImGui.Selectable($"{label}##tie_{asset.Tie.Id:X}", isSelected))
-            SelectedTieAsset = asset;
-        if (!isUsed) ImGui.PopStyleColor();
-    }
-
-    /// <summary>Lightmapped / not, the UFrag tab's own filter. Separate from Used/Unused above, which
-    /// is meaningless for a UFrag: it is its own single placement, so it is always "used".</summary>
-    private void RenderUFragFilterControl()
-    {
-        int filter = ufragLightmapFilter switch { null => 0, true => 1, false => 2 };
-        ImGui.RadioButton($"{LM.Get("GUI_Common_FilterAll")}##ufrag_f", ref filter, 0);
-        ImGui.SameLine();
-        ImGui.RadioButton(LM.Get("GUI_Frame_AssetViewer_UFragFilterLit"), ref filter, 1);
-        ImGui.SameLine();
-        ImGui.RadioButton(LM.Get("GUI_Frame_AssetViewer_UFragFilterUnlit"), ref filter, 2);
-        ufragLightmapFilter = filter switch { 1 => true, 2 => false, _ => null };
-    }
-
-    private IEnumerable<UFragAsset> FilteredUFragAssets() => ufragLightmapFilter switch
-    {
-        true => ufragAssets.Where(a => a.HasLightmap),
-        false => ufragAssets.Where(a => !a.HasLightmap),
-        _ => ufragAssets,
-    };
-
-    private void RenderUFragLeaf(UFragAsset asset)
-    {
-        // Identity is (zone, index), not an asset id - UFrags aren't keyed by TUID, and index alone
-        // repeats across zones.
-        bool isSelected = selectedUFragAsset is { } sel && sel.ZoneId == asset.ZoneId && sel.Index == asset.Index;
-        if (!asset.HasLightmap) ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        if (ImGui.Selectable($"{asset.UFragName}##ufrag_{asset.ZoneId}_{asset.Index}", isSelected))
-            SelectedUFragAsset = asset;
-        if (!asset.HasLightmap) ImGui.PopStyleColor();
-    }
-
-    /// <summary>The unread classes of one family, under a node of their own below the read ones.</summary>
-    private void RenderUnreadClasses<T>(AssetLibrary<T>? library, Func<T, string?> loadedName, ref List<(ulong Id, string Name)>? list,
-        string prefix, Action<ulong> read) where T : class
-    {
-        if (library == null || assetUsageFilter == UsageFilter.Used) return;
-        int unread = library.Count - library.Loaded.Count;
-        if (unread <= 0) return;
-        bool open = ImGui.TreeNode($"{LM.Get("GUI_Frame_AssetViewer_NotInRegion", unread)}###{prefix}_unread");
-        ImGui.SetItemTooltip(LM.Get("GUI_Frame_AssetViewer_NotInRegionTooltip"));
-        if (!open) return;
-
-        list ??= library.Ids.Where(id => !library.Loaded.ContainsKey(id))
-            .Select(id => (id, library.NameOf(id, loadedName) is { Length: > 0 } name ? name : $"{prefix}_{id:X}"))
-            .OrderBy(e => e.Item2, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        ulong? picked = null;
-        foreach (var (id, name) in list)
-        {
-            if (!string.IsNullOrWhiteSpace(assetSearch) && !TuidLink.Matches(assetSearch, name, id)) continue;
-            if (ImGui.Selectable($"{name}##{prefix}_unread_{id:X}"))
-                picked = id;
-        }
-        ImGui.PopStyleColor();
-        ImGui.TreePop();
-        // After the loop: reading it changes the list being walked.
-        if (picked is { } pick) read(pick);
-    }
-
     /// <summary>Reads a Moby class the loaded region does not place and builds its models; false when the
     /// level has no such class.</summary>
     private bool ReadMobyClass(ulong mobyId)
@@ -577,7 +400,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         if (assetManager == null || LunaWindow.Instance.Level?.MobyLibrary.Get(mobyId) is not { } moby) return false;
         var asset = new MobyAsset(assetManager.GetOrBuildMoby(moby), moby);
         mobyAssets.Add(asset);
-        unreadMobys = null;
         SelectedMobyAsset = asset;
         return true;
     }
@@ -587,7 +409,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         if (assetManager == null || LunaWindow.Instance.Level?.TieLibrary.Get(tieId) is not { } tie) return false;
         var asset = new TieAsset(assetManager.GetOrBuildTie(tie), tie);
         tieAssets.Add(asset);
-        unreadTies = null;
         SelectedTieAsset = asset;
         return true;
     }
@@ -687,7 +508,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         foreach (var mat in materials)
         {
             var slot = (bangleIndex, mat.Id);
-            var shown = _shaderSwaps.GetValueOrDefault(slot) ?? mat;
+            var shown = GetShaderSwap(slot) ?? mat;
             bool selected = _selectedShaderSlot == slot;
             if (shown.AlbedoTexture != null && assetManager != null && assetManager.BuiltTextures.TryGetValue(shown.AlbedoTexture.Id, out var tex2D))
             {
@@ -716,7 +537,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             return;
         }
 
-        var mat = _shaderSwaps.GetValueOrDefault(slot) ?? original;
+        var mat = GetShaderSwap(slot) ?? original;
         ImGui.SeparatorText("Selected shader");
         ImGui.TextUnformatted(mat.Name ?? $"Shader_{mat.Id:X}");
         ImGui.TextDisabled($"0x{mat.Id:X}");
@@ -743,123 +564,13 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         }
 
         DrawShaderPicker();
-        Vector2 totalAvail = ImGui.GetContentRegionAvail();
-        treeListWidth = Math.Clamp(treeListWidth, 150f, Math.Max(150f, totalAvail.X - 200f));
-
-        ImGui.BeginGroup();
-        if (ImGui.BeginChild("assets_explorer", new Vector2(treeListWidth, totalAvail.Y), ImGuiChildFlags.None))
+        if (_shaderSwapRevision != Project.ShaderSwapEdits.Revision)
         {
-            if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_Unselect")))
-            {
-                SelectedMobyAsset = null;
-                SelectedTieAsset = null;
-                SelectedUFragAsset = null;
-                ClearEffect();
-                IsDirty = true;
-            }
-            ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
-            ImGui.InputTextWithHint("##asset_viewer_search", LM.Get("GUI_Frame_AssetViewer_SearchHint", mobyAssets.Count + tieAssets.Count + ufragAssets.Count), ref assetSearch, 128);
-            RenderUsageFilterControl();
-
-            if (ImGui.BeginTabBar(LM.Get("GUI_Frame_AssetViewer_Tab")))
-            {
-                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_MobyTab")))
-                {
-                    if (ImGui.BeginChild("asset_viewer_moby_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-                    {
-                        var filtered = FilteredMobyAssets().ToList();
-                        if (string.IsNullOrWhiteSpace(assetSearch))
-                        {
-                            RenderHierarchyNode(BuildHierarchy(filtered, a => a.MobyName), "", a => a.MobyName, RenderMobyLeaf);
-                        }
-                        else
-                        {
-                            foreach (var moby in filtered)
-                            {
-                                if (TuidLink.Matches(assetSearch, moby.MobyName, moby.Moby.Id))
-                                    RenderMobyLeaf(moby);
-                            }
-                        }
-                        RenderUnreadClasses(LunaWindow.Instance.Level?.MobyLibrary, m => m.Name, ref unreadMobys, "Moby", id => ReadMobyClass(id));
-                    }
-                    ImGui.EndChild();
-
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_TieTab")))
-                {
-                    if (ImGui.BeginChild("asset_viewer_tie_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-                    {
-                        var filtered = FilteredTieAssets().ToList();
-                        if (string.IsNullOrWhiteSpace(assetSearch))
-                        {
-                            RenderHierarchyNode(BuildHierarchy(filtered, a => a.TieName), "", a => a.TieName, RenderTieLeaf);
-                        }
-                        else
-                        {
-                            foreach (var tie in filtered)
-                            {
-                                if (TuidLink.Matches(assetSearch, tie.TieName, tie.Tie.Id))
-                                    RenderTieLeaf(tie);
-                            }
-                        }
-                        RenderUnreadClasses(LunaWindow.Instance.Level?.TieLibrary, t => t.Name, ref unreadTies, "Tie", id => ReadTieClass(id));
-                    }
-                    ImGui.EndChild();
-
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_UFragTab")))
-                {
-                    RenderUFragFilterControl();
-                    if (ImGui.BeginChild("asset_viewer_ufrag_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-                    {
-                        // Flat list, no BuildHierarchy: UFrag names are synthesized ("UFrag 12 (lm
-                        // 780)"), not "/"-separated asset paths, so there is no folder tree to build.
-                        foreach (var ufrag in FilteredUFragAssets())
-                        {
-                            if (!string.IsNullOrWhiteSpace(assetSearch) &&
-                                !TuidLink.Matches(assetSearch, ufrag.UFragName, ufrag.UFrag.Id))
-                                continue;
-                            RenderUFragLeaf(ufrag);
-                        }
-                    }
-                    ImGui.EndChild();
-
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_EffectTab"), RevealEffectsTab()))
-                {
-                    if (ImGui.BeginChild("asset_viewer_effect_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-                        RenderEffectList();
-                    ImGui.EndChild();
-
-                    ImGui.EndTabItem();
-                }
-
-                var foliageTabFlags = _revealFoliage != null ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
-                if (ImGui.BeginTabItem(LM.Get("GUI_Frame_AssetViewer_FoliageTab"), foliageTabFlags))
-                {
-                    if (ImGui.BeginChild("asset_viewer_foliage_tab", ImGui.GetContentRegionAvail(), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
-                    {
-                        RenderFoliageList();
-                    }
-                    ImGui.EndChild();
-
-                    ImGui.EndTabItem();
-                }
-
-                ImGui.EndTabBar();
-            }
+            _shaderSwapRevision = Project.ShaderSwapEdits.Revision;
+            previewDirty = true;
         }
-        ImGui.EndChild();
-        ImGui.EndGroup();
-
-        VerticalSplitter("##split_tree", ref treeListWidth, totalAvail.Y);
-
+        // Assets are picked in the Assets Browser (AssetOpener); this frame only previews and inspects one.
+        Vector2 totalAvail = ImGui.GetContentRegionAvail();
         ImGui.BeginGroup();
         float rightWidth = ImGui.GetContentRegionAvail().X;
         previewHeight = Math.Clamp(previewHeight, 100f, Math.Max(100f, totalAvail.Y - 150f));
@@ -909,7 +620,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                         NoVolumes, 0.1f,
                         selected: null, outlineColor: default, outlineThickness: 0f,
                         cameraPosition: Camera.Position, mobyDistanceCulling: false,
-                        lit: Program.Settings.EnableLighting);
+                        lit: Program.Settings.EnableLighting, fxaa: Program.Settings.EnableFxaa);
                     // Submitted straight away rather than deferred like the level view: this preview is
                     // a handful of draws, so there is nothing worth overlapping, and the renderer only
                     // advances a frame once its recording has actually been handed over.
@@ -990,7 +701,21 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             return;
         }
 
-        ImGui.TextDisabled("Select an asset to inspect it.");
+        if (_selectedShrub is { } shrub)
+        {
+            RenderShrubDetails(shrub);
+            return;
+        }
+
+        if (_selectedFoliage is { } foliage)
+        {
+            RenderFoliageDetails(foliage);
+            return;
+        }
+
+        ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_OpenFromBrowser"));
+        if (ImGui.Button(LM.Get("GUI_Frame_AssetsBrowser")))
+            ViewMenuDraw.EnsureFrameTypeOpen(nameof(AssetsBrowserFrame))?.Focus();
     }
 
     private void RenderMobyDetailsTabs(MobyAsset asset)
@@ -1257,6 +982,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         if (ImGui.BeginChild("ufrag_shaders", new Vector2(ImGui.GetContentRegionAvail().X, 90f), ImGuiChildFlags.Borders, ImGuiWindowFlags.AlwaysVerticalScrollbar))
             RenderShaderGrid(selectedTieMaterials, "ufrag_shader_grid");
         ImGui.EndChild();
+        RenderInlineMaterialDetails();
 
         ImGui.SeparatorText(LM.Get("GUI_Frame_ShaderBrowser_RawMetadataSection"));
         ImGui.Checkbox(LM.Get("GUI_Frame_ShaderBrowser_ShowAsFloats"), ref ufragShowFloatInterpretation);
@@ -1720,20 +1446,6 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         ImGui.TextUnformatted(dump ?? LM.Get("GUI_Frame_AssetViewer_VertexOutOfRange"));
     }
 
-    /// <summary>Draggable divider between two side-by-side panes - mutates <paramref name="width"/>
-    /// (the pane immediately to its left) by the horizontal mouse delta while dragged. Caller
-    /// clamps <paramref name="width"/> before using it; this only applies the raw delta.</summary>
-    private static void VerticalSplitter(string id, ref float width, float height)
-    {
-        ImGui.SameLine(0, 0);
-        ImGui.Button(id, new Vector2(SplitterThickness, height));
-        if (ImGui.IsItemHovered() || ImGui.IsItemActive())
-            ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEw);
-        if (ImGui.IsItemActive())
-            width += ImGui.GetIO().MouseDelta.X;
-        ImGui.SameLine(0, 0);
-    }
-
     /// <summary>Draggable divider between two stacked panes - mutates <paramref name="height"/>
     /// (the pane immediately above it) by the vertical mouse delta while dragged.</summary>
     private static void HorizontalSplitter(string id, ref float height, float width)
@@ -2036,6 +1748,12 @@ public partial class AssetViewer : DockedFrame, ILevelListener
             var meshes = selectedTieAsset.Value.Model.Meshes;
             for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
                 add(meshes[meshIndex], HidePreviewMesh ? Matrix4x4.CreateScale(0f) : Matrix4x4.Identity, (uint)meshIndex);
+        }
+        else if (_selectedShrub is { } shrub && assetManager != null)
+        {
+            var meshes = assetManager.GetOrBuildShrub(shrub).Meshes;
+            for (int mesh = 0; mesh < meshes.Length; mesh++)
+                add(meshes[mesh], Matrix4x4.Identity, (uint)mesh);
         }
         else if (selectedUFragAsset == null)
         {
@@ -2364,71 +2082,63 @@ public partial class AssetViewer : DockedFrame, ILevelListener
         catch (Exception e) { LunaLog.LogError($"[AssetViewer] preview resize failed: {e.Message}"); DisposePreview(); }
     }
 
-    private ulong? _revealFoliage;
+    private Engine.Assets.Foliage.Foliage? _selectedFoliage;
 
-    /// <summary>Shows the Foliage tab with this card set open.</summary>
+    /// <summary>Inspects this card set. It has no preview: foliage draws only as billboards in the level.</summary>
     public bool SelectFoliage(ulong id)
     {
-        if (LunaWindow.Instance.Level?.Foliages.Any(f => f.Id == id) != true) return false;
-        _revealFoliage = id;
+        if (LunaWindow.Instance.Level?.Foliages.FirstOrDefault(f => f.Id == id) is not { } foliage) return false;
+        SelectedMobyAsset = null;
+        SelectedTieAsset = null;
+        SelectedUFragAsset = null;
+        _selectedShrub = null;
+        ClearEffect();
+        _selectedFoliage = foliage;
+        IsDirty = true;
         return true;
     }
 
     /// <summary>Foliage inspector. Read-only and deliberately raw: every number is either straight
     /// out of the file or one step from it, since foliage is still being reverse engineered.</summary>
-    private void RenderFoliageList()
+    private void RenderFoliageDetails(Engine.Assets.Foliage.Foliage foliage)
     {
-        var level = LunaWindow.Instance.Level;
-        if (level == null || level.Foliages.Count == 0)
+        if (LunaWindow.Instance.Level is not { } level) return;
+        ImGui.TextUnformatted(foliage.Name ?? $"{foliage.Id:X16}");
+
+        var meta = foliage.Metadata;
+        ImGui.Text($"Sprites: {foliage.Sprites.Count}   Placements: {foliage.Placements.Count}");
+        if (level.IsOldEngine)
+            ImGui.Text($"foliageId: {meta.FoliageId}   textureIndex: {meta.TextureIndex}");
+        else if (foliage.ShaderTuid is ulong shader)
+            ImGui.Text($"Shader: {shader:X16}");
+        string buffer = level.IsOldEngine ? "vertices.dat 0x9000" : "foliages.dat 0xA000";
+        ImGui.Text($"corner data @0x{meta.SpriteCornerOffset:X}   anchor data @0x{meta.SpriteAnchorOffset:X}   ({buffer})");
+
+        if (ImGui.TreeNode($"Sprite LODs##foliagelod{foliage.Id}"))
         {
-            ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_NoFoliage"));
-            return;
+            for (int i = 0; i < meta.SpriteLodRanges.Length; i++)
+            {
+                var r = meta.SpriteLodRanges[i];
+                if (r.CornerCount <= 0) continue;
+                ImGui.Text($"LOD {i}: corners [{r.CornerBegin}..{r.CornerEnd})  =  {r.SpriteCount} card(s)   distance {r.Distance:0.###}");
+            }
+            ImGui.TreePop();
         }
 
-        foreach (var foliage in level.Foliages)
+        if (ImGui.TreeNode($"Cards##foliagecards{foliage.Id}"))
         {
-            if (!string.IsNullOrWhiteSpace(assetSearch) &&
-                !(foliage.Name ?? "").Contains(assetSearch, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            bool reveal = _revealFoliage == foliage.Id;
-            if (reveal) { ImGui.SetNextItemOpen(true); ImGui.SetScrollHereY(0.2f); _revealFoliage = null; }
-            if (!ImGui.TreeNode($"{foliage.Name}##foliage{foliage.Id}")) continue;
-
-            var meta = foliage.Metadata;
-            ImGui.Text($"Sprites: {foliage.Sprites.Count}   Placements: {foliage.Placements.Count}");
-            // TextureIndex is shown raw on purpose - it is 0/1 while the real foliage textures are
-            // #1286/#1287, and nothing in the files connects them yet (see FoliageMetadata).
-            ImGui.Text($"foliageId: {meta.FoliageId}   textureIndex: {meta.TextureIndex} (unresolved)");
-            ImGui.Text($"corner data @0x{meta.SpriteCornerOffset:X}   anchor data @0x{meta.SpriteAnchorOffset:X}   (vertices.dat 0x9000)");
-
-            if (ImGui.TreeNode($"Sprite LODs##foliagelod{foliage.Id}"))
+            // Capped: a card set can run to hundreds and every one draws eight numbers. The
+            // list is for spot-checking the decode, not for browsing all of them.
+            int shown = 0;
+            foreach (var card in foliage.Sprites)
             {
-                for (int i = 0; i < meta.SpriteLodRanges.Length; i++)
-                {
-                    var r = meta.SpriteLodRanges[i];
-                    if (r.CornerCount <= 0) continue;
-                    ImGui.Text($"LOD {i}: corners [{r.CornerBegin}..{r.CornerEnd})  =  {r.SpriteCount} card(s)   distance {r.Distance:0.###}");
-                }
-                ImGui.TreePop();
+                if (shown++ >= 64) { ImGui.TextDisabled($"... {foliage.Sprites.Count - 64} more"); break; }
+                string packed = level.IsOldEngine ? $"  packed {card.Packed.Item1:X2} {card.Packed.Item2:X2}" : "";
+                ImGui.Text($"[LOD {card.Lod}] anchor ({card.Anchor.X:0.###}, {card.Anchor.Y:0.###}, {card.Anchor.Z:0.###}){packed}");
+                for (int k = 0; k < card.CornerOffsets.Length; k++)
+                    ImGui.Text($"    corner {k}: offset ({card.CornerOffsets[k].X:0.###}, {card.CornerOffsets[k].Y:0.###})   uv ({card.Uvs[k].X:0.###}, {card.Uvs[k].Y:0.###})");
+                ImGui.Separator();
             }
-
-            if (ImGui.TreeNode($"Cards##foliagecards{foliage.Id}"))
-            {
-                // Capped: a card set can run to hundreds and every one draws eight numbers. The
-                // list is for spot-checking the decode, not for browsing all of them.
-                int shown = 0;
-                foreach (var card in foliage.Sprites)
-                {
-                    if (shown++ >= 64) { ImGui.TextDisabled($"... {foliage.Sprites.Count - 64} more"); break; }
-                    ImGui.Text($"[LOD {card.Lod}] anchor ({card.Anchor.X:0.###}, {card.Anchor.Y:0.###}, {card.Anchor.Z:0.###})  packed {card.Packed.Item1:X2} {card.Packed.Item2:X2}");
-                    for (int k = 0; k < card.CornerOffsets.Length; k++)
-                        ImGui.Text($"    corner {k}: offset ({card.CornerOffsets[k].X:0.###}, {card.CornerOffsets[k].Y:0.###})   uv ({card.Uvs[k].X:0.###}, {card.Uvs[k].Y:0.###})");
-                    ImGui.Separator();
-                }
-                ImGui.TreePop();
-            }
-
             ImGui.TreePop();
         }
     }

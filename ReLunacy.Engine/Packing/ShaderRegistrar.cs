@@ -31,6 +31,8 @@ public sealed class PendingShader
     public ulong TemplateTuid { get; init; }
     /// <summary>The values a Tie class copies for it (feature mask, fades, UV density), from the template.</summary>
     public required TieShaderCandidate Candidate { get; init; }
+    /// <summary>Created independently of a model, so removing a pending Tie does not remove it.</summary>
+    public bool Standalone { get; init; }
 }
 
 public sealed class ShaderRegistration
@@ -42,6 +44,8 @@ public sealed class ShaderRegistration
     public List<string> Problems { get; } = [];
     public List<ulong> Registered { get; } = [];
     public List<(PendingShader Shader, string Reason)> Refused { get; } = [];
+    public List<ulong> RegisteredTextures { get; } = [];
+    public List<(PendingTexture Texture, string Reason)> RefusedTextures { get; } = [];
 }
 
 /// <summary>
@@ -100,6 +104,7 @@ public static class ShaderRegistrar
 
     /// <summary>Registers the shaders, lowest TUID first, each with its textures. A refused shader changes nothing and is listed
     /// in <see cref="ShaderRegistration.Refused"/>.</summary>
-    public static ShaderRegistration Register(Func<string, byte[]?> read, IReadOnlyList<PendingShader> shaders) =>
-        TieAppender.RegisterShaders(read, shaders);
+    public static ShaderRegistration Register(Func<string, byte[]?> read, IReadOnlyList<PendingShader> shaders,
+        IReadOnlyList<(PendingTexture Texture, string Region)>? textures = null) =>
+        TieAppender.RegisterShaders(read, shaders, textures ?? []);
 }

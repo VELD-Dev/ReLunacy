@@ -150,6 +150,7 @@ public sealed class AssetsBrowserFrame : DockedFrame
         {
             Level = level,
             LevelPath = source,
+            AuthoredTextures = AuthoredMaterialRecords.ReadTextures(ProjectSession.Current, source),
             Regions = EntityManager.Singleton.Regions,
             SceneEntities = EntityManager.Singleton.AllEntities(),
             Effects = effects,

@@ -26,22 +26,33 @@ public sealed class NewEngineStandardShaders
     public enum Block { Lightmapped = 0, Prelit = 1, Probe = 2 }
 
     private const int BlockEntries = 128;
-    private static readonly int[] BlockBases = [0xB3, 0x133, 0x1B3];
+    private const int LaterLightmappedBase = 0xB3;
+    private const int AcitLightmappedBase = 0x9B;
+    private const int AcitWaterBase = 0x2A4;
+    private const int WaterNoClip = 0x10;
+    private const int WaterOpaque = 0x08;
     private static readonly bool[] ReachableKey = BuildReachable();
 
     private readonly NewEngineShaderVariant?[][] _shaders;
+    private readonly NewEngineShaderVariant?[] _water;
 
     public string SourcePath { get; }
     public uint TableAddress { get; }
     public int ShaderCount { get; }
-
-    private NewEngineStandardShaders(string sourcePath, uint tableAddress, NewEngineShaderVariant?[][] shaders)
+    public bool IsCrackInTime { get; }
+    private NewEngineStandardShaders(string sourcePath, uint tableAddress, NewEngineShaderVariant?[][] shaders,
+        bool isCrackInTime, NewEngineShaderVariant?[] water)
     {
         SourcePath = sourcePath;
         TableAddress = tableAddress;
         _shaders = shaders;
         ShaderCount = shaders.Sum(b => b.Count(p => p != null));
+        IsCrackInTime = isCrackInTime;
+        _water = water;
     }
+
+    internal NewEngineShaderVariant? GetWater(bool opaque, bool clipped) =>
+        IsCrackInTime ? _water[(opaque ? 1 : 0) + (clipped ? 2 : 0)] : null;
 
     /// <summary>The shader a draw uses, or null when the table has none there.</summary>
     public NewEngineShaderVariant? Get(Block block, bool twoLayer, bool translucent, int key)
@@ -52,7 +63,7 @@ public sealed class NewEngineStandardShaders
 
     /// <summary>Folders the app knows the games in - the opened level's path (game unknown: whatever
     /// install it sits in) and the configured installs with their game - searched for USRDIR/*.elf.
-    /// Found on QForce (0x00F10100), All 4 One (0x00E9A480) and Into the Nexus (0x00E2BC54).</summary>
+    /// Found on ACIT (0x00DE2340), QForce (0x00F10100), All 4 One and Into the Nexus (0x00E2BC54).</summary>
     public static IReadOnlyList<(string Path, Games.GameId? Game)> SearchRoots { get; set; } = [];
 
     private static readonly object CacheLock = new();
@@ -107,7 +118,7 @@ public sealed class NewEngineStandardShaders
             {
                 if (_cache is { } c && string.Equals(c.Path, elf, StringComparison.OrdinalIgnoreCase) && c.Stamp == stamp)
                 {
-                    if (c.Shaders != null) return c.Shaders;
+                    if (c.Shaders is { } cached && MatchesGame(cached, game)) return cached;
                     continue;
                 }
             }
@@ -122,17 +133,20 @@ public sealed class NewEngineStandardShaders
             }
             lock (CacheLock)
                 _cache = (elf, stamp, shaders);
-            if (shaders != null)
+            if (shaders != null && MatchesGame(shaders, game))
             {
                 // Full path, not the file name: every candidate is called EBOOT.elf, so the name alone
                 // cannot tell this level's own install from a sibling game's borrowed one.
                 Console.WriteLine($"[StandardShaders] {shaders.ShaderCount} shaders from {elf} (table 0x{shaders.TableAddress:X8}).");
                 return shaders;
             }
-            Console.WriteLine($"[StandardShaders] no usable table in {elf}; trying the next candidate.");
+            Console.WriteLine($"[StandardShaders] no compatible table in {elf}; trying the next candidate.");
         }
         return null;
     }
+
+    private static bool MatchesGame(NewEngineStandardShaders shaders, Games.GameId? game) =>
+        game == null || shaders.IsCrackInTime == (game == Games.GameId.ACrackInTime);
 
     /// <summary>The decrypted EBOOTs in the USRDIR of the level's own install (or of <paramref name="game"/>'s
     /// configured install), newest first: never a sibling game's.</summary>
@@ -160,8 +174,8 @@ public sealed class NewEngineStandardShaders
         }
         if (game != null)
             yield break;
-        // Fallback (a game without a decrypted EBOOT, e.g. A Crack in Time): the other new-engine games
-        // installed beside it (dev_hdd0/game/<title>/USRDIR), in title order - All 4 One first.
+        // Fallback when the install has no decrypted EBOOT: compatible tables in nearby installs
+        // (dev_hdd0/game/<title>/USRDIR), in title order.
         foreach (var (root, _) in SearchRoots)
         {
             string? usrdir = FindUsrdir(root);
@@ -255,6 +269,15 @@ public sealed class NewEngineStandardShaders
             return LooksLikeWrapper(Word(at)) && LooksLikeWrapper(Word(at + 4 * 12));
         }
 
+        NewEngineShaderVariant? ReadWrapper(uint va)
+        {
+            if (!LooksLikeWrapper(va)) return null;
+            int o = FileOffset(va);
+            int length = Math.Min(0x4000, d.Length - o);
+            return NewEngineShaderBundle.ParseShader(
+                d.AsSpan(o, length), va, (uint)length, va, registerCountInSize: true, out _);
+        }
+
         foreach (Segment s in segments)
         {
             int start = checked((int)s.Offset), end = checked((int)(s.Offset + s.Size)) - BlockEntries * 4 * 3;
@@ -277,17 +300,30 @@ public sealed class NewEngineStandardShaders
                     shaders[b] = new NewEngineShaderVariant?[BlockEntries];
                     for (int i = 0; i < BlockEntries; i++)
                     {
-                        uint va = Word(at + (BlockBases[b] - BlockBases[0] + i) * 4);
-                        if (va == 0) continue;
-                        int o = FileOffset(va);
-                        if (o < 0) continue;
-                        int length = Math.Min(0x4000, d.Length - o);
-                        shaders[b][i] = NewEngineShaderBundle.ParseShader(
-                            d.AsSpan(o, length), va, (uint)length, va, registerCountInSize: true, out _);
+                        shaders[b][i] = ReadWrapper(Word(at + (b * BlockEntries + i) * 4));
                     }
                 }
-                uint tableVa = (uint)(s.Vaddr + (ulong)(at - start)) - (uint)(BlockBases[0] * 4);
-                return new NewEngineStandardShaders(elfPath, tableVa, shaders);
+                // ACIT's flat baked pass uses group 0 for the shadow floor, and its third block
+                // has a different layout. Later games use groups 2/3/4 and fill all three blocks.
+                bool acit = shaders[(int)Block.Lightmapped][0] is { } flat &&
+                    flat.SlotGroups().Values.Distinct().SequenceEqual([0]) &&
+                    shaders[(int)Block.Probe][0] is { } third && third.TextureUnits.Contains(12);
+                int lightmappedBase = acit ? AcitLightmappedBase : LaterLightmappedBase;
+                uint tableVa = (uint)(s.Vaddr + (ulong)(at - start)) - (uint)(lightmappedBase * 4);
+                NewEngineShaderVariant?[] water = acit ? new NewEngineShaderVariant?[4] : [];
+                if (acit)
+                {
+                    // NPUA80966 0x674F78 selects opacity and clipping independently.
+                    int waterAt = at + (AcitWaterBase - lightmappedBase) * 4;
+                    if ((ulong)waterAt + (WaterNoClip + WaterOpaque + 1) * 4 <= s.Offset + s.Size)
+                    {
+                        water[0] = ReadWrapper(Word(waterAt + WaterNoClip * 4));
+                        water[1] = ReadWrapper(Word(waterAt + (WaterNoClip + WaterOpaque) * 4));
+                        water[2] = ReadWrapper(Word(waterAt));
+                        water[3] = ReadWrapper(Word(waterAt + WaterOpaque * 4));
+                    }
+                }
+                return new NewEngineStandardShaders(elfPath, tableVa, shaders, acit, water);
             }
         }
         return null;

@@ -10,12 +10,20 @@ public class EntityZone : IDisposable
     public readonly EntityCluster TieInstances;
     public readonly EntityCluster UFrags;
 
+    /// <summary>The zone's shrub placements (0x7540). Read-only: drawn and listed, never written.</summary>
+    public readonly EntityCluster ShrubInstances;
+
     /// <summary>One per chunk of this zone's navmesh; empty for the zones that have none. Not an
     /// EntityCluster: a chunk has no mesh or material of its own (see EntityNavmesh).</summary>
     public readonly List<EntityNavmesh> Navmeshes = [];
 
+    /// <summary>One per water record of the zone (0x6641); empty for most zones. Not an EntityCluster, for the same
+    /// reason as <see cref="Navmeshes"/>: the water pass draws them (see EntityWater).</summary>
+    public readonly List<EntityWater> Waters = [];
+
     public int TieCount => TieInstances.Size;
     public int UFragsCount => UFrags.Size;
+    public int ShrubCount => ShrubInstances.Size;
     public int NavmeshChunkCount => Navmeshes.Count;
 
     public bool allowRender = true;
@@ -33,6 +41,7 @@ public class EntityZone : IDisposable
         LoadedName ??= ZoneName;
         ZoneName = name;
         foreach (var chunk in Navmeshes) chunk.ZoneName = name;
+        foreach (var water in Waters) water.ZoneName = name;
     }
 
     public void MarkNameSaved() { if (LoadedName != null) LoadedName = ZoneName; }
@@ -50,6 +59,7 @@ public class EntityZone : IDisposable
         IsNew = true;
         TieInstances = new EntityCluster([], assetManager);
         UFrags = new EntityCluster([], assetManager);
+        ShrubInstances = new EntityCluster([], assetManager);
     }
 
     public EntityZone(IZone zone, GraphicsDevice gd, AssetManager assetManager)
@@ -65,26 +75,43 @@ public class EntityZone : IDisposable
         foreach (var ufrag in zone.UFrags)
             UFrags.Add(ufrag, gd);
 
+        ShrubInstances = new EntityCluster([], assetManager);
+        foreach (var shrubInstance in zone.ShrubInstances)
+            ShrubInstances.Add(shrubInstance);
+
         if (zone.Navmesh is { } navmesh)
             foreach (var chunk in navmesh.Chunks)
                 Navmeshes.Add(new EntityNavmesh(chunk, ZoneName));
+
+        int[] bodies = Assets.Water.WaterSurface.Bodies(zone.Waters);
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            int part = 0, parts = 0;
+            for (int j = 0; j < bodies.Length; j++)
+            {
+                if (bodies[j] != bodies[i]) continue;
+                if (j < i) part++;
+                parts++;
+            }
+            Waters.Add(new EntityWater(zone.Waters[i], ZoneName, bodies[i], part, parts));
+        }
     }
 
     private int _boundsCount = -1;
     private (Vector3 Min, Vector3 Max)? _bounds;
 
-    /// <summary>The box round the zone's Ties and UFrags (their bounding spheres); null for a zone with none.
+    /// <summary>The box round the zone's Ties, UFrags and shrubs (their bounding spheres); null for a zone with none.
     /// Kept until the number of them changes.</summary>
     public (Vector3 Min, Vector3 Max)? Bounds
     {
         get
         {
-            int count = TieInstances.Size + UFrags.Size;
+            int count = TieInstances.Size + UFrags.Size + ShrubInstances.Size;
             if (count == _boundsCount) return _bounds;
             _boundsCount = count;
             Vector3 min = new(float.MaxValue), max = new(float.MinValue);
             bool any = false;
-            foreach (var e in TieInstances.Entities.Concat(UFrags.Entities))
+            foreach (var e in TieInstances.Entities.Concat(UFrags.Entities).Concat(ShrubInstances.Entities))
             {
                 var s = e.WorldBoundingSphere;
                 var c = new Vector3(s.X, s.Y, s.Z);
@@ -109,6 +136,7 @@ public class EntityZone : IDisposable
     {
         TieInstances.Dispose();
         UFrags.Dispose();
+        ShrubInstances.Dispose();
         GC.SuppressFinalize(this);
     }
 }

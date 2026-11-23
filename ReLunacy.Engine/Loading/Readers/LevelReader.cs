@@ -1,5 +1,7 @@
 using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Shaders;
+using ReLunacy.Engine.Importing;
+using ReLunacy.Engine.Packing;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
@@ -65,6 +67,77 @@ public sealed class LevelReader
             return _textureShaderLoader.Shaders.ContainsKey(tuid)
                 ? _materialReader.GetMaterialByTuid(tuid)
                 : null;
+    }
+
+    public Assets.Interfaces.ITexture? FindTexture(ulong tuid)
+    {
+        lock (_fileLock) return _materialReader.FindTexture(tuid);
+    }
+
+    public ShaderTextureBinding? GetImportedTextureBinding(ulong tuid, string name, ImportTextureKind kind)
+    {
+        lock (_fileLock)
+        {
+            if (!_textureShaderLoader.Textures.TryGetValue(tuid, out var texture) || texture.data.Length == 0 ||
+                texture.textureMetadata is not Textures.TextureMetadataNew metadata) return null;
+            return new(tuid, name, kind, metadata.format, (int)texture.Width, (int)texture.Height,
+                (int)texture.MipmapCounts, IghwRelayout.Align(texture.data.Length, 0x80));
+        }
+    }
+
+    /// <summary>Expose the queued texture to the editor with the same mip and swizzle decoding as the next reload.</summary>
+    public void StageTexture(PendingTexture pending)
+    {
+        lock (_fileLock)
+        {
+            if (_textureShaderLoader.Textures.ContainsKey(pending.Tuid))
+                throw new InvalidDataException($"Texture {pending.Tuid:X16} is already loaded.");
+            var t = pending.Texture;
+            byte[] metadata = [t.Format, (byte)t.MipCount, (byte)System.Numerics.BitOperations.Log2((uint)t.Width),
+                (byte)System.Numerics.BitOperations.Log2((uint)t.Height)];
+            using var descriptor = new MemoryStream(metadata, writable: false);
+            using var payload = new MemoryStream(t.Chain, writable: false);
+            var stream = new StreamHelper(payload, StreamHelper.Endianness.Big);
+            bool split = t.MipCount > 1;
+            int residentOffset = split ? t.Mip0Size : 0;
+            var texture = new Textures.Texture(new StreamHelper(descriptor, StreamHelper.Endianness.Big))
+            {
+                id = pending.Tuid, name = pending.Name,
+                highmipsRef = new Objects.AssetPointer { TUID = pending.Tuid, length = split ? (uint)t.Mip0Size : 0 },
+            };
+            texture.ReadTexture(stream, stream, new Objects.AssetPointer
+            {
+                TUID = pending.Tuid, offset = (uint)residentOffset, length = (uint)(t.Chain.Length - residentOffset),
+            });
+            _textureShaderLoader.Textures.Add(pending.Tuid, texture);
+        }
+    }
+
+    /// <summary>Load the new shader into the editor immediately so pending Ties can resolve it.</summary>
+    public void StageShader(PendingShader pending)
+    {
+        lock (_fileLock)
+        {
+            if (_textureShaderLoader.Shaders.ContainsKey(pending.Tuid))
+                throw new InvalidDataException($"Shader {pending.Tuid:X16} is already loaded.");
+            var loaded = new List<ulong>();
+            try
+            {
+                foreach (var texture in pending.Textures)
+                {
+                    StageTexture(texture);
+                    loaded.Add(texture.Tuid);
+                }
+                var shader = _textureShaderLoader.ReadPendingShader(pending.Bytes, pending.Tuid)
+                    ?? throw new InvalidDataException("The generated shader could not be read.");
+                _textureShaderLoader.Shaders.Add(pending.Tuid, shader);
+            }
+            catch
+            {
+                foreach (ulong id in loaded) _textureShaderLoader.Textures.Remove(id);
+                throw;
+            }
+        }
     }
 
     /// <summary>The level's regions in gameplay.dat order, or the named gameplay groups on Fall of Man.</summary>
@@ -206,11 +279,12 @@ public sealed class LevelReader
             $"{_region.MobyInstances.Count} Moby instance(s), {_mobys.Loaded.Count}/{_mobys.Count} Moby, " +
             $"{_ties.Loaded.Count}/{_ties.Count} Tie and {_shrubs.Loaded.Count}/{_shrubs.Count} Shrub class(es).");
 
-        // Foliage has its own asset + instance sections. Old engine only - FoliageReader returns
-        // empty on new-engine files. MaterialReader resolves each foliage asset's atlas from
-        // A200+0x08, a direct index into the 0x5200 texture table (see FoliageMetadata.TextureIndex).
         progress?.Begin(LoadPhase.Foliage);
-        _foliages ??= new FoliageReader(_fileManager, _materialReader).ReadAll(progress);
+        var foliageReader = new FoliageReader(_fileManager, _materialReader);
+        if (_fileManager.isOld)
+            _foliages ??= foliageReader.ReadAll(progress);
+        else
+            _foliages = foliageReader.ReadNew(_zoneReader.NewFoliagePlacements, progress);
 
         // Old engine: main.dat 0x8150/0x8160/0x8170 + vertices.dat 0x9000/0x9100. New engine: one sky
         // per region.dat 0x81B0 record, textures in the region's sky.dat. See SkyReader.
@@ -239,10 +313,13 @@ public sealed class LevelReader
                 foreach (var region in _regionNames)
                     _cubemapsByRegion[region] = new CubemapReader(_fileManager, region).ReadAll();
             var unionCubemaps = new List<Assets.Cubemaps.Cubemap>();
-            var seenCubes = new HashSet<ulong>();
+            var seenCubes = new HashSet<(ulong Id, int Slot)>();
             foreach (var set in _cubemapsByRegion.Values)
                 foreach (var cube in set)
-                    if (seenCubes.Add(cube.Id))
+                    // ACIT water binds slot 3 by resource. Several resources deliberately share
+                    // texture keys, including between two slots of the same resource.
+                    if (seenCubes.Add(_gameDefinition?.Id == Games.GameId.ACrackInTime
+                            ? (cube.ResourceTuid, cube.IndexInResource) : (cube.Id, 0)))
                         unionCubemaps.Add(cube);
             _cubemaps = unionCubemaps.Count > 0 ? unionCubemaps : new CubemapReader(_fileManager, name).ReadAll();
             if (unionCubemaps.Count > 0)
@@ -419,9 +496,7 @@ public sealed class LevelData
     /// TextureShaderLoader.EnvironmentAverage. Null when the level has none.</summary>
     public System.Numerics.Vector3? EnvironmentAverage { get; }
 
-    /// <summary>Foliage card sets and their placements (main.dat 0xA200 / 0x9340). Empty on the new
-    /// engine, whose foliage sections are a different revision and aren't parsed. See
-    /// Loading.Objects.FoliageMetadata.</summary>
+    /// <summary>Foliage card sets and their placements in the loaded region.</summary>
     public IReadOnlyList<Assets.Foliage.Foliage> Foliages { get; }
 
     /// <summary>Environment cubemap(s), old-engine section 0x5920 (see Loading.Readers.CubemapReader).

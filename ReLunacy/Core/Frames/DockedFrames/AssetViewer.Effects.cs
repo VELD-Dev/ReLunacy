@@ -33,40 +33,32 @@ public partial class AssetViewer
     private object? _effectGridSentTo;
     private bool _effectPlaying = true, _effectLoop = true;
     private float _effectRestartWait;
-    private bool _revealEffectsTab;
 
-    /// <summary>Selects the package a game-wide effect id maps to and shows the Effects tab. False when the
+    /// <summary>Selects the package a game-wide effect id maps to. False when the
     /// level's effects are not read yet or have no such id.</summary>
     public bool SelectEffectById(int effectId)
     {
         RefreshEffectEntries();
         var entry = _effectEntries.FirstOrDefault(e => e.Package.GlobalIds.Contains(effectId));
         if (entry == null) return false;
-        _revealEffectsTab = true;
         SelectEffect(entry.Package);
         return true;
     }
 
-    /// <summary>Selects an effect package and shows the Effects tab. False when the level's effects are not read yet.</summary>
+    /// <summary>Selects an effect package. False when the level's effects are not read yet.</summary>
     public bool SelectEffectPackage(EffectPackage package)
     {
         RefreshEffectEntries();
         if (_effectsListed == null || !_effectsListed.Library.Packages.Contains(package)) return false;
-        _revealEffectsTab = true;
         SelectEffect(package);
         return true;
-    }
-
-    private ImGuiTabItemFlags RevealEffectsTab()
-    {
-        if (!_revealEffectsTab) return ImGuiTabItemFlags.None;
-        _revealEffectsTab = false;
-        return ImGuiTabItemFlags.SetSelected;
     }
 
     private void SelectEffect(EffectPackage package)
     {
         if (LevelEffectPlayer.Current is not { } effects) return;
+        _selectedShrub = null;
+        _selectedFoliage = null;
         SelectedMobyAsset = null;
         SelectedTieAsset = null;
         SelectedUFragAsset = null;
@@ -162,31 +154,6 @@ public partial class AssetViewer
         }
         // Named ones first, then the rest in file order.
         _effectEntries = [.. _effectEntries.OrderBy(e => e.Tags.Count == 0).ThenBy(e => e.Tags.Count > 0 ? e.Name : "", StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static bool EffectMatches(EffectEntry entry, string search) =>
-        entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
-        || entry.Tags.Any(t => t.Contains(search, StringComparison.OrdinalIgnoreCase))
-        || entry.Package.GlobalIds.Any(id => id.ToString().StartsWith(search, StringComparison.Ordinal));
-
-    private void RenderEffectList()
-    {
-        RefreshEffectEntries();
-        if (_effectsListed == null)
-        {
-            ImGui.TextDisabled(LM.Get(LevelEffectPlayer.IsLoading ? "GUI_Frame_AssetViewer_EffectsLoading" : "GUI_Frame_AssetViewer_NoEffects"));
-            return;
-        }
-
-        string search = assetSearch.Trim();
-        foreach (EffectEntry entry in _effectEntries)
-        {
-            if (search.Length > 0 && !EffectMatches(entry, search)) continue;
-            if (ImGui.Selectable($"{entry.Name}##fx_{entry.Package.Index}", ReferenceEquals(_selectedEffect, entry.Package)))
-                SelectEffect(entry.Package);
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(LM.Get("GUI_Frame_AssetViewer_EffectTip", entry.Ids.Length > 0 ? entry.Ids : "-", entry.Package.Summary));
-        }
     }
 
     /// <summary>Steps the selected effect and hands its sprites to the preview renderer.</summary>

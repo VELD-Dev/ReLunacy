@@ -1,0 +1,4 @@
+class 0x43E
+{
+    [0x10, effect] = "";
+}

@@ -1025,12 +1025,12 @@ class 0x470 PlatformGrappleSpring : 0x4D
 
 class 0x472 VerticalFogController : 0xCF
 {
-    [0x14, Volume] Fog volume = "The volume the fog fills.";
+    [0x14, Volume] Fog volume = "The box the fog fills, thickest at its bottom.";
     [0x18, u8] Fog red = "";
     [0x19, u8] Fog green = "";
     [0x1A, u8] Fog blue = "";
-    [0x1C, float, runtime] Fog density = "";
-    [0x20, float, runtime] Fog height = "";
+    [0x1C, float, runtime] Fog density = "0.0413 over the box's half height.";
+    [0x20, float, runtime] Cull radius = "";
 }
 
 class 0x474 RotaterConstant : 0x185
@@ -2397,7 +2397,7 @@ class 0x8A9 infocontroller : 0xCF
     [0xB4, text] Body = "Text of the info screen.";
 }
 
-class 0x8B6 cluenowater : 0x11D
+class 0x8B6 ClueNoWater : 0x11D
 {
 }
 

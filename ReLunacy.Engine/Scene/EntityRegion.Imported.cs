@@ -19,6 +19,7 @@ public partial class EntityRegion
         TieClassRegistrar.FreshTuid(read, PendingTieClasses.Select(c => c.Tuid), PendingShaders.Select(s => s.Tuid));
 
     public List<PendingShader> PendingShaders { get; } = [];
+    public List<PendingTexture> PendingTextures { get; } = [];
 
     public PendingShader? FindPendingShader(ulong tuid) => PendingShaders.Find(s => s.Tuid == tuid);
 

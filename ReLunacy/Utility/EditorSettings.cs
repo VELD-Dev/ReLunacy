@@ -64,6 +64,8 @@ public class EditorSettings
     public bool RenderTies;
     public bool RenderUFrags;
     public bool RenderFoliage;
+    // Inverted so a settings file from before shrubs swayed lets them sway.
+    public bool StillShrubs;
     public bool RenderVolumes;
     // Inverted so a settings file from before the cameras (and the other controllers) existed shows them.
     public bool HideCameras;
@@ -77,6 +79,8 @@ public class EditorSettings
     public bool HideSectorBounds;
     // The Aphelion's flight height plane. Inverted like the boundary's switch.
     public bool HideFlyPlane;
+    // Water bodies and vertical fog. Inverted like the fly plane's switch.
+    public bool HideWater;
     public bool RenderNavmesh;
     public bool RenderCollision;
     // The collision overlay's look (the viewport toolbar's collision panel). Read by View3D each frame.
@@ -97,7 +101,10 @@ public class EditorSettings
     public float CamFOV;
     public float CamSensivity;
     public bool FrustrumCulling;
-    public uint MSAA_Level; // 0 = no MSAA, 1 = 2x, 2 = 4x, 3 = 8x
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    public uint MSAA_Level; // TextureSampleCount ordinal (0 = disabled, 1 = 2x, 2 = 4x, etc.)
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    public bool EnableFxaa;
     public bool VSync;
     public GraphicsBackend GraphicsBackend;
     public int TargetFPS;

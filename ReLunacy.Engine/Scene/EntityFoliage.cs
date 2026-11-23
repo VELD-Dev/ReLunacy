@@ -2,7 +2,6 @@ using System.Numerics;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering;
-using NeoVeldrid;
 
 namespace ReLunacy.Engine.Scene;
 
@@ -17,9 +16,10 @@ public class EntityFoliage : Entity
 
     public override Vector4 BoundingSphere { get; set; }
     public override string Name { get; protected set; }
+    public ulong? ZoneTuid { get; }
+    public override bool IsReadOnly => ZoneTuid.HasValue;
 
     private readonly RenderMesh? _mesh;
-    private readonly RenderMaterial? _material;
 
     /// <summary>Which sprite LOD this entity draws. 0 is the densest set.</summary>
     public const int BuiltLod = 0;
@@ -28,9 +28,10 @@ public class EntityFoliage : Entity
         IMaterial? material, AssetManager assetManager)
     {
         BaseFoliage = foliage;
+        ZoneTuid = placement.ZoneTuid;
 
-        Matrix4x4.Decompose(placement.Transform, out var scale, out var rotation, out var translation);
-        Transform = new Transform { Translation = translation, Rotation = rotation, Scale = scale };
+        Transform = Transform.FromExactMatrix(placement.Transform);
+        var scale = Transform.Scale;
 
         // BoundingSphere is LOCAL per Entity's convention; the placement record's sphere is world-space,
         // so the whole placement transform is undone here rather than just its translation.
@@ -42,54 +43,8 @@ public class EntityFoliage : Entity
             // ComputeLocalBounds already works in card-anchor space, so it needs no conversion.
             : ComputeLocalBounds(foliage);
 
-        Name = $"{foliage.Name}_{ID}";
-
-        var cards = foliage.SpritesForLod(BuiltLod).ToList();
-        if (cards.Count == 0) return;
-
-        // material carries the atlas resolved from the asset's texture index; null falls back to the
-        // default white texture in GetOrBuildBillboardMaterial.
-        _material = assetManager.GetOrBuildBillboardMaterial(material);
-        _mesh = BuildMesh(cards, _material);
-    }
-
-    /// <summary>Builds two triangles per card (winding 0-1-2, 0-2-3), each vertex storing the card's
-    /// anchor as its position.</summary>
-    private static RenderMesh BuildMesh(List<Assets.Foliage.FoliageSpriteCard> cards, RenderMaterial material)
-    {
-        var vertices = new Vertex3D[cards.Count * 4];
-        var indices = new uint[cards.Count * 6];
-
-        for (int c = 0; c < cards.Count; c++)
-        {
-            var card = cards[c];
-            for (int k = 0; k < 4; k++)
-            {
-                vertices[c * 4 + k] = new Vertex3D(
-                    card.Anchor,
-                    card.Uvs[k],
-                    card.CornerOffsets[k],
-                    Vector3.UnitY,
-                    new Vector4(1f, 0f, 0f, 1f),
-                    Vector4.One);
-            }
-
-            int v = c * 4;
-            int i = c * 6;
-            indices[i + 0] = (uint)(v + 0);
-            indices[i + 1] = (uint)(v + 1);
-            indices[i + 2] = (uint)(v + 2);
-            indices[i + 3] = (uint)(v + 0);
-            indices[i + 4] = (uint)(v + 2);
-            indices[i + 5] = (uint)(v + 3);
-        }
-
-        var mesh = new RenderMesh(vertices, indices, material);
-
-        // Registers geometry with the capture registry so the Vulkan scene walk can find it.
-        Rendering.Vulkan.VulkanSceneCapture.Register(mesh, Rendering.Vulkan.VulkanSceneCapture.Interleave(vertices), indices);
-
-        return mesh;
+        Name = string.IsNullOrEmpty(placement.Name) ? $"{foliage.Name}_{ID}" : placement.Name;
+        _mesh = assetManager.GetOrBuildFoliageMesh(foliage, material);
     }
 
     /// <summary>Fallback local bounds computed from the cards themselves, used when the instance

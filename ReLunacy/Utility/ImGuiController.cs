@@ -26,6 +26,7 @@ public class ImGuiController : IDisposable
     private ResourceLayout _layout = null!;
     private ResourceLayout _textureLayout = null!;
     private Pipeline _pipeline = null!;
+    private GraphicsPipelineDescription _pipelineDescription;
     private ResourceSet _mainResourceSet = null!;
 
     private readonly Dictionary<int, (Texture Texture, TextureView View, ResourceSet ResourceSet)> _managedTextures = [];
@@ -144,7 +145,7 @@ public class ImGuiController : IDisposable
         _textureLayout = factory.CreateResourceLayout(new ResourceLayoutDescription(
             new ResourceLayoutElementDescription("MainTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment)));
 
-        var pipelineDescription = new GraphicsPipelineDescription(
+        _pipelineDescription = new GraphicsPipelineDescription(
             BlendStateDescription.SingleAlphaBlend,
             new DepthStencilStateDescription(false, false, ComparisonKind.Always),
             new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise,
@@ -155,12 +156,25 @@ public class ImGuiController : IDisposable
             outputDescription,
             ResourceBindingModel.Default);
 
-        _pipeline = factory.CreateGraphicsPipeline(ref pipelineDescription);
+        _pipeline = factory.CreateGraphicsPipeline(ref _pipelineDescription);
 
         // Point-sampled for all ImGui drawing: texture-inspection previews need raw texels, and the
         // 3D viewport image is blitted 1:1. Scene texture filtering lives on the 3D side instead,
         // see AssetManager.SetTextureFiltering.
         _mainResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_layout, _projMatrixBuffer, gd.PointSampler));
+    }
+
+    /// <summary>Switches framebuffer formats or sample count after the GPU has finished using the old pipeline.</summary>
+    internal void SetOutputDescription(OutputDescription output)
+    {
+        if (_pipelineDescription.Outputs.Equals(output)) return;
+
+        var description = _pipelineDescription;
+        description.Outputs = output;
+        Pipeline replacement = _graphicsDevice.ResourceFactory.CreateGraphicsPipeline(ref description);
+        _pipeline.Dispose();
+        _pipeline = replacement;
+        _pipelineDescription = description;
     }
 
     public ImTextureRef GetOrCreateImGuiBinding(ResourceFactory factory, TextureView textureView)

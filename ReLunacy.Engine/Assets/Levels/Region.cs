@@ -27,6 +27,7 @@ public sealed class Region : IRegion
     /// <summary>The region's instances as references name them: what reads and writes a reference field.</summary>
     public Loading.Readers.GameplayReferences References { get; init; } = Loading.Readers.GameplayReferences.None;
     public bool IsOldEngine { get; init; }
+    public ulong DefaultWaterCubeTuid { get; init; }
 
     /// <summary>The game the region is of; null when unknown.</summary>
     public Games.GameId? Game { get; init; }

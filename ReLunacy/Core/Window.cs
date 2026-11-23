@@ -32,6 +32,9 @@ public class LunaWindow : IDisposable
     private double fixedUpdateTimer;
     public FullscreenBlit FullScreenRenderer { get; private set; } = null!;
     public MainRenderTarget FullScreenTexture { get; private set; } = null!;
+    internal IReadOnlyList<TextureSampleCount> SupportedMsaaSampleCounts { get; private set; } = [];
+    internal TextureSampleCount RequestedMsaaSampleCount =>
+        SupportedMsaaSampleCounts.LastOrDefault(count => (uint)count <= EditorSettings.MSAA_Level);
     public ImGuiController imGuiController = null!;
 
     public List<Frame> openFrames = [];
@@ -249,7 +252,8 @@ public class LunaWindow : IDisposable
     {
         FullScreenRenderer = new FullscreenBlit(GraphicsDevice);
         var (width, height) = MainWindow.GetSizeInPixels();
-        FullScreenTexture = new MainRenderTarget(GraphicsDevice, (uint)width, (uint)height, (TextureSampleCount)EditorSettings.MSAA_Level);
+        SupportedMsaaSampleCounts = MainRenderTarget.GetSupportedSampleCounts(GraphicsDevice);
+        FullScreenTexture = new MainRenderTarget(GraphicsDevice, (uint)width, (uint)height, RequestedMsaaSampleCount);
         // The editor's camera model, drawn at every camera controller (VulkanRenderer.CameraMarkers).
         try
         {
@@ -515,6 +519,7 @@ public class LunaWindow : IDisposable
         AbandonLevelFinalization();
         // The history is the scene's: its steps hold the entities being thrown away (a region switch too).
         Core.Undo.UndoManager.Singleton.Clear();
+        Project.ShaderSwapEdits.Clear();
         ReLunacy.Engine.Config.SegmentRegistry.ClearRenames();
         // Anything the loading task finished but that was never picked up belongs to the level being
         // wiped, not to the one about to load - and a task still running is now a stale generation,
@@ -692,6 +697,8 @@ public class LunaWindow : IDisposable
             ready.TextureBudget?.MinDimension ?? 0);
         if (ready.TextureBudget is { } budget) _buildingAssetManager.TextureAllowance = budget.Budget.TextureAllowance;
         _buildingAssetManager.TextureRetired += imGuiController.ReleaseImGuiBinding;
+        // Shrub materials resolve as their classes are placed (AssetManager.GetOrBuildShrub).
+        if (_levelReader is { } shaderSource) _buildingAssetManager.ShaderMaterialResolver = shaderSource.FindShaderMaterial;
         if (ready.TextureBudget is { Reduced: true } reduced)
         {
             LunaLog.LogWarn($"This level's textures need {reduced.FullBytes >> 20} MiB at full resolution but the GPU allows about " +
@@ -879,6 +886,7 @@ public class LunaWindow : IDisposable
         {
             frame.RenderAsWindow(deltaTime);
         }
+        FileMenuDraw.SaveLevelShortcut();
         ImGui.PopStyleVar(11);
 
         ImGui.End();
@@ -922,7 +930,6 @@ public class LunaWindow : IDisposable
 
     private void RenderMenuBar()
     {
-        FileMenuDraw.SaveLevelShortcut();
         EditMenuDraw.UndoRedoShortcuts();
         Project.ProjectSession.UpdateTitle();
         if (!ImGui.BeginMainMenuBar()) return;
@@ -997,6 +1004,7 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
         {
             // Mobys, Ties, UFrags, volumes and bounding spheres are toggled from the 3D viewport's overlay.
             RenderMenuDraw.ShowFoliage();
+            RenderMenuDraw.ShrubWind();
             ImGui.Separator();
             RenderMenuDraw.RegionSelection();
             RenderMenuDraw.ZoneVisibility();
@@ -1146,6 +1154,8 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
 
     protected virtual void Draw(GraphicsDevice graphicsDevice, CommandList commandList)
     {
+        ApplyMsaa();
+
         using (FrameProfiler.Sample("ImGui Render"))
         {
             commandList.Begin();
@@ -1219,10 +1229,44 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
     {
         imGuiController.Resize(width, height);
         GraphicsDevice.MainSwapchain.Resize((uint)width, (uint)height);
-        // The blit caches a resource set per texture view, and Resize replaces the view it was built
-        // from, so the old one has to be dropped before it is freed underneath the cache.
-        FullScreenRenderer.Invalidate(FullScreenTexture.ResolveTextureView);
-        FullScreenTexture.Resize((uint)width, (uint)height);
+        if ((uint)width != FullScreenTexture.Width || (uint)height != FullScreenTexture.Height)
+            ReplaceFullScreenTarget((uint)width, (uint)height, FullScreenTexture.SampleCount);
+    }
+
+    private void ApplyMsaa()
+    {
+        var sampleCount = RequestedMsaaSampleCount;
+        if (sampleCount == FullScreenTexture.SampleCount) return;
+
+        try
+        {
+            ReplaceFullScreenTarget(FullScreenTexture.Width, FullScreenTexture.Height, sampleCount);
+        }
+        catch (Exception ex)
+        {
+            EditorSettings.MSAA_Level = (uint)FullScreenTexture.SampleCount;
+            LunaLog.LogError($"Could not change the editor MSAA level: {ex.Message}");
+        }
+    }
+
+    private void ReplaceFullScreenTarget(uint width, uint height, TextureSampleCount sampleCount)
+    {
+        var previous = FullScreenTexture;
+        var replacement = new MainRenderTarget(GraphicsDevice, width, height, sampleCount);
+        try
+        {
+            GraphicsDevice.WaitForIdle();
+            imGuiController.SetOutputDescription(replacement.Framebuffer.OutputDescription);
+        }
+        catch
+        {
+            replacement.Dispose();
+            throw;
+        }
+
+        FullScreenTexture = replacement;
+        FullScreenRenderer.Invalidate(previous.ResolveTextureView);
+        previous.Dispose();
     }
 
     public int GetTargetFPS() => (int)(1.0 / fixedUpdateTimeStep);

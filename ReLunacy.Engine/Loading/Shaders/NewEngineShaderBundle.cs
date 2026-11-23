@@ -15,7 +15,8 @@ public sealed class NewEngineShaderBundle
     public const uint SelectorSectionId = 0x00033003;
 
     public ulong MaterialBaseTuid { get; }
-    /// <summary>0x33003 as stored: one 4-byte record per 0x33002 shader (the last one unpadded),
+    /// <summary>Optional 0x33003 as stored. A Crack in Time omits it. Where present: one 4-byte
+    /// record per 0x33002 shader (the last one unpadded),
     /// each {u8 n, n x (u8 a, u8 b)}; retail n is 0 or 1 and b is always 0x13 (a in 1, 2, 3, 0x0A,
     /// 0x0B). PROVEN (QForce EBOOT 0x00724F60): the loader copies the first record's n (only when
     /// n &lt;= 2) and pairs into a 16-byte slot keyed by the bundle's first shader TUID, and every
@@ -25,17 +26,20 @@ public sealed class NewEngineShaderBundle
     /// b - so retail's b = 0x13 is group 19, fed from gameplay object state (a = 1, 2, 3, 0x0A, 0x0B
     /// are callback cases). PROVEN.</summary>
     public byte[] SelectorData { get; }
+    public bool HasSelectorSection { get; }
     public IReadOnlyList<NewEngineShaderVariant> Variants { get; }
     public bool BaseSequenceMatches { get; }
 
     private NewEngineShaderBundle(
         ulong materialBaseTuid,
         byte[] selectorData,
+        bool hasSelectorSection,
         IReadOnlyList<NewEngineShaderVariant> variants,
         bool baseSequenceMatches)
     {
         MaterialBaseTuid = materialBaseTuid;
         SelectorData = selectorData;
+        HasSelectorSection = hasSelectorSection;
         Variants = variants;
         BaseSequenceMatches = baseSequenceMatches;
     }
@@ -52,12 +56,10 @@ public sealed class NewEngineShaderBundle
         if (dataSection.id == 0 && tableSection.id == 0 && selectorSection.id == 0)
             return null;
 
-        if (dataSection.id != ShaderDataSectionId ||
-            tableSection.id != ShaderTableSectionId ||
-            selectorSection.id != SelectorSectionId)
+        if (dataSection.id != ShaderDataSectionId || tableSection.id != ShaderTableSectionId)
         {
             Console.WriteLine(
-                $"New-engine shader '{shaderName}': incomplete 0x33001/0x33002/0x33003 bundle; ignored.");
+                $"New-engine shader '{shaderName}': incomplete 0x33001/0x33002 bundle; ignored.");
             return null;
         }
 
@@ -71,8 +73,13 @@ public sealed class NewEngineShaderBundle
 
         sh.Seek(dataSection.offset);
         byte[] shaderData = sh.ReadBytes(checked((int)dataSection.length));
-        sh.Seek(selectorSection.offset);
-        byte[] selectorData = sh.ReadBytes(checked((int)selectorSection.length));
+        byte[] selectorData = [];
+        bool hasSelectorSection = selectorSection.id == SelectorSectionId;
+        if (hasSelectorSection)
+        {
+            sh.Seek(selectorSection.offset);
+            selectorData = sh.ReadBytes(checked((int)selectorSection.length));
+        }
 
         int variantCount = checked((int)(tableSection.length / 0x10));
         var variants = new List<NewEngineShaderVariant>(variantCount);
@@ -102,8 +109,8 @@ public sealed class NewEngineShaderBundle
             variants.Add(variant);
         }
 
-        bool baseMatches = MatchesBaseSequence(materialBaseTuid, variants);
-        return new NewEngineShaderBundle(materialBaseTuid, selectorData, variants, baseMatches);
+        bool baseMatches = variants.Count == variantCount && MatchesBaseSequence(materialBaseTuid, variants);
+        return new NewEngineShaderBundle(materialBaseTuid, selectorData, hasSelectorSection, variants, baseMatches);
     }
 
     /// <summary>One compact shader wrapper: +0x00 microcode size, +0x04/+0x08/+0x0C control words,

@@ -36,25 +36,10 @@ public class EntityUFrag : Entity
         // graphics device, and it is the bulk of what used to be done here, on the main thread, for
         // every chunk in the level in one go. Packed on the spot only for a chunk that pass never
         // saw.
-        var twoLayer = ufrag is { SecondMaterial: not null, BlendMask: not null } ? ufrag : null;
         if (assetManager.PreparedGeometry is not { } pre || !pre.TryTake(ufrag, out var geometry))
             geometry = PrepareGeometry(ufrag);
 
-        // Mirror the native ushort sanitation as well: 0xFFFF means none, and an index outside either
-        // decoded 0x5400/0x5410 list is treated as none rather than allowed to become a material key.
-        ushort candidateIndex = ufrag.LightmapIndex;
-        ushort lightmapIndex = geometry.HasValidLightmapUVs
-            && assetManager.HasLightmap(candidateIndex)
-            && (!assetManager.UsesFallOfManLightmaps || ufrag is Assets.UFrags.OldUFrag { FallOfManBake: not null })
-                ? candidateIndex
-                : Loading.Objects.UFragMetadata.NoLightmap;
-
-        // Passing the sanitized lightmap index keeps UFrags sharing a shader but using different
-        // baked-lighting entries in distinct material variants. Invalid/sentinel UV2 chunks use the
-        // no-lightmap variant instead of sampling an arbitrary atlas island.
-        var material = twoLayer != null
-            ? assetManager.GetOrBuildMaterial(ufrag.Material, lightmapIndex, twoLayer.SecondMaterial!, twoLayer.BlendMask!)
-            : assetManager.GetOrBuildMaterial(ufrag.Material, lightmapIndex);
+        var material = BuildMaterial(ufrag, ufrag.Material, geometry.HasValidLightmapUVs, assetManager);
         UFragMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material);
 
         if (geometry.Interleaved.Length > 0)
@@ -75,12 +60,23 @@ public class EntityUFrag : Entity
             ufrag.GetBoundingRadius() * UFragQuantisation);
     }
 
+    internal static RenderMaterial BuildMaterial(IUFrag ufrag, IMaterial shader, bool hasValidLightmapUVs, AssetManager assets)
+    {
+        ushort candidateIndex = ufrag.LightmapIndex;
+        ushort lightmapIndex = hasValidLightmapUVs
+            && assets.HasLightmap(candidateIndex)
+            && (!assets.UsesFallOfManLightmaps || ufrag is Assets.UFrags.OldUFrag { FallOfManBake: not null })
+                ? candidateIndex
+                : Loading.Objects.UFragMetadata.NoLightmap;
+        return assets.GetOrBuildMaterial(shader, lightmapIndex, ufrag.SecondMaterial, ufrag.BlendMask);
+    }
+
     /// <summary>
     /// This chunk's vertex, index and interleaved arrays, with no graphics device and no shared
     /// state involved - safe to run on any thread, and in parallel over a whole level (see
     /// Loading.PreparedGeometry, which is what normally calls this).
     /// </summary>
-    internal static Loading.PreparedGeometry.Entry PrepareGeometry(IUFrag ufrag)
+    internal static Loading.PreparedGeometry.Entry PrepareGeometry(IUFrag ufrag, IMaterial? shader = null)
     {
         // Old-engine UFrag UV2 is a Half2 lightmap atlas coordinate. A small but real population has
         // the never-written/sentinel pattern (-0.0, ~18.344) on every vertex; binding an atlas for
@@ -93,7 +89,7 @@ public class EntityUFrag : Entity
             : HasValidLightmapUVs(candidateLightmapUVs, vertexCount, ufrag.IsOldEngine);
         var validatedLightmapUVs = hasValidLightmapUVs ? candidateLightmapUVs : null;
 
-        var vertices = ConvertUFragToVertices(ufrag, ufrag.Material.UsesVertexAlpha, validatedLightmapUVs);
+        var vertices = ConvertUFragToVertices(ufrag, (shader ?? ufrag.Material).UsesVertexAlpha, validatedLightmapUVs);
         if (ufrag is { SecondMaterial: not null, BlendMask: not null } && !ufrag.IsOldEngine)
         {
             // The blend weight the two-layer shaders compare with the mask (TEX1.y).

@@ -17,7 +17,11 @@ public readonly record struct FoliageSpriteCard(
     int Lod);
 
 /// <summary>One placement of a foliage asset, straight from the file's affine matrix.</summary>
-public readonly record struct FoliagePlacement(Matrix4x4 Transform, Vector4 BoundingSphere);
+public readonly record struct FoliagePlacement(Matrix4x4 Transform, Vector4 BoundingSphere)
+{
+    public string? Name { get; init; }
+    public ulong? ZoneTuid { get; init; }
+}
 
 /// <summary>A foliage asset: a set of camera-facing sprite cards (plus branch geometry that is not
 /// decoded yet), instanced across the level. See Loading.Objects.FoliageMetadata.</summary>
@@ -27,8 +31,7 @@ public sealed class Foliage : IAsset
     public string? Name { get; init; }
     public bool IsLoaded => true;
 
-    /// <summary>The parsed 0xA200 record, for inspectors and for the fields this class doesn't
-    /// surface (branch LODs, sprite LOD distances, the unidentified flags).</summary>
+    /// <summary>The 0xA200 geometry metadata, including sprite LOD ranges and buffer offsets.</summary>
     public FoliageMetadata Metadata { get; }
 
     /// <summary>Every sprite card across every LOD. Filter on <see cref="FoliageSpriteCard.Lod"/>
@@ -37,10 +40,9 @@ public sealed class Foliage : IAsset
 
     public IReadOnlyList<FoliagePlacement> Placements { get; private set; }
 
-    /// <summary>The material this foliage draws with, resolved from <see cref="Metadata"/>'s
-    /// TextureIndex. Null when the index is the 0xFFFFFFFF sentinel, out of range, or unavailable;
-    /// the renderer then falls back to the default billboard texture.</summary>
+    /// <summary>The material resolved from the class's texture index or shader TUID.</summary>
     public IMaterial? Material { get; }
+    public ulong? ShaderTuid { get; init; }
 
     public Foliage(ulong id, FoliageMetadata metadata, IReadOnlyList<FoliageSpriteCard> sprites,
         IReadOnlyList<FoliagePlacement> placements, IMaterial? material = null, string? name = null)

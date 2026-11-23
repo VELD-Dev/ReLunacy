@@ -8,7 +8,7 @@ namespace ReLunacy.Engine.Loading.Objects;
 /// <summary>
 /// A zone blob. It carries NO name and no metadata record of its own: the name belongs to the
 /// region (see NewEngineZoneNames). What used to be read as zone metadata was the Tie instance name
-/// table (0x72C0) or the Shrub instance name table (0x74C0), depending on the zone.
+/// table (0x72C0) or the foliage instance name table (0x74C0), depending on the zone.
 /// </summary>
 public class Zone : IDisposable
 {

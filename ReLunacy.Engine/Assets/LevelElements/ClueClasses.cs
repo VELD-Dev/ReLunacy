@@ -8,6 +8,9 @@ public enum ClueHazard
     Death,
     Lava,
     Water,
+    /// <summary>ClueNoWater (0x8B6 on A Crack in Time): inside it the game ignores the water bodies (zone 0x6641) -
+    /// no swimming, no splashes (0x00171334 asks for it right after the water query 0x00676F18).</summary>
+    NoWater,
 }
 
 /// <summary>
@@ -250,13 +253,14 @@ public static class ClueClasses
         return best.StartsWith("Clue", StringComparison.OrdinalIgnoreCase) && best.Length > 4 ? best[4..].TrimStart('_') : best;
     }
 
-    /// <summary>The colour a Clue class is drawn in: red for what kills, orange lava, blue water, and a
-    /// colour of its own, from its name, for every other class.</summary>
+    /// <summary>The colour a Clue class is drawn in: red for what kills, orange lava, blue water, pale blue
+    /// where water is ignored, and a colour of its own, from its name, for every other class.</summary>
     public static System.Numerics.Vector3 Colour(string className) => Hazard(className) switch
     {
         ClueHazard.Death => new(1f, 0.12f, 0.08f),
         ClueHazard.Lava => new(1f, 0.55f, 0f),
         ClueHazard.Water => new(0.2f, 0.55f, 1f),
+        ClueHazard.NoWater => new(0.75f, 0.92f, 1f),
         _ => ColourOf(className),
     };
 
@@ -275,5 +279,6 @@ public static class ClueClasses
         className is "Death" or "FallToDeath" or "DirectionalFallToDeath" or "FallFar" ? ClueHazard.Death
         : className == "Lava" ? ClueHazard.Lava
         : className == "Water" ? ClueHazard.Water
+        : className == "NoWater" ? ClueHazard.NoWater
         : ClueHazard.None;
 }

@@ -47,9 +47,9 @@ internal static class FileMenuDraw
 
     internal static void SaveLevelMenuItem()
     {
-        if (!ImGui.MenuItem(LM.Get("GUI_Project_Save"), "CTRL+S", false, Program.ProvidedPath != string.Empty))
+        if (!ImGui.MenuItem(LM.Get("GUI_Project_Save"), "CTRL+S", false, (Program.ProvidedPath != string.Empty || ProjectSession.HasPendingFiles)))
             return;
-        OpenSaveLevel();
+        SaveProject();
     }
 
     internal static void InstallMenuItem()
@@ -60,12 +60,29 @@ internal static class FileMenuDraw
             LunaWindow.Instance.AddFrame(new InstallProjectModal());
     }
 
-    /// <summary>Ctrl+S, wherever the focus is, but not while text is being typed.</summary>
     internal static void SaveLevelShortcut()
     {
         var io = ImGui.GetIO();
-        if (io.KeyCtrl && !io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.S, false) && Program.ProvidedPath != string.Empty)
-            OpenSaveLevel();
+        if (!io.KeyCtrl || io.KeyAlt || !ImGui.IsKeyPressed(ImGuiKey.S, false)) return;
+
+        var window = LunaWindow.Instance;
+        if (window.GetFirstFrame<LuaEnvironmentFrame>() is { Focused: true } lua) lua.Save();
+        else if (window.GetFirstFrame<TextTablesFrame>() is { Focused: true } text) text.Save();
+        else if (!io.WantTextInput && !window.IsAnyFrameOpened<SaveLevelModal>()
+                 && (Program.ProvidedPath.Length > 0 || ProjectSession.HasPendingFiles)) SaveProject();
+    }
+
+    internal static void SaveProject(Action? afterSave = null)
+    {
+        if (!ProjectSession.SavePendingFiles()) return;
+        if (Program.ProvidedPath.Length == 0
+            || (!ProjectSession.HasUnsavedEdits && afterSave != null))
+        {
+            afterSave?.Invoke();
+            return;
+        }
+        if (afterSave == null) OpenSaveLevel();
+        else LunaWindow.Instance.AddFrame(new SaveLevelModal(afterSave));
     }
 
     /// <summary>The Save dialog; without a project, New Project first, which then opens it.</summary>
@@ -106,6 +123,11 @@ internal static class FileMenuDraw
         bool available = ImportModelModal.Available;
         if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ImportModel"), "", false, available)) ImportModelModal.Choose();
         if (!available && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ImportModel_ACiTOnly"));
+        bool materials = MaterialAuthoringModal.Available;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_ImportTexture"), "", false, materials)) MaterialAuthoringModal.Open(shader: false);
+        if (!materials && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_MaterialAuthoring_ACiTOnly"));
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_CreateShader"), "", false, materials)) MaterialAuthoringModal.Open(shader: true);
+        if (!materials && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_MaterialAuthoring_ACiTOnly"));
         ImGui.EndMenu();
     }
 

@@ -7,6 +7,8 @@ namespace ReLunacy.Engine.Scripting;
 public sealed record LuaScriptSaveResult(
     bool Succeeded, string Summary, string? BackupPath, IReadOnlyList<string> Problems)
 {
+    public bool CompileFailed { get; init; }
+
     public static LuaScriptSaveResult Refused(string summary, IReadOnlyList<string>? problems = null) =>
         new(false, summary, null, problems ?? []);
 }
@@ -96,9 +98,10 @@ public static class LuaScriptPackWriter
 
     /// <param name="onProgress">Reports the stages above. Null for a caller that does not show them;
     /// nothing here needs the UI thread, so the whole method is safe to run on a worker (see
-    /// ReLunacy.Utility.BackgroundJob, which is what the editor's Install button does).</param>
+    /// ReLunacy.Utility.BackgroundJob).</param>
     public static LuaScriptSaveResult Save(string archivePath, string scriptPath, string source,
-                                           Action<LuaSaveProgressReport>? onProgress = null, IGameFileSink? sink = null)
+                                           Action<LuaSaveProgressReport>? onProgress = null, IGameFileSink? sink = null,
+                                           bool? useLua51 = null)
     {
         sink ??= GameFileSink.Current;
         // 1. Compile first. A chunk that does not exist cannot be written, and a source whose
@@ -122,8 +125,12 @@ public static class LuaScriptPackWriter
         try
         {
             // 2. What the archive holds now, and therefore whether this is a replacement or an add.
-            var expected = GameFileOverlay.ReadAll(archivePath, (done, total) =>
-                onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Reading, done / (float)Math.Max(1, total), done, total)));
+            // Project writes replace individual entries. Only the pair and any index needed
+            // for a new script have to be decompressed when the game version is known.
+            var expected = sink is ProjectSink && useLua51.HasValue
+                ? ReadProjectEntries(archivePath, scriptPath, compiledPath)
+                : GameFileOverlay.ReadAll(archivePath, (done, total) =>
+                    onProgress?.Invoke(LuaSavePhases.Report(LuaSavePhase.Reading, done / (float)Math.Max(1, total), done, total)));
             bool hasSource = expected.ContainsKey(scriptPath);
             bool hasChunk = expected.ContainsKey(compiledPath);
 
@@ -140,20 +147,19 @@ public static class LuaScriptPackWriter
             // parser (its error strings are in the EBOOT), and a 5.1 load reads text or bytecode alike,
             // telling them apart by the first byte - so the chunk entry gets the source itself, which
             // has just compiled. A precompiled 5.1 chunk would need a 5.1 code generator.
-            bool sourceAsChunk = ShipsLua51(expected);
+            bool sourceAsChunk = useLua51 ?? ShipsLua51(expected);
             if (sourceAsChunk ? syntax.Count > 0 : chunk is null)
-                return LuaScriptSaveResult.Refused(
-                    "the script did not compile, so nothing was written",
+                return new LuaScriptSaveResult(false, "the script did not compile", null,
                     sourceAsChunk
                         ? [.. syntax.Select(d => $"{d.Span.Start}: {d.Message}")]
-                        : [.. errors.Select(e => $"{e.Span.Start}: {e.Message}")]);
+                        : [.. errors.Select(e => $"{e.Span.Start}: {e.Message}")]) { CompileFailed = true };
             if (sourceAsChunk) halves[compiledPath] = sourceBytes;
 
             // Earlier versions wrote 5.0 chunks into these archives, which the game can not load (the
             // script silently never runs). Each one is repaired in the same write, from its source -
             // when this write replaces entries; an add (below) only appends.
             var repaired = new List<string>();
-            if (sourceAsChunk && hasSource)
+            if (sourceAsChunk && hasSource && sink is not ProjectSink)
                 foreach (var (path, contents) in expected)
                 {
                     if (!path.EndsWith(".lc", StringComparison.OrdinalIgnoreCase) || halves.ContainsKey(path) || !IsLua50(contents)) continue;
@@ -202,6 +208,21 @@ public static class LuaScriptPackWriter
         }
     }
 
+    private static Dictionary<string, byte[]> ReadProjectEntries(string archivePath, string sourcePath, string chunkPath)
+    {
+        using var archive = new OverlaidArchive(archivePath);
+        var entries = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in new[] { sourcePath, chunkPath })
+            if (archive.Contains(path)) entries[path] = archive.Read(path);
+        if (entries.Count == 0)
+        {
+            string toc = $"/{Path.GetFileNameWithoutExtension(archivePath)}.toc";
+            foreach (string path in archive.Paths.Where(p => p.EndsWith(toc, StringComparison.OrdinalIgnoreCase)))
+                entries[path] = archive.Read(path);
+        }
+        return entries;
+    }
+
     private static bool IsLua50(byte[] b) => b.Length > 4 && b[0] == 0x1B && b[1] == (byte)'L' && b[2] == (byte)'u' && b[3] == (byte)'a' && b[4] == 0x50;
     private static bool IsLua51(byte[] b) => b.Length > 4 && b[0] == 0x1B && b[1] == (byte)'L' && b[2] == (byte)'u' && b[3] == (byte)'a' && b[4] == 0x51;
 
@@ -241,7 +262,7 @@ public static class LuaScriptPackWriter
             return (LuaScriptSaveResult.Refused(
                 $"{Path.GetFileName(archivePath)} carries no file index that names any script, so a "
               + "new script could be added to the archive but the game would have no way to find it. "
-              + "Only global_cached names scripts in the games examined."), null, null, null);
+              + "Its table of contents must already list scripts."), null, null, null);
         var (indexPath, index) = located.Value;
 
         foreach (var (path, contents) in halves)

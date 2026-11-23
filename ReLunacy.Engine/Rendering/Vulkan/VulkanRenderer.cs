@@ -252,6 +252,17 @@ void main() {
     fWorldTangent = normalize(nrm * skinnedTangent);
     fHandedness = inTangent.w * sign(determinant(m3));
     vec4 world = m * vec4(skinnedPosition, 1.0);
+    // Shrub sway (VkInstanceLight.ForShrub, Direction0.w = 10): the bend weight in UV2.x, zero at the base,
+    // moves the vertex sideways by a gust of two sines, phased by the placement's seed (Direction1.w) and its
+    // position. uDepthOffset.w is the strength, 0 when off. The retail shrub vertex programs have not been
+    // read, so this is an editor stand-in, not the game's own motion.
+    if (il.direction0.w > 9.5 && il.direction0.w < 10.5 && uDepthOffset.w > 0.0) {
+        float t = uDepthOffset.z;
+        float phase = il.direction1.w * 6.2831853 + dot(world.xz, vec2(0.11, 0.07));
+        float gust = 0.6 + 0.4 * sin(t * 0.9 + phase * 0.3);
+        float sway = gust * (0.75 * sin(t * 1.9 + phase) + 0.25 * sin(t * 4.3 + phase * 1.7));
+        world.xz += vec2(0.8, 0.6) * sway * inUV2.x * length(m[1].xyz) * 0.15 * uDepthOffset.w;
+    }
     fWorldPos = world.xyz;
     fUV = inUV;
     // Animated UVs (section 0x5C00, the game's SPU job VertAnim): rotation about the pivot, then the
@@ -726,7 +737,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private static GameRenderMode EffectiveRenderMode(in VkMaterialDesc material) =>
         (GameRenderMode)(byte)material.GameRenderMode;
 
-    public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, ReLunacy.Engine.Assets.Lighting.LightingEnvironment? oldLightingEnvironment, Texture? envCube, uint width, uint height, bool oldEngineMobys = true, IReadOnlyDictionary<ulong, int>? cubeResources = null, Loading.Shaders.NewEngineStandardShaders? standardShaders = null, int maxSkeletonBones = 0, int maxConcurrentAnimated = 0)
+    public VulkanRenderer(GraphicsDevice graphicsDevice, List<float[]> geomVerts, List<uint[]> geomIndices, List<VkMaterialDesc> materials, List<(int geo, int mat, Matrix4x4 world, Vector4 sphere, object owner, float displayDistance, uint pickId)> instances, ReLunacy.Engine.Assets.Lighting.LightingEnvironment? oldLightingEnvironment, Texture? envCube, uint width, uint height, bool oldEngineMobys = true, IReadOnlyDictionary<ulong, int>? cubeResources = null, Loading.Shaders.NewEngineStandardShaders? standardShaders = null, int maxSkeletonBones = 0, int maxConcurrentAnimated = 0, IReadOnlyList<Assets.Interfaces.ITexture>? waterMasks = null)
     {
         _ctx = new VulkanContext(graphicsDevice);
         _cubeResourceMap = cubeResources;
@@ -889,6 +900,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 Scene.EntityTie { OldBakedLightScale: { } tieScale } when float.IsFinite(tieScale) => VkInstanceLight.ForOldTie(tieScale),
                 Scene.EntityTie { NewEngineBakedLight: { } tieBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(tieBake)),
                 Scene.EntityUFrag { UFrag.NewEngineBakedLight: { } ufragBake } when UseRetailBakedScale => VkInstanceLight.ForNewEngineBaked(ClampBake(ufragBake)),
+                Scene.EntityShrub shrub => VkInstanceLight.ForShrub(shrub.BakedLight ?? Vector3.One, shrub.WindPhase),
                 _ => default,
             };
             _instCenter[i] = new Vector3(sphere.X, sphere.Y, sphere.Z);
@@ -899,6 +911,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 Scene.EntityTie => SceneEntityKind.Tie,
                 Scene.EntityUFrag => SceneEntityKind.UFrag,
                 Scene.EntityFoliage => SceneEntityKind.Foliage,
+                // Shrubs are the new engine's foliage; the two never share a level, so one toggle covers both.
+                Scene.EntityShrub => SceneEntityKind.Foliage,
                 // A preview with no entity behind it (the Shader Viewer's sphere) names the kind it draws as.
                 SceneEntityKind kind => kind,
                 _ => SceneEntityKind.Other,
@@ -971,6 +985,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         if (!materials.Any(m => (m.Albedo ?? m.Normal ?? m.Props ?? m.LightColour ?? m.LightDir) != null))
             _fallbackTexture = CreateFallbackTexture(graphicsDevice);
         CreateDescriptors(materials);
+        CreateWaterMasks(graphicsDevice, waterMasks ?? []);
         long tDescriptors = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         CreateRenderPasses();
         CreatePipelines();
@@ -1160,7 +1175,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private void CreateDescriptors(List<VkMaterialDesc> materials)
     {
         VkDescriptorSetLayoutBinding* set0 = stackalloc VkDescriptorSetLayoutBinding[12];
-        set0[0] = new VkDescriptorSetLayoutBinding { binding = 0, descriptorType = VkDescriptorType.UniformBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
+        set0[0] = new VkDescriptorSetLayoutBinding { binding = 0, descriptorType = VkDescriptorType.UniformBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment };
         set0[1] = new VkDescriptorSetLayoutBinding { binding = 1, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
         set0[2] = new VkDescriptorSetLayoutBinding { binding = 2, descriptorType = VkDescriptorType.UniformBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
         set0[3] = new VkDescriptorSetLayoutBinding { binding = 3, descriptorType = VkDescriptorType.CombinedImageSampler, descriptorCount = 1, stageFlags = VkShaderStageFlags.Fragment };
@@ -1502,6 +1517,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         (FragmentAdditiveGlsl, ShaderStages.Fragment),
         (ResolveVertexGlsl, ShaderStages.Vertex),
         (ResolveFragmentGlsl, ShaderStages.Fragment),
+        (FxaaFragmentGlsl, ShaderStages.Fragment),
         (DebugLineVertexGlsl, ShaderStages.Vertex),
         (DebugLineFragmentGlsl, ShaderStages.Fragment),
         (PickVertexGlsl, ShaderStages.Vertex),
@@ -1663,6 +1679,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         CreateControllerIconPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreatePathLinePipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
         CreateBoundaryPipeline(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
+        CreateWaterPipelines(pipelineCache, entry, &viewportState, &rasterCullNone, &multisample, &dynState);
 
         _billboardVs = Module(BillboardVertexGlsl, ShaderStages.Vertex);
         _billboardFs = Module(BillboardFragmentGlsl, ShaderStages.Fragment);
@@ -1876,10 +1893,12 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         wr[1] = new VkWriteDescriptorSet { dstSet = _resolveSet, dstBinding = 1, descriptorCount = 1, descriptorType = VkDescriptorType.CombinedImageSampler, pImageInfo = &revealInfo };
         _api.vkUpdateDescriptorSets(2, wr, 0, null);
         CreateBloomTargets();
+        CreateWaterTargets();
     }
 
     private void DestroyTargets()
     {
+        DestroyWaterTargets();
         DestroyBloomTargets();
         for (int f = 0; f < Frames; f++)
         {
@@ -1907,13 +1926,13 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private int _statBinds, _statDraws;
     private bool[] _sceneColorFresh = new bool[Frames];
 
-    /// <summary>Copies the slot's colour target (sky + opaque geometry) into its scene-colour image.</summary>
-    private void CopySceneColor()
+    /// <summary>Copies the slot's colour target into its scene-colour image and restores it for drawing.</summary>
+    private void CopySceneColor(VkImageLayout colorLayout)
     {
         VkImage color = _colorImage[_slot], copy = _sceneColorImage[_slot];
         var range = new VkImageSubresourceRange { aspectMask = VkImageAspectFlags.Color, baseMipLevel = 0, levelCount = 1, baseArrayLayer = 0, layerCount = 1 };
         VkImageMemoryBarrier* pre = stackalloc VkImageMemoryBarrier[2];
-        pre[0] = new VkImageMemoryBarrier { srcAccessMask = VkAccessFlags.ColorAttachmentWrite, dstAccessMask = VkAccessFlags.TransferRead, oldLayout = VkImageLayout.ColorAttachmentOptimal, newLayout = VkImageLayout.TransferSrcOptimal, srcQueueFamilyIndex = Vortice.Vulkan.Vulkan.VK_QUEUE_FAMILY_IGNORED, dstQueueFamilyIndex = Vortice.Vulkan.Vulkan.VK_QUEUE_FAMILY_IGNORED, image = color, subresourceRange = range };
+        pre[0] = new VkImageMemoryBarrier { srcAccessMask = VkAccessFlags.ColorAttachmentWrite, dstAccessMask = VkAccessFlags.TransferRead, oldLayout = colorLayout, newLayout = VkImageLayout.TransferSrcOptimal, srcQueueFamilyIndex = Vortice.Vulkan.Vulkan.VK_QUEUE_FAMILY_IGNORED, dstQueueFamilyIndex = Vortice.Vulkan.Vulkan.VK_QUEUE_FAMILY_IGNORED, image = color, subresourceRange = range };
         pre[1] = new VkImageMemoryBarrier { srcAccessMask = VkAccessFlags.ShaderRead, dstAccessMask = VkAccessFlags.TransferWrite, oldLayout = _sceneColorFresh[_slot] ? VkImageLayout.ShaderReadOnlyOptimal : VkImageLayout.Undefined, newLayout = VkImageLayout.TransferDstOptimal, srcQueueFamilyIndex = Vortice.Vulkan.Vulkan.VK_QUEUE_FAMILY_IGNORED, dstQueueFamilyIndex = Vortice.Vulkan.Vulkan.VK_QUEUE_FAMILY_IGNORED, image = copy, subresourceRange = range };
         _api.vkCmdPipelineBarrier(_cmd, VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.FragmentShader, VkPipelineStageFlags.Transfer, 0, 0, null, 0, null, 2, pre);
         var layers = new VkImageSubresourceLayers { aspectMask = VkImageAspectFlags.Color, mipLevel = 0, baseArrayLayer = 0, layerCount = 1 };
@@ -1926,7 +1945,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         _sceneColorFresh[_slot] = true;
     }
 
-    private void RecordCommands()
+    private void RecordCommands(bool fxaa)
     {
         _statBinds = 0; _statDraws = 0;
         Check(_api.vkResetCommandBuffer(_cmd, VkCommandBufferResetFlags.None), "vkResetCommandBuffer");
@@ -1950,12 +1969,15 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         DrawVisible(_pipelineSoftEdgeDepth, _visibleSoftEdge, _visSoftCount, softEdgeDepthPrepass: true);
         DrawVisible(_pipelineBillboard, _visibleBillboard, _visBillCount);
         _api.vkCmdEndRenderPass(_cmd);
-        CopySceneColor();
+        CopySceneColor(VkImageLayout.ColorAttachmentOptimal);
+        CopySceneDepth();
         var rpL = new VkRenderPassBeginInfo { renderPass = _rpOpaqueLoad, framebuffer = _fbOpaque[_slot], renderArea = area, clearValueCount = 0, pClearValues = null };
         _api.vkCmdBeginRenderPass(_cmd, &rpL, VkSubpassContents.Inline);
         BindLitState();
         DrawVisible(_pipelineOpaque, _visibleOpaqueLate, _visOpaqueLateCount);
         DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
+        // Water and vertical fog read the depth copied above (VulkanRenderer.Water.cs).
+        DrawWater();
         using (Diagnostics.FrameProfiler.Sample("Vk Volumes")) DrawVolumes();
         // After the volumes so the overlays blend over the finished scene, and in the load pass so they
         // are not cleared away. Collision first: it writes depth, and the navmesh floats over the floor
@@ -1995,6 +2017,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         DrawSelectionOutline();
         DrawDebugLines();
         _api.vkCmdEndRenderPass(_cmd);
+        if (fxaa) RecordFxaa();
         Check(_api.vkEndCommandBuffer(_cmd), "vkEndCommandBuffer");
     }
 
@@ -2134,6 +2157,9 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     /// <summary>Editor switch over the retail raster state: false draws every lit triangle double-sided.</summary>
     public bool RetailBackfaceCulling { get; set; } = true;
 
+    /// <summary>How strongly shrubs sway in the scene's vertex shader; 0 holds them still. Read every frame.</summary>
+    public float ShrubWind { get; set; }
+
     /// <summary>The back-face-culled twin of a lit pipeline. Retail keeps CULL_FACE = BACK and front
     /// face CCW, and flips the front face to CW for a mirrored placement, so the same triangles stay
     /// visible from outside whichever way the instance matrix is handed.</summary>
@@ -2215,7 +2241,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         object? selected = null, Vector4 outlineColor = default, float outlineThickness = 0.004f,
         Vector3 cameraPosition = default, bool mobyDistanceCulling = false, bool lit = true,
         bool frustumCulling = true, SceneEntityKind kinds = SceneEntityKind.All,
-        TextureFiltering filtering = TextureFiltering.Bilinear)
+        TextureFiltering filtering = TextureFiltering.Bilinear, bool fxaa = false)
     {
         ApplyFiltering(filtering);
         ApplyReplacementSky();
@@ -2233,6 +2259,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         ((float*)ub)[81] = NonOpaqueOffsetFreezeDistance * NonOpaqueOffsetFreezeDistance;
         // uDepthOffset.z: the scene time the animated UVs run on.
         ((float*)ub)[82] = SceneTimeOverride ?? (float)_skyClock.Elapsed.TotalSeconds;
+        // uDepthOffset.w: the shrub sway strength, 0 when off.
+        ((float*)ub)[83] = ShrubWind;
         _selected = selected;
         if (outlineColor != default) _outlineColor = outlineColor;
         _outlineThickness = outlineThickness;
@@ -2289,7 +2317,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         }
         if (_matScreenRadius.Length != _matPC0.Length) _matScreenRadius = new float[_matPC0.Length];
         MeasureMaterialScreenRadius(projection.M22 * _height * 0.5f);
-        using (Diagnostics.FrameProfiler.Sample("Vk Record")) RecordCommands();
+        using (Diagnostics.FrameProfiler.Sample("Vk Record")) RecordCommands(fxaa);
         _recorded = true;
         int previous = _slot ^ 1;
         if (_pending[previous])
@@ -2424,6 +2452,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
             }
         }
         PickVolumeEdges();
+        PickWaters();
         PickCameraMarkers(pc);
         PickControllerIcons(pc);
         _api.vkCmdEndRenderPass(_pickCmd);
@@ -2743,6 +2772,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         DisposeEffects();
         DestroyPathLines();
         DestroyBoundary();
+        DestroyWater();
         _api.vkDestroyBuffer(_edgeVertexBuffer); _api.vkFreeMemory(_edgeVbMemory);
         _api.vkDestroyBuffer(_edgeIndexBuffer); _api.vkFreeMemory(_edgeIbMemory);
         _api.vkDestroyRenderPass(_rpOpaque);

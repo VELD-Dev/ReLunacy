@@ -41,6 +41,15 @@ internal static class RenderMenuDraw
         PersistRenderSettings();
     }
 
+    /// <summary>Shrubs sway in the wind. Read by View3D every frame.</summary>
+    internal static void ShrubWind()
+    {
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_ShrubWind"), "", !settings.StillShrubs)) return;
+        settings.StillShrubs = !settings.StillShrubs;
+        settings.SaveSettingsToFile();
+    }
+
     /// <summary>Selects the loaded region or Fall of Man gameplay group. A level with a single choice hides the menu.</summary>
     internal static void RegionSelection()
     {

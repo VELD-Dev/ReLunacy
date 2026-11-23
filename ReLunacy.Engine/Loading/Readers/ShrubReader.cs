@@ -9,7 +9,8 @@ namespace ReLunacy.Engine.Loading.Readers;
 /// Reads shrubs.dat into shrub assets.
 ///
 /// New engine only - the old engine has no shrub family at all, so this returns nothing for Tools
-/// of Destruction and Quest for Booty rather than guessing at one.
+/// of Destruction and Quest for Booty rather than guessing at one. One format serves A Crack in
+/// Time, All 4 One and Into the Nexus (see ShrubClass); QForce is untested.
 /// </summary>
 public sealed class ShrubReader(FileManager fileManager, MaterialReader materialReader)
 {
@@ -68,9 +69,14 @@ public sealed class ShrubReader(FileManager fileManager, MaterialReader material
 
         // Keyed by the pointer table's TUID, as Ties are, because that is what a zone's class
         // table names - not the TUID the class also stores in its own header (they agree on
-        // all 49 measured, but the table is the thing doing the addressing).
+        // all 107 slices of the three games, but the table is the thing doing the addressing).
+        // A shrub has no lightmap, so its second UV set carries the bend weight instead: (bend, 0)
+        // per vertex, which the scene vertex shader sways by (VulkanRenderer, Direction0.w = 10).
+        var bend = new float[parsed.VertexCount * 2];
+        for (int v = 0; v < parsed.VertexCount; v++) bend[v * 2] = parsed.BendWeights[v];
+
         var geometry = new GeometryData(
-            pointer.TUID, parsed.Positions, parsed.UVs, parsed.Indices);
+            pointer.TUID, parsed.Positions, parsed.UVs, parsed.Indices, lightmapUVs: bend);
 
         var mesh = new Mesh(geometry, placeholder, parsed.SourcePath);
         return new Assets.Shrubs.Shrub(

@@ -45,6 +45,7 @@ public sealed unsafe partial class VulkanRenderer
     // Tools of Destruction's Tie shaders (Loading.Shaders.TodTieShaders): the baked family (lightmap
     // units 4 / 14) and the unbaked one lit by the placement's prelight. k = the key's use bits.
     private const int RouteTodBaked = 6, RouteTodPrelit = 7;
+    private const int RouteAcitBaked = 8, RouteAcitBakedTranslucent = 9;
 
     /// <summary>Tools of Destruction's Tie shaders for the level being drawn (set by AssetManager), or null.</summary>
     public static Loading.Shaders.TodTieShaders? TodShaders { get; set; }
@@ -295,6 +296,10 @@ public sealed unsafe partial class VulkanRenderer
             }
             if (materials[mat].ShaderBundle is { Variants.Count: > 0 } bundle)
             {
+                // ACIT's selector-less bundles have their own patch group and vertex input layout.
+                // They are available for inspection, while draws use the generic material shader.
+                if (!bundle.HasSelectorSection)
+                    continue;
                 int route = InstanceRoute(i, mat, instanceLights[i]);
                 if (route < 0)
                     continue;
@@ -308,6 +313,12 @@ public sealed unsafe partial class VulkanRenderer
             bool translucent = (int)materials[mat].GameRenderMode is not (0 or 4 or 5);
             // Two-layer draws exist on the opaque pass only (the translucent passes pass 0xFFFF).
             bool twoLayer = materials[mat].IsTwoLayer && !translucent;
+            if (_standardShaders.IsCrackInTime)
+            {
+                if (block != Loading.Shaders.NewEngineStandardShaders.Block.Lightmapped || (translucent && materials[mat].IsTwoLayer))
+                    continue;
+                stdRoute = translucent ? RouteAcitBakedTranslucent : RouteAcitBaked;
+            }
             if (_standardShaders.Get(block, twoLayer, translucent, bits) is not { } near)
                 continue;
             _instRsx[i] = SetFor(near, stdRoute, StandardVpPermutation(stdRoute, bits));
@@ -541,11 +552,13 @@ public sealed unsafe partial class VulkanRenderer
         string tail = generic[LitFragCommon.Length..].Replace("shade(c, a);", "shadeRetail(c, a);");
         // The EBOOT's opaque shaders (no fog group) write the glow mask to alpha and leave fog out: the
         // editor takes coverage from the albedo and fogs their output itself (RSX_OPAQUE_PROGRAM).
-        bool opaqueShader = route >= RouteStdLightmapped && !shader.Groups.Contains(0);
+        bool acit = route is RouteAcitBaked or RouteAcitBakedTranslucent;
+        bool opaqueShader = route == RouteAcitBaked || (!acit && route >= RouteStdLightmapped && !shader.Groups.Contains(0));
         // The EBOOT's two-layer shaders read the blend mask on unit 12 and the second material on 8..11.
         bool twoLayer = route >= RouteStdLightmapped && shader.TextureUnits.Contains(12);
         head = head.Replace("#version 450",
             $"#version 450\n#define RSX_ROUTE {route}\n#define RSX_K {k}\n#define RSX_BLENDED {(blended ? 1 : 0)}" +
+            $"\n#define RSX_ACIT {(acit ? 1 : 0)}" +
             $"\n#define RSX_OPAQUE_PROGRAM {(opaqueShader ? 1 : 0)}\n#define RSX_TWO_LAYER {(twoLayer ? 1 : 0)}" +
             $"\n#define RSX_DEBUG {Environment.GetEnvironmentVariable("RELUNACY_RSX_DEBUG") ?? "0"}");
         return head + RetailLibraryGlsl + shader.Body + RetailShadeGlsl + tail;
@@ -658,7 +671,7 @@ vec4 rsxTex4(vec4 c) {
     vec4 t = texture(uLightColour, c.xy);
     if (uMat2.z > 0.5) t.rgb = pow(max(t.rgb, vec3(0.0)), vec3(2.2));
     return t;
-#elif RSX_ROUTE == 1 || RSX_ROUTE == 3
+#elif RSX_ROUTE == 1 || RSX_ROUTE == 3 || RSX_ACIT
     vec4 t = texture(uLightColour, c.xy);
     if (uMat2.z > 0.5) t.rgb = pow(max(t.rgb, vec3(0.0)), vec3(2.2));
     // A direction-encoded bake (BIASED 0x5410, A Crack in Time): DXT1, the sun already in the colour -
@@ -688,8 +701,14 @@ vec4 rsxCubeColour(vec4 t) {
     // applied it (newReflection * uEnvironmentIntensity); this path never did, so with GameShaders on
     // the control did nothing and reflections ran unattenuated - worst on metals, whose props.r is
     // near 1 and which therefore take the cube's full radiance with no specular mask to damp it.
+#if RSX_ACIT
+    // ACIT's program applies the alpha exposure and bias after sampling the cube.
+    t.rgb *= uEnvironmentIntensity;
+    gCubeRadiance = t.rgb * max(t.a + uMat4.z + uPostParams.y, 0.0);
+#else
     if (uOldEngineMode < 0.5) t.rgb *= max(t.a + uMat4.z + uPostParams.y, 0.0) * uEnvironmentIntensity;
     gCubeRadiance = t.rgb;
+#endif
     if (int(uReflectionDebug + 0.5) == 3) t.rgb = vec3(0.0);
     return t;
 }
@@ -739,7 +758,12 @@ vec4 rsxTex11(vec4 c) { return rsxSceneColor(c); }
 #endif
 #if RSX_TWO_LAYER
 vec4 rsxTex12(vec4 c) {
+#if RSX_ACIT
+    // The ACIT vertex permutations pack the same mask UV into different TEX lanes.
+    vec4 mask = texture(uBlendMask, fUV2);
+#else
     vec4 mask = texture(uBlendMask, c.xy);
+#endif
     rsxLayerMask = mask.r;
     return mask;
 }
@@ -747,15 +771,10 @@ vec4 rsxTex12(vec4 c) {
 vec4 rsxTex12(vec4 c) { return vec4(0.0); }
 #endif
 vec4 rsxTex13(vec4 c) { return vec4(1.0); }
-// 0x5410 is three RNM weights on All 4 One / QForce / Into the Nexus. A Crack in Time's (BIASED, CONTROL1
-// 0xA8B4) is the dominant light direction in tangent space, the Tools of Destruction encoding (light =
-// LM x sat(N.D) / D.z): turn it into the weights that give the same light on the flat normal (exactly 1)
-// and lean the same way, w_i = 3 sat(b_i.D)^2 / sum_j sat(b_j.D)^2 (INFERRED: ACiT's own shaders are in
-// its encrypted EBOOT).
+// 0x5410 holds RNM weights in later games. ACIT and ToD use a signed direction.
 vec4 rsxTex14(vec4 c) {
     vec4 t = texture(uLightDir, c.xy);
-#if RSX_ROUTE == 6
-    // ToD LM2 (0x5410): the light direction, expanded by the sampler's BIASED address state.
+#if RSX_ROUTE == 6 || RSX_ACIT
     return uMat2.x > 0.5 ? vec4(t.rgb * 2.0 - 1.0, t.a) : t;
 #endif
     if (uMat2.x < 0.5) return t;
@@ -823,7 +842,7 @@ void rsxSetup() {
     TEX6 = vec4(fPrelightIntensity.xyz * scale, 0.0);
     TEX7 = vec4(detailUV, detailWeight, 0.0);
     TEX8 = vec4(dot(t, l), dot(b, l), dot(n, l), 0.0);
-#elif RSX_ROUTE == 3
+#elif RSX_ROUTE == 3 || RSX_ACIT
     // EBOOT standard shaders, lightmapped Tie / UFrag: VPs 44 + k / 98 + k, k = specular | normal map << 1
     // | detail << 2. TEX1.xy = the per-vertex light multiplier and blend weight (|position.w| / 32768,
     // low 7 bits / 128), TEX1.z = c[4].x on the RNM permutations, c[4].y on the flat ones.
@@ -853,8 +872,18 @@ void rsxSetup() {
     TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, normalMask); TEX3 = vec4(detailUV, detailWeight, 0.0);
     TEX4 = vec4(lts, 0.0);
 #else
+#if RSX_ACIT
+    TEX1 = vec4(w, c4x, 0.0); TEX2 = vec4(vts, reflMask); TEX3 = vec4(n, normalMask);
+    TEX4 = vec4(t, 0.0); TEX5 = vec4(b, 0.0); TEX6 = vec4(detailUV, detailWeight, 0.0);
+#else
     TEX1 = vec4(w, detailUV); TEX2 = vec4(vts, reflMask); TEX3 = vec4(n, normalMask);
     TEX4 = vec4(t, c4x); TEX5 = vec4(b, detailWeight); TEX6 = vec4(lts, 0.0);
+#endif
+#endif
+#if RSX_ROUTE == 9
+    // The blended ACIT programs receive fog weight in TEX1.w and fog colour in group 0.rgb.
+    TEX1.w = uNewEngineFog.y > 0.5 ? newEngineFog().w :
+        clamp(min(viewDepth * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
 #endif
 #elif RSX_ROUTE == 4
     // EBOOT standard shaders, prelit Tie: VPs 52 + k. C = the unit-luminance chroma x c[1].rgb, I = the
@@ -1026,6 +1055,18 @@ void rsxSetup() {
     G17 = il.secondParallax;
 #endif
     G22 = vec4(0.0);
+#if RSX_ACIT
+    // Group 0.w is the shadowed luminance floor. The editor currently supplies full visibility.
+    G0.w = 1.0;
+    G1 = uMat3;
+    G2 = vec4(uMat0.yz, uMat4.z + uPostParams.y, 0.0);
+    G3 = vec4(uMat6.x, 0.0, 0.0, 0.0);
+#if RSX_TWO_LAYER
+    G11 = il.secondTint;
+    G12 = il.secondParallax;
+    G13 = vec4(il.secondParallax.z, 0.0, 0.0, 0.0);
+#endif
+#endif
     rsxCubeSlot = int(uMat5.x + 0.5);
 }
 ";
@@ -1062,7 +1103,15 @@ void shadeRetail(out vec3 litColor, out float litAlpha) {
     // fog with the group-0 colour and amount the blended ones use, and take coverage - the cut-out
     // test, the soft-edge pass - from the albedo, as the generic shader does (the game cuts in its
     // depth pre-pass: none of these shaders discards). In the opaque pass the atmosphere does it below.
-    if (!gBeforeAtmosphere) litColor = mix(litColor, G0.rgb, G0.w);
+    if (!gBeforeAtmosphere) {
+#if RSX_ACIT
+        vec4 fog = uNewEngineFog.y > 0.5 ? newEngineFog() :
+            vec4(uFogColour, clamp(min(uFogScale / gl_FragCoord.w + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled);
+        litColor = mix(litColor, fog.rgb, fog.w);
+#else
+        litColor = mix(litColor, G0.rgb, G0.w);
+#endif
+    }
     vec4 albedoTex = texture(uAlbedo, fUV);
     litAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? albedoTex.a * fColor.a : fColor.a) : albedoTex.a;
 #endif

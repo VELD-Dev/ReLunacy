@@ -293,6 +293,7 @@ public sealed class InstallProjectModal : Modal
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Install_UseGameFileTip"));
         }
         if (_note != null) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), _note);
+        if (project.HasLuaDrafts) ImGui.TextWrapped(LM.Get("GUI_Install_LuaDrafts"));
         if (ProjectSession.Dirty) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Install_Unsaved"));
         ImGui.Spacing();
 
@@ -355,13 +356,14 @@ public sealed class UnsavedChangesModal : Modal
             if (ImGui.Button(LM.Get("GUI_Unsaved_Save")))
             {
                 isOpen = false;
-                LunaWindow.Instance.AddFrame(new SaveLevelModal(_proceed));
+                ReLunacy.MenuBar.FileMenuDraw.SaveProject(_proceed);
             }
             ImGui.SameLine();
         }
         if (ImGui.Button(LM.Get("GUI_Unsaved_Discard")))
         {
             isOpen = false;
+            ProjectSession.DiscardPendingFiles();
             ProjectSession.MarkSaved();
             _proceed();
         }

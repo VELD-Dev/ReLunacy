@@ -148,6 +148,12 @@ public sealed class NamedNumbers
         while (_lines.Count > 0 && _lines[^1].Length == 0) _lines.RemoveAt(_lines.Count - 1);
     }
 
+    public IEnumerable<(long Number, string Name)> Names()
+    {
+        lock (_lines)
+            return _names.Select(n => (n.Key, n.Value.Name)).ToArray();
+    }
+
     public int Count => _names.Count;
     public string? Name(long number) => _names.TryGetValue(number, out var entry) ? entry.Name : null;
 

@@ -80,6 +80,9 @@ public static class LuaReferenceSearch
         if (scripts?.Find(name) is { } declared)
             return new LuaDeclaration(declared.Function.SourceFile, declared.NameSpan, true);
 
+        if (scripts?.Instances.TryGetValue(name, out var instance) == true)
+            return new LuaDeclaration(instance.Path, instance.Span, true);
+
         // Otherwise the annotation that describes it, which lives in a documentation file on disk
         // rather than in the archive - worth reporting, not worth pretending is navigable.
         if (api?.Functions.GetValueOrDefault(name) is { } documented)

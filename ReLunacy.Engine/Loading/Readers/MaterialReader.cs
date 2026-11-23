@@ -94,6 +94,9 @@ public sealed class MaterialReader
         return _textureCache.ToDictionary(kv => kv.Key, kv => (ITexture)kv.Value);
     }
 
+    internal ITexture? FindTexture(ulong id) =>
+        _loader.Textures.TryGetValue(id, out var texture) ? WrapTexture(texture) : null;
+
     /// <summary>
     /// Checks both serialized texture TUIDs and already-wrapped runtime ids without forcing every
     /// texture through WrapTexture. Used by generated per-zone lighting textures to avoid id

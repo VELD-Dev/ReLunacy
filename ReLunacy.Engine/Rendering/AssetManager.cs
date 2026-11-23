@@ -59,6 +59,7 @@ public sealed class AssetManager : IDisposable
     // The EBOOT's standard (class 0x00) shaders, when a decrypted EBOOT is found (QForce only, like
     // the embedded ones).
     private readonly Loading.Shaders.NewEngineStandardShaders? _standardShaders;
+    private readonly ITexture[] _waterMasks;
     private readonly Dictionary<RenderMaterial, (bool IsNewEngine, byte ShaderClass, byte ShaderFlags)> _vkNewEngineShaderInfo =
         new(ReferenceEqualityComparer.Instance);
 
@@ -118,6 +119,7 @@ public sealed class AssetManager : IDisposable
     // keeps one Material per source shader instead of one per placement.
     private readonly HashSet<RenderMaterial> _billboardMaterials = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ulong, RenderMaterial> _billboardMaterialCache = new();
+    private readonly Dictionary<(Assets.Foliage.Foliage, RenderMaterial), RenderMesh> _foliageMeshes = [];
 
     /// <summary>The game's rendering mode (0 Opaque, 1 Overlay, 2 Additive, 3 Scunge, 4 Cutout,
     /// 5 Soft-Edge, 6 Blended) and vertex-alpha flag for a built material.</summary>
@@ -255,19 +257,14 @@ public sealed class AssetManager : IDisposable
         // reads as the blue and black patches it was meant to cure. Use Render > Tonemap and its
         // exposure for the display range; the ceiling stays on the slider for A/B work.
         Vulkan.VulkanRenderer.MaxBakedScale = 0f;
-        // The retail-shader routes and patch groups were measured on QForce (RsxShaders); the other
-        // new-engine games keep the generic path until theirs are (seaside's water drew flat white).
-        // Same engine on A Crack in Time, All 4 One, QForce and Into the Nexus: the game's shaders are
-        // drawn on all of them (the seaside water that drew flat white was the unit-10/11 stub, now the
-        // scene copy).
+        // Keep embedded bundles available to the renderer, which selects the supported bindings.
         _retailShadersMeasured = !level.IsOldEngine;
         UsesFallOfManLightmaps = level.GameDefinition?.Id == Games.GameId.RFallOfMan;
-        // The EBOOT's standard shaders: this level's own game's when a decrypted EBOOT lies in its install
-        // (QForce, All 4 One, Into the Nexus here), else another new-engine game's - the same engine, the
-        // same table layout (A Crack in Time has none decrypted).
+        // Read the standard shaders from a compatible decrypted EBOOT. ACIT uses its own bindings.
         _standardShaders = !level.IsOldEngine
             ? Loading.Shaders.NewEngineStandardShaders.Find(level.GameDefinition?.Id)
             : null;
+        _waterMasks = [.. level.Zones.Values.SelectMany(z => z.Waters).Select(w => w.ClipMask).OfType<ITexture>().DistinctBy(m => m.Id)];
         // Tools of Destruction's Tie shaders, from its decrypted EBOOT (TodTieShaders).
         Vulkan.VulkanRenderer.TodShaders = level.IsOldEngine && level.GameDefinition?.Id is null or Games.GameId.ToolsOfDestruction
             ? Loading.Shaders.TodTieShaders.Find()
@@ -311,6 +308,9 @@ public sealed class AssetManager : IDisposable
         // editor path explicitly asks GetOrBuildTexture for one.
         foreach (var texture in level.AllTextures.Values)
             _sourceTextures.TryAdd(texture.Id, texture);
+        foreach (var foliage in level.Foliages)
+            if (foliage.Material?.AlbedoTexture is { } atlas)
+                GetOrBuildTexture(atlas);
 
         long tTextures = sw.ElapsedMilliseconds - t0; t0 = sw.ElapsedMilliseconds;
         ZoneLightmaps = BuildZoneLighting(level.ZoneLightmaps, "lightmap", progress);
@@ -346,6 +346,26 @@ public sealed class AssetManager : IDisposable
     {
         if (Ties.TryGetValue(tie.Id, out var built)) return built;
         return Ties[tie.Id] = BuildModel(tie.Meshes);
+    }
+
+    /// <summary>Shrub classes built so far, by TUID: only the ones a placement asked for (<see cref="GetOrBuildShrub"/>).</summary>
+    public Dictionary<ulong, RenderModel> Shrubs { get; } = [];
+
+    /// <summary>Resolves a shader TUID to its material (LevelReader.FindShaderMaterial); null when it does not resolve. Set
+    /// before the scene is built, or shrubs draw with the default material.</summary>
+    public Func<ulong, IMaterial?>? ShaderMaterialResolver { get; set; }
+
+    /// <summary>
+    /// The model of a placed shrub class, built on its first placement. Its material is resolved from
+    /// <see cref="IShrub.MaterialTUID"/> here and nowhere earlier: resolving one mints texture wrappers into the
+    /// reader's shared registry, which must not happen for classes nothing draws (see ShrubReader.Read). Falls back to
+    /// the mesh's own (default) material when the TUID does not resolve.
+    /// </summary>
+    public RenderModel GetOrBuildShrub(IShrub shrub)
+    {
+        if (Shrubs.TryGetValue(shrub.Id, out var built)) return built;
+        IMaterial? resolved = shrub.MaterialTUID != 0 ? ShaderMaterialResolver?.Invoke(shrub.MaterialTUID) : null;
+        return Shrubs[shrub.Id] = BuildModel(shrub.Meshes, i => resolved ?? shrub.Meshes[i].Material);
     }
 
     // While a LowResolutionBuilds scope is open: the largest side a texture built on demand loads at (0: its own).
@@ -388,6 +408,14 @@ public sealed class AssetManager : IDisposable
         var renderMaterial = GetOrBuildMaterial(material, Loading.Objects.UFragMetadata.NoLightmap,
             twoLayer?.SecondMaterial, twoLayer?.BlendMask);
         return (Loading.PreparedGeometry.Interleaved(vertices, indices), indices, renderMaterial);
+    }
+
+    public (float[] Vertices, uint[] Indices, RenderMaterial Material)? BuildDetachedUFrag(IUFrag ufrag, IMaterial shader)
+    {
+        var geometry = EntityUFrag.PrepareGeometry(ufrag, shader);
+        if (geometry.Interleaved.Length == 0) return null;
+        return (geometry.Interleaved, geometry.Indices,
+            EntityUFrag.BuildMaterial(ufrag, shader, geometry.HasValidLightmapUVs, this));
     }
 
     /// <summary>Decodes every texture the level needs, in parallel, before any are uploaded. Safe to run
@@ -434,6 +462,9 @@ public sealed class AssetManager : IDisposable
                 foreach (var mesh in bangle.Meshes) NeedMaterial(mesh.Material);
         foreach (var (_, tie) in level.Ties)
             foreach (var mesh in tie.Meshes) NeedMaterial(mesh.Material);
+
+        foreach (var foliage in level.Foliages)
+            Need(foliage.Material?.AlbedoTexture);
 
         // Streaming: everything loads at no more than the base size, decoded from its small mips only;
         // TextureStreamer brings up what the camera needs once the level is on screen.
@@ -1054,6 +1085,59 @@ public sealed class AssetManager : IDisposable
         InvalidateSceneRenderer();
     }
 
+    internal RenderMesh? GetOrBuildFoliageMesh(Assets.Foliage.Foliage foliage, IMaterial? material)
+    {
+        var billboard = GetOrBuildBillboardMaterial(material);
+        var key = (foliage, billboard);
+        if (_foliageMeshes.TryGetValue(key, out var mesh)) return mesh;
+
+        var cards = foliage.SpritesForLod(EntityFoliage.BuiltLod).ToList();
+        if (cards.Count == 0) return null;
+
+        mesh = BuildFoliageMesh(cards, billboard);
+        _foliageMeshes.Add(key, mesh);
+        return mesh;
+    }
+
+    /// <summary>Builds two triangles per card (winding 0-1-2, 0-2-3), each vertex storing the card's
+    /// anchor as its position.</summary>
+    private static RenderMesh BuildFoliageMesh(IReadOnlyList<Assets.Foliage.FoliageSpriteCard> cards, RenderMaterial material)
+    {
+        var vertices = new Vertex3D[cards.Count * 4];
+        var indices = new uint[cards.Count * 6];
+
+        for (int c = 0; c < cards.Count; c++)
+        {
+            var card = cards[c];
+            for (int k = 0; k < 4; k++)
+            {
+                vertices[c * 4 + k] = new Vertex3D(
+                    card.Anchor,
+                    card.Uvs[k],
+                    card.CornerOffsets[k],
+                    Vector3.UnitY,
+                    new Vector4(1f, 0f, 0f, 1f),
+                    Vector4.One);
+            }
+
+            int v = c * 4;
+            int i = c * 6;
+            indices[i + 0] = (uint)(v + 0);
+            indices[i + 1] = (uint)(v + 1);
+            indices[i + 2] = (uint)(v + 2);
+            indices[i + 3] = (uint)(v + 0);
+            indices[i + 4] = (uint)(v + 2);
+            indices[i + 5] = (uint)(v + 3);
+        }
+
+        var mesh = new RenderMesh(vertices, indices, material);
+
+        // Registers geometry with the capture registry so the Vulkan scene walk can find it.
+        VulkanSceneCapture.Register(mesh, VulkanSceneCapture.Interleave(vertices), indices);
+
+        return mesh;
+    }
+
     /// <summary>The material for a foliage sprite card. Deliberately NOT reachable from
     /// GetOrBuildMaterial: nothing about a material says "this is a billboard", it is a property of the
     /// GEOMETRY (foliage packs a shared anchor into the position and the corner offset into
@@ -1064,8 +1148,7 @@ public sealed class AssetManager : IDisposable
         // Cached per source shader, since many placements share a handful of shaders.
         if (_billboardMaterialCache.TryGetValue(material?.Id ?? ulong.MaxValue, out var cached)) return cached;
 
-        // Foliage is always double-sided and blended; the renderer reads both facts from the source
-        // material's own GameRenderMode below.
+        // The renderer uses a dedicated double-sided, alpha-tested pipeline for these materials.
         var billboard = new RenderMaterial();
 
         var albedo = material?.AlbedoTexture != null ? GetOrBuildTexture(material.AlbedoTexture) : GetDefaultAlbedoTexture();
@@ -1707,7 +1790,12 @@ public sealed class AssetManager : IDisposable
                     matRemap[material] = matSlot;
                     sceneMaterials.Add(material);
                 }
-                float displayDistance = entity is EntityMoby moby ? moby.DisplayDistance : -1f;
+                float displayDistance = entity switch
+                {
+                    EntityMoby moby => moby.DisplayDistance,
+                    EntityShrub shrub => shrub.DisplayDistance,
+                    _ => -1f,
+                };
                 instances.Add((geoSlot, matSlot, world, sphere, entity, displayDistance, (uint)entity.ID));
 
                 if (entity is EntityMoby em && em.BaseMoby.Skeleton is { } skel)
@@ -1743,7 +1831,7 @@ public sealed class AssetManager : IDisposable
             var scene = BuildVkScene();
             if (scene is not { } s) return false;
             double built = timer.Elapsed.TotalSeconds;
-            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, true, _oldLightingEnvironment, s.envCube, viewWidth, viewHeight, _oldEngineMobys, EnvironmentCubeResources, _standardShaders, s.maxSkeletonBones, s.maxConcurrentAnimated);
+            SceneRenderer = new VulkanRenderer(gd, s.verts, s.idx, s.materials, s.instances, true, _oldLightingEnvironment, s.envCube, viewWidth, viewHeight, _oldEngineMobys, EnvironmentCubeResources, _standardShaders, s.maxSkeletonBones, s.maxConcurrentAnimated, _waterMasks);
             Console.WriteLine(
                 $"[Scene][Timing] retained scene captured in {timer.Elapsed.TotalSeconds:0.00}s " +
                 $"(gather {built:0.00}s, GPU renderer {timer.Elapsed.TotalSeconds - built:0.00}s): " +
@@ -1912,6 +2000,7 @@ public sealed class AssetManager : IDisposable
         _sceneRendererInvalidationPending = false;
         SceneRenderer?.Dispose();
         SceneRenderer = null;
+        _foliageMeshes.Clear();
         VulkanSceneCapture.Clear();
     }
 
@@ -1965,6 +2054,7 @@ public sealed class AssetManager : IDisposable
 
         Mobys.Clear();
         Ties.Clear();
+        Shrubs.Clear();
         _materialCache.Clear();
         _materialsByShader.Clear();
         _sourceMaterials.Clear();

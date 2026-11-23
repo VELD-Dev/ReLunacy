@@ -23,8 +23,8 @@ public static class AssetOpener
     /// <summary>Whether <see cref="Open"/> has a viewer for this kind.</summary>
     public static bool CanOpen(AssetEntry entry) => entry.Kind switch
     {
-        AssetKind.Shrub => false,
-        AssetKind.Shader => !entry.Imported,
+        AssetKind.Shrub => LunaWindow.Instance.Level?.Shrubs.ContainsKey(entry.Id) == true,
+        AssetKind.Shader => LunaWindow.Instance.Level?.Shaders.ContainsKey(entry.Id) == true,
         _ => true,
     };
 
@@ -38,6 +38,8 @@ public static class AssetOpener
                 return Select<AssetViewer>(v => v.SelectMobyById(entry.Id));
             case AssetKind.Tie:
                 return Select<AssetViewer>(v => v.SelectTieById(entry.Id));
+            case AssetKind.Shrub:
+                return Select<AssetViewer>(v => v.SelectShrub(entry.Id));
             case AssetKind.UFrag:
                 return entry.Tag is IUFrag ufrag && Select<AssetViewer>(v => v.SelectUFrag(ufrag));
             case AssetKind.Effect:
@@ -89,6 +91,7 @@ public static class AssetOpener
             {
                 AssetKind.Moby => entity is EntityMoby moby && moby.BaseMoby.Id == entry.Id,
                 AssetKind.Tie => entity is EntityTie tie && tie.BaseTie.Id == entry.Id,
+                AssetKind.Shrub => entity is EntityShrub shrub && shrub.BaseShrub.Id == entry.Id,
                 AssetKind.Foliage => entity is EntityFoliage foliage && foliage.BaseFoliage.Id == entry.Id,
                 AssetKind.UFrag => entity is EntityUFrag ufrag && ReferenceEquals(ufrag.UFrag, entry.Tag),
                 _ => false,

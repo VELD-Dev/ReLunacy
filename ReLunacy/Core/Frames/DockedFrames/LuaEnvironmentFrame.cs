@@ -1,6 +1,8 @@
 using System.Numerics;
 using ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 using ReLunacy.Utility;
+using ReLunacy.Core.Project;
+using ReLunacy.Engine.Scripting;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
@@ -16,7 +18,7 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// result without fighting that, and the Split toggle covers the case a sub-dockspace would have
 /// been for - reading a source and its compiled output together.
 /// </summary>
-public class LuaEnvironmentFrame : DockedFrame
+public class LuaEnvironmentFrame : DockedFrame, IDisposable
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
@@ -38,46 +40,136 @@ public class LuaEnvironmentFrame : DockedFrame
     public LuaEnvironmentFrame()
     {
         FrameName = LM.Get("GUI_Frame_LuaEnvironment");
-        // Picking a script fills both views: the source to edit, and its compiled counterpart to
-        // read beside it. The .lc is found by the path mapping verified across all 524 chunks.
-        _scripts.ScriptSelected = (path, source, compiled) =>
-        {
-            _editor.Load(source, path, fromArchive: true);
-            if (compiled is not null) _disassembly.Load(compiled, LuaScriptBrowser.CompiledPathFor(path));
-        };
-        // The level's other scripts share one global table at runtime, so a function declared in
-        // any of them is callable from the file being edited. The browser already has the archive
-        // open, so it is what indexes them.
-        _editor.SharedScripts = _scripts.SharedScripts;
-        _editor.ArchivePath = _scripts.ArchivePathFor;
-        // Searching for references reads the siblings' text, and jumping to a declaration in one
-        // of them means opening it - both of which the browser is already holding the archive for.
-        _editor.SiblingSources = _scripts.SharedSources;
-        _editor.OpenScript = _scripts.Open;
-        // What load_level_script(" and load_global_script(" complete to. The browser is what knows
-        // which scripts the archive holds.
-        _editor.ScriptNames = _scripts.ScriptNames;
-        _editor.Installed = _scripts.Reload;
+        _editor.SharedScripts = () => _scripts.SharedScripts(_editor.Path);
+        _editor.SiblingSources = () => _scripts.SharedSources(_editor.Path);
+        _editor.OpenScript = OpenScript;
+        _editor.ScriptNames = kind => _scripts.ScriptNames(_editor.Path, kind);
+        _editor.TextTags = () => ProjectTextTags.List().Select(tag => new LuaCompletionItem(
+            tag.Name, tag.LuaValue, LuaCompletionKind.Variable, $"text ID {tag.Id}", null));
     }
 
-    /// <summary>Opens source in the editor - how the PSARC browser will hand a script over.</summary>
-    public void LoadSource(string text, string label) => _editor.Load(text, label);
+    public bool Focused { get; private set; }
+    public bool Dirty => _editor.Dirty;
+    private bool _showEditor;
 
-    /// <summary>Opens a chunk in the disassembly, bytes straight from wherever they came from.</summary>
+    public bool Save()
+    {
+        bool changed = _editor.Dirty;
+        if (!_editor.Save()) return false;
+        if (changed && _editor.Archive != null)
+        {
+            _scripts.Refresh();
+            try
+            {
+                if (_scripts.Contains(_editor.Path)) LoadDisassembly(_editor.Path, _scripts.Read(_editor.Path).Chunk);
+            }
+            catch (Exception e) { _editor.ShowStatus(e.Message); }
+        }
+        return true;
+    }
+
+    public void Revert() => _editor.Revert();
+
+    public void Dispose()
+    {
+        if (!Save()) { isOpen = true; return; }
+        _scripts.Dispose();
+    }
+
+    public override void RenderAsWindow(double deltaTime)
+    {
+        Focused = false;
+        base.RenderAsWindow(deltaTime);
+    }
+
+    public void LoadSource(string text, string label)
+    {
+        if (Save()) _editor.Load(text, label);
+    }
+
     public void LoadChunk(byte[] bytes, string label) => _disassembly.Load(bytes, label);
+
+    private void LoadDisassembly(string path, byte[]? chunk) =>
+        _disassembly.Load(chunk, LuaScriptPackWriter.CompiledPathFor(path));
+
+    private bool OpenScript(string path)
+    {
+        if (_editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
+            && path.Equals(_editor.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            _showEditor = true;
+            return true;
+        }
+        if (!Save()) return false;
+        _scripts.Refresh();
+        if (!_scripts.Contains(path)) return false;
+        try
+        {
+            var script = _scripts.Read(path);
+            _editor.Load(script.Source, path, script.Archive, ProjectSession.Current, script.Draft);
+            LoadDisassembly(path, script.Chunk);
+            _showEditor = true;
+            return true;
+        }
+        catch (Exception e) { _editor.ShowStatus(e.Message); return false; }
+    }
+
+    internal (string Path, int Version)? LiveScriptVersion =>
+        _editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
+            ? (_editor.Path, _editor.Document.Version) : null;
+
+    internal LuaScriptSource WithLiveSource(LuaScriptSource source) =>
+        _editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
+        && source.Path.Equals(_editor.Path, StringComparison.OrdinalIgnoreCase)
+            ? source with { Text = _editor.Document.GetText() } : source;
+
+    public void RevealScript(string path, LuaPosition at)
+    {
+        bool alreadyOpen = _editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
+            && path.Equals(_editor.Path, StringComparison.OrdinalIgnoreCase);
+        if (alreadyOpen || OpenScript(path))
+        {
+            _showEditor = true;
+            _editor.Reveal(at);
+        }
+        Focus();
+    }
 
     protected override void Render(double deltaTime)
     {
-        ImGui.Checkbox(LM.Get("GUI_LuaEnv_Scripts"), ref _showScripts);
+        Focused = ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows);
+        bool refreshed = _scripts.Refresh();
+        if (_editor.Archive != null && !_editor.Dirty)
+        {
+            if (!ReferenceEquals(_editor.Project, ProjectSession.Current) || !_scripts.Contains(_editor.Path))
+            {
+                _editor.Load("", "");
+                _disassembly.Load(null, "");
+            }
+            else if (refreshed)
+            {
+                try
+                {
+                    var script = _scripts.Read(_editor.Path);
+                    if (script.Source != _editor.Document.GetText() || script.Draft != _editor.IsDraft)
+                    {
+                        _editor.Load(script.Source, _editor.Path, script.Archive, ProjectSession.Current, script.Draft);
+                        LoadDisassembly(_editor.Path, script.Chunk);
+                    }
+                }
+                catch (Exception e) { _editor.ShowStatus(e.Message); }
+            }
+        }
+
+        if (ImGuiPlus.IconButton(Icons.FolderOpen, "toggle_lua_scripts")) _showScripts = !_showScripts;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_Scripts"));
         ImGui.SameLine();
         ImGui.Checkbox(LM.Get("GUI_LuaEnv_Split"), ref _split);
-        ImGui.SameLine();
-        ImGui.TextDisabled(LM.Get("GUI_LuaEnv_SplitHint"));
         ImGui.Separator();
 
         if (_showScripts)
         {
-            if (_scriptsPane.Begin("lua_env_scripts")) _scripts.Render();
+            if (_scriptsPane.Begin("lua_env_scripts")) _scripts.Render(_editor.Path, Dirty, OpenScript, Save);
             ResizablePane.End();
             ImGui.SameLine();
         }
@@ -94,7 +186,7 @@ public class LuaEnvironmentFrame : DockedFrame
         {
             // Half and half to begin with, then wherever it is dragged to: reading a source
             // against its compiled output rarely wants the two the same width.
-            if (_editorPane.Begin("lua_env_left")) _editor.Render(deltaTime);
+            if (_editorPane.Begin("lua_env_left")) _editor.Render(deltaTime, Save);
             ResizablePane.End();
             ImGui.SameLine();
             if (ImGui.BeginChild("lua_env_right", new Vector2(0f, 0f)))
@@ -104,9 +196,11 @@ public class LuaEnvironmentFrame : DockedFrame
         }
 
         if (!ImGui.BeginTabBar("lua_env_tabs")) return;
-        if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabEditor")))
+        var editorFlags = _showEditor ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        _showEditor = false;
+        if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabEditor"), editorFlags))
         {
-            _editor.Render(deltaTime);
+            _editor.Render(deltaTime, Save);
             ImGui.EndTabItem();
         }
         if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabDisassembly")))

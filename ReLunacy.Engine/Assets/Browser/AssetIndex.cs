@@ -2,6 +2,7 @@ using ReLunacy.Engine.Assets.Audio;
 using ReLunacy.Engine.Assets.Effects;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Loading.Readers;
+using ReLunacy.Engine.Importing;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Engine.Text;
 
@@ -29,6 +30,8 @@ public sealed class AssetIndexSources
     public IReadOnlyList<TextTableRef>? TextTables { get; init; }
     /// <summary>The level archive's path: the game's other level folders give cut shader names their start.</summary>
     public string? LevelPath { get; init; }
+    public IReadOnlyDictionary<ulong, AuthoredTextureRecord> AuthoredTextures { get; init; } =
+        new Dictionary<ulong, AuthoredTextureRecord>();
 }
 
 /// <summary>
@@ -321,22 +324,25 @@ public sealed class AssetIndex
         foreach (var (id, texture) in level.AllTextures)
         {
             if (bindings.ContainsKey(id)) continue;
-            var (folder, name) = SplitPath(texture.Name, $"{UnsortedFolder}/Textures", $"Texture {id:X}");
+            sources.AuthoredTextures.TryGetValue(id, out var imported);
+            string fullName = imported?.Name ?? texture.Name ?? "";
+            var (folder, name) = SplitPath(fullName, $"{UnsortedFolder}/Textures", $"Texture {id:X}");
             entries.Add(new AssetEntry
             {
-                Key = new(AssetKind.Texture, id), Name = name, FullName = texture.Name ?? "", Folder = folder,
+                Key = new(AssetKind.Texture, id), Name = name, FullName = fullName, Folder = folder, Tag = imported,
                 Source = level.PatchLayerTextures.Contains(id) ? AssetSource.Patch : AssetSource.Level,
                 Detail = $"{texture.Width}x{texture.Height} {texture.Format}",
             });
         }
 
-        foreach (var pending in sources.Regions.SelectMany(r => r.PendingShaders).SelectMany(s => s.Textures))
+        foreach (var pending in sources.Regions.SelectMany(r => r.PendingTextures.Concat(r.PendingShaders.SelectMany(s => s.Textures))))
         {
             if (level.AllTextures.ContainsKey(pending.Tuid)) continue;
             var (folder, name) = SplitPath(pending.Name, $"{UnsortedFolder}/Textures", $"Texture {pending.Tuid:X}");
             entries.Add(new AssetEntry
             {
                 Key = new(AssetKind.Texture, pending.Tuid), Name = name, FullName = pending.Name, Folder = folder, Source = AssetSource.Imported,
+                Detail = $"{pending.Texture.Width}x{pending.Texture.Height} {pending.Texture.Kind}", Tag = pending,
             });
         }
     }
@@ -348,6 +354,7 @@ public sealed class AssetIndex
         foreach (string other in LevelFolders(sources.LevelPath)) known.Add($"levels/{other}");
         foreach (var entry in entries)
             for (string f = entry.Folder; f.Length > 0 && known.Add(f); f = f.LastIndexOf('/') is int i and > 0 ? f[..i] : "") { }
+        var pendingShaders = sources.Regions.SelectMany(r => r.PendingShaders).ToLookup(s => s.Tuid);
         foreach (var (id, shader) in level.Shaders)
         {
             var (folder, name) = SplitPath(shader.name, "", $"Shader {id:X}");
@@ -355,7 +362,8 @@ public sealed class AssetIndex
             entries.Add(new AssetEntry
             {
                 Key = new(AssetKind.Shader, id), Name = name, FullName = shader.name, Folder = folder,
-                Source = level.PatchLayerShaders.Contains(id) ? AssetSource.Patch : AssetSource.Level,
+                Source = pendingShaders.Contains(id) ? AssetSource.Imported
+                    : level.PatchLayerShaders.Contains(id) ? AssetSource.Patch : AssetSource.Level,
                 Detail = shader.RenderingMode.ToString(), Tag = shader,
             });
         }

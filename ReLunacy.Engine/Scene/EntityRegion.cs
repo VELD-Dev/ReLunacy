@@ -32,6 +32,7 @@ public partial class EntityRegion : IDisposable
 
     /// <summary>The game the region is of; null when unknown.</summary>
     public readonly Games.GameId? Game;
+    public ulong DefaultWaterCubeTuid { get; }
     private readonly AssetManager _assetManager;
 
     /// <summary>The level editor's layers (see <see cref="Region.Layers"/>), then the ones made in the editor
@@ -65,6 +66,7 @@ public partial class EntityRegion : IDisposable
         RegionName = region.Name ?? "UnnamedRegion";
         IsOldEngine = region.IsOldEngine;
         Game = region.Game;
+        DefaultWaterCubeTuid = region.DefaultWaterCubeTuid;
         _assetManager = assetManager;
         _layers = [.. region.Layers];
         _fileLayers = _layers.Count;

@@ -210,6 +210,11 @@ public sealed class LunaProject : IGameFileOverlay
 
     // ----- Levels -----
 
+    public IReadOnlyList<string> LevelSources()
+    {
+        lock (_lock) return Manifest.Levels.Select(level => Absolute(level.Source)).ToArray();
+    }
+
     /// <summary>
     /// Records a level opened in the project and the archives it reads (or its folder). An archive the project has no
     /// pristine copy of is recorded as it is now - the level is being read from it - by hash, size and write time;
@@ -260,16 +265,85 @@ public sealed class LunaProject : IGameFileOverlay
             return Manifest.Editor["textTags"] is JsonObject tags && tags[id.ToString()] is { } name ? (string?)name : null;
     }
 
-    /// <summary>Names a text id in the project (an empty name removes it) and writes the manifest.</summary>
-    public void SetTextTag(int id, string name)
+    public IReadOnlyDictionary<int, string> TextTags()
+    {
+        lock (_lock)
+            return Manifest.Editor["textTags"] is JsonObject tags
+                ? tags.Where(t => int.TryParse(t.Key, out _) && t.Value is JsonValue)
+                    .ToDictionary(t => int.Parse(t.Key), t => (string)t.Value!)
+                : new Dictionary<int, string>();
+    }
+
+    public void SetTextTag(int id, string name) => SetTextTags(new Dictionary<int, string> { [id] = name });
+
+    public void SetTextTags(IReadOnlyDictionary<int, string> names)
     {
         lock (_lock)
         {
-            var tags = Manifest.Editor["textTags"] as JsonObject;
-            if (name.Length == 0) tags?.Remove(id.ToString());
-            else (tags ?? (JsonObject)(Manifest.Editor["textTags"] = new JsonObject()))[id.ToString()] = name;
+            var previous = Manifest.Editor["textTags"];
+            var tags = previous?.DeepClone() as JsonObject ?? new JsonObject();
+            foreach (var (id, name) in names)
+            {
+                if (name.Length == 0) tags.Remove(id.ToString());
+                else tags[id.ToString()] = name;
+            }
+            Manifest.Editor["textTags"] = tags;
+            try { Save(); }
+            catch
+            {
+                Manifest.Editor["textTags"] = previous;
+                throw;
+            }
             Revision++;
-            Save();
+        }
+    }
+
+    // ----- Lua drafts -----
+
+    public bool HasLuaDrafts
+    {
+        get
+        {
+            lock (_lock) return Manifest.Editor["luaDrafts"] is JsonObject { Count: > 0 };
+        }
+    }
+
+    public string? LuaDraft(string archive, string entry)
+    {
+        lock (_lock)
+        {
+            string? relative = Relative(archive);
+            return relative != null && Manifest.Editor["luaDrafts"] is JsonObject drafts
+                && drafts[relative] is JsonObject entries && entries[entry] is JsonValue value
+                && value.TryGetValue<string>(out var source) ? source : null;
+        }
+    }
+
+    public void SetLuaDraft(string archive, string entry, string? source)
+    {
+        string relative = Relative(archive) ?? throw new IOException("The script archive is outside the project.");
+        lock (_lock)
+        {
+            if (LuaDraft(archive, entry) == source) return;
+            var previous = Manifest.Editor["luaDrafts"];
+            var drafts = previous?.DeepClone() as JsonObject ?? new JsonObject();
+            var entries = drafts[relative] as JsonObject;
+            if (source == null)
+            {
+                entries?.Remove(entry);
+                if (entries is { Count: 0 }) drafts.Remove(relative);
+            }
+            else
+                (entries ?? (JsonObject)(drafts[relative] = new JsonObject()))[entry] = source;
+
+            Manifest.Editor["luaDrafts"] = drafts;
+            try { Save(); }
+            catch
+            {
+                Manifest.Editor["luaDrafts"] = previous;
+                throw;
+            }
+            Revision++;
         }
     }
 
@@ -289,11 +363,12 @@ public sealed class LunaProject : IGameFileOverlay
             if (EnsurePristine(record, archivePath) is { } problem) return GameFileWriteResult.Refused(problem);
             string basePath = Path.Combine(DataFolder, record.Pristine!);
 
-            // Checked in full before anything is kept, so a refused save keeps nothing.
+            // Stage a complete archive revision before publishing it in the manifest.
             using var archive = new PSARC(File.OpenRead(basePath));
-            ProjectEntry? Held(string path) => record.Entries.Find(e => e.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+            var originalEntries = record.Entries;
+            var staged = originalEntries.ToDictionary(entry => entry.Path, StringComparer.OrdinalIgnoreCase);
             foreach (string path in replacements.Keys)
-                if (!archive.Manifest.ContainsKey(path) && Held(path)?.Added != true)
+                if (!archive.Manifest.ContainsKey(path) && staged.GetValueOrDefault(path)?.Added != true)
                     return GameFileWriteResult.Refused($"{Path.GetFileName(archivePath)} has no {path}");
             foreach (string path in additions?.Keys ?? [])
                 if (archive.Manifest.ContainsKey(path))
@@ -303,32 +378,45 @@ public sealed class LunaProject : IGameFileOverlay
             void Keep(string path, byte[] bytes, bool added)
             {
                 string sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
-                var entry = Held(path);
+                var entry = staged.GetValueOrDefault(path);
                 string? baseSha = entry?.BaseSha256;
                 if (entry == null && !added)
                 {
                     using var original = archive.OpenFile(path);
                     baseSha = Convert.ToHexStringLower(SHA256.HashData(original.Data.ToArray()));
                 }
-                // Back to the base's own bytes: the project no longer changes the entry.
-                if (!added && entry?.Added != true && sha == baseSha)
+                if (!added && sha == baseSha)
                 {
-                    if (entry != null) { record.Entries.Remove(entry); reverted++; }
+                    if (staged.Remove(path)) reverted++;
                     return;
                 }
+
                 WriteObject(sha, bytes);
-                if (entry == null) record.Entries.Add(entry = new ProjectEntry { Path = path, Added = added, BaseSha256 = baseSha });
-                entry.Sha256 = sha;
-                entry.Size = bytes.Length;
-                entry.Saved = DateTime.Now;
+                staged[path] = new ProjectEntry
+                {
+                    Path = entry?.Path ?? path,
+                    Added = added,
+                    BaseSha256 = baseSha,
+                    Sha256 = sha,
+                    Size = bytes.Length,
+                    Saved = DateTime.Now,
+                };
                 kept++;
             }
-            foreach (var (path, bytes) in replacements) Keep(path, bytes, Held(path)?.Added == true);
-            foreach (var (path, bytes) in additions ?? new Dictionary<string, byte[]>()) Keep(path, bytes, true);
+            foreach (var (path, bytes) in replacements) Keep(path, bytes, staged.GetValueOrDefault(path)?.Added == true);
+            if (additions != null)
+                foreach (var (path, bytes) in additions) Keep(path, bytes, true);
 
+            record.Entries = [.. staged.Values];
             if (created) Manifest.Archives.Add(record);
+            try { Save(); }
+            catch
+            {
+                record.Entries = originalEntries;
+                if (created) Manifest.Archives.Remove(record);
+                throw;
+            }
             Revision++;
-            Save();
             CollectObjects();
             string summary = $"saved {kept} file(s) of {Path.GetFileName(archivePath)} into project {Name}";
             if (reverted > 0) summary += $"; {reverted} back to the game's own";

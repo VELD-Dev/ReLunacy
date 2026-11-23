@@ -159,6 +159,7 @@ public sealed class RegionReader
             name: regionName)
         {
             Game = Game,
+            DefaultWaterCubeTuid = Game == Games.GameId.ACrackInTime ? CubemapReader.ReadAcitDefaultCubes(region).Water : 0,
             Controllers = GameplayGroupReader.ReadControllers(prius, Game),
             Paths = GameplayGroupReader.ReadPaths(prius),
             Pods = GameplayGroupReader.ReadPods(prius),

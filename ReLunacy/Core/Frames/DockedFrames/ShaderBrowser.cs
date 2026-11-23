@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Text;
+using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Placement;
 using ReLunacy.Core.Selection;
 using ReLunacy.Engine.Assets.Browser;
@@ -66,7 +67,9 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
     public void TransmitShaders(LevelData level)
     {
+        ulong? selected = selectedShader >= 0 && selectedShader < shaders.Count ? shaders[selectedShader].TUID : null;
         shaders = [.. level.Shaders.Values];
+        selectedShader = selected.HasValue ? shaders.FindIndex(s => s.TUID == selected) : -1;
         shaderGridEntries = null;
         renderModeCounts.Clear();
         renderModeCounts.AddRange(shaders
@@ -159,6 +162,9 @@ public class ShaderBrowser : DockedFrame, ILevelListener
 
     protected override void Render(double deltaTime)
     {
+        if (LunaWindow.Instance.Level is { } level && level.Shaders.Count != shaders.Count) TransmitShaders(level);
+        if (MaterialAuthoringModal.Available && ImGui.Button(LM.Get("GUI_MenuItem_CreateShader")))
+            MaterialAuthoringModal.Open(shader: true);
         bool filtersChanged = ImGui.InputTextWithHint(LM.Get("GUI_Frame_ShaderBrowser_SearchLabel"),
             LM.Get("GUI_Frame_ShaderBrowser_SearchHint", shaders.Count), ref inputText, 128);
         var previousMode = renderModeFilter;

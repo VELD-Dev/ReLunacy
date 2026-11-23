@@ -5,8 +5,7 @@ namespace ReLunacy.Engine.Loading;
 ///
 /// The bar's phases are these, not the loader's internal call order: every one of them is something
 /// the user can be told about and - with <see cref="LevelLoadProgress"/>'s weights - something whose
-/// share of the wait is roughly known. A phase a given engine has nothing to do for (shrubs on the
-/// old engine, foliage on the new one) is simply never begun, and its weight is absorbed when the
+/// share of the wait is roughly known. When a phase is skipped, its weight is absorbed when the
 /// next phase starts.
 /// </summary>
 public enum LoadPhase

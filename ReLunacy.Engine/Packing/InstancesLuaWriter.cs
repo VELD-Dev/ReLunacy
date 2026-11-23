@@ -21,6 +21,19 @@ public static class InstancesLuaWriter
     private static readonly HashSet<string> Keywords = ["and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in",
         "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while"];
 
+    internal static string? BindingName(string line)
+    {
+        var match = Line.Match(line);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    internal static bool IsVolumeBinding(string line, string name, ulong tuid)
+    {
+        var match = Line.Match(line);
+        return match.Success && match.Groups[1].Value == name && match.Groups[2].Value == "volume"
+            && Convert.ToUInt64(match.Groups[5].Value, 16) == tuid;
+    }
+
     private sealed record Entry(string Text, int Kind, int Layer, int Index, ulong Tuid, string Name, bool Foreign);
 
     public static readonly string[] FileNames = ["instances.lua", "instances.lua.trimmed"];

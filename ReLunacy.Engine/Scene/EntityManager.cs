@@ -107,10 +107,10 @@ public class EntityManager : IDisposable
     public int VolumesCount => Regions.Sum(r => r.Volumes.Size);
     public int TiesCount => Regions.Sum(r => r.TiesCount);
     public int UFragsCount => Regions.Sum(r => r.UFragsCount);
+    public int ShrubsCount => Regions.Sum(r => r.Zones.Sum(z => z.ShrubCount));
     public int ZonesCount => Regions.Sum(r => r.ZonesCount);
 
-    /// <summary>Foliage placements, flat rather than under a region: foliage has no zone/region
-    /// membership recorded in the file.</summary>
+    /// <summary>Foliage placements in the current scene.</summary>
     public List<EntityFoliage> Foliage { get; } = [];
 
     /// <summary>Mobys currently animating in the 3D View, driven once per frame (see View3D's render
@@ -138,8 +138,6 @@ public class EntityManager : IDisposable
     {
         foreach (var foliage in foliages)
         {
-            // foliage.Material is resolved from the asset's own texture index; null falls back to the
-            // default billboard texture inside GetOrBuildBillboardMaterial.
             for (int i = 0; i < foliage.Placements.Count; i++)
                 AddFoliage(foliage, i, am);
         }
@@ -174,7 +172,9 @@ public class EntityManager : IDisposable
             {
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
+                foreach (var e in zone.ShrubInstances.Entities) yield return e;
                 foreach (var e in zone.Navmeshes) yield return e;
+                foreach (var e in zone.Waters) yield return e;
             }
         }
     }
@@ -188,8 +188,6 @@ public class EntityManager : IDisposable
     /// of what the user currently has visible in the viewport.</summary>
     public IEnumerable<Entity> AllRenderableEntities()
     {
-        foreach (var e in Foliage) yield return e;
-
         // Regions can claim the same zone (All 4 One's lobby has two regions over one pair of zones),
         // and each region built its own EntityZone over it, so a zone reached through two enabled
         // regions would otherwise have every Tie and UFrag drawn twice.
@@ -207,8 +205,13 @@ public class EntityManager : IDisposable
                 if (!drawnZones.Add(zone.ZoneTUID)) continue;
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
+                foreach (var e in zone.ShrubInstances.Entities) yield return e;
             }
         }
+
+        foreach (var e in Foliage)
+            if (e.ZoneTuid is not ulong zone || drawnZones.Contains(zone))
+                yield return e;
     }
 
     public bool TryGetEntity(int id, out Entity? entity)
@@ -227,6 +230,7 @@ public class EntityManager : IDisposable
             {
                 if (zone.TieInstances.TryGetEntity(id, out entity)) return true;
                 if (zone.UFrags.TryGetEntity(id, out entity)) return true;
+                if (zone.ShrubInstances.TryGetEntity(id, out entity)) return true;
             }
         }
 
@@ -237,6 +241,7 @@ public class EntityManager : IDisposable
     {
         foreach (var region in Regions) region.Dispose();
         Regions.Clear();
+        Foliage.Clear();
         PlayingMobyAnimations.Clear();
         GC.SuppressFinalize(this);
     }

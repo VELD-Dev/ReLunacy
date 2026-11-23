@@ -58,7 +58,8 @@ public static class LuaCompletionEngine
     public static List<LuaCompletionItem> Complete(
         string source, LuaPosition caret, LuaApiDatabase api, out LuaCompletionContext context,
         LuaScriptIndex? scripts = null,
-        Func<LuaScriptNameKind, IEnumerable<string>>? scriptNames = null)
+        Func<LuaScriptNameKind, IEnumerable<string>>? scriptNames = null,
+        Func<IEnumerable<LuaCompletionItem>>? textTags = null)
     {
         var tokens = LuaLexer.Tokenize(source);
         var block = LuaParser.Parse(source, out _);
@@ -157,6 +158,11 @@ public static class LuaCompletionEngine
                                                     api.Types.TryGetValue(className, out var t) ? t.Description : null));
                 foreach (string keyword in Keywords)
                     items.Add(new LuaCompletionItem(keyword, keyword, LuaCompletionKind.Keyword, null, null));
+
+                foreach (var instance in scripts?.Instances.Values ?? [])
+                    items.Add(new LuaCompletionItem(instance.Name, instance.Name, LuaCompletionKind.Variable,
+                        instance.Type, Path.GetFileName(instance.Path)));
+                items.AddRange(textTags?.Invoke() ?? []);
 
                 // Globals the file itself uses but nothing documents. Offered last and marked, so
                 // the undocumented API is still reachable while staying visibly undocumented.

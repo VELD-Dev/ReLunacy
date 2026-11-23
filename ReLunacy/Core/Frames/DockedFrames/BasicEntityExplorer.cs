@@ -39,8 +39,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private enum Kinds
     {
         None = 0,
-        Mobys = 1, Ties = 2, UFrags = 4, Volumes = 8, Cameras = 16, Paths = 32, Navmesh = 64, Controllers = 128,
-        All = Mobys | Ties | UFrags | Volumes | Cameras | Paths | Navmesh | Controllers,
+        Mobys = 1, Ties = 2, UFrags = 4, Volumes = 8, Cameras = 16, Paths = 32, Navmesh = 64, Controllers = 128, Shrubs = 256,
+        Water = 512,
+        All = Mobys | Ties | UFrags | Volumes | Cameras | Paths | Navmesh | Controllers | Shrubs | Water,
     }
 
     private enum Grouping { None, Asset, AssetFolder }
@@ -51,11 +52,13 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         (Kinds.Mobys, Icons.Cube, "GUI_Frame_EntityExplorer_Mobys", new(0.55f, 0.78f, 1f, 1f)),
         (Kinds.Ties, Icons.Cubes, "GUI_Frame_EntityExplorer_Ties", new(0.85f, 0.72f, 0.55f, 1f)),
         (Kinds.UFrags, Icons.MountainSun, "GUI_Frame_EntityExplorer_UFrags", new(0.55f, 0.85f, 0.55f, 1f)),
+        (Kinds.Shrubs, Icons.Seedling, "GUI_Frame_EntityExplorer_Shrubs", new(0.5f, 0.85f, 0.3f, 1f)),
         (Kinds.Volumes, Icons.VectorSquare, "GUI_Frame_EntityExplorer_Volumes", new(0.95f, 0.6f, 0.6f, 1f)),
         (Kinds.Cameras, Icons.Camera, "GUI_Frame_EntityExplorer_Cameras", new(0.95f, 0.85f, 0.45f, 1f)),
         (Kinds.Controllers, Icons.Gear, "GUI_Frame_EntityExplorer_Controllers", new(0.75f, 0.75f, 0.95f, 1f)),
         (Kinds.Paths, Icons.BezierCurve, "GUI_Frame_EntityExplorer_Paths", new(0.9f, 0.6f, 0.95f, 1f)),
         (Kinds.Navmesh, Icons.Route, "GUI_Frame_EntityExplorer_Navmesh", new(0.5f, 0.85f, 0.85f, 1f)),
+        (Kinds.Water, Icons.Droplet, "GUI_Frame_EntityExplorer_Water", new(0.4f, 0.65f, 1f, 1f)),
     ];
 
     private static readonly Vector4 FolderColour = new(0.91f, 0.76f, 0.42f, 1f);
@@ -446,7 +449,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             {
                 foreach (var e in zone.TieInstances.Entities) e.allowRender = true;
                 foreach (var e in zone.UFrags.Entities) e.allowRender = true;
+                foreach (var e in zone.ShrubInstances.Entities) e.allowRender = true;
                 foreach (var e in zone.Navmeshes) e.allowRender = true;
+                foreach (var e in zone.Waters) e.allowRender = true;
             }
         }
         em.VisibilityVersion++;
@@ -779,10 +784,26 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
                 var ufrags = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_UFrags"), Icons.MountainSun, ColourOf(Kinds.UFrags), 2);
                 foreach (var ufrag in zone.UFrags.Entities) Add(ufrags, ufrag, Kinds.UFrags, terms, grouped: false);
             }
+            if (zone.ShrubInstances.Size > 0 && (_shown & Kinds.Shrubs) != 0)
+            {
+                var shrubs = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Shrubs"), Icons.Seedling, ColourOf(Kinds.Shrubs), 2);
+                foreach (var shrub in zone.ShrubInstances.Entities) Add(shrubs, shrub, Kinds.Shrubs, terms);
+            }
             if (zone.Navmeshes.Count > 0 && (_shown & Kinds.Navmesh) != 0)
             {
                 var navmesh = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Navmesh"), Icons.Route, ColourOf(Kinds.Navmesh), 2);
                 foreach (var chunk in zone.Navmeshes) Add(navmesh, chunk, Kinds.Navmesh, terms, grouped: false);
+            }
+            if (zone.Waters.Count > 0 && (_shown & Kinds.Water) != 0)
+            {
+                var waters = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Water"), Icons.Droplet, ColourOf(Kinds.Water), 2);
+                // A body of several rectangles gets a folder of its own (see WaterSurface.Bodies).
+                foreach (var water in zone.Waters)
+                    Add(water.PartCount > 1
+                            ? Folder(waters, LM.Get("GUI_Frame_EntityExplorer_WaterBody", water.Body), Icons.Droplet,
+                                ColourOf(Kinds.Water) with { W = 0.75f }, 0, $"body{water.Body}", group: true)
+                            : waters,
+                        water, Kinds.Water, terms, grouped: false);
             }
         }
         foreach (var entity in region.MobyInstances.Entities)
@@ -894,7 +915,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         {
             foreach (var tie in zone.TieInstances.Entities) Add(Type(Kinds.Ties), tie, Kinds.Ties, terms);
             foreach (var ufrag in zone.UFrags.Entities) Add(Type(Kinds.UFrags), ufrag, Kinds.UFrags, terms, grouped: false);
+            foreach (var shrub in zone.ShrubInstances.Entities) Add(Type(Kinds.Shrubs), shrub, Kinds.Shrubs, terms);
             foreach (var chunk in zone.Navmeshes) Add(Type(Kinds.Navmesh), chunk, Kinds.Navmesh, terms, grouped: false);
+            foreach (var water in zone.Waters) Add(Type(Kinds.Water), water, Kinds.Water, terms, grouped: false);
         }
         foreach (var entity in region.Volumes.Entities) Add(Type(Kinds.Volumes), entity, Kinds.Volumes, terms);
         foreach (var entity in region.Cameras.Entities) Add(Type(Kinds.Cameras), entity, Kinds.Cameras, terms);
@@ -986,6 +1009,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         {
             case EntityMoby moby: return AssetGroups(moby.BaseMoby.Name);
             case EntityTie tie: return AssetGroups(tie.BaseTie.Name);
+            case EntityShrub shrub: return AssetGroups(shrub.BaseShrub.SourcePath);
             case EntityVolume volume:
                 return [volume.BaseVolume.Clue is { } clue ? clue.ClassName : LM.Get("GUI_Frame_EntityExplorer_PlainVolumes")];
             case EntityController controller:
@@ -1015,6 +1039,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private static string DisplayName(Entity entity) => entity switch
     {
         EntityNavmesh chunk => LM.Get("GUI_Frame_EntityExplorer_NavmeshChunk", chunk.ChunkIndex),
+        EntityWater { PartCount: > 1 } water => LM.Get("GUI_Frame_EntityExplorer_WaterPart", water.Body, water.Part),
+        EntityWater water => LM.Get("GUI_Frame_EntityExplorer_WaterBody", water.Body),
         _ when string.IsNullOrEmpty(entity.Name) => $"{entity.GetType().Name[6..]} {entity.ID}",
         _ => entity.Name.Split('/')[^1],
     };

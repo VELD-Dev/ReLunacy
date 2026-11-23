@@ -47,8 +47,7 @@ internal static class NewEngineAssetLookup
     public const uint TiePointers = 0x0001D300;
     public const uint TieRegionMasks = 0x0001D301;
 
-    /// <summary>foliages.dat. No QForce or Into the Nexus level ships it; 7 A Crack in Time levels do,
-    /// and every one of their pointer ranges lies inside that file.</summary>
+    /// <summary>Class slices in foliages.dat on levels that ship the file.</summary>
     public const uint FoliagePointers = 0x0001D400;
     public const uint FoliageRegionMasks = 0x0001D401;
 

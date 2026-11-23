@@ -56,6 +56,7 @@ public partial class EntityRegion
         if (IsOldEngine) return "old engine";
         if (zone.IsNew) return zone.TieInstances.Entities.Any(t => !t.IsNew) ? "holds Ties of the files" : null;
         if (zone.UFrags.Entities.Count > 0) return "holds UFrags";
+        if (zone.ShrubInstances.Entities.Count > 0) return "holds shrubs";
         if (FileTiesOf(zone).Any(t => !CanDelete(t))) return "holds a Tie that can't be deleted";
         return null;
     }

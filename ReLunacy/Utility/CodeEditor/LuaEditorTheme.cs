@@ -52,6 +52,7 @@ public sealed class LuaEditorTheme
     public string GlobalUndocumented { get; set; } = "#C586C0";
 
     // --- chrome ------------------------------------------------------------------------------
+    public string Background { get; set; } = "#1E1E1E";
     public string Text { get; set; } = "#D4D4D4";
     public string Caret { get; set; } = "#AEAFAD";
     public string Selection { get; set; } = "#264F78";
@@ -122,6 +123,8 @@ public sealed class LuaEditorTheme
             "A global nothing documents yet - distinct on purpose",
             t => t.GlobalUndocumented, (t, v) => t.GlobalUndocumented = v),
 
+        new(LuaEditorThemeRole.Background, LuaEditorThemeGroup.Chrome, nameof(Background), "Background",
+            "The code editor canvas", t => t.Background, (t, v) => t.Background = v),
         new(LuaEditorThemeRole.Text, LuaEditorThemeGroup.Chrome, nameof(Text), "Text",
             "Anything with no role of its own", t => t.Text, (t, v) => t.Text = v),
         new(LuaEditorThemeRole.Caret, LuaEditorThemeGroup.Chrome, nameof(Caret), "Caret",
@@ -306,5 +309,5 @@ public enum LuaEditorThemeRole
     Keyword, String, Number, Comment, Operator, Error, DocTag, DocType,
     Function, Method, Class, Field, Local, Parameter, LoopVariable, GlobalUndocumented,
     Caret, Selection, CurrentLine, LineNumber, LineNumberCurrent,
-    MatchingDelimiter, SnippetStop, CaretWord, Occurrence, SearchMatch, SearchCurrent,
+    MatchingDelimiter, SnippetStop, CaretWord, Occurrence, SearchMatch, SearchCurrent, Background,
 }

@@ -72,6 +72,9 @@ public abstract class Entity : IDisposable
     /// held; set when the first assignment is made, null while it is as loaded (see <see cref="InstanceAssignment"/>).</summary>
     public InstanceAssignment? Assigned { get; set; }
 
+    /// <summary>Shown and selectable but not editable: nothing saves this kind, so the gizmo and the inspector leave it be.</summary>
+    public virtual bool IsReadOnly => false;
+
     public bool IsDirty { get; set; } = true;
 
     /// <summary>Slack on the culling radius; the assets' own fitted radii are very slightly optimistic.</summary>

@@ -1,5 +1,6 @@
 using System.Numerics;
-using ReLunacy.Engine.Config;
+using ReLunacy.Core.Project;
+using ReLunacy.Engine.Projects;
 using ReLunacy.Engine.Packing;
 using ReLunacy.Engine.Text;
 using ReLunacy.Utility;
@@ -14,10 +15,9 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 /// A row is a text id - the number a moon's name field or a prompt holds - with its tag from the game's code where
 /// the EBOOT names it. A new string takes the next id in every language at once, so the tables stay in step and a
 /// language left untranslated still has an entry. Button glyphs and other characters the editor's font lacks show
-/// as {E004} and are typed the same way. A save goes through ArchiveEntryWriter like the configuration tables:
-/// rebuilt, verified, backed up with the date and time; the game reads these at boot, so the cache notice follows.
+/// as {E004} and are typed the same way. Text edits and tag names save to the open project.
 /// </summary>
-public sealed class TextTablesFrame : DockedFrame
+public sealed class TextTablesFrame : DockedFrame, IDisposable
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
@@ -26,18 +26,18 @@ public sealed class TextTablesFrame : DockedFrame
     private static readonly Vector4 ChangedColour = new(0.35f, 0.8f, 1f, 0.25f);
     private static readonly Vector4 AddedColour = new(0.4f, 1f, 0.5f, 0.2f);
 
-    private sealed class Language(TextTableRef source, TextTable table, byte[] loaded)
+    private sealed class Language(TextTableRef source, TextTable table)
     {
         public TextTableRef Source = source;
         public TextTable Table = table;
-        public byte[] LoadedBytes = loaded;
         /// <summary>The strings as loaded, by id, for the changed tint.</summary>
         public List<string?> Loaded = table.Entries.Select(e => e.Text).ToList();
         public bool Shown;
     }
 
-    private string? _scannedFor;
-    private object? _scannedProject;
+    private bool _scanned;
+    private LunaProject? _scannedProject;
+    private readonly Dictionary<int, string> _pendingTags = [];
     private string? _gameFolder;
     private List<Language> _languages = [];
     private string _filter = "";
@@ -49,8 +49,7 @@ public sealed class TextTablesFrame : DockedFrame
     private int? _scrollTo;
     private int _selected = -1;
     private string? _status;
-    private bool _saving;
-    private GameCacheNotice? _cacheNotice;
+    public bool Focused { get; private set; }
 
     public TextTablesFrame()
     {
@@ -76,52 +75,100 @@ public sealed class TextTablesFrame : DockedFrame
 
     private void Scan()
     {
-        // Again when the project changes: its strings are what the tables show.
-        if (_scannedFor == Program.ProvidedPath && _gameFolder != null && ReferenceEquals(_scannedProject, Project.ProjectSession.Current)) return;
-        _scannedFor = Program.ProvidedPath;
-        _scannedProject = Project.ProjectSession.Current;
-        _gameFolder = string.IsNullOrEmpty(Program.ProvidedPath) ? null : GameConfigs.GameFolderFor(Program.ProvidedPath);
+        var project = ProjectSession.Current;
+        string? folder = ProjectSession.GameFolder;
+        if (_scanned && _gameFolder == folder && ReferenceEquals(_scannedProject, project)) return;
+        _scanned = true;
+        _scannedProject = project;
+        _gameFolder = folder;
         Load();
+    }
+
+    public override void RenderAsWindow(double deltaTime)
+    {
+        Focused = false;
+        base.RenderAsWindow(deltaTime);
+    }
+
+    internal int EditVersion => _version;
+
+    internal string? ReferenceText(int id)
+    {
+        if (!ReferenceEquals(_scannedProject, ProjectSession.Current) || _gameFolder != ProjectSession.GameFolder) return null;
+        var language = _languages.Find(l => l.Source.Language == "us") ?? _languages.FirstOrDefault();
+        return language != null && id >= 0 ? TextOf(language, id) : null;
+    }
+
+    public IReadOnlyDictionary<int, string> PendingTags => _pendingTags;
+
+    public void Revert() => Load();
+
+    public void Dispose()
+    {
+        if (!Save()) isOpen = true;
     }
 
     private void Load()
     {
         _languages = [];
+        _pendingTags.Clear();
         _status = null;
+        _version++;
         if (_gameFolder == null) return;
         foreach (var source in GameText.List(_gameFolder))
         {
             try
             {
                 byte[] bytes = GameText.ReadBytes(source);
-                _languages.Add(new Language(source, TextTable.Parse(bytes), bytes));
+                _languages.Add(new Language(source, TextTable.Parse(bytes)));
             }
             catch (Exception e) when (e is IOException or InvalidDataException) { _status = $"{source.EntryPath}: {e.Message}"; }
         }
         // The game's own order, by language number; the first two shown to start with.
         _languages = _languages.OrderBy(l => l.Table.Language).ToList();
         for (int i = 0; i < _languages.Count; i++) _languages[i].Shown = i == 0 || _languages[i].Source.Language == "fr";
-        _version++;
     }
 
     private int Count => _languages.Count == 0 ? 0 : _languages.Max(l => l.Table.Entries.Count);
     private static string? TextOf(Language language, int id) => id < language.Table.Entries.Count ? language.Table.Entries[id].Text : null;
     private static bool Changed(Language language, int id) => id >= language.Loaded.Count || language.Loaded[id] != TextOf(language, id);
-    private bool Dirty => _languages.Any(l => Enumerable.Range(0, l.Table.Entries.Count).Any(id => Changed(l, id)));
+    private int _dirtyVersion = -1;
+    private bool _dirty;
+    public bool Dirty
+    {
+        get
+        {
+            if (_dirtyVersion != _version)
+            {
+                _dirty = _pendingTags.Count > 0 || _languages.Any(l =>
+                    Enumerable.Range(0, l.Table.Entries.Count).Any(id => Changed(l, id)));
+                _dirtyVersion = _version;
+            }
+            return _dirty;
+        }
+    }
+
+    private string? TagName(int id) => _pendingTags.GetValueOrDefault(id) ?? GameText.TagName(ProjectSession.Game, id);
+
+    private void SetTag(int id, string tag)
+    {
+        if ((GameText.TagName(ProjectSession.Game, id) ?? "") == tag) _pendingTags.Remove(id);
+        else _pendingTags[id] = tag;
+        _version++;
+    }
 
     private void Filter()
     {
         var key = (_filter, _changedOnly, _version);
         if (_rowsFor == key) return;
         _rowsFor = key;
-        var game = LunaWindow.Instance.Level?.GameDefinition?.Id;
         _rows = [];
         for (int id = 0; id < Count; id++)
         {
-            if (_changedOnly && !_languages.Any(l => Changed(l, id))) continue;
+            if (_changedOnly && !_pendingTags.ContainsKey(id) && !_languages.Any(l => Changed(l, id))) continue;
             if (_filter.Length > 0
                 && !id.ToString().Contains(_filter)
-                && GameText.TagName(game, id)?.Contains(_filter, StringComparison.OrdinalIgnoreCase) != true
+                && TagName(id)?.Contains(_filter, StringComparison.OrdinalIgnoreCase) != true
                 && !_languages.Any(l => l.Shown && TextOf(l, id)?.Contains(_filter, StringComparison.OrdinalIgnoreCase) == true))
                 continue;
             _rows.Add(id);
@@ -130,17 +177,18 @@ public sealed class TextTablesFrame : DockedFrame
 
     protected override void Render(double deltaTime)
     {
+        Focused = ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows);
         Scan();
         if (_gameFolder == null) { ImGui.TextDisabled(LM.Get("GUI_TextTables_NoGame")); return; }
         if (_languages.Count == 0) { ImGui.TextDisabled(_status ?? LM.Get("GUI_TextTables_None")); return; }
-        var game = LunaWindow.Instance.Level?.GameDefinition?.Id;
 
         bool dirty = Dirty;
-        Project.ProjectSession.PendingTextEdits = dirty;
-        ImGui.BeginDisabled(!dirty || _saving);
-        if (ImGui.Button(LM.Get("GUI_ConfigTables_Save"))) Save();
+        ImGui.BeginDisabled(!dirty);
+        if (ImGuiPlus.IconButton(Icons.Save, "save_text")) Save();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(LM.Get("GUI_ConfigTables_Save") + " (Ctrl+S)");
         ImGui.SameLine();
-        if (ImGui.Button(LM.Get("GUI_ConfigTables_Revert"))) { Load(); return; }
+        if (ImGui.Button(LM.Get("GUI_ConfigTables_Revert"))) Load();
         ImGui.EndDisabled();
         ImGui.SameLine();
         ImGui.SetNextItemWidth(260f);
@@ -157,7 +205,7 @@ public sealed class TextTablesFrame : DockedFrame
         ImGui.SetNextItemWidth(260f);
         ImGui.InputTextWithHint("##newtag", LM.Get("GUI_TextTables_NewTag"), ref _newTag, 96);
         ImGui.SameLine();
-        ImGui.BeginDisabled(_newTag.Trim().Length == 0);
+        ImGui.BeginDisabled(_scannedProject == null || _newTag.Trim().Length == 0);
         if (ImGui.Button(LM.Get("GUI_TextTables_Add"))) Add(_newTag.Trim());
         ImGui.EndDisabled();
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_TextTables_AddHint"));
@@ -165,7 +213,7 @@ public sealed class TextTablesFrame : DockedFrame
         ImGui.TextDisabled(LM.Get("GUI_TextTables_Count", Count, Path.GetFileName(_languages[0].Source.ArchivePath)));
 
         if (_status != null) ImGui.TextWrapped(_status);
-        _cacheNotice?.Draw();
+        if (_scannedProject == null) ImGui.TextDisabled(LM.Get("GUI_Install_NoProject"));
 
         Filter();
         var shown = _languages.Where(l => l.Shown).ToList();
@@ -197,16 +245,16 @@ public sealed class TextTablesFrame : DockedFrame
                 if (ImGui.Selectable($"{id}", _selected == id)) { _selected = id; ImGui.SetClipboardText(id.ToString()); }
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_TextTables_IdHint", $"0x{id:X}"));
                 ImGui.TableNextColumn();
-                // The tag is the project's own note of what the id is (Resources/Classes/<Game>.textids): editable,
-                // and written to that file as soon as it is entered.
-                string tag = GameText.TagName(game, id) ?? "";
+                // Pending names are available to Lua completion as soon as they are entered.
+                string tag = TagName(id) ?? "";
+                ImGui.BeginDisabled(_scannedProject == null);
                 ImGui.SetNextItemWidth(-1f);
-                if (game is { } named && ImGui.InputTextWithHint("##tag", _languages.Any(l => id >= l.Loaded.Count) ? LM.Get("GUI_TextTables_Custom") : "-",
-                        ref tag, 96, ImGuiInputTextFlags.EnterReturnsTrue))
+                if (ImGui.InputTextWithHint("##tag", _languages.Any(l => id >= l.Loaded.Count) ? LM.Get("GUI_TextTables_Custom") : "-",
+                        ref tag, 96))
                 {
-                    GameText.SetTagName(named, id, new string(tag.Where(ch => char.IsLetterOrDigit(ch) || ch == '_').ToArray()));
-                    _version++;
+                    SetTag(id, new string(tag.Where(ch => char.IsAsciiLetterOrDigit(ch) || ch == '_').ToArray()));
                 }
+                ImGui.EndDisabled();
                 foreach (var language in shown)
                 {
                     ImGui.TableNextColumn();
@@ -217,7 +265,8 @@ public sealed class TextTablesFrame : DockedFrame
                     else if (Changed(language, id)) ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ImGui.GetColorU32(ChangedColour));
                     string text = TextTable.Escape(entry.Text);
                     ImGui.SetNextItemWidth(-1f);
-                    if (ImGui.InputText($"##{language.Source.Language}", ref text, 4096))
+                    if (ImGui.InputText($"##{language.Source.Language}", ref text, 4096,
+                            _scannedProject == null ? ImGuiInputTextFlags.ReadOnly : ImGuiInputTextFlags.None))
                     {
                         entry.Text = TextTable.Unescape(text);
                         _version++;
@@ -237,9 +286,8 @@ public sealed class TextTablesFrame : DockedFrame
     private void Add(string tag)
     {
         tag = new string(tag.Where(ch => char.IsAsciiLetterOrDigit(ch) || ch == '_').ToArray());
-        var game = LunaWindow.Instance.Level?.GameDefinition?.Id;
         if (tag.Length == 0) return;
-        if (GameText.IdOfTag(game, tag, Count) is var taken and >= 0) { _status = LM.Get("GUI_TextTables_TagTaken", tag, taken); return; }
+        if (Enumerable.Range(0, Count).FirstOrDefault(id => string.Equals(TagName(id), tag, StringComparison.OrdinalIgnoreCase), -1) is var taken and >= 0) { _status = LM.Get("GUI_TextTables_TagTaken", tag, taken); return; }
         int count = Count;
         // One hash for all languages: free in each of them.
         uint hash = _languages[0].Table.FreeHash(tag);
@@ -250,7 +298,7 @@ public sealed class TextTablesFrame : DockedFrame
             language.Table.Entries.Add(new TextTable.Entry { Hash = hash, Text = tag });
         }
         // The tag is the new id's name, kept with the project.
-        if (game is { } named) GameText.SetTagName(named, count, tag);
+        SetTag(count, tag);
         _newTag = "";
         _filter = "";
         _selected = count;
@@ -259,50 +307,41 @@ public sealed class TextTablesFrame : DockedFrame
         _status = LM.Get("GUI_TextTables_Added", count, tag);
     }
 
-    private void Save()
+    public bool Save()
     {
-        // Only the languages that changed, grouped by the archive they are in.
-        var writes = new Dictionary<string, Dictionary<string, byte[]>>();
-        var written = new List<(Language Language, byte[] Bytes)>();
+        if (!Dirty) return true;
+        if (_scannedProject is not { } project || !ReferenceEquals(project, ProjectSession.Current)) return false;
+        var summaries = new List<string>();
+        bool success = true;
         try
         {
-            foreach (var language in _languages)
+            foreach (var archive in _languages.Where(l =>
+                         Enumerable.Range(0, l.Table.Entries.Count).Any(id => Changed(l, id)))
+                     .GroupBy(l => l.Source.ArchivePath))
             {
-                byte[] bytes = language.Table.ToBytes();
-                if (bytes.AsSpan().SequenceEqual(language.LoadedBytes)) continue;
-                if (!writes.TryGetValue(language.Source.ArchivePath, out var entries)) writes[language.Source.ArchivePath] = entries = [];
-                entries[language.Source.EntryPath] = bytes;
-                written.Add((language, bytes));
-            }
-        }
-        catch (InvalidDataException e) { _status = e.Message; return; }
-        if (writes.Count == 0) return;
-
-        _saving = true;
-        _status = LM.Get("GUI_ConfigTables_Saving", string.Join(", ", writes.Keys.Select(Path.GetFileName)));
-        BackgroundJob.Run(
-            LM.Get("GUI_ConfigTables_Save"),
-            _status,
-            _ => writes.Select(w => (Archive: w.Key, Result: ArchiveEntryWriter.Replace(w.Key, w.Value))).ToList(),
-            results =>
-            {
-                _saving = false;
-                _status = string.Join("\n", results.Select(r => r.Result.Succeeded && r.Result.BackupPath != null
-                    ? $"{r.Result.Summary} (backup: {Path.GetFileName(r.Result.BackupPath)})"
-                    : r.Result.Summary));
-                foreach (var (language, bytes) in written)
+                var entries = archive.ToDictionary(l => l.Source.EntryPath, l => l.Table.ToBytes());
+                var result = ArchiveEntryWriter.Replace(archive.Key, entries, project.Sink);
+                summaries.Add(result.Summary);
+                success &= result.Succeeded;
+                if (!result.Succeeded) continue;
+                foreach (var language in archive)
                 {
-                    if (!results.First(r => r.Archive == language.Source.ArchivePath).Result.Succeeded) continue;
-                    language.LoadedBytes = bytes;
                     language.Loaded = language.Table.Entries.Select(e => e.Text).ToList();
                 }
-                _version++;
-                if (results.FirstOrDefault(r => r.Result.Succeeded && r.Result.BackupPath != null) is { Archive: { } archive }) _cacheNotice = new GameCacheNotice(archive);
-            },
-            e =>
+            }
+            if (success && _pendingTags.Count > 0)
             {
-                _saving = false;
-                _status = e.Message;
-            });
+                project.SetTextTags(_pendingTags);
+                _pendingTags.Clear();
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            summaries.Add(e.Message);
+            success = false;
+        }
+        _status = summaries.Count == 0 ? LM.Get("GUI_TextTables_SavedTags") : string.Join("\n", summaries);
+        _version++;
+        return success;
     }
 }

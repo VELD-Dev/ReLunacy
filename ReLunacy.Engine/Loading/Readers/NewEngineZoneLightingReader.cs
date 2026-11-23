@@ -331,6 +331,28 @@ internal sealed class NewEngineZoneLightingReader
         return masks;
     }
 
+    /// <summary>ACIT relocates 0x5200 water mask descriptors against the zone's lighting slice at 0x588F50.</summary>
+    internal ITexture? ReadWaterClipMask(IGFile zone, ulong zoneTuid, long zoneOffset, uint descriptorOffset)
+    {
+        var section = zone.QuerySection(0x5200);
+        if (section.id != 0x5200 || section.length != DescriptorSize || descriptorOffset < section.offset ||
+            (descriptorOffset - section.offset) % DescriptorSize != 0 ||
+            (descriptorOffset - section.offset) / DescriptorSize >= section.count ||
+            !_lightingResources.TryGetValue(zoneTuid, out var resource))
+            return null;
+        try
+        {
+            var descriptor = ReadDescriptor(zone.sh, descriptorOffset);
+            ulong id = 0xB1E1_0000_0000_0000UL | (ulong)(zoneOffset + descriptorOffset);
+            return DecodeTexture(descriptor, resource, id, $"WaterClip_{zoneTuid:X}_{descriptorOffset:X}");
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or OverflowException or ArgumentException)
+        {
+            Console.WriteLine($"Water mask {zoneTuid:X}+0x{descriptorOffset:X}: {e.Message}");
+            return null;
+        }
+    }
+
     internal static NewTextureDescriptor ReadDescriptor(StreamHelper sh, uint offset)
     {
         sh.Seek(offset);

@@ -16,31 +16,30 @@ public static partial class TieAppender
         public int TexturesLength, HighmipsLength;
         public bool Loaded;
         public readonly List<(int At, byte[] Data)> Resident = [], High = [];
-        public readonly HashSet<ulong> Written = [];
 
         public TextureAppends Copy()
         {
             var c = new TextureAppends { TexturesLength = TexturesLength, HighmipsLength = HighmipsLength, Loaded = Loaded };
-            c.Resident.AddRange(Resident); c.High.AddRange(High); c.Written.UnionWith(Written);
+            c.Resident.AddRange(Resident); c.High.AddRange(High);
             return c;
         }
     }
 
-    internal static ShaderRegistration RegisterShaders(Func<string, byte[]?> read, IReadOnlyList<PendingShader> shaders)
+    internal static ShaderRegistration RegisterShaders(Func<string, byte[]?> read, IReadOnlyList<PendingShader> shaders,
+        IReadOnlyList<(PendingTexture Texture, string Region)> textures)
     {
         var level = new Level { Read = read };
         var result = new ShaderRegistration();
         var appends = new TextureAppends();
-        foreach (var pending in shaders.OrderBy(s => s.Tuid))
+        string? TryRegister(Action register)
         {
             var snapshot = new Dictionary<string, byte[]>(level.Files, StringComparer.OrdinalIgnoreCase);
             var changed = new HashSet<string>(level.Changed, StringComparer.OrdinalIgnoreCase);
             var appendsBefore = appends.Copy();
             try
             {
-                int textures = RegisterShader(level, pending, appends);
-                result.Registered.Add(pending.Tuid);
-                result.Changes.Add($"shader {pending.Name} imported ({textures} new texture(s), from {pending.TemplateTuid:X16})");
+                register();
+                return null;
             }
             catch (Exception e) when (e is Refusal or InvalidDataException)
             {
@@ -49,10 +48,31 @@ public static partial class TieAppender
                 level.Changed.Clear();
                 level.Changed.UnionWith(changed);
                 appends = appendsBefore;
-                result.Refused.Add((pending, e.Message));
+                return e.Message;
             }
         }
-        if (result.Registered.Count == 0) return result;
+        foreach (var (texture, region) in textures)
+        {
+            string? reason = TryRegister(() =>
+            {
+                var lookup = level.Get("assetlookup.dat") ?? throw new Refusal("assetlookup.dat not found");
+                if (Pointers(lookup, HighmipPointers).Any(p => (uint)p.Tuid == texture.Id))
+                    throw new Refusal($"texture id {texture.Id:X8} is already in use in this level");
+                RegisterTexture(level, texture, RegionBit(level, region), appends);
+            });
+            if (reason != null) { result.RefusedTextures.Add((texture, reason)); continue; }
+            result.RegisteredTextures.Add(texture.Tuid);
+            result.Changes.Add($"texture {texture.Name} imported ({texture.Texture.Width}x{texture.Texture.Height})");
+        }
+        foreach (var pending in shaders.OrderBy(s => s.Tuid))
+        {
+            int count = 0;
+            string? reason = TryRegister(() => count = RegisterShader(level, pending, appends));
+            if (reason != null) { result.Refused.Add((pending, reason)); continue; }
+            result.Registered.Add(pending.Tuid);
+            result.Changes.Add($"shader {pending.Name} imported ({count} new texture(s), from {pending.TemplateTuid:X16})");
+        }
+        if (result.Registered.Count == 0 && result.RegisteredTextures.Count == 0) return result;
         WriteAppends(level, "textures.dat", appends.TexturesLength, appends.Resident);
         WriteAppends(level, "highmips.dat", appends.HighmipsLength, appends.High);
         UpdateToc(level, result.Problems);
@@ -79,11 +99,13 @@ public static partial class TieAppender
         // Every texture id the shader binds (0x5A00) is in the level or among its new textures.
         var texturePointers = Pointers(lookup, HighmipPointers);
         var levelIds = texturePointers.Select(p => (uint)p.Tuid).ToHashSet();
+        var boundIds = new HashSet<uint>();
         var keys = IghwRelayout.Find(secs, 0x5A00);
         if (keys != null)
             for (int i = 0; i < keys.Size / 8; i++)
             {
                 uint id = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(keys.Offset + 8 * i));
+                boundIds.Add(id);
                 if (!levelIds.Contains(id) && !pending.Textures.Any(t => t.Id == id))
                     throw new Refusal($"texture id {id:X8} of the shader is not in the level");
             }
@@ -92,15 +114,15 @@ public static partial class TieAppender
         foreach (string region in pending.Regions.Distinct()) mask |= RegionBit(level, region);
 
         int count = 0;
-        foreach (var texture in pending.Textures)
+        foreach (var texture in pending.Textures.DistinctBy(t => t.Tuid))
         {
-            if (!appends.Written.Add(texture.Tuid)) continue;
             if (texturePointers.Any(p => p.Tuid == texture.Tuid)) continue;
             if (levelIds.Contains(texture.Id)) throw new Refusal($"texture id {texture.Id:X8} is already in use in this level");
             RegisterTexture(level, texture, mask, appends);
             levelIds.Add(texture.Id);
             count++;
         }
+        ExtendTextureMasks(level, texturePointers, boundIds, mask);
 
         // shaders.dat: the resource on the next 0x80 boundary, the file ending on one.
         byte[] shadersFile = level.Get("shaders.dat") ?? throw new Refusal("shaders.dat not found");
@@ -150,6 +172,23 @@ public static partial class TieAppender
         return count;
     }
 
+    private static void ExtendTextureMasks(Level level, List<(ulong Tuid, int Offset, int Length)> existing,
+        HashSet<uint> boundIds, uint regionMask)
+    {
+        byte[] lookup = level.Get("assetlookup.dat")!;
+        uint[] masks = Masks(lookup, TextureMasks);
+        if (masks.Length < existing.Count) throw new Refusal("assetlookup's texture tables differ in length");
+        bool changed = false;
+        for (int i = 0; i < existing.Count; i++)
+        {
+            if (!boundIds.Contains((uint)existing[i].Tuid) || (masks[i] & regionMask) == regionMask) continue;
+            masks[i] |= regionMask;
+            changed = true;
+        }
+        if (changed)
+            level.Set("assetlookup.dat", IghwRelayout.Relayout(lookup, new Dictionary<uint, byte[]> { [TextureMasks] = MaskBytes(masks) }));
+    }
+
     /// <summary>One texture: mip 0 to highmips.dat, the rest to textures.dat (all of a single-mip texture to textures.dat), and its
     /// four lookup rows appended.</summary>
     private static void RegisterTexture(Level level, PendingTexture pending, uint mask, TextureAppends appends)
@@ -159,7 +198,8 @@ public static partial class TieAppender
         if (t.Format == 0x05 && t.Width != t.Height) throw new Refusal($"texture {t.Name}: an A8R8G8B8 texture must be square");
         if (t.Width < 1 || t.Height < 1 || !IsPowerOfTwo(t.Width) || !IsPowerOfTwo(t.Height) || t.MipCount < 1 || t.MipCount > 15)
             throw new Refusal($"texture {t.Name}: its size or mip count is not storable");
-        if (t.MipCount > 1 && (t.Mip0Size <= 0 || t.Mip0Size >= t.Chain.Length)) throw new Refusal($"texture {t.Name}: its mip 0 size is wrong");
+        if (t.Mip0Size <= 0 || (t.MipCount > 1 ? t.Mip0Size >= t.Chain.Length : t.Mip0Size != t.Chain.Length))
+            throw new Refusal($"texture {t.Name}: its mip 0 size is wrong");
 
         if (!appends.Loaded)
         {

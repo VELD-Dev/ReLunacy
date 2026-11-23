@@ -16,6 +16,7 @@
   "Parameter": "#505050",
   "LoopVariable": "#001080",
   "GlobalUndocumented": "#AF00DB",
+  "Background": "#FFFFFF",
   "Text": "#000000",
   "Caret": "#000000",
   "Selection": "#ADD6FF",

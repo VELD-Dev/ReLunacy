@@ -105,6 +105,7 @@ public static class RsxFragmentTranslator
         }
 
         var text = new StringBuilder();
+        text.Append("vec4 rsxSaturate(vec4 v) { return mix(clamp(v, 0.0, 1.0), vec4(0.0), isnan(v)); }\n");
         text.Append("vec4 rsxShader() {\n");
         foreach (string reg in registers)
             text.Append("    vec4 ").Append(reg).Append(" = vec4(0.0);\n");
@@ -255,7 +256,7 @@ public static class RsxFragmentTranslator
             7 => $"({e}) * 0.125",
             _ => e,
         };
-        string value = Bits(ins.D0, 31, 1) == 1 ? $"clamp({scaled}, 0.0, 1.0)" : Clamp(scaled, Bits(ins.D0, 22, 2));
+        string value = Bits(ins.D0, 31, 1) == 1 ? $"rsxSaturate({scaled})" : Clamp(scaled, Bits(ins.D0, 22, 2));
         string temp = $"t{ins.Index}";
         line($"vec4 {temp} = {value};");
 
@@ -278,7 +279,8 @@ public static class RsxFragmentTranslator
         if (captureOldReflectionGlow && op == 0x05 &&
             (IsReflectionLuminance(ins.Constant, ins.S0) || IsReflectionLuminance(ins.Constant, ins.S1)))
             WriteMasked(ins, line, "rsxReflectionGlow", temp, mask);
-        WriteMasked(ins, line, target, temp, mask);
+        if (!noDest || setCond)
+            WriteMasked(ins, line, target, temp, mask);
         if (setCond && !noDest)
             line($"{ccSet}.{mask} = {target}.{mask};");
         return null;
@@ -301,6 +303,12 @@ public static class RsxFragmentTranslator
         if (lt == 0 && eq == 0 && gr == 0)
             return;
         string cc = $"cc{Bits(ins.S0, 31, 1)}";
+        if (target == cc)
+        {
+            string previous = $"predicate{ins.Index}";
+            line($"vec4 {previous} = {cc};");
+            cc = previous;
+        }
         foreach (char c in mask)
         {
             int i = Swizzle.IndexOf(c);
@@ -383,10 +391,13 @@ public static class RsxFragmentTranslator
             swizzle += Swizzle[Bits(s, 9 + 2 * i, 2)];
         if (swizzle != "xyzw")
             text += "." + swizzle;
+        int precision = Bits(ins.S1, 19 + 3 * k, 3);
+        if (precision == 4)
+            text = Clamp(text, precision);
         if (k == 0 ? Bits(s, 29, 1) == 1 : Bits(s, 18, 1) == 1)
             text = $"abs({text})";
-        if (k == 0)
-            text = Clamp(text, Bits(ins.S1, 19, 3));
+        if (precision != 4)
+            text = Clamp(text, precision);
         if (Bits(s, 17, 1) == 1)
             text = $"(-{text})";
         return text;
@@ -398,7 +409,7 @@ public static class RsxFragmentTranslator
         1 => $"clamp({code}, -65504.0, 65504.0)",
         2 => $"clamp({code}, -2.0, 2.0)",
         3 => $"clamp({code}, -1.0, 1.0)",
-        4 => $"clamp({code}, 0.0, 1.0)",
+        4 => $"rsxSaturate({code})",
         _ => code,
     };
 

@@ -10,7 +10,7 @@ using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames;
 
-public class PropertyInspectorFrame : DockedFrame
+public partial class PropertyInspectorFrame : DockedFrame, IDisposable
 {
     protected override ImGuiCond DockingConditions { get; set; } = ImGuiCond.Appearing;
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetMainViewport().WorkSize;
@@ -138,6 +138,8 @@ public class PropertyInspectorFrame : DockedFrame
         var entityBefore = new Lazy<Core.Undo.UndoManager.Session>(() => Core.Undo.UndoManager.Singleton.Begin([entity]));
         if (!ImGui.IsAnyItemActive()) _ = entityBefore.Value;
 
+        // Read-only kinds (shrubs) show their transform without letting it be typed over.
+        ImGui.BeginDisabled(SelectedEntity.IsReadOnly);
         if (ImGui.InputFloat3(LM.Get("GUI_Frame_InstanceInspector_Position"), ref selectedPosition, "%.3fm"))
         {
             var t = SelectedEntity.Transform;
@@ -180,6 +182,7 @@ public class PropertyInspectorFrame : DockedFrame
             }
         }
         if (SelectedEntity is not EntityMoby) TrackField(entityBefore, "GUI_Undo_Scale");
+        ImGui.EndDisabled();
 
         if (v3d != null)
         {
@@ -274,6 +277,7 @@ public class PropertyInspectorFrame : DockedFrame
                 RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class, region: clueRegion);
             }
             RenderUsedBy(volumeEntity);
+            RenderVolumeScripts(volumeEntity);
         }
         else if (SelectedEntity is EntityController controllerEntity)
         {
@@ -329,6 +333,19 @@ public class PropertyInspectorFrame : DockedFrame
         }
         else if (SelectedEntity is EntityPathPoint pathPoint)
             RenderPathPart(pathPoint);
+        else if (SelectedEntity is EntityWater water)
+        {
+            var w = water.Surface;
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_NavmeshZone", water.ZoneName));
+            if (water.PartCount > 1)
+                ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_WaterParts", water.Part, water.PartCount));
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_WaterSize", w.Size.X.ToString("0.##"), w.Size.Y.ToString("0.##"), w.Height.ToString("0.##")));
+            var colour = w.Colour;
+            ImGui.ColorEdit3(LM.Get("GUI_Frame_InstanceInspector_WaterColour") + "##water_colour", ref colour,
+                ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoPicker);
+            ImGui.Text(LM.Get("GUI_Frame_InstanceInspector_WaterAbsorption", w.Absorption >= 100f ? "-" : w.Absorption.ToString("0.###")));
+            ImGui.Text($"0x{w.Tuid:X16}");
+        }
         else if (SelectedEntity is EntityNavmesh navmeshChunk)
         {
             // The chunk table's own counts, not recomputed ones, so a disagreement with what is drawn
@@ -1072,9 +1089,7 @@ public class PropertyInspectorFrame : DockedFrame
                 ImGui.SameLine();
             }
             string name = row.Field is { Name.Length: > 0 } documented ? documented.Name : $"+0x{row.Offset:X2}";
-            if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), name);
-            else if (row.RunTime || row.Field == null) ImGui.TextDisabled(name);
-            else ImGui.TextUnformatted(name);
+            RenderFieldLabel(name, edited, row.RunTime || row.Field == null);
 
             if (row.Field is { } field)
             {
@@ -1209,20 +1224,9 @@ public class PropertyInspectorFrame : DockedFrame
                         if (v != 0 && folder != null && Engine.Text.GameText.Reference(folder) is { } text)
                         {
                             ImGui.SameLine();
-                            string? said = v > 0 && v < text.Entries.Count ? text.Entries[v].Text : null;
                             ImGui.EndDisabled();
-                            if (said == null) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldTextNone"));
-                            else
-                            {
-                                if (ImGui.Selectable(Engine.Text.TextTable.Escape(said) + "##said"))
-                                {
-                                    var frame = LunaWindow.Instance.IsAnyFrameOpened<TextTablesFrame>() ? LunaWindow.Instance.GetFirstFrame<TextTablesFrame>() : null;
-                                    if (frame == null) { frame = new TextTablesFrame(); LunaWindow.Instance.AddFrame(frame); }
-                                    frame.Reveal(v);
-                                }
-                                if (ImGui.IsItemHovered())
-                                    ImGui.SetTooltip((Engine.Text.GameText.TagName(game, v) is { } tag ? tag + "\n" : "") + Engine.Text.TextTable.Escape(said) + "\n" + LM.Get("GUI_Frame_InstanceInspector_FieldTextOpen"));
-                            }
+                            string? said = v > 0 && v < text.Entries.Count ? text.Entries[v].Text : null;
+                            RenderTextFieldLink(v, said, Engine.Text.GameText.TagName(game, v));
                             ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                         }
                         break;
@@ -1359,9 +1363,7 @@ public class PropertyInspectorFrame : DockedFrame
                 ImGui.EndPopup();
             }
             if (!open) continue;
-            if (!ImGui.BeginTable($"##settings{owner}", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings)) continue;
-            ImGui.TableSetupColumn("name", ImGuiTableColumnFlags.WidthStretch, 0.45f);
-            ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch, 0.55f);
+            if (!BeginInspectorFields($"##settings{owner}")) continue;
             foreach (var row in own.Where(r => r.Component == null && !r.RunTime)) Row(row);
             foreach (var component in own.Where(r => r.Component != null).Select(r => r.Component!).Distinct())
             {
@@ -1376,6 +1378,44 @@ public class PropertyInspectorFrame : DockedFrame
         }
 
         if (game is { } id) RenderFieldEditors(id, cls, chain);
+    }
+
+    private static bool BeginInspectorFields(string id)
+    {
+        if (!ImGui.BeginTable(id, 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings))
+            return false;
+        ImGui.TableSetupColumn("name", ImGuiTableColumnFlags.WidthStretch, 0.45f);
+        ImGui.TableSetupColumn("value", ImGuiTableColumnFlags.WidthStretch, 0.55f);
+        return true;
+    }
+
+    private static void RenderFieldLabel(string name, bool edited = false, bool disabled = false)
+    {
+        if (edited) ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), name);
+        else if (disabled) ImGui.TextDisabled(name);
+        else ImGui.TextUnformatted(name);
+    }
+
+    private static void RenderTextFieldLink(int id, string? text, string? tag, float width = 0f, bool useTag = false)
+    {
+        if (text == null && (!useTag || string.IsNullOrEmpty(tag)))
+        {
+            ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_FieldTextNone"));
+            return;
+        }
+
+        string label = text == null ? tag! : Engine.Text.TextTable.Escape(text);
+        if (ImGui.Selectable(label + "##said", false, ImGuiSelectableFlags.None, new Vector2(width, 0f)))
+        {
+            var window = LunaWindow.Instance;
+            var frame = window.GetFirstFrame<TextTablesFrame>();
+            if (frame == null) window.AddFrame(frame = new TextTablesFrame());
+            frame.Reveal(id);
+            frame.Focus();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip((text != null && !string.IsNullOrEmpty(tag) ? tag + "\n" : "") + label
+                + "\n" + LM.Get("GUI_Frame_InstanceInspector_FieldTextOpen"));
     }
 
     /// <summary>The two editors of "Edit fields": one field's name, type and description, and the game's enums.</summary>

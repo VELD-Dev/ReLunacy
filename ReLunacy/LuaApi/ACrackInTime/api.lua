@@ -324,3 +324,68 @@ function get_volume_table(area) end
 ---@param T table
 ---@param prefix? string
 function prt_table(T, prefix) end
+
+-------------------------------------------------------------------------------------------------
+-- Other functions
+-------------------------------------------------------------------------------------------------
+
+---Represents a string ID (u32) in the localization table.
+---@class localized_string
+localized_string = {}
+
+---Adds a new mission for a specific level, with the ID withing text table for title, description. Can be set as optional, shortterm or primary.
+---@param level_index integer Level index to create the mission in.
+---@param title localized_string Also used as Mission's ID.
+---@param description localized_string
+---@param optional boolean mandatory
+---@param shortterm? boolean false by default
+---@param primary? boolean false by default
+function add_mission(level_index, title, description, optional, shortterm, primary) end
+
+---Marks a mission as completed, and shows a popup during a certain time for it.
+---@param level_index integer Level index within to mark a mission as completed
+---@param title localized_string used to identify the mission
+---@param ui_delay number how many seconds should the complete popup should display
+function complete_mission(level_index, title, ui_delay) end
+
+---Unmarks a mission as completed
+---@param level_index integer
+---@param title localized_string
+function uncomplete_mission(level_index, title) end
+
+---Checks if a level has a specific mission
+---@param level_index integer
+---@param title localized_string
+---@return boolean
+function has_mission(level_index, title) end
+
+---Checks if a mission in a level is completed or not
+---@param level_index integer
+---@param title localized_string
+---@return boolean
+function did_mission(level_index, title) end
+
+---Enables or disables the mission HUD
+---@param new_state boolean
+function mission_hud_enable(new_state) end
+
+--- Clears the mission hud ?
+function mission_hud_flush_queue() end
+
+---Inflicts damages to a damageable entity
+---@param target moby_handle must be damageable
+---@param amount number
+function damage(target, amount) end
+
+---Executes when target moby enters a specified volume
+---@param moby moby_handle
+---@param volume volume_handle
+---@param callback function
+function on_enter(moby, volume, callback) end
+
+---Must be used inside an event callback to prevent it from replay before death of player
+function unset_event() end
+
+---Shows a popup with the location name, playing the famous wooosh sound and stuff
+---@param texthandle localized_string
+function show_location(texthandle) end

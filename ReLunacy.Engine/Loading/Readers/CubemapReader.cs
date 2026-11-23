@@ -250,6 +250,14 @@ public sealed class CubemapReader
             }
         }
 
+        // ACIT's active references are later in 0x8100. The scene cube is the default for
+        // 0x71C0 palettes. The separate water default must also be available to water draws.
+        if (_fileManager.GameDefinition?.Id == Games.GameId.ACrackInTime)
+        {
+            var (scene, water) = ReadAcitDefaultCubes(region);
+            return [.. declaredInOrder.Prepend(water).Prepend(scene).Where(available.Contains).Distinct()];
+        }
+
         IGFile.SectionHeader environment = region.QuerySection(0x8100);
         if (environment.id != 0x8100 || environment.count == 0 || environment.length < 0x30)
             return [];
@@ -279,6 +287,20 @@ public sealed class CubemapReader
                     result.Add(tuid);
 
         return [.. result];
+    }
+
+    // ACIT 0x583E50/0x583E78 load the scene and water TUIDs. The zone loader at
+    // 0x5899CC resolves the latter for water records whose cube-set byte is zero.
+    internal static (ulong Scene, ulong Water) ReadAcitDefaultCubes(IGFile region)
+    {
+        var section = region.QuerySection(0x8100);
+        if (section.id != 0x8100 || section.count == 0 || section.length < 0xF8)
+            return default;
+        const ulong defaultCube = 0x937E3D8B9D2E2749;
+        region.sh.Seek(section.offset + 0xE8);
+        ulong scene = region.sh.ReadUInt64();
+        ulong water = region.sh.ReadUInt64();
+        return (scene == 0 ? defaultCube : scene, water == 0 ? defaultCube : water);
     }
 
     private IReadOnlyList<Assets.Cubemaps.Cubemap> ReadNewCubemapResource(

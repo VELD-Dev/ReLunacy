@@ -118,6 +118,10 @@ public class GizmoController
         EnsureInitialized();
         ImGuizmo.BeginFrame();
 
+        // Read-only kinds (shrubs) get no gizmo, and are not carried along by a multiple selection.
+        if (entity is { IsReadOnly: true }) entity = null;
+        if (others.Any(o => o.IsReadOnly)) others = [.. others.Where(o => !o.IsReadOnly)];
+
         _manipulatedThisFrame = entity != null;
         if (entity == null)
         {

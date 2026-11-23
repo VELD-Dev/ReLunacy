@@ -462,7 +462,8 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
                 }
                 Row(LM.Get("GUI_Frame_ShaderViewer_CubeBias"), F(n.reflectionParamZ));
                 Row(LM.Get("GUI_Frame_ShaderViewer_FresnelGain"), F(n.reflectionParamW));
-                if (n.UsesEmbeddedShaderBundle) Row(LM.Get("GUI_Frame_ShaderViewer_ProgramBase"), $"0x{n.fragmentShaderBaseTuid:X16}");
+                if (n.UsesEmbeddedShaderBundle)
+                    Row(LM.Get("GUI_Frame_ShaderViewer_ProgramBase"), $"0x{(shader.ShaderBundle?.MaterialBaseTuid ?? n.fragmentShaderBaseTuid):X16}");
                 if (n.shaderClass is 0x01 or 0x0F) Row(LM.Get("GUI_Frame_ShaderViewer_ClassWord"), $"0x{n.parameter44:X8}");
             }
             Row(LM.Get("GUI_Frame_ShaderViewer_ParallaxScale"), F(scale));
@@ -578,7 +579,8 @@ public sealed partial class ShaderViewerFrame : DockedFrame, ILevelListener
         if (!shader.isOld && shader.ShaderBundle is { } bundle)
         {
             sb.AppendLine();
-            sb.AppendLine($"0x33003  {Convert.ToHexString(bundle.SelectorData)}");
+            if (bundle.HasSelectorSection)
+                sb.AppendLine($"0x33003  {Convert.ToHexString(bundle.SelectorData)}");
             foreach (var v in bundle.Variants)
                 sb.AppendLine($"0x33002  {v.Tuid:X16}  +0x{v.ResourceOffset:X} / 0x{v.ResourceSize:X}  ucode 0x{v.MicrocodeSize:X}  config {v.Config04:X8} {v.Config08:X8} {v.Config0C:X8}  {v.SkeletonKey}");
         }
