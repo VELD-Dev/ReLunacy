@@ -8,7 +8,7 @@ using ReLunacy.Engine.Loading.IO;
 namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>
-/// Reads the per-level banks in Tools of Destruction, Quest for Booty and A Crack in Time.
+/// Reads the per-level banks in Fall of Man, Tools of Destruction, Quest for Booty and A Crack in Time.
 /// SoundSpecs ids resolve through fxconduit_packed.dat into resident_sound.dat's name table.
 /// Only the tables are read up front (a few hundred
 /// kilobytes of files of 10-35 MB); samples are read and decoded when played. Read in the background on first use,
@@ -33,6 +33,11 @@ public static partial class SoundReader
         return task.IsCompletedSuccessfully ? task.Result : null;
     }
 
+    /// <summary>The folder <see cref="ListLevelBanks"/> takes for this level: the game folder, or Fall of Man's USRDIR.</summary>
+    public static string? BankFolderFor(FileManager fileManager) => fileManager.IsFallOfMan
+        ? FallOfManFiles.SharedArchiveFor(fileManager.SourcePath) is { } archive ? Path.GetDirectoryName(archive) : null
+        : Config.GameConfigs.GameFolderFor(fileManager.SourcePath);
+
     /// <summary>True while <see cref="For"/> is still reading the level's sounds.</summary>
     public static bool Pending(FileManager fileManager) =>
         Loads.TryGetValue(fileManager, out var task) ? !task.IsCompleted : For(fileManager) == null;
@@ -42,6 +47,8 @@ public static partial class SoundReader
     /// <summary>The installed per-level banks, including the front-end bank when it lives in global_cached.</summary>
     public static IReadOnlyList<LevelBankArchive> ListLevelBanks(string gameFolder)
     {
+        if (File.Exists(Path.Combine(gameFolder, FallOfManFiles.Archive)))
+            return ListFallOfManBanks(gameFolder).OrderBy(bank => bank.LevelName, StringComparer.OrdinalIgnoreCase).ToArray();
         string levels = Path.Combine(Path.GetDirectoryName(gameFolder)!, "levels");
         var found = new List<LevelBankArchive>();
         if (Directory.Exists(levels))
@@ -64,6 +71,7 @@ public static partial class SoundReader
     /// <summary>Opens the audio tables of another level without loading its scene or other assets.</summary>
     public static LevelSounds? ReadLevelBank(LevelBankArchive bank, string gameFolder) => ReadSafely(() =>
     {
+        if (Path.GetFileName(bank.ArchivePath) == FallOfManFiles.Archive) return ReadFallOfManLevelBank(bank);
         string archive = bank.ArchivePath;
         string uncached = Path.Combine(Path.GetDirectoryName(archive)!, "level_uncached.psarc");
         string prefix = Path.GetFileName(archive) == "global_cached.psarc" ? $"built/levels/{bank.LevelName}/" : "";
@@ -91,15 +99,23 @@ public static partial class SoundReader
 
     public static LevelSounds? Read(FileManager fileManager, string? gameFolder)
     {
+        if (fileManager.IsFallOfMan)
+            return fileManager.Locate(FallOfManResident) is { } bank
+                ? Read(fileManager.Locate("fxconduit_packed.dat"), bank, FallOfManStreams(bank), null, fallOfMan: true)
+                : null;
         if (fileManager.Locate("resident_sound.dat") is not { } residentFile) return null;
         return Read(fileManager.Locate("fxconduit_packed.dat"), residentFile, fileManager.Locate("streaming_sound.dat"), gameFolder);
     }
 
     private static LevelSounds? Read((string ArchivePath, string EntryPath)? conduitFile,
-        (string ArchivePath, string EntryPath) residentFile, (string ArchivePath, string EntryPath)? streamingFile, string? gameFolder)
+        (string ArchivePath, string EntryPath) residentFile, (string ArchivePath, string EntryPath)? streamingFile, string? gameFolder,
+        bool fallOfMan = false)
     {
         var conduit = conduitFile is { } file ? ReadWhole(file) : null;
-        var specNames = gameFolder != null ? ReadEnum(gameFolder, "soundspecs.lua", SpecLine()) : new Dictionary<int, string>();
+        var specNames = fallOfMan ? FallOfManSpecNames(residentFile.ArchivePath)
+            : gameFolder != null ? ReadEnum(gameFolder, "soundspecs.lua", SpecLine()) : new Dictionary<int, string>();
+        // Fall of Man's sections sit one step lower: names 0x21100, map 0x21200, streams 0x21010.
+        var (namesId, mapId, bankId, streamsId) = fallOfMan ? (0x21100u, 0x21200u, Bank, 0x21010u) : (Names, BankMap, Bank, Streams);
 
         // resident_sound.dat: the section table, then each table section; the samples stay where they are.
         var head = PsarcRanges.Read(residentFile.ArchivePath, residentFile.EntryPath, 0, 0x100) ?? throw new InvalidDataException("resident_sound.dat");
@@ -107,8 +123,8 @@ public static partial class SoundReader
         byte[] Section(uint id) => sections.TryGetValue(id, out var s)
             ? PsarcRanges.Read(residentFile.ArchivePath, residentFile.EntryPath, s.Offset, s.Length) ?? []
             : [];
-        var nameTable = Section(Names);
-        var map = Section(BankMap);
+        var nameTable = Section(namesId);
+        var map = Section(mapId);
         if (nameTable.Length < 64 || map.Length < 16) return null;
         var names = new string[nameTable.Length / 64];
         for (int i = 0; i < names.Length; i++)
@@ -119,10 +135,10 @@ public static partial class SoundReader
         }
         int mapped = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(map), (uint)(map.Length - 16) / 4);
 
-        var scream = sections.TryGetValue(Bank, out var bank) ? ReadBank(residentFile, bank.Offset) : null;
+        var scream = sections.TryGetValue(bankId, out var bank) ? ReadBank(residentFile, bank.Offset) : null;
         var resident = scream?.FirstTones().ToDictionary(t => t.Sound, t => t.Sample) ?? [];
-        var (streamOffsets, streamContinuations, streamLoops) = sections.TryGetValue(Streams, out var streams)
-            ? ReadStreamTable(Section(Streams), streams.Offset)
+        var (streamOffsets, streamContinuations, streamLoops) = sections.TryGetValue(streamsId, out var streams)
+            ? ReadStreamTable(Section(streamsId), streams.Offset)
             : ([], [], []);
 
         SoundBank BankOf(int nameIndex) => nameIndex < mapped && BinaryPrimitives.ReadUInt32BigEndian(map.AsSpan(16 + nameIndex * 4)) >> 16 != 0
@@ -130,7 +146,7 @@ public static partial class SoundReader
         int IndexOf(int nameIndex) => nameIndex < mapped ? (int)(BinaryPrimitives.ReadUInt32BigEndian(map.AsSpan(16 + nameIndex * 4)) & 0xFFFF) : 0;
         var sounds = new List<LevelSound>();
         var groups = new Dictionary<int, int>();
-        if (conduit != null && ReadConduit(conduit) is { } lookup)
+        if (conduit != null && (fallOfMan ? ReadFallOfManConduit(conduit) : ReadConduit(conduit)) is { } lookup)
         {
             foreach (var (id, effect) in lookup.Ids)
             {
@@ -149,7 +165,7 @@ public static partial class SoundReader
         var bankSounds = new List<BankSound>(names.Length);
         for (int i = 0; i < names.Length; i++)
             bankSounds.Add(new BankSound(i, names[i], BankOf(i), IndexOf(i), groups.GetValueOrDefault(i, -1)));
-        var groupNames = gameFolder != null ? ReadEnum(gameFolder, "soundgroups.lua", GroupLine()) : new Dictionary<int, string>();
+        var groupNames = gameFolder != null && !fallOfMan ? ReadEnum(gameFolder, "soundgroups.lua", GroupLine()) : new Dictionary<int, string>();
         return new LevelSounds(sounds, specNames, scream, resident, streamOffsets, residentFile,
             streamingFile, bankSounds, groupNames, streamContinuations, streamLoops);
     }
@@ -266,9 +282,9 @@ public static partial class SoundReader
             if (selectedParts != null && !selectedParts.Contains(i)) continue;
 
             var part = chain[i];
-            var data = PsarcRanges.Read(streaming.Archive, streaming.Entry, part.Offset, part.Size);
+            var data = ReadRange(streaming, part.Offset, part.Size);
             if (data?.Length != part.Size) return null;
-            var decoded = PsAdpcm.Decode(data, channels);
+            var decoded = PsAdpcm.Decode(data, channels, part.Interleave);
             int wanted = part.Frames * channels;
             if (decoded.Length > wanted) Array.Resize(ref decoded, wanted);
             if (decoded.Length == 0) return null;
@@ -294,7 +310,8 @@ public static partial class SoundReader
         return new PcmSound(result, channels, rate) { Parts = parts };
     }
 
-    private readonly record struct StreamPart(long Offset, int Size, int Rate, int Channels, int Frames, bool Loops = false);
+    private readonly record struct StreamPart(long Offset, int Size, int Rate, int Channels, int Frames, bool Loops = false,
+        int Interleave = 0x10);
 
     private static List<StreamPart>? ReadStreamChain(LevelSounds sounds, (string Archive, string Entry) file, int index)
     {
@@ -314,9 +331,22 @@ public static partial class SoundReader
     private static StreamPart? ReadStreamPart((string Archive, string Entry) file, long offset)
     {
         const int maxSize = 64 << 20;
-        var header = PsarcRanges.Read(file.Archive, file.Entry, offset, 0x200);
+        var header = ReadRange(file, offset, 0x200);
         if (header == null || header.Length < 0x40) return null;
         uint Word(int at) => BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(at));
+        if (header.AsSpan(0, 4).SequenceEqual(" KPV"u8))
+        {
+            // Fall of Man: little-endian, +4 bytes per channel, +8 data offset, +0xC block, +0x10 rate, +0x14 channels;
+            // each block holds every channel's share (block / tracks bytes) in turn.
+            uint Little(int at) => BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(at));
+            uint size = Little(4), data = Little(8), block = Little(0xC), rate = Little(0x10), tracks = Little(0x14);
+            if (tracks is < 1 or > 8 || rate is 0 or > int.MaxValue || block == 0 || block % (16 * tracks) != 0 ||
+                size is < 16 or > maxSize || data > 0x10000) return null;
+            int share = (int)(block / tracks);
+            long blocks = (size + share - 1) / share;
+            return new StreamPart(offset + data, (int)Math.Min(blocks * block, maxSize), (int)rate, (int)tracks,
+                (int)(size / 16 * 28), Interleave: tracks == 1 ? 0x10 : share);
+        }
         if (header.AsSpan(0, 4).SequenceEqual("VAGp"u8))
         {
             uint size = Word(0x0C), rate = Word(0x10);
@@ -336,6 +366,18 @@ public static partial class SoundReader
     }
 
     // ---------------------------------------------------------------- the pieces
+
+    /// <summary>A range of an archive entry, or of a loose file when the entry is empty (Fall of Man's streams).</summary>
+    private static byte[]? ReadRange((string Archive, string Entry) file, long start, int length)
+    {
+        if (file.Entry.Length > 0) return PsarcRanges.Read(file.Archive, file.Entry, start, length);
+        using var stream = File.OpenRead(file.Archive);
+        if (start < 0 || start > stream.Length) return null;
+        var data = new byte[(int)Math.Min(length, stream.Length - start)];
+        stream.Position = start;
+        stream.ReadExactly(data);
+        return data;
+    }
 
     private static byte[]? ReadWhole((string ArchivePath, string EntryPath) file)
     {
