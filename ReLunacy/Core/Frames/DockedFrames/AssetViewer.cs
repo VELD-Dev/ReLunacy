@@ -607,6 +607,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                             _vkPreview.TrySetAnimatedInstance(MobyPreviewOwner, pose);
                         else
                             _vkPreview.ClearAnimatedInstance(MobyPreviewOwner);
+                        UpdatePreviewMobyCollisionPose();
                         _previewPoseDirty = false;
                     }
                     _vkPreview.ClearColour = Program.Settings.AssetViewerBackground;
@@ -1740,7 +1741,7 @@ public partial class AssetViewer : DockedFrame, ILevelListener
                 if (!renderMap[bangleIndex]) continue;
                 var meshes = models[bangleIndex].Meshes;
                 for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
-                    add(meshes[meshIndex], Matrix4x4.Identity, (uint)((bangleIndex << 16) | meshIndex));
+                    add(meshes[meshIndex], HidePreviewMesh ? Matrix4x4.CreateScale(0f) : Matrix4x4.Identity, (uint)((bangleIndex << 16) | meshIndex));
             }
         }
         else if (selectedTieAsset != null)

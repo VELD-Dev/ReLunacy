@@ -41,13 +41,37 @@ public enum CollisionPrimitiveKinds : uint
     All = Box | Sphere | Capsule | Cylinder,
 }
 
+/// <summary>The parts of the Moby collision layer the overlay shows (the shader's uMoby.x bits 0-1).</summary>
+[Flags]
+public enum MobyCollisionParts : uint
+{
+    None = 0,
+    Mesh = 1,
+    Primitives = 2,
+    All = Mesh | Primitives,
+}
+
+/// <summary>How the Moby collision layer is coloured (the shader's uMoby.x bits 8-15).</summary>
+public enum MobyCollisionColorMode
+{
+    /// <summary>Mesh in one colour, primitives by kind.</summary>
+    Kind = 0,
+    /// <summary>Primitives by their mask byte, mesh faces by their triangle flags.</summary>
+    Mask = 1,
+    /// <summary>One colour per Moby class.</summary>
+    Class = 2,
+    /// <summary>One colour per palette index (the class's own material list).</summary>
+    Palette = 3,
+}
+
 /// <summary>One unshared vertex of the collision pool: its position in the SHAPE's space and a packed
 /// attribute word (see <see cref="CollisionGeometry"/>).</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public readonly record struct CollisionVertex(Vector3 Position, uint Attributes);
 
 /// <summary>One placed shape: its world matrix; attributes bit 0 = Tie, bit 1 = selected (collision
-/// editor), bit 2 = hidden by the instance-flag filter, bits 16-31 = shape flags; and the regions it
+/// editor), bit 2 = hidden by the instance-flag filter, bit 3 = Moby layer, bits 16-31 = shape flags (a
+/// Moby's class index); and the regions it
 /// belongs to, bit N for the Nth collision passed to <see cref="CollisionGeometry.Build"/>.</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public record struct CollisionInstanceData(Matrix4x4 Transform, uint Attributes, uint RegionMask, uint Pad1, uint Pad2);
@@ -241,6 +265,8 @@ public static class CollisionGeometry
     public const uint SelectedFaceBit = 1u << 16;
     public const uint SelectedInstanceBit = 2u;
     public const uint HiddenInstanceBit = 4u;
+    /// <summary>Instance attribute bit of the Moby layer: its own filters apply (see MobyCollisionGeometry).</summary>
+    public const uint MobyInstanceBit = 8u;
 
     /// <summary>The attribute word of a mesh face: material, flags, kind 0.</summary>
     public static uint MeshFaceAttributes(byte material, byte flags) => material | ((uint)(flags & 0x1F) << 8);

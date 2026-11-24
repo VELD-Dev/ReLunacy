@@ -89,6 +89,11 @@ public class EditorSettings
     public ReLunacy.Engine.Rendering.CollisionPrimitiveKinds CollisionPrimitiveKinds;
     public float CollisionOpacity;
     public bool CollisionOutlines;
+    // The Moby collision layer's own filters and colours, shared by the 3D view and the asset viewer.
+    public ReLunacy.Engine.Rendering.MobyCollisionParts MobyCollisionParts;
+    public ReLunacy.Engine.Rendering.MobyCollisionColorMode MobyCollisionColorMode;
+    public ReLunacy.Engine.Rendering.CollisionPrimitiveKinds MobyCollisionPrimitiveKinds;
+    public uint MobyCollisionMaskBits;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -200,7 +205,7 @@ public class EditorSettings
     // Adjustable from the overlay toolbar over the preview.
     public float AssetViewerFarPlane;
 
-    // The asset viewer's Tie collision overlay: shown, shown without the render mesh, coloured by material.
+    // The asset viewer's Tie and Moby collision overlay: shown, shown without the render mesh, Ties coloured by material.
     public bool AssetViewerCollision;
     public bool AssetViewerCollisionOnly;
     public bool AssetViewerCollisionByMaterial;
@@ -238,6 +243,10 @@ public class EditorSettings
         CollisionPrimitiveKinds = ReLunacy.Engine.Rendering.CollisionPrimitiveKinds.All;
         CollisionOpacity = 0.85f;
         CollisionOutlines = true;
+        MobyCollisionParts = ReLunacy.Engine.Rendering.MobyCollisionParts.All;
+        MobyCollisionColorMode = ReLunacy.Engine.Rendering.MobyCollisionColorMode.Kind;
+        MobyCollisionPrimitiveKinds = ReLunacy.Engine.Rendering.CollisionPrimitiveKinds.All;
+        MobyCollisionMaskBits = uint.MaxValue;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;

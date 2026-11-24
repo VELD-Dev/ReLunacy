@@ -318,7 +318,7 @@ public class View3D : DockedFrame
             MenuBar.RenderMenuDraw.PersistRenderSettings();
         // The collision button opens its panel (visibility, filters, edit mode) rather than toggling the
         // overlay itself; the panel stays until the button is pressed again.
-        bool hasCollision = em.CollisionSummary != null;
+        bool hasCollision = em.CollisionSummary != null || _collisionEditor.Mobys.HasCollision;
         if (!hasCollision) _collisionEditor.PanelOpen = false;
         overlay.ToggleButton(Icons.DrawPolygon, ref _collisionEditor.PanelOpen,
             LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision);
@@ -915,6 +915,8 @@ public class View3D : DockedFrame
                 vkStage.CollisionRegionMask = CollisionRegionMask();
                 _collisionEditor.RegionMask = vkStage.CollisionRegionMask;
                 _collisionEditor.Apply(vkStage, Program.Settings);
+                _collisionEditor.Mobys.UploadIfStale(vkStage, Core.LunaWindow.Instance.Level);
+                _collisionEditor.Mobys.Update(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
