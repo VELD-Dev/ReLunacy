@@ -1,4 +1,9 @@
-class 0x43E
+class 0x39E
+{
+    [0x10, sound] Audio = "";
+}
+
+class 0x43E EffectController
 {
     [0x10, effect] = "";
 }

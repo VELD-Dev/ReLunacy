@@ -42,9 +42,9 @@ public class EntityController : Entity
     /// record's (+0x20), which a save writes back.</summary>
     protected virtual Vector3 InitialScale(GameplayController controller) => controller.Scale;
 
-    /// <summary>The class's name, where the game's class table or the class fields give one, else its number.</summary>
+    /// <summary>The class's name, where the class fields (which the editor renames) or the game's class table give one, else its number.</summary>
     public string ClassLabel(Games.GameId? game) =>
-        Controller.ClassName ?? ClassFields.ClassName(game, Controller.Class) ?? $"0x{Controller.Class:X}";
+        ClassFields.ClassName(game, Controller.Class) ?? Controller.ClassName ?? $"0x{Controller.Class:X}";
 
     /// <summary>The diamond's twelve edges, as world matrices of the volumes' unit edge mesh. Turned with the
     /// controller, not scaled with it.</summary>

@@ -82,6 +82,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         public int Order;
         /// <summary>An asset (or class) group, rather than a layer or type folder.</summary>
         public bool IsGroup;
+        /// <summary>A Clue's or a Controller's class group: the class, which Edit class info names.</summary>
+        public uint? ClassId;
         /// <summary>A Pod's or an Area's folder (grouped by Pod or Area): its region and its place in its table, which a rename needs.</summary>
         public EntityRegion? GroupRegion;
         public int PodIndex = -1, AreaIndex = -1, ScentIndex = -1;
@@ -163,6 +165,66 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         else
             DrawTree();
         ImGui.EndChild();
+        DrawClassInfo();
+    }
+
+    private static Engine.Games.GameId? Game => Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+
+    private uint? _classInfo;
+    private string _classInfoName = "";
+    private bool _classInfoOpen;
+
+    /// <summary>Edit class info: the class's name in the game's class fields table, which the hierarchy, the
+    /// inspector and the Clue labels show.</summary>
+    private void DrawClassInfo()
+    {
+        if (_classInfo is not { } cls || Game is not { } game) return;
+        if (_classInfoOpen) { ImGui.OpenPopup("##class_info"); _classInfoOpen = false; }
+        bool open = true;
+        ImGui.SetNextWindowSize(new Vector2(320f, 0f), ImGuiCond.Appearing);
+        if (!ImGui.BeginPopupModal($"{LM.Get("GUI_Frame_EntityExplorer_ClassInfo")}###class_info", ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            if (!open) _classInfo = null;
+            return;
+        }
+        var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
+        int? parent = registry != null && registry.Parents.TryGetValue(cls, out int p) && p >= 0 ? p : null;
+        ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoNumber", $"0x{cls:X}"));
+        if (parent is { } up)
+            ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoParent",
+                Engine.Assets.LevelElements.ClassFields.ClassName(game, (uint)up) is { } upName ? $"{upName} (0x{up:X})" : $"0x{up:X}"));
+        if (registry != null && registry.Sizes.TryGetValue(cls, out int size))
+            ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoSize", $"0x{size:X}"));
+        ImGui.Spacing();
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.SetNextItemWidth(-1f);
+        bool enter = ImGui.InputTextWithHint("##class_name", LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _classInfoName, 64, ImGuiInputTextFlags.EnterReturnsTrue);
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")) || enter)
+        {
+            RenameClass(game, cls, _classInfoName.Trim(), parent);
+            _classInfo = null;
+            ImGui.CloseCurrentPopup();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldCancel")) || ImGui.IsKeyPressed(ImGuiKey.Escape))
+        {
+            _classInfo = null;
+            ImGui.CloseCurrentPopup();
+        }
+        ImGui.EndPopup();
+    }
+
+    /// <summary>Writes the name to the class fields table and relabels the class's Clues (Controllers read it live).</summary>
+    private void RenameClass(Engine.Games.GameId game, uint cls, string name, int? parent)
+    {
+        Engine.Assets.LevelElements.ClassFields.SetClassName(game, cls, name, parent);
+        foreach (var region in EntityManager.Singleton.Regions)
+        {
+            var clues = region.Volumes.Entities.OfType<EntityVolume>().Select(v => v.BaseVolume.Clue).Where(c => c?.Class == cls).ToList();
+            string label = Engine.Assets.LevelElements.ClueClasses.Name(cls, clues.Select(c => c!.Name), game);
+            foreach (var clue in clues) clue!.ClassName = label;
+        }
+        _dirty = true;
     }
 
     // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowSize/Pos on first
@@ -380,6 +442,16 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             bool readOnly = menuRegion.IsOldEngine;
             if (ImGui.MenuItem(LM.Get("GUI_Rename"), "F2", false, !readOnly)) BeginRename(node);
             if (readOnly && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
+            ImGui.Separator();
+        }
+        if (node.ClassId is { } cls && Game is not null)
+        {
+            if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_EditClassInfo")))
+            {
+                _classInfo = cls;
+                _classInfoName = Engine.Assets.LevelElements.ClassFields.ClassName(Game, cls) ?? "";
+                _classInfoOpen = true;
+            }
             ImGui.Separator();
         }
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_SelectContents")))
@@ -967,8 +1039,11 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         string name = DisplayName(entity);
         if (terms.Length > 0 && !terms.Any(t => name.Contains(t, StringComparison.OrdinalIgnoreCase))) return null;
         if (grouped)
+        {
             foreach (string group in GroupPath(entity))
                 folder = Folder(folder, group, IconOf(kind), ColourOf(kind) with { W = 0.75f }, 0, group: true);
+            if (folder.IsGroup && ClassOf(entity) is { } cls) folder.ClassId ??= cls;
+        }
         var node = new Node { Key = folder.Key, Label = name, Icon = IconOf(kind), IconColour = ColourOf(kind), Entity = entity, Kind = kind, Parent = folder, Order = 3 };
         folder.Children.Add(node);
         _nodeOf.TryAdd(entity, node);
@@ -1027,6 +1102,15 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             default: return [];
         }
     }
+
+    /// <summary>The class an entity's group stands for: a Clue's or a Controller's (Mobys group by asset). Fall of Man's
+    /// Clues hold a type, not a class.</summary>
+    private static uint? ClassOf(Entity entity) => entity switch
+    {
+        EntityVolume { BaseVolume.Clue: { } clue } when Game != Engine.Games.GameId.RFallOfMan => clue.Class,
+        EntityController controller => controller.Controller.Class,
+        _ => null,
+    };
 
     /// <summary>An asset's group: its name, or the folder it is in and then its name. The folder is the one
     /// under "entities" (levels/krell_canyon/entities/rock/...: "rock"), else the path's first two

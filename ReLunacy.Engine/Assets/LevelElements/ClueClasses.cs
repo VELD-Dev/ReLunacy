@@ -226,6 +226,9 @@ public static class ClueClasses
     public static string Name(uint cls, IEnumerable<string> instanceNames, Games.GameId? game = null)
     {
         if (game == Games.GameId.RFallOfMan) return FallOfManTypes.GetValueOrDefault(cls) ?? $"0x{cls:X}";
+        // The class fields table first: it is what the editor renames.
+        if (ClassFields.ClassName(game, cls) is { } named)
+            return named.StartsWith("Clue", StringComparison.OrdinalIgnoreCase) && named.Length > 4 ? named[4..] : named;
         if (game == Games.GameId.ACrackInTime && KnownCrackInTime.TryGetValue(cls, out var crackInTime)) return crackInTime;
         // The game's own class table first, when it has one (All 4 One, QForce), without the "Clue" prefix.
         if (GameClassNames.Name(game, cls) is { } official)
