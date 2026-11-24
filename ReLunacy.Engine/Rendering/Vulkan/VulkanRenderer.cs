@@ -559,6 +559,11 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private readonly int[] _visibleSoftEdge;
     private readonly int[] _visibleBillboard;
     private int _visOpaqueCount, _visTransCount, _visAddCount, _visSoftCount, _visBillCount;
+    // With water in the scene, the blended draws that are not world geometry (Mobys, previews): they
+    // composite after the water, while the Tie / UFrag / foliage ones go into the copy it refracts.
+    private readonly int[] _visibleTranslucentAfterWater;
+    private readonly int[] _visibleSoftEdgeAfterWater;
+    private int _visTransAfterWaterCount, _visSoftAfterWaterCount;
 
     private uint _width, _height;
     private readonly Texture _envCube;
@@ -726,7 +731,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private long _submits; private bool _loggedInit;
 
     /// <summary>Draws that survived this frame's culling, across every bucket.</summary>
-    public int VisibleDrawCount => _visOpaqueCount + _visOpaqueLateCount + _visTransCount + _visAddCount + _visSoftCount + _visBillCount;
+    public int VisibleDrawCount => _visOpaqueCount + _visOpaqueLateCount + _visTransCount + _visTransAfterWaterCount + _visAddCount +
+                                   _visSoftCount + _visSoftAfterWaterCount + _visBillCount;
 
     /// <summary>The scene image for ImGui to display: the last completed frame, not the one being
     /// recorded, so the viewport runs one frame behind the camera.</summary>
@@ -954,6 +960,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         _visibleAdditive = new int[_instanceCount];
         _visibleSoftEdge = new int[_instanceCount];
         _visibleBillboard = new int[_instanceCount];
+        _visibleTranslucentAfterWater = new int[_instanceCount];
+        _visibleSoftEdgeAfterWater = new int[_instanceCount];
         _chunkCounts = new int[Environment.ProcessorCount];
 
         var poolInfo = new VkCommandPoolCreateInfo { flags = VkCommandPoolCreateFlags.ResetCommandBuffer, queueFamilyIndex = _ctx.GraphicsQueueFamilyIndex };
@@ -1416,8 +1424,10 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         Accumulate(_visibleOpaque, _visOpaqueCount);
         Accumulate(_visibleOpaqueLate, _visOpaqueLateCount);
         Accumulate(_visibleTranslucent, _visTransCount);
+        Accumulate(_visibleTranslucentAfterWater, _visTransAfterWaterCount);
         Accumulate(_visibleAdditive, _visAddCount);
         Accumulate(_visibleSoftEdge, _visSoftCount);
+        Accumulate(_visibleSoftEdgeAfterWater, _visSoftAfterWaterCount);
         Accumulate(_visibleBillboard, _visBillCount);
     }
 
@@ -1945,6 +1955,46 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         _sceneColorFresh[_slot] = true;
     }
 
+    /// <summary>Accumulates the blended lists (WBOIT) and resolves them over the colour target; returns
+    /// with the resolve pass open.</summary>
+    private void RecordTranslucent(int[] translucent, int translucentCount, int[] softEdge, int softEdgeCount, VkRect2D area, VkRenderPass resolvePass)
+    {
+        VkClearValue* clearsA = stackalloc VkClearValue[2];
+        clearsA[0] = new VkClearValue { color = new VkClearColorValue(0f, 0f, 0f, 0f) };
+        // R tracks opacity revealage. G tracks the remaining fraction of the translucent glow mask.
+        clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 1f, 0f, 0f) };
+        var rpA = new VkRenderPassBeginInfo { renderPass = _rpAccum, framebuffer = _fbAccum, renderArea = area, clearValueCount = 2, pClearValues = clearsA };
+        _api.vkCmdBeginRenderPass(_cmd, &rpA, VkSubpassContents.Inline);
+        BindLitState();
+        DrawVisible(_pipelineAccum, translucent, translucentCount);
+        DrawVisible(_pipelineAccum, softEdge, softEdgeCount);
+        _api.vkCmdEndRenderPass(_cmd);
+
+        var rpR = new VkRenderPassBeginInfo { renderPass = resolvePass, framebuffer = _fbResolve[_slot], renderArea = area, clearValueCount = 0, pClearValues = null };
+        _api.vkCmdBeginRenderPass(_cmd, &rpR, VkSubpassContents.Inline);
+        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _pipelineResolve);
+        VkDescriptorSet rset = _resolveSet;
+        _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _resolveLayout, 0, 1, &rset, 0, null);
+        _api.vkCmdDraw(_cmd, 3, 1, 0, 0);
+    }
+
+    /// <summary>Moves the draws that are not world geometry (Tie, UFrag, foliage) from <paramref name="list"/>
+    /// to <paramref name="after"/>, keeping both in order; returns the count left in the list.</summary>
+    private int SplitAfterWater(int[] list, int count, int[] after, out int afterCount)
+    {
+        int kept = 0;
+        afterCount = 0;
+        for (int v = 0; v < count; v++)
+        {
+            int i = list[v];
+            if ((SceneEntityKind)_instKind[i] is SceneEntityKind.Tie or SceneEntityKind.UFrag or SceneEntityKind.Foliage)
+                list[kept++] = i;
+            else
+                after[afterCount++] = i;
+        }
+        return kept;
+    }
+
     private void RecordCommands(bool fxaa)
     {
         _statBinds = 0; _statDraws = 0;
@@ -1967,9 +2017,23 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         BindLitState();
         DrawVisible(_pipelineOpaque, _visibleOpaque, _visOpaqueCount);
         DrawVisible(_pipelineSoftEdgeDepth, _visibleSoftEdge, _visSoftCount, softEdgeDepthPrepass: true);
+        DrawVisible(_pipelineSoftEdgeDepth, _visibleSoftEdgeAfterWater, _visSoftAfterWaterCount, softEdgeDepthPrepass: true);
         DrawVisible(_pipelineBillboard, _visibleBillboard, _visBillCount);
         _api.vkCmdEndRenderPass(_cmd);
-        CopySceneColor(VkImageLayout.ColorAttachmentOptimal);
+        // Water refracts the world drawn before it: retail runs its draw buckets in ascending order
+        // (RenderView_ExecuteBuckets 0x0055254C) and water is bucket 0x3D (Water_CullAndSubmit
+        // 0x00671094), after the world's blended buckets. Composited after it, the UFrag blend layers
+        // under a water body stayed sharp over the rippled ground they lie on.
+        if (WaterWanted && _visTransCount + _visSoftCount > 0)
+        {
+            RecordTranslucent(_visibleTranslucent, _visTransCount, _visibleSoftEdge, _visSoftCount, area, _rpResolveKeep);
+            _api.vkCmdEndRenderPass(_cmd);
+            // The second accumulation clears what this resolve read.
+            _api.vkCmdPipelineBarrier(_cmd, VkPipelineStageFlags.FragmentShader, VkPipelineStageFlags.ColorAttachmentOutput, 0, 0, null, 0, null, 0, null);
+            CopySceneColor(VkImageLayout.ShaderReadOnlyOptimal);
+        }
+        else
+            CopySceneColor(VkImageLayout.ColorAttachmentOptimal);
         CopySceneDepth();
         var rpL = new VkRenderPassBeginInfo { renderPass = _rpOpaqueLoad, framebuffer = _fbOpaque[_slot], renderArea = area, clearValueCount = 0, pClearValues = null };
         _api.vkCmdBeginRenderPass(_cmd, &rpL, VkSubpassContents.Inline);
@@ -1986,23 +2050,11 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         DrawNavmesh();
         _api.vkCmdEndRenderPass(_cmd);
 
-        VkClearValue* clearsA = stackalloc VkClearValue[2];
-        clearsA[0] = new VkClearValue { color = new VkClearColorValue(0f, 0f, 0f, 0f) };
-        // R tracks opacity revealage. G tracks the remaining fraction of the translucent glow mask.
-        clearsA[1] = new VkClearValue { color = new VkClearColorValue(1f, 1f, 0f, 0f) };
-        var rpA = new VkRenderPassBeginInfo { renderPass = _rpAccum, framebuffer = _fbAccum, renderArea = area, clearValueCount = 2, pClearValues = clearsA };
-        _api.vkCmdBeginRenderPass(_cmd, &rpA, VkSubpassContents.Inline);
-        BindLitState();
-        DrawVisible(_pipelineAccum, _visibleTranslucent, _visTransCount);
-        DrawVisible(_pipelineAccum, _visibleSoftEdge, _visSoftCount);
-        _api.vkCmdEndRenderPass(_cmd);
-
-        var rpR = new VkRenderPassBeginInfo { renderPass = _bloomActive ? _rpResolveKeep : _rpResolve, framebuffer = _fbResolve[_slot], renderArea = area, clearValueCount = 0, pClearValues = null };
-        _api.vkCmdBeginRenderPass(_cmd, &rpR, VkSubpassContents.Inline);
-        _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _pipelineResolve);
-        VkDescriptorSet rset = _resolveSet;
-        _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _resolveLayout, 0, 1, &rset, 0, null);
-        _api.vkCmdDraw(_cmd, 3, 1, 0, 0);
+        if (WaterWanted)
+            RecordTranslucent(_visibleTranslucentAfterWater, _visTransAfterWaterCount, _visibleSoftEdgeAfterWater, _visSoftAfterWaterCount,
+                area, _bloomActive ? _rpResolveKeep : _rpResolve);
+        else
+            RecordTranslucent(_visibleTranslucent, _visTransCount, _visibleSoftEdge, _visSoftCount, area, _bloomActive ? _rpResolveKeep : _rpResolve);
         if (_bloomActive)
         {
             // The game's post runs on the world before the editor's overlays draw.
@@ -2314,6 +2366,12 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
             _visAddCount = CullRange(_addStart, _softStart, _visibleAdditive);
             _visSoftCount = CullRange(_softStart, _billStart, _visibleSoftEdge);
             _visBillCount = CullRange(_billStart, _instanceCount, _visibleBillboard);
+            _visTransAfterWaterCount = _visSoftAfterWaterCount = 0;
+            if (WaterWanted)
+            {
+                _visTransCount = SplitAfterWater(_visibleTranslucent, _visTransCount, _visibleTranslucentAfterWater, out _visTransAfterWaterCount);
+                _visSoftCount = SplitAfterWater(_visibleSoftEdge, _visSoftCount, _visibleSoftEdgeAfterWater, out _visSoftAfterWaterCount);
+            }
         }
         if (_matScreenRadius.Length != _matPC0.Length) _matScreenRadius = new float[_matPC0.Length];
         MeasureMaterialScreenRadius(projection.M22 * _height * 0.5f);
@@ -2346,7 +2404,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         if (!_loggedInit) { _loggedInit = true; Console.WriteLine($"[VkRenderer] frame 1 visible - {_visOpaqueCount} opaque/cutout, {_visTransCount} over-blended, {_visAddCount} additive, {_visSoftCount} soft-edge, {_visBillCount} foliage. Recorded {_statDraws} draws with {_statBinds} material binds."); }
         Diagnostics.FrameProfiler.SetCounter("Vk material binds", _statBinds);
         Diagnostics.FrameProfiler.SetCounter("Vk frames in flight", Frames);
-        Diagnostics.FrameProfiler.SetCounter("Vk visible draws", _visOpaqueCount + _visTransCount + _visAddCount + _visSoftCount + _visBillCount);
+        Diagnostics.FrameProfiler.SetCounter("Vk visible draws", VisibleDrawCount - _visOpaqueLateCount);
         Diagnostics.FrameProfiler.SetCounter("Vk total draws", _instanceCount);
     }
 
