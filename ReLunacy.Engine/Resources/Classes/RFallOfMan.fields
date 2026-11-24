@@ -1,9 +1,27 @@
-class 0x39E
+class 0x384 CuboidSource
 {
+    icon SoundEmitter;
+}
+
+class 0x39E SoundEnvironment
+{
+    icon SoundEnvironment;
     [0x10, sound] Audio = "";
+}
+
+class 0x3A6 SoundCrowd
+{
+    icon SoundEnvironment;
 }
 
 class 0x43E EffectController
 {
+    icon EffectController;
     [0x10, effect] = "";
+}
+
+class 0x46F SoundEmitter
+{
+    icon SoundEmitter;
+    [0x10, sound] Audio = "";
 }

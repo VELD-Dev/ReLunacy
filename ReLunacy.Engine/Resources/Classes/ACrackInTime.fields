@@ -330,10 +330,12 @@ class 0x160 CharacterBase : 0x47
 
 class 0x171 EnemyBattlefieldController : 0xCF
 {
+    icon EnemyBattlefieldController;
 }
 
 class 0x173 EnemyFirepointController : 0xCF
 {
+    icon EnemyFirepointController;
     [0x14, Area] Firepoints = "Area of the firepoints it hands out.";
     [0x618, u8, runtime] Firepoint count = "";
 }
@@ -451,6 +453,7 @@ class 0x201 PlatformBase : 0x47
 
 class 0x202 SoundEnvironment : 0xCF
 {
+    icon SoundEnvironment;
     [0x14, sound] Sound = "Plays while the listener is inside.";
     [0x18, float] Fade in = "Seconds the sound takes to fade in.";
     [0x1C, float] Fade out = "Seconds the sound takes to fade out.";
@@ -475,6 +478,7 @@ class 0x210 PickupGoldBolt : 0xD8
 
 class 0x211 MoveGameObjectController : 0xCF
 {
+    icon MoveGameObjectController;
 }
 
 class 0x213 ButtonPressure : 0x541
@@ -802,6 +806,7 @@ class 0x358 tj_ago_arena_crowd : 0x47
 
 class 0x35E CarSpawner : 0xCF
 {
+    icon CarSpawner;
     [0xC, float, runtime] Range = "";
     [0x10, u8, runtime] Active = "";
     [0x14, Path] Path = "The path the spawned objects fly.";
@@ -828,6 +833,7 @@ class 0x366 TurretBase : 0x47
 
 class 0x369 SoundEmitter : 0xCF
 {
+    icon SoundEmitter;
     [0x14, sound] Sound = "Plays at the controller.";
     [0x18, Controller list] Environments = "Plays according to these environments.";
     [0x1C, u32, runtime] Playing = "";
@@ -843,6 +849,7 @@ class 0x36F PlatformGrappleTwoAxis : 0x4D
 
 class 0x371 EnemyGroupController : 0xCF
 {
+    icon EnemyGroupController;
     [0x9C, Pod] = "";
 }
 
@@ -928,6 +935,7 @@ class 0x3CD ShotTargetHang : 0x245
 
 class 0x3D0 FxController : 0xCF
 {
+    icon EffectController;
     [0x14, effect] Effect = "The effect to play.";
     [0x18, u32] Alternate effect = "";
     [0x1C, bool32] Start active = "";
@@ -1802,6 +1810,7 @@ class 0x6E0 nefarious_dropship : 0x181
 
 class 0x6E3 SpaceAsteroidField : 0xCF
 {
+    icon SpaceAsteroidField;
     [0x30, Pod] Asteroids = "Pod of the field's asteroids.";
 }
 
@@ -1953,12 +1962,14 @@ class 0x757 DerelictShip : 0x238
 
 class 0x75D SpaceAttackController (Agorian) : 0x714
 {
+    icon SpaceAttackController;
     [0x5C, bool] Advanced fighters = "";
     [0x5D, bool] Advanced bombers = "";
 }
 
 class 0x75E SpaceAttackController (Nefarious) : 0x714
 {
+    icon SpaceAttackController;
     [0x5C, bool] Advanced fighters = "";
     [0x5D, bool] Advanced bombers = "";
 }
@@ -2056,6 +2067,7 @@ class 0x79C sigmund_squawk_box : 0x47
 
 class 0x79E dialogue_fongoid_past : 0xCF
 {
+    icon Dialogue;
 }
 
 class 0x7A3 hangar_chunk : 0xCF
@@ -2223,6 +2235,7 @@ class 0x818 lagoon_bird : 0x47
 
 class 0x81D SpaceAttackController (Valkyrie) : 0x714
 {
+    icon SpaceAttackController;
     [0x5C, bool] Advanced ships = "";
 }
 
@@ -2383,6 +2396,7 @@ class 0x8A8 SpaceBillboard : 0x238
 
 class 0x8A9 infocontroller : 0xCF
 {
+    icon InfoController;
     [0x18, component(0x98)] Prompt = "The prompt shown near the exhibit.";
     [0x70, text] Prompt text = "Text of the prompt.";
     [0x74, Volume] Prompt volume = "The prompt also shows while the hero is inside.";
@@ -2403,6 +2417,7 @@ class 0x8B6 ClueNoWater : 0x11D
 
 class 0x8B8 controller_nefarious_disguise : 0xCF
 {
+    icon DisguiseController;
 }
 
 class 0x8B9 lightning_pillar : 0x47
