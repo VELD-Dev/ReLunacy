@@ -94,8 +94,10 @@ internal static class FallOfManGeometry
                 ushort indexCount = main.sh.ReadUInt16();
                 uint vertexOffset = main.sh.ReadUInt32();
                 uint firstIndex = main.sh.ReadUInt32();
+                // The retail draw (game.elf 0x107A38, 0x10BA40) gives a shrub no wind input and the vertices hold no
+                // bend weight, so they stay still: a zero bend weight, not the base-UV fallback, in the second UV set.
                 var data = ReadGeometry(vertices.sh, vertexBase + (long)vertexOffset, indexBase + firstIndex * 2L,
-                    vertexCount, indexCount, 20, 8, scale, hasVertexAlpha: true);
+                    vertexCount, indexCount, 20, 8, scale, hasVertexAlpha: true, still: true);
                 if (data != null) meshes.Add(new Mesh(data, materials.GetMaterialByIndex(material), $"Mesh_{p}"));
             }
             if (meshes.Count == 0) continue;
@@ -348,7 +350,7 @@ internal static class FallOfManGeometry
     private static GeometryData? ReadGeometry(StreamHelper stream, long vertexOffset, long indexOffset,
         int vertexCount, int indexCount, int stride, int uvOffset, Vector3 scale,
         bool terrain = false, bool hasVertexAlpha = false, long? secondaryUvs = null, byte[]? chroma = null,
-        byte[]? prelightDirections = null)
+        byte[]? prelightDirections = null, bool still = false)
     {
         if (vertexCount == 0 || indexCount == 0 || indexCount % 3 != 0
             || !Fits(stream, vertexOffset, vertexCount * stride) || !Fits(stream, indexOffset, indexCount * 2))
@@ -369,7 +371,7 @@ internal static class FallOfManGeometry
         float[]? alpha = hasVertexAlpha ? new float[vertexCount] : null;
         float[]? lightScales = hasVertexAlpha ? new float[vertexCount] : null;
         bool separateUvs = secondaryUvs is { } uvStart && Fits(stream, uvStart, vertexCount * 4);
-        float[]? lightmapUvs = (terrain && prelightDirections == null) || separateUvs ? new float[vertexCount * 2] : null;
+        float[]? lightmapUvs = (terrain && prelightDirections == null) || separateUvs || still ? new float[vertexCount * 2] : null;
         for (int i = 0; i < vertexCount; i++)
         {
             long vertex = vertexOffset + i * stride;
