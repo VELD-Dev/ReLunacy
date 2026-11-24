@@ -219,6 +219,8 @@ public sealed class InstallProjectModal : Modal
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
 
+    protected override bool CanClose => _installing is not { IsCompleted: false };
+
     private Task<List<InstallItem>>? _checking;
     private List<InstallItem>? _items;
     private Task<InstallResult>? _installing;
@@ -316,6 +318,7 @@ public sealed class InstallProjectModal : Modal
         foreach (var item in result.Items)
         {
             ImGui.TextUnformatted($"{item.Archive}: {item.Message}");
+            if (item.PristinePath != null) ImGui.TextDisabled(LM.Get("GUI_Install_Pristine", item.PristinePath));
             if (item.BackupPath != null) ImGui.TextDisabled(LM.Get("GUI_Install_Backup", item.BackupPath));
         }
         foreach (var problem in result.Problems) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), problem);

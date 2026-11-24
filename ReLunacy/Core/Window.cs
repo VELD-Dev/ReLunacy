@@ -942,7 +942,7 @@ public class LunaWindow : IDisposable
             FileMenuDraw.OpenGameBrowserMenuItem();
             FileMenuDraw.SaveLevelMenuItem();
             FileMenuDraw.InstallMenuItem();
-            FileMenuDraw.BackupsMenuItem();
+            FileMenuDraw.UninstallModsMenuItem();
             FileMenuDraw.ExportLevelMenuItem();
             FileMenuDraw.ImportMenu();
             FileMenuDraw.CloseLevelMenuItem();

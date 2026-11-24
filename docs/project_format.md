@@ -80,7 +80,7 @@ Routed through the sink: `GameplayWriter.Save` (gp_prius, gameplay.dat, zones.da
 `GameplayStructure`/`PodWriter`/`TieAppender`/`ZoneWriter`/`CollisionWriter` produce), `ArchiveEntryWriter.Replace`
 (config CSVs, text tables), `LuaScriptPackWriter.Save` (scripts; a new script is the index replacement plus two
 additions, its self-size settled at install). `GameplayWriter.Save(outputPath:)` still writes a patched copy for probes.
-Not routed: Backups > Restore (a deliberate write of a game file), `GameArchiveSizes.Refresh` (install-time only).
+Project install and uninstall write the live game files. Project saves update the project overlay.
 
 ## Install
 
@@ -93,15 +93,22 @@ Not routed: Backups > Restore (a deliberate write of a game file), `GameArchiveS
    also changed are listed (the project's version wins).
 3. The pristine copy's hash is checked, the archive rebuilt from it plus the entries (`ArchiveRebuild`, verified), and
    compared with the game's file: identical means up to date, nothing written, no backup.
-4. Otherwise: dated backup (`Backups.Create`), replace, record `installedSha256`. game.psarc goes last; game.toc sizes
-   are refreshed once at the end (its own dated backup). The result lists backups; the dialog shows the disk cache
-   notice.
+4. Before replacing a game file, the installer keeps its original bytes in a sibling `<file>.pristine` and records
+   the original's hash in `.relunacy-mods.json` at the game root. Later installs keep the same original and
+   save a dated `<file>.<timestamp>.bak` of the version they replace. This includes loose files and any
+   `game.psarc` update needed to refresh archive sizes. The install result lists both copy paths.
+
+**File → Uninstall Mods** checks the selected game folder and lists the files it can restore. It verifies the
+original copies, restores the original bytes, and keeps a dated backup of each version it replaces. This works
+with the references stored in the game folder, so the project can be closed. For an older install, an open project
+can supply a verified archive base or the hash of a loose file's original backup. Project edits stay available for
+reinstalling.
 
 ## Session (editor)
 
 - File > New Project (name defaults to the title id above USRDIR, location remembered, game folder from the open
   level or the Game Browser), Open Project, Recent Projects (`EditorSettings.RecentProjects`), Project Levels, Close
-  Project, Save (Ctrl+S; without a project it opens New Project, then Save), Install to Game.
+  Project, Save (Ctrl+S; without a project it opens New Project, then Save), Install to Game, Uninstall Mods.
 - Opening a project keeps the open level when it lies under the project's game folder (reloaded through the overlay
   if the project holds entries), else closes it. A level opened while a project is open is recorded in `levels` and
   its archives' hashes are taken (size + write time skip re-hashing).

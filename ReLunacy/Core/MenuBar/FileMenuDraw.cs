@@ -100,13 +100,10 @@ internal static class FileMenuDraw
 
     internal static void OpenSaveLevelAfterProject() => OpenSaveLevel();
 
-    internal static void BackupsMenuItem()
+    internal static void UninstallModsMenuItem()
     {
-        bool open = LunaWindow.Instance.IsAnyFrameOpened<BackupsFrame>();
-        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_Backups"), "", open, Program.ProvidedPath != string.Empty))
-            return;
-        if (open) LunaWindow.Instance.TryCloseFirstFrame<BackupsFrame>();
-        else LunaWindow.Instance.AddFrame(new BackupsFrame());
+        if (ImGui.MenuItem(LM.Get("GUI_Project_Uninstall")) && !LunaWindow.Instance.IsAnyFrameOpened<UninstallModsModal>())
+            LunaWindow.Instance.AddFrame(new UninstallModsModal());
     }
 
     internal static void ExportLevelMenuItem()

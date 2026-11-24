@@ -54,8 +54,22 @@ public static class GameArchiveSizes
     /// </summary>
     public static IReadOnlyList<GameArchiveSizeFix> Refresh(string gameArchivePath)
     {
-        var (index, root) = ReadIndex(gameArchivePath);
+        string temporary = $"{gameArchivePath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            var changed = StageRefresh(gameArchivePath, gameArchivePath, temporary);
+            if (changed.Count == 0) return changed;
 
+            Backups.Create(gameArchivePath);
+            File.Move(temporary, gameArchivePath, overwrite: true);
+            return changed;
+        }
+        finally { File.Delete(temporary); }
+    }
+
+    internal static IReadOnlyList<GameArchiveSizeFix> StageRefresh(string gameArchivePath, string sourcePath, string temporaryPath)
+    {
+        var (index, root) = ReadIndex(gameArchivePath, sourcePath);
         var changed = new List<GameArchiveSizeFix>();
         foreach (var (entry, path, recorded) in Archives(index))
         {
@@ -69,33 +83,17 @@ public static class GameArchiveSizes
         if (changed.Count == 0) return changed;
 
         byte[] rewritten = index.Write();
-        string temporaryPath = gameArchivePath + ".new";
-        try
-        {
-            PsarcPatcher.Patch(gameArchivePath, temporaryPath,
-                               new Dictionary<string, byte[]> { [IndexPath] = rewritten });
+        PsarcPatcher.Patch(sourcePath, temporaryPath, new Dictionary<string, byte[]> { [IndexPath] = rewritten });
 
-            // game.psarc is tens of kilobytes, so there is no reason to verify less than all of it.
-            using (var rebuilt = new PSARC(File.OpenRead(temporaryPath)))
-            using (var original = new PSARC(File.OpenRead(gameArchivePath)))
-            {
-                foreach (string path in original.Manifest.Keys)
-                {
-                    using var want = original.OpenFile(path);
-                    using var got = rebuilt.OpenFile(path);
-                    byte[] expected = path == IndexPath ? rewritten : want.Data.ToArray();
-                    if (!got.Data.SequenceEqual(expected))
-                        throw new InvalidDataException($"{path} did not survive the rewrite");
-                }
-            }
-
-            Backups.Create(gameArchivePath);
-            File.Move(temporaryPath, gameArchivePath, overwrite: true);
-        }
-        catch
+        using var rebuilt = new PSARC(File.OpenRead(temporaryPath));
+        using var original = new PSARC(File.OpenRead(sourcePath));
+        foreach (string path in original.Manifest.Keys)
         {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-            throw;
+            using var want = original.OpenFile(path);
+            using var got = rebuilt.OpenFile(path);
+            byte[] expected = path == IndexPath ? rewritten : want.Data.ToArray();
+            if (!got.Data.SequenceEqual(expected))
+                throw new InvalidDataException($"{path} did not survive the rewrite");
         }
         return changed;
     }
@@ -133,9 +131,9 @@ public static class GameArchiveSizes
     /// <c>/packed/...</c>, so the root is the folder holding <c>packed</c> - two levels above
     /// <c>game.psarc</c> itself.
     /// </summary>
-    private static (GameToc Index, string Root) ReadIndex(string gameArchivePath)
+    private static (GameToc Index, string Root) ReadIndex(string gameArchivePath, string? sourcePath = null)
     {
-        using var archive = new PSARC(File.OpenRead(gameArchivePath));
+        using var archive = new PSARC(File.OpenRead(sourcePath ?? gameArchivePath));
         if (!archive.Manifest.ContainsKey(IndexPath))
             throw new InvalidDataException($"{Path.GetFileName(gameArchivePath)} does not hold {IndexPath}");
 

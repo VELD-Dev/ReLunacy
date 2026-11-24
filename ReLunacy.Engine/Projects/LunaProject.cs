@@ -45,6 +45,8 @@ public sealed class ProjectEntry
     public string Sha256 { get; set; } = "";
     public long Size { get; set; }
     public string? BaseSha256 { get; set; }
+    /// <summary>The last installed version of a loose file.</summary>
+    public string? InstalledSha256 { get; set; }
     public DateTime Saved { get; set; }
 }
 
@@ -528,6 +530,7 @@ public sealed class LunaProject : IGameFileOverlay
                     if (now == entry.Sha256) continue;
                     if (now != entry.BaseSha256) conflicts.Add(entry.Path);
                     entry.BaseSha256 = now;
+                    entry.InstalledSha256 = null;
                 }
                 Revision++;
                 Save();

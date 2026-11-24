@@ -137,13 +137,14 @@ public sealed class GameArchiveSink : IGameFileSink
 public static class ArchiveRebuild
 {
     public static List<string> Build(string sourcePath, string outputPath, IReadOnlyDictionary<string, byte[]> replacements,
-        IReadOnlyDictionary<string, byte[]>? additions)
+        IReadOnlyDictionary<string, byte[]>? additions, string? archivePath = null)
     {
         var replaced = new Dictionary<string, byte[]>(replacements, StringComparer.OrdinalIgnoreCase);
         PsarcPatcher.Patch(sourcePath, outputPath, replaced, additions);
 
         // The archive's own index, when it records the archive's own length.
-        string stem = Path.GetFileNameWithoutExtension(outputPath.EndsWith(".new", StringComparison.Ordinal) ? outputPath[..^4] : outputPath);
+        archivePath ??= outputPath.EndsWith(".new", StringComparison.Ordinal) ? outputPath[..^4] : outputPath;
+        string stem = Path.GetFileNameWithoutExtension(archivePath);
         foreach (var (path, contents) in replaced.ToList())
         {
             if (!path.EndsWith($"/{stem}.toc", StringComparison.OrdinalIgnoreCase)) continue;

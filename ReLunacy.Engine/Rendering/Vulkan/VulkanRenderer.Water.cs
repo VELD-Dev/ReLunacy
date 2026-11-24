@@ -129,9 +129,6 @@ void main() {
     if (waterClipped((fWorld.xz - uCorner.xz) / uSize.xy, uClip.xyz)) discard;
     vec2 size = vec2(textureSize(uSceneDepth, 0));
     ivec2 p = ivec2(gl_FragCoord.xy);
-    // Nothing behind this pixel (the cleared reverse depth; the sky writes none): the rectangle overhangs the void
-    // past the level's edge, where the record is only a box round the real water. Not drawn there.
-    if (texelFetch(uSceneDepth, p, 0).r <= 0.0) discard;
     vec3 view = fWorld - uCamera.xyz;
     float surface = length(view);
     vec3 v = view / max(surface, 1e-5);
@@ -143,7 +140,8 @@ void main() {
     vec3 sky = mix(vec3(0.30, 0.38, 0.45), vec3(0.55, 0.65, 0.75), pow(1.0 - cosine, 2.0));
     vec3 deep = max(uColour.rgb, vec3(0.0));
     vec3 under;
-    if (uCamera.w > 0.5) {
+    // Cleared reverse depth (nothing behind, the sky writes none) counts as bottomless.
+    if (uCamera.w > 0.5 || texelFetch(uSceneDepth, p, 0).r <= 0.0) {
         under = deep;
     } else {
         float depth = max(dot(sceneWorld(p, size) - uCamera.xyz, v) - surface, 0.0);
