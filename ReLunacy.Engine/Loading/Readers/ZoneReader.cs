@@ -98,7 +98,7 @@ public sealed class ZoneReader
         progress?.SetTotal(1);
         if (_fileManager.IsFallOfMan)
         {
-            var zone = FallOfManGeometry.ReadZone(_fileManager, _materialReader, _ties, _debugReader);
+            var zone = FallOfManGeometry.ReadZone(_fileManager, _materialReader, _ties, _debugReader, Shrubs);
             progress?.Advance();
             return new() { [0] = zone };
         }

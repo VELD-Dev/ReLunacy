@@ -24,6 +24,7 @@ public sealed partial class FoliageReader
     public IReadOnlyList<Assets.Foliage.Foliage> ReadAll(LevelLoadProgress? progress = null)
     {
         if (!_fileManager.isOld) return ReadAllNew(progress);
+        if (_fileManager.IsFallOfMan) return ReadAllFallOfMan(progress);
         if (!_fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null) return [];
         if (!_fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertices) || vertices is null) return [];
 
@@ -161,12 +162,13 @@ public sealed partial class FoliageReader
         return 0;
     }
 
-    private static void AttachPlacements(IGFile main, List<Assets.Foliage.Foliage> assets, Dictionary<uint, int> byOffset)
+    private static void AttachPlacements(IGFile main, List<Assets.Foliage.Foliage> assets, Dictionary<uint, int> byOffset,
+        uint sectionId = FoliageInstance.ID)
     {
         IGFile.SectionHeader instances;
         try
         {
-            instances = main.QuerySection(FoliageInstance.ID);
+            instances = main.QuerySection(sectionId);
         }
         catch
         {

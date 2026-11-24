@@ -61,7 +61,52 @@ internal static class FallOfManGeometry
         return ties;
     }
 
-    public static Assets.Levels.Zone ReadZone(FileManager files, MaterialReader materials, AssetLibrary<Tie> ties, DebugReader debug)
+    /// <summary>The shrub classes: main.dat 0xB300 (0x80 bytes: +0x30 bounding sphere, +0x50 primitives and their count,
+    /// +0x64 draw distance), each primitive a 0xB200 record {u16 material, u16, u16 vertex count, u16 index count,
+    /// vertex offset, first index} of Tie vertices at 1/32768. Keyed by the class record's offset, which the 0x9500
+    /// placements point at.</summary>
+    public static Dictionary<ulong, Assets.Shrubs.Shrub> ReadShrubs(FileManager files, MaterialReader materials)
+    {
+        var shrubs = new Dictionary<ulong, Assets.Shrubs.Shrub>();
+        IGFile main = files.igfiles["main.dat"]!;
+        IGFile vertices = files.igfiles["vertices.dat"]!;
+        var records = main.QuerySection(0xB300);
+        if (records.count == 0 || records.length != 0x80) return shrubs;
+        uint vertexBase = vertices.QuerySection(0x9000).offset;
+        uint indexBase = vertices.QuerySection(0x9100).offset;
+        var scale = new Vector3(1f / 32768f);
+        for (uint i = 0; i < records.count; i++)
+        {
+            uint offset = records.offset + i * records.length;
+            main.sh.Seek(offset + 0x30);
+            Vector3 center = ReadVector(main.sh);
+            float radius = main.sh.ReadSingle();
+            uint primitive = main.sh.ReadUInt32(offset + 0x50);
+            uint count = main.sh.ReadUInt32(offset + 0x54);
+            float far = ReadSingleAt(main.sh, offset + 0x64);
+            var meshes = new List<IMesh>();
+            for (uint p = 0; p < count && p < 256; p++)
+            {
+                main.sh.Seek(primitive + p * 0x20);
+                ushort material = main.sh.ReadUInt16();
+                main.sh.ReadUInt16();
+                ushort vertexCount = main.sh.ReadUInt16();
+                ushort indexCount = main.sh.ReadUInt16();
+                uint vertexOffset = main.sh.ReadUInt32();
+                uint firstIndex = main.sh.ReadUInt32();
+                var data = ReadGeometry(vertices.sh, vertexBase + (long)vertexOffset, indexBase + firstIndex * 2L,
+                    vertexCount, indexCount, 20, 8, scale, hasVertexAlpha: true);
+                if (data != null) meshes.Add(new Mesh(data, materials.GetMaterialByIndex(material), $"Mesh_{p}"));
+            }
+            if (meshes.Count == 0) continue;
+            shrubs[offset] = new Assets.Shrubs.Shrub(offset, meshes, drawDistances: (0f, far),
+                boundingSphereCalculator: () => (center, radius)) { Name = $"Shrub_{i}" };
+        }
+        return shrubs;
+    }
+
+    public static Assets.Levels.Zone ReadZone(FileManager files, MaterialReader materials, AssetLibrary<Tie> ties, DebugReader debug,
+        AssetLibrary<Assets.Shrubs.Shrub>? shrubs = null)
     {
         IGFile main = files.igfiles["main.dat"]!;
         IGFile vertices = files.igfiles["vertices.dat"]!;
@@ -183,7 +228,28 @@ internal static class FallOfManGeometry
                 FallOfManTiePrelight = prelight,
             });
         }
-        return new Assets.Levels.Zone(0, terrain, placements);
+        return new Assets.Levels.Zone(0, terrain, placements, shrubInstances: ReadShrubPlacements(main, shrubs));
+    }
+
+    /// <summary>main.dat 0x9500 (0x80 bytes): a matrix, the bounding sphere at +0x40 and the class at +0x50.</summary>
+    private static List<IPlacedInstance<IShrub>> ReadShrubPlacements(IGFile main, AssetLibrary<Assets.Shrubs.Shrub>? shrubs)
+    {
+        var placements = new List<IPlacedInstance<IShrub>>();
+        var records = main.QuerySection(0x9500);
+        if (shrubs == null || shrubs.Count == 0 || records.length != 0x80) return placements;
+        for (uint i = 0; i < records.count; i++)
+        {
+            uint offset = records.offset + i * records.length;
+            if (shrubs.Get(main.sh.ReadUInt32(offset + 0x50)) is not { } shrub) continue;
+            main.sh.Seek(offset);
+            var matrix = new Matrix4x4(
+                main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(),
+                main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(),
+                main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(),
+                main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle(), main.sh.ReadSingle());
+            placements.Add(new PlacedInstance<IShrub>(shrub, matrix, i, name: $"{shrub.Name}_Instance_{i}"));
+        }
+        return placements;
     }
 
     private static int PrelightSize(Tie tie, bool placementHasLightmap)
