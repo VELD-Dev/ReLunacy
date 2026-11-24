@@ -16,6 +16,10 @@ internal static class FallOfManFiles
         "gameplay.dat" => "ps3gameplay.dat",
         "debug.dat" => "ps3debug.dat",
         "collision.dat" => "ps3levelcoll.dat",
+        "effect.dat" => "ps3fx.dat",
+        "fxconduit_packed.dat" => "ps3fxconduit.dat",
+        "system.tph" => "ps3fxsystem.tph",
+        "system.tp" => "ps3fxsystem.tp",
         _ => name,
     };
 

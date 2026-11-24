@@ -1,6 +1,7 @@
 using System.Globalization;
 using ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 using ReLunacy.Core.Project;
+using ReLunacy.Core.Selection;
 using ReLunacy.Core.Undo;
 using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Packing;
@@ -38,37 +39,65 @@ public partial class PropertyInspectorFrame
             inspector = new PropertyInspectorFrame();
             window.AddFrame(inspector);
         }
+        if (!ReferenceEquals(SelectionManager.Singleton.SelectedEntity, volume))
+            SelectionManager.Singleton.Select(volume);
         inspector._chooseLocationFor = volume;
         inspector.Focus();
     }
 
-    private void RenderVolumeScripts(EntityVolume volume)
+    internal static bool CanConvertToLocation(EntityVolume volume)
     {
-        var lua = LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>();
+        if (volume.PendingLocationTextId.HasValue || !CanLinkLocation(RegionOf(volume))) return false;
+
+        var window = LunaWindow.Instance;
+        var lua = window.GetFirstFrame<LuaEnvironmentFrame>();
+        if (window.GetFirstFrame<PropertyInspectorFrame>() is { } inspector)
+            return !inspector.EntryHandlers(lua)[volume.Name].Any(handler => handler.ShowsLocation);
+
+        using var scripts = new LuaScriptBrowser(includeProjectLevels: false);
+        return !HandlerSources(scripts.SharedSources(""), lua).SelectMany(LuaVolumeHandlers.Find)
+            .Any(handler => handler.Volume == volume.Name && handler.ShowsLocation);
+    }
+
+    private static IEnumerable<LuaScriptSource> HandlerSources(IReadOnlyList<LuaScriptSource> sources, LuaEnvironmentFrame? lua) =>
+        sources.Where(source => Path.GetFileName(source.Path) is not ("instances.lua" or "instance.lua"))
+            .Select(source => lua?.WithLiveSource(source) ?? source);
+
+    private ILookup<string, LuaVolumeHandler> EntryHandlers(LuaEnvironmentFrame? lua)
+    {
         var sources = _volumeScripts.SharedSources("");
         var stamp = (sources, lua, lua?.LiveScriptVersion);
         if (_volumeScriptsStamp != stamp)
         {
             if (!ReferenceEquals(_volumeScriptsStamp?.Sources, sources)) _fileHandlers.Clear();
-            _entryHandlers = sources.Select(source => lua?.WithLiveSource(source) ?? source)
-                .Where(source => Path.GetFileName(source.Path) is not ("instances.lua" or "instance.lua"))
-                .SelectMany(HandlersIn).ToLookup(handler => handler.Volume, StringComparer.Ordinal);
+            _entryHandlers = HandlerSources(sources, lua).SelectMany(HandlersIn)
+                .ToLookup(handler => handler.Volume, StringComparer.Ordinal);
             _volumeScriptsStamp = stamp;
         }
+        return _entryHandlers!;
+    }
 
-        var handlers = _entryHandlers![volume.Name].ToList();
-        var locations = handlers.Where(h => h.LocationTag != null || h.LocationId.HasValue).ToList();
+    private void RenderVolumeScripts(EntityVolume volume)
+    {
+        var lua = LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>();
+        var handlers = EntryHandlers(lua)[volume.Name].ToList();
+        var locations = handlers.Where(handler => handler.ShowsLocation).ToList();
         bool canLink = CanLinkLocation(RegionOf(volume));
         string main = GameplayWriter.MainScriptPath(GameLibraryScanner.GetLevelNameFromPath(Program.ProvidedPath));
         var editableLocation = canLink && locations is [{ LocationArgument: not null } location]
             && string.Equals(location.Path, main, StringComparison.OrdinalIgnoreCase) ? location : null;
 
-        ImGui.Separator();
-        ImGui.TextUnformatted(LM.Get("GUI_Volume_ScriptReferences"));
-        if (handlers.Count == 0) ImGui.TextDisabled(LM.Get("GUI_Volume_NoScriptReferences"));
-        if (handlers.Count == 0 && !canLink) return;
-
         ImGui.PushID(volume.GetHashCode());
+        RenderRequestedLocationPicker(volume, canLink && locations.Count == 0);
+
+        if (handlers.Count == 0 && !volume.PendingLocationTextId.HasValue)
+        {
+            ImGui.PopID();
+            return;
+        }
+
+        ImGui.Separator();
+        if (handlers.Count > 0) ImGui.TextUnformatted(LM.Get("GUI_Volume_ScriptReferences"));
         if (BeginInspectorFields("##scriptReferences"))
         {
             for (int i = 0; i < handlers.Count; i++)
@@ -82,15 +111,33 @@ public partial class PropertyInspectorFrame
                     lua.RevealScript(handler.Path, handler.Position);
                 }
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(handler.Path);
-                if (locations.Contains(handler))
+                if (handler.ShowsLocation)
                     RenderLocationField(volume, handler, handler == editableLocation);
                 ImGui.PopID();
             }
-            if (canLink && (locations.Count == 0 || (editableLocation == null && volume.PendingLocationTextId.HasValue)))
-                RenderLocationField(volume, null, locations.Count == 0);
+            if (volume.PendingLocationTextId.HasValue && editableLocation == null)
+                RenderLocationField(volume, null, canLink && locations.Count == 0);
             ImGui.EndTable();
         }
         ImGui.PopID();
+    }
+
+    private void RenderRequestedLocationPicker(EntityVolume volume, bool canPick)
+    {
+        ImGui.PushID("use_as_location_volume");
+        if (ReferenceEquals(_chooseLocationFor, volume))
+        {
+            _chooseLocationFor = null;
+            if (canPick) OpenLocationPicker();
+        }
+        if (canPick) RenderLocationPicker(volume, volume.PendingLocationTextId, savedId: null);
+        ImGui.PopID();
+    }
+
+    private static int? LocationTextId(LuaVolumeHandler? handler)
+    {
+        if (handler?.LocationId is { } id) return id;
+        return handler?.LocationTag is { } name ? ProjectTextTags.List().FirstOrDefault(tag => tag.Name == name)?.Id : null;
     }
 
     private static void BeginScriptField(string label, bool edited = false)
@@ -107,9 +154,7 @@ public partial class PropertyInspectorFrame
     private void RenderLocationField(EntityVolume volume, LuaVolumeHandler? handler, bool canEdit)
     {
         int? pending = canEdit || handler == null ? volume.PendingLocationTextId : null;
-        var savedId = handler?.LocationId;
-        if (savedId == null && handler?.LocationTag is { } name)
-            savedId = ProjectTextTags.List().FirstOrDefault(tag => tag.Name == name)?.Id;
+        int? savedId = LocationTextId(handler);
         int? currentId = pending ?? savedId;
         BeginScriptField(LM.Get("GUI_Volume_LocationTag"), pending.HasValue);
 
@@ -135,7 +180,8 @@ public partial class PropertyInspectorFrame
                 RenderTextFieldLink(textId, text, tag, width, useTag: true);
             }
         }
-        else ImGui.TextDisabled(handler?.LocationTag ?? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone"));
+        else ImGui.TextDisabled(handler?.LocationTag ?? LM.Get(handler?.ShowsLocation == true
+            ? "GUI_Volume_ScriptLocationValue" : "GUI_Frame_InstanceInspector_ReferenceNone"));
 
         if (!showControls) return;
 
@@ -146,12 +192,7 @@ public partial class PropertyInspectorFrame
             bool pick = ImGui.ArrowButton("##pickLocation", ImGuiDir.Down);
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(LM.Get(handler == null ? "GUI_Volume_LinkLocation" : "GUI_Volume_RetargetLocation"));
-            if (pick || ReferenceEquals(_chooseLocationFor, volume))
-            {
-                _chooseLocationFor = null;
-                _locationFilter = "";
-                ImGui.OpenPopup("location_text_tag");
-            }
+            if (pick) OpenLocationPicker();
         }
 
         if (pending.HasValue)
@@ -161,6 +202,12 @@ public partial class PropertyInspectorFrame
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Volume_ClearLocation"));
         }
         if (canEdit) RenderLocationPicker(volume, currentId, savedId);
+    }
+
+    private void OpenLocationPicker()
+    {
+        _locationFilter = "";
+        ImGui.OpenPopup("location_text_tag");
     }
 
     private void RenderLocationPicker(EntityVolume volume, int? currentId, int? savedId)

@@ -251,7 +251,9 @@ public sealed class CollisionMesh : CollisionShape
     public byte[] Materials { get; }
 
     /// <summary>Bits 27-31 of each triangle word. Bit 0 keeps Ratchet from wall jumping off the face
-    /// (the wall probe rejects it); the others are not closed.</summary>
+    /// (the wall probe rejects it) in ToD and QfB; A Crack in Time onwards has no wall jump: there bit 0 makes
+    /// a sloped face slippery and a flat one forbid double, triple and quadruple jumps, and bit 1 makes the player
+    /// act as if sliding or falling even on flat ground. The others are not closed.</summary>
     public byte[] TriangleFlags { get; }
 
     public int TriangleCount => Materials.Length;

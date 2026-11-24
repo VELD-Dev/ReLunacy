@@ -2,7 +2,7 @@ namespace ReLunacy.Engine.Scripting;
 
 public sealed record LuaVolumeHandler(string Path, LuaPosition Position, string Function,
                                       string Volume, string? LocationTag, int? LocationId,
-                                      LuaSpan? LocationArgument);
+                                      LuaSpan? LocationArgument, bool ShowsLocation);
 
 public static class LuaVolumeHandlers
 {
@@ -38,7 +38,7 @@ public static class LuaVolumeHandlers
                 && number.Value == Math.Truncate(number.Value) ? (int)number.Value : null;
             yield return new LuaVolumeHandler(source.Path, call.Span.Start, target.Name, volume,
                 tag is LuaNameExpr name ? name.Name : tag is LuaStringExpr literal ? literal.Value : null,
-                id, calls.Length == 1 && (id.HasValue || tag is LuaNameExpr) ? tag!.Span : null);
+                id, calls.Length == 1 && (id.HasValue || tag is LuaNameExpr) ? tag!.Span : null, calls.Length > 0);
         }
     }
 }

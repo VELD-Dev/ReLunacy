@@ -177,7 +177,7 @@ public partial class AssetViewer
             // Looping plays it again shortly after it ends, as a retriggered FxController would.
             if (_effectLoop && sim.Finished && (_effectRestartWait += dt) > 0.35f)
             {
-                sim.Reset();
+                sim.Reset(reseed: false);
                 _effectRestartWait = 0f;
             }
         }
@@ -191,7 +191,7 @@ public partial class AssetViewer
         // No lighting pass for effect lights: a faint glow shows where they are, as in the level view.
         foreach (EffectLightMarker light in _effectLights)
             _effectBatch.AddGlow(light.Position, Math.Clamp(light.Radius * 0.3f, 0.05f, 3f),
-                new Vector4(light.Color.X, light.Color.Y, light.Color.Z, 0.3f), view);
+                new Vector4(light.Color.X, light.Color.Y, light.Color.Z, 0.3f * Math.Clamp(light.Color.W, 0f, 1f)), view);
         _vkPreview.SetEffectSprites(_effectBatch);
     }
 

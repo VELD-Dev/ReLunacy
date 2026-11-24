@@ -63,13 +63,14 @@ public sealed record VisualEffectSpecification(int Index, uint NameHash, uint[] 
 
     public bool OldEngine { get; init; }
     public bool CrackInTime { get; init; }
+    public bool FallOfMan { get; init; }
 
     private static int Decode(uint word) => word == 0 || word == 0xFFFFFFFF ? -1 : (int)word - EffectIdBias;
 
-    public int EffectId => Decode(Words[(OldEngine || CrackInTime ? 0x1C : 0x30) / 4]);
-    public int EffectIdAlt => OldEngine ? -1 : Decode(Words[(CrackInTime ? 0x20 : 0x34) / 4]);
-    public int SecondaryEffectId => CrackInTime ? -1 : Decode(Words[(OldEngine ? 0x20 : 0x24) / 4]);
-    public int SecondaryEffectIdAlt => OldEngine || CrackInTime ? -1 : Decode(Words[0x28 / 4]);
+    public int EffectId => FallOfMan ? unchecked((int)Words[6]) : Decode(Words[(OldEngine || CrackInTime ? 0x1C : 0x30) / 4]);
+    public int EffectIdAlt => OldEngine || FallOfMan ? -1 : Decode(Words[(CrackInTime ? 0x20 : 0x34) / 4]);
+    public int SecondaryEffectId => CrackInTime || FallOfMan ? -1 : Decode(Words[(OldEngine ? 0x20 : 0x24) / 4]);
+    public int SecondaryEffectIdAlt => OldEngine || CrackInTime || FallOfMan ? -1 : Decode(Words[0x28 / 4]);
 
     public IEnumerable<int> EffectIds()
     {
@@ -140,6 +141,7 @@ public sealed class EffectConduit
         EffectChunkFile file = EffectChunkFile.Parse(data);
         EffectChunkFile.Chunk header = file.ChunksWithId(0x12000).Cast<EffectChunkFile.Chunk?>().FirstOrDefault()
             ?? throw new InvalidDataException("fxconduit_packed.dat has no 0x12000 header.");
+        if (header.Length == 0x0C) return ReadFallOfMan(file, header);
         if (header.Length == 0x14) return ReadOldEngine(file, header);
         if (header.Length < 0x20)
             throw new InvalidDataException($"0x12000 is {header.Length} bytes; the QForce layout has 0x20.");
@@ -205,6 +207,60 @@ public sealed class EffectConduit
             VisualSpecifications = visualSpecs,
             Counts = counts,
         });
+    }
+
+    private static EffectConduit ReadFallOfMan(EffectChunkFile file, EffectChunkFile.Chunk header)
+    {
+        var counts = new Dictionary<ConduitSubsystem, (int, int)>();
+        var records = new List<ConduitRecord>();
+        var specs = new List<VisualEffectSpecification>();
+        for (int i = 0; i < 3; i++)
+        {
+            int descriptor = file.Pointer(header.Offset + 4 * i);
+            int recordsAt = file.Pointer(descriptor);
+            int specsAt = file.Pointer(descriptor + 4);
+            int recordCount = CountArray(recordsAt);
+            int specCount = CountArray(specsAt);
+            counts[(ConduitSubsystem)i] = (recordCount, specCount);
+            if (i != 0) continue;
+
+            // Both arrays hold pointers. The visual spec is 0x20 bytes and names an effect at +0x18;
+            // the 0x30-byte event record's chance pairs have moved from +0x20 to +0x24.
+            for (int j = 0; j < specCount; j++)
+            {
+                int at = file.Pointer(specsAt + 4 * j);
+                var words = new uint[8];
+                words[6] = uint.MaxValue;
+                if (at > 0 && at + 0x20L <= file.Data.Length)
+                    for (int w = 0; w < words.Length; w++) words[w] = file.U32(at + 4 * w);
+                specs.Add(new VisualEffectSpecification(j, 0, words) { FallOfMan = true });
+            }
+            for (int j = 0; j < recordCount; j++)
+            {
+                int at = file.Pointer(recordsAt + 4 * j);
+                if (at <= 0 || at + 0x30L > file.Data.Length) continue;
+                int list = file.Pointer(at + 0x24);
+                // A chance pair occupies four bytes except for the last pair's omitted padding byte.
+                int count = CountArray(list, lastElementSize: 3);
+                var pairs = new List<(int, int)>(count);
+                for (int k = 0; k < count; k++)
+                {
+                    int pair = list + k * 4;
+                    pairs.Add((file.U16(pair), file.U8(pair + 2)));
+                }
+                records.Add(new ConduitRecord(ConduitSubsystem.Visual, j,
+                    file.U32(at), file.U32(at + 4), file.U32(at + 8), file.U32(at + 0x0C), file.U32(at + 0x18),
+                    file.F32(at + 0x1C), file.U32(at + 0x28), pairs));
+            }
+        }
+        return Index(new EffectConduit { ModelTuids = [], VisualRecords = records, VisualSpecifications = specs, Counts = counts });
+
+        int CountArray(int at, int lastElementSize = 4)
+        {
+            int chunk = file.ChunkIndexAt(at);
+            return at < 4 || chunk < 0 ? 0 :
+                (int)Math.Min(file.U32(at - 4), (uint)((file.Chunks[chunk].End - at + 4 - lastElementSize) / 4));
+        }
     }
 
     /// <summary>

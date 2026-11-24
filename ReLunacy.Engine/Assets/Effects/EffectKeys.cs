@@ -70,10 +70,17 @@ public sealed class EffectScalarTrack
     public bool IsConstant => Keys.Length <= 1 && (Keys.Length == 0 || !Keys[0].IsRandom);
 
     /// <summary>Linear interpolation between keys by time, each key sampled with <paramref name="random01"/>.</summary>
-    public float Evaluate(float t, float random01, float fallback = 0f)
+    public float Evaluate(float t, float random01, float fallback = 0f) =>
+        Evaluate(t, random01, fallback, extra: false);
+
+    /// <summary>The relative spread of a spawn life or speed key, interpolated on the same timeline.</summary>
+    public float EvaluateExtra(float t) => Evaluate(t, 0f, 0f, extra: true);
+
+    private float Evaluate(float t, float random01, float fallback, bool extra)
     {
         if (Keys.Length == 0) return fallback;
-        if (Keys.Length == 1 || t <= Keys[0].Time) return Keys[0].Sample(random01);
+        float Value(EffectKey key) => extra ? key.Extra : key.Sample(random01);
+        if (Keys.Length == 1 || t <= Keys[0].Time) return Value(Keys[0]);
         for (int i = 1; i < Keys.Length; i++)
         {
             if (t <= Keys[i].Time)
@@ -81,10 +88,11 @@ public sealed class EffectScalarTrack
                 EffectKey a = Keys[i - 1], b = Keys[i];
                 float span = b.Time - a.Time;
                 float f = span > 1e-6f ? (t - a.Time) / span : 1f;
-                return a.Sample(random01) + (b.Sample(random01) - a.Sample(random01)) * f;
+                float from = Value(a);
+                return from + (Value(b) - from) * f;
             }
         }
-        return Keys[^1].Sample(random01);
+        return Value(Keys[^1]);
     }
 
     public (float Min, float Max) Range()

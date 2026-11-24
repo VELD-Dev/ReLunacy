@@ -71,7 +71,7 @@ public static partial class GameplayWriter
                     if (id < 0 || id >= textCount)
                         throw new InvalidDataException($"{volume.Name}: text ID {id} is missing from the saved text table");
                     string textId = id.ToString(CultureInfo.InvariantCulture);
-                    var existing = entered[volume.Name].Where(h => h.LocationId.HasValue || h.LocationTag != null).ToList();
+                    var existing = entered[volume.Name].Where(h => h.ShowsLocation).ToList();
                     if (existing.Count > 0)
                     {
                         if (existing.Count != 1 || existing[0].LocationArgument is not { } argument)

@@ -636,6 +636,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         }
     }
 
+    private bool _canConvertLocationVolume;
+
     private void EntityMenu(Entity entity, Node node, int row)
     {
         if (!ImGui.BeginPopupContextItem($"entity_menu_{entity.ID}_{node.Key}")) return;
@@ -645,6 +647,12 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (ImGui.MenuItem(LM.Get("GUI_Rename"), "F2", false, canRename)) BeginRename(entity);
         if (!canRename && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) && RenameActions.RegionOf(entity)?.IsOldEngine == true)
             ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
+        if (entity is EntityVolume volume)
+        {
+            if (ImGui.IsWindowAppearing()) _canConvertLocationVolume = PropertyInspectorFrame.CanConvertToLocation(volume);
+            if (_canConvertLocationVolume && ImGui.MenuItem(LM.Get("GUI_Volume_UseAsLocation")))
+                PropertyInspectorFrame.EditLocation(volume);
+        }
         var selection = SelectionManager.Singleton.Selection;
         bool anyHidden = selection.Any(e => !e.allowRender), anyShown = selection.Any(e => e.allowRender);
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_ShowSelection"), "", false, anyHidden)) SetVisible(selection, true);

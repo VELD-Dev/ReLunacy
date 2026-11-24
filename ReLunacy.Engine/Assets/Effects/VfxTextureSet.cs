@@ -54,26 +54,27 @@ public sealed class VfxTextureSet
     /// <c>processed/texpacks/effect.tph</c> / <c>effect.tp</c> (plain handles), when found. Both packs are the same IGHW 1.1
     /// sections as the new engine's VFX pair (0x5200 descriptors, 0x5300 texels, 0x5A00 sizes) - metropolis: 48 + 69, all DXT5.
     /// </summary>
-    public static VfxTextureSet ReadOldEngine(byte[] levelHeader, byte[] levelTexel, byte[]? globalHeader, byte[]? globalTexel)
+    public static VfxTextureSet ReadOldEngine(byte[] levelHeader, byte[] levelTexel, byte[]? globalHeader, byte[]? globalTexel,
+        bool fallOfMan = false)
     {
-        var entries = ReadEntries(levelHeader, levelTexel, 0, "system");
+        var entries = ReadEntries(levelHeader, levelTexel, 0, "system", fallOfMan);
         int globalBase = -1;
         if (globalHeader != null && globalTexel != null)
         {
             globalBase = entries.Count;
-            entries.AddRange(ReadEntries(globalHeader, globalTexel, globalBase, "effect"));
+            entries.AddRange(ReadEntries(globalHeader, globalTexel, globalBase, "effect", fallOfMan));
         }
         return new VfxTextureSet(entries) { GlobalBase = globalBase };
     }
 
-    private static List<Entry> ReadEntries(byte[] header, byte[] texel, int first, string prefix)
+    private static List<Entry> ReadEntries(byte[] header, byte[] texel, int first, string prefix, bool fallOfMan = false)
     {
         var headerSections = ReadSections(header);
         var texelSections = ReadSections(texel);
-        if (!headerSections.TryGetValue(0x5200, out var descriptors))
-            throw new InvalidDataException("vfx_system_header.dat has no 0x5200 descriptor table.");
-        if (!texelSections.TryGetValue(0x5300, out var blob))
-            throw new InvalidDataException("vfx_system_texel.dat has no 0x5300 texel blob.");
+        if (!headerSections.TryGetValue(fallOfMan ? 0x5300u : 0x5200u, out var descriptors))
+            throw new InvalidDataException("The particle texture descriptor table is missing.");
+        if (!texelSections.TryGetValue(fallOfMan ? 0x5400u : 0x5300u, out var blob))
+            throw new InvalidDataException("The particle texel block is missing.");
         texelSections.TryGetValue(0x5A00, out var sizes);
 
         var entries = new List<Entry>(descriptors.Count);

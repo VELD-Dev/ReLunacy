@@ -1,5 +1,4 @@
 // Ported from ReLunacy Resurgence by Fianshoo (GPL-3.0), adapted to this editor's scene and renderer.
-using System.Buffers.Binary;
 using System.Numerics;
 using NeoVeldrid;
 using ReLunacy.Engine.Assets.Effects;
@@ -13,8 +12,8 @@ namespace ReLunacy.Utility;
 
 /// <summary>
 /// Plays, in the level view, the effect of every FxController a level places: Tools of Destruction and Quest for
-/// Booty (class 384, read from gameplay.dat; see <see cref="LevelEffects"/>), and A Crack in Time (class 0x3D0, the
-/// scene's controller entities, so moving or hiding one moves or hides its effect). Each nearby controller runs its
+/// Booty (class 384, read from gameplay.dat; see <see cref="LevelEffects"/>), and A Crack in Time and Fall of Man
+/// (the scene's controller entities, so moving or hiding one moves or hides its effect). Each nearby controller runs its
 /// own <see cref="EffectSimulator"/> at its position and orientation (the game hands the effect the controller's
 /// matrix); the sprites go to the renderer's depth-tested effect pass (VulkanRenderer.Effects.cs). Only the
 /// <see cref="MaxInstances"/> nearest whose reach comes within <see cref="MaxDistance"/> of the camera play, so a
@@ -48,14 +47,10 @@ internal static class LevelEffectPlayer
     public static float MaxDistance = 150f;
     public static int MaxInstances = 48;
 
-    // A Crack in Time's FxController class data: the Tags key, start active, retrigger delay min / max.
-    private const int KeyOffset = 0x14, StartActiveOffset = 0x1C, RepeatMinOffset = 0x24, RepeatMaxOffset = 0x28;
-
     private static LevelData? _level;
     private static Task<Loaded>? _loading;
     private static Loaded? _pendingUpload;
     private static LevelEffects? _effects;
-    private static bool _crackInTime;
     private static (OldEffectController Controller, EffectResolution Resolution)[] _placed = [];
     private static readonly Dictionary<uint, EffectResolution> Resolved = [];
     private static readonly List<GpuTexture?> Gpu = [];
@@ -97,15 +92,14 @@ internal static class LevelEffectPlayer
     private static bool StartsActive(object controller) => controller switch
     {
         OldEffectController old => old.StartsActive,
-        EntityController { Controller.Settings: { Length: > StartActiveOffset + 3 } s } =>
-            BinaryPrimitives.ReadUInt32BigEndian(s.AsSpan(StartActiveOffset)) != 0,
+        EntityController entity => _effects?.ScenePlayback(entity.Controller)?.StartsActive == true,
         _ => false,
     };
 
     public static bool Enabled => !Program.Settings.HideEffects;
 
     /// <summary>Whether the open level has effects the view can play.</summary>
-    public static bool HasEffects => _placed.Length > 0 || (_crackInTime && _effects?.Conduit != null);
+    public static bool HasEffects => _placed.Length > 0 || _effects is { UsesSceneControllers: true, Conduit: not null };
 
     /// <summary>The open level's effect data, read on first use; null while it is read and where there is none.</summary>
     public static LevelEffects? Current
@@ -145,12 +139,12 @@ internal static class LevelEffectPlayer
     }
 
     /// <summary>Every FxController of the open level that plays <paramref name="package"/>, with its key: the scene's
-    /// controllers in A Crack in Time (with their region), else the gameplay.dat ones by index (no region, no entity).</summary>
+    /// controller entities (with their regions) or the gameplay.dat controllers by index.</summary>
     public static List<(EntityRegion? Region, EntityController? Entity, int Index, uint Key)> ControllersOf(EffectPackage package)
     {
         var found = new List<(EntityRegion?, EntityController?, int, uint)>();
-        if (Current == null) return found;
-        if (!_crackInTime)
+        if (Current is not { } effects) return found;
+        if (!effects.UsesSceneControllers)
         {
             foreach (var (controller, resolution) in _placed)
                 if (ReferenceEquals(resolution.Package, package)) found.Add((null, null, controller.Index, controller.Key));
@@ -159,9 +153,8 @@ internal static class LevelEffectPlayer
         foreach (EntityRegion region in EntityManager.Singleton.Regions)
             foreach (Entity entity in region.ControllerInstances.Entities)
             {
-                if (entity is not EntityController c || c.Controller.Class != LevelEffects.CrackInTimeFxControllerClass
-                    || c.Controller.Settings.Length < KeyOffset + 4) continue;
-                uint key = BinaryPrimitives.ReadUInt32BigEndian(c.Controller.Settings.AsSpan(KeyOffset));
+                if (entity is not EntityController c || effects.ScenePlayback(c.Controller) is not { } playback) continue;
+                uint key = playback.Key;
                 if (key != 0 && ReferenceEquals(ResolveKey(key)?.Package, package)) found.Add((region, c, c.Controller.Index, key));
             }
         return found;
@@ -250,7 +243,7 @@ internal static class LevelEffectPlayer
             // ends when it has none: in game that one plays once, at activation, before the camera arrives.
             if (sim.Finished && instance.SinceStart >= instance.Wait)
             {
-                sim.Reset();
+                sim.Reset(reseed: false);
                 instance.SinceStart = 0f;
                 instance.Wait = RepeatDelay(effects, placed, instance.Random);
             }
@@ -280,7 +273,7 @@ internal static class LevelEffectPlayer
         // Effect lights have no lighting pass here: a faint glow shows where they are.
         foreach (EffectLightMarker light in Lights)
             Batch.AddGlow(light.Position, Math.Clamp(light.Radius * 0.3f, 0.05f, 3f),
-                new Vector4(light.Color.X, light.Color.Y, light.Color.Z, 0.3f), view);
+                new Vector4(light.Color.X, light.Color.Y, light.Color.Z, 0.3f * Math.Clamp(light.Color.W, 0f, 1f)), view);
         renderer.SetEffectSprites(Batch);
         _cleared = Batch.VertexCount == 0;
     }
@@ -288,7 +281,7 @@ internal static class LevelEffectPlayer
     /// <summary>Every controller that plays now, into <see cref="Available"/>.</summary>
     private static void CollectPlaced()
     {
-        if (!_crackInTime)
+        if (_effects is not { UsesSceneControllers: true } effects)
         {
             for (int i = 0; i < _placed.Length; i++)
             {
@@ -301,31 +294,24 @@ internal static class LevelEffectPlayer
             return;
         }
 
-        // A Crack in Time: the scene's FxControllers, read live, so an edit to one shows at once.
+        // Use the active region's scene controllers so changing gameplay groups changes the effects too.
         foreach (EntityRegion region in EntityManager.Singleton.Regions)
         {
             if (!region.allowRender) continue;
             foreach (Entity entity in region.ControllerInstances.Entities)
             {
-                if (entity is not EntityController { allowRender: true } c
-                    || c.Controller.Class != LevelEffects.CrackInTimeFxControllerClass) continue;
-                byte[] settings = c.Controller.Settings;
-                if (settings.Length < RepeatMaxOffset + 4) continue;
-                uint key = BinaryPrimitives.ReadUInt32BigEndian(settings.AsSpan(KeyOffset));
+                if (entity is not EntityController { allowRender: true } c ||
+                    effects.ScenePlayback(c.Controller) is not { } playback) continue;
+                uint key = playback.Key;
                 // One that starts inactive waits for a script, so the game shows nothing there during play.
-                if (key == 0 || !(IsPlaying(c) || Forced.ContainsKey(c))) continue;
+                bool overridden = Forced.TryGetValue(c, out bool playing);
+                if (key == 0 || (!overridden && !playback.StartsActive)) continue;
                 if (ResolveKey(key)?.Package is not { } package) continue;
-                float min = Seconds(settings, RepeatMinOffset), max = Seconds(settings, RepeatMaxOffset);
                 Available.Add(new Placed(c, c.Transform.Translation, c.Transform.Rotation, package,
-                    MathF.Min(min, max), MathF.Max(min, max), (int)(c.Controller.Tuid ^ (c.Controller.Tuid >> 32)) * 7919 + 17, !IsPlaying(c)));
+                    playback.RepeatMin, playback.RepeatMax, (int)(c.Controller.Tuid ^ (c.Controller.Tuid >> 32)) * 7919 + 17,
+                    Paused: overridden && !playing));
             }
         }
-    }
-
-    private static float Seconds(byte[] bytes, int at)
-    {
-        float value = BinaryPrimitives.ReadSingleBigEndian(bytes.AsSpan(at));
-        return float.IsFinite(value) ? Math.Max(0f, value) : 0f;
     }
 
     private static float RepeatDelay(LevelEffects effects, Placed placed, Random random)
@@ -369,15 +355,15 @@ internal static class LevelEffectPlayer
             if (_level != null && window.fileManager is { } files)
             {
                 bool crackInTime = _level.GameDefinition?.Id == Engine.Games.GameId.ACrackInTime;
+                bool fallOfMan = _level.GameDefinition?.Id == Engine.Games.GameId.RFallOfMan;
                 if (_level.IsOldEngine || crackInTime)
                 {
                     // The bytes now, while nothing else reads the archives; the rest off the main thread.
                     var bytes = new Dictionary<string, byte[]?>();
                     foreach (string name in crackInTime ? LevelEffects.CrackInTimeFileNames : LevelEffects.FileNames)
-                        bytes[name] = LevelEffects.ReadLevelFile(files, name);
+                        if (!fallOfMan || name != "gameplay.dat") bytes[name] = LevelEffects.ReadLevelFile(files, name);
                     string folder = LevelEffects.LevelFolder(files);
-                    _crackInTime = crackInTime;
-                    _loading = Task.Run(() => Load(bytes, folder, crackInTime));
+                    _loading = Task.Run(() => Load(bytes, folder, crackInTime, fallOfMan));
                 }
             }
         }
@@ -396,7 +382,7 @@ internal static class LevelEffectPlayer
         _pendingUpload = loaded;
 
         var library = effects.Library;
-        string placedText = _crackInTime
+        string placedText = effects.UsesSceneControllers
             ? $"{effects.ControllerKeys().Count} FxController keys"
             : $"{_placed.Count(p => p.Resolution.Package != null)} of {_placed.Length} FxControllers resolve";
         LunaLog.LogInfo($"[Effects] {library.Packages.Count} effects, {library.Emitters.Count} emitters, {library.Quads.Count} quads; {placedText}.");
@@ -422,12 +408,12 @@ internal static class LevelEffectPlayer
         if (failed > 0) LunaLog.LogWarn($"[Effects] {failed} of {loaded.Textures.Length} effect textures could not be decoded.");
     }
 
-    private static Loaded Load(Dictionary<string, byte[]?> bytes, string folder, bool crackInTime)
+    private static Loaded Load(Dictionary<string, byte[]?> bytes, string folder, bool crackInTime, bool fallOfMan)
     {
         string? error;
         LevelEffects? effects = crackInTime
             ? LevelEffects.TryLoadCrackInTime(name => bytes.GetValueOrDefault(name), out error)
-            : LevelEffects.TryLoad(name => bytes.GetValueOrDefault(name), folder, out error);
+            : LevelEffects.TryLoad(name => bytes.GetValueOrDefault(name), folder, out error, fallOfMan);
         if (effects == null) return new Loaded(null, [], error);
         var textures = new TextureLevels?[effects.Textures.Entries.Count];
         for (int i = 0; i < textures.Length; i++)
@@ -441,7 +427,7 @@ internal static class LevelEffectPlayer
         }
         // Every placed effect's reach now, off the main thread, so the view does not stall measuring them.
         var reaches = new Dictionary<EffectPackage, float>(ReferenceEqualityComparer.Instance);
-        IEnumerable<EffectPackage?> packages = crackInTime
+        IEnumerable<EffectPackage?> packages = effects.UsesSceneControllers
             ? effects.ControllerKeys().Select(k => effects.Resolve(k).Package)
             : effects.Controllers.Select(c => effects.Resolve(c).Package);
         foreach (EffectPackage? package in packages)
@@ -462,7 +448,6 @@ internal static class LevelEffectPlayer
         Gpu.Clear();
         _textureToken = new object();
         _effects = null;
-        _crackInTime = false;
         _placed = [];
         _loading = null;
         _pendingUpload = null;
