@@ -12,6 +12,11 @@ public static class OldClassReferences
         ? word != 0 && word >> 16 == (word & 0xFFFF) + 1 ? (int)(word & 0xFFFF) : -1
         : word == 0xFFFFFFFF ? -1 : (int)word;
 
+    /// <summary>The word for an index, <see cref="Decode"/>'s inverse: -1 is none.</summary>
+    public static uint Encode(string kind, int index) => kind == "Moby"
+        ? index is < 0 or >= 0xFFFF ? 0u : (uint)(index + 1) << 16 | (uint)index
+        : index < 0 ? 0xFFFFFFFF : (uint)index;
+
     /// <summary>The Clue a Scent member names: <c>0x10000 | i</c>.</summary>
     public static int DecodeScentMember(uint word) => word >> 16 == 1 ? (int)(word & 0xFFFF) : -1;
 }

@@ -26,6 +26,8 @@ public enum ClassFieldKind
     Sound,
     /// <summary>An effect the level can play: a Tags key its fxconduit maps to an effect (u32).</summary>
     Effect,
+    /// <summary>A Moby class: the id of one of the level's Moby assets, the model an instance is or spawns (u32).</summary>
+    MobyClass,
     /// <summary>A file pointer to something outside the struct (four bytes, fixed up at load);
     /// <see cref="ClassField.TypeName"/> says to what (Fall of Man scripts: Element, Variable, String, Script).</summary>
     Pointer,
@@ -53,6 +55,7 @@ public sealed record ClassField(uint Owner, int Offset, int Length, ClassFieldKi
         ClassFieldKind.TextId => "text",
         ClassFieldKind.Sound => "sound",
         ClassFieldKind.Effect => "effect",
+        ClassFieldKind.MobyClass => "mobyclass",
         ClassFieldKind.Reference => TypeName ?? "ref",
         ClassFieldKind.ReferenceList => (TypeName ?? "ref") + " list",
         ClassFieldKind.Enum => TypeName ?? "u32",
@@ -693,6 +696,7 @@ public static class ClassFields
             case "text": return (ClassFieldKind.TextId, 4, null);
             case "sound": return (ClassFieldKind.Sound, 4, null);
             case "effect": return (ClassFieldKind.Effect, 4, null);
+            case "mobyclass": return (ClassFieldKind.MobyClass, 4, null);
             case "ref": return (ClassFieldKind.Reference, 4, null);
         }
         if (text.StartsWith("ptr ", StringComparison.Ordinal) && text[4..].Trim() is { Length: > 0 } pointee)

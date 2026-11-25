@@ -125,6 +125,7 @@ public sealed partial class ScriptGraphFrame
             _zoom = Math.Clamp(MathF.Min((size.X - 40f) / span.X, (size.Y - 40f) / span.Y), 0.2f, 1.25f);
             _pan = size * 0.5f - (min + span * 0.5f) * _zoom;
         }
+        if (settled && _reveal != null && sizeOf.TryGetValue(_reveal, out var revealSize)) CentreOnReveal(size, revealSize);
         if (hovered && io.MouseWheel != 0f)
         {
             float old = _zoom;

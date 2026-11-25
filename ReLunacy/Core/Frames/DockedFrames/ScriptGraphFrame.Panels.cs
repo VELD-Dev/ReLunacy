@@ -214,11 +214,48 @@ public sealed partial class ScriptGraphFrame
                 string? kindType = ClassFields.At(Game, element.ClassId, offset - 4)?.TypeName;
                 if (kindType is "ScriptTarget" or "ScriptArea")
                 {
-                    InstanceEditor(element, offset, kindType == "ScriptTarget", width, compact);
+                    PairEditor(element, offset, kindType == "ScriptTarget", width, compact);
                     return;
                 }
                 if (ImGui.InputInt("##v", ref v)) BinaryPrimitives.WriteInt32BigEndian(bytes, v);
                 break;
+            }
+            case ClassFieldKind.Reference when size == 4:
+            {
+                string kind = field.TypeName!;
+                InstanceEditor(kind, OldClassReferences.Decode(kind, element.Word(offset)), width, compact, (to, at) =>
+                {
+                    if (to != kind) return false;
+                    element.SetWord(offset, OldClassReferences.Encode(kind, at));
+                    return true;
+                });
+                return;
+            }
+            case ClassFieldKind.Sound or ClassFieldKind.Effect or ClassFieldKind.TextId or ClassFieldKind.MobyClass when size == 4:
+            {
+                // The number, then what it names, as instances' settings show it.
+                int v = BinaryPrimitives.ReadInt32BigEndian(bytes);
+                float number = MathF.Min(64f * ImGui.GetFontSize() / 13f, width * 0.35f);
+                ImGui.SetNextItemWidth(number);
+                if (ImGui.InputInt("##v", ref v, 0)) BinaryPrimitives.WriteInt32BigEndian(bytes, Math.Max(0, v));
+                if (ImGui.IsItemDeactivatedAfterEdit()) Commit("GUI_ScriptGraph_UndoEdit");
+                float rest = MathF.Max(0f, width - number - ImGui.GetStyle().ItemSpacing.X);
+                void Pick(uint value)
+                {
+                    element.SetWord(offset, value);
+                    Commit("GUI_ScriptGraph_UndoEdit");
+                }
+                if (field.Kind == ClassFieldKind.Sound) PropertyInspectorFrame.SoundEditor(v, false, Pick, rest);
+                else if (field.Kind == ClassFieldKind.Effect) PropertyInspectorFrame.EffectEditor((uint)v, false, Pick, rest);
+                else if (field.Kind == ClassFieldKind.MobyClass) PropertyInspectorFrame.MobyClassEditor((uint)v, false, Pick, rest);
+                else if (v != 0 && Program.ProvidedPath is { Length: > 0 } path
+                         && Engine.Config.GameConfigs.GameFolderFor(path) is { } folder && Engine.Text.GameText.Reference(folder) is { } text)
+                {
+                    ImGui.SameLine();
+                    PropertyInspectorFrame.RenderTextFieldLink(v, v > 0 && v < text.Entries.Count ? text.Entries[v].Text : null,
+                        Engine.Text.GameText.TagName(Game, v), rest);
+                }
+                return;
             }
             case ClassFieldKind.U32 or ClassFieldKind.U16 or ClassFieldKind.U8 or ClassFieldKind.TextId or ClassFieldKind.Sound or ClassFieldKind.Effect:
             {
@@ -385,6 +422,8 @@ public sealed partial class ScriptGraphFrame
             ClassFieldKind.S32 when field.Length == 4 => raw == 0 ? null : ((int)raw).ToString(),
             ClassFieldKind.Bool => raw == 0 ? null : "yes",
             ClassFieldKind.Enum when field.TypeName is "ScriptTarget" or "ScriptArea" => InstanceText(element, field.Offset, field.TypeName == "ScriptTarget"),
+            ClassFieldKind.Reference when field.Length == 4 && OldClassReferences.Decode(field.TypeName!, (uint)raw) is var at && at >= 0
+                => Instance(field.TypeName!, at).Text,
             ClassFieldKind.Enum => raw == 0 && ClassFields.Enum(Game, field.TypeName) is { Flags: true } ? null : EnumText(ClassFields.Enum(Game, field.TypeName), raw),
             _ => raw == 0 ? null : raw.ToString(),
         };
@@ -399,81 +438,126 @@ public sealed partial class ScriptGraphFrame
         return regions.FirstOrDefault(r => r.RegionName == Setup?.Name) ?? (regions.Count == 1 ? regions[0] : null);
     }
 
-    /// <summary>What a kind and index pair names: a Moby or a Pod for a target, a Volume or an Area for an area.</summary>
-    private (string Text, Entity? Entity) Instance(int kind, int index, bool target)
+    /// <summary>The kind a target or area pair's kind word stands for: a Moby or a Pod, a Volume or an Area.</summary>
+    private static string KindName(bool target, int kind) =>
+        (target, kind) switch { (true, 0) => "Moby", (true, 1) => "Pod", (false, 0) => "Volume", (false, 1) => "Area", _ => $"{kind}?" };
+
+    private static int KindWord(bool target, string kind) =>
+        (target, kind) switch { (true, "Moby") or (false, "Volume") => 0, (true, "Pod") or (false, "Area") => 1, _ => -1 };
+
+    private readonly Dictionary<string, List<(int Index, string Name, Entity? Entity)>?> _choices = [];
+    private int _choicesFrame = -1;
+
+    /// <summary>The instances of a kind the region has, by index, as the picker lists them (built once a frame);
+    /// null when the level has no table of them, so the index is typed.</summary>
+    private List<(int Index, string Name, Entity? Entity)>? Choices(string kind)
     {
-        string kindName = (target, kind) switch { (true, 0) => "Moby", (true, 1) => "Pod", (false, 0) => "Volume", (false, 1) => "Area", _ => $"{kind}?" };
-        if (index < 0) return ($"{kindName}: {LM.Get("GUI_ScriptGraph_None")}", null);
-        var region = Region();
-        Entity? entity = (target, kind) switch
+        if (_choicesFrame != ImGui.GetFrameCount()) { _choices.Clear(); _choicesFrame = ImGui.GetFrameCount(); }
+        if (_choices.TryGetValue(kind, out var known)) return known;
+        List<(int Index, string Name, Entity? Entity)>? list = null;
+        if (Region() is { } region)
         {
-            (true, 0) => region?.MobyInstances.Entities.OfType<EntityMoby>().FirstOrDefault(m => m.GameplayIndex == index),
-            (false, 0) => region?.Volumes.Entities.OfType<EntityVolume>().FirstOrDefault(v => v.BaseVolume.Index == index),
-            _ => null,
-        };
-        string? name = entity?.Name ?? ((target, kind) == (true, 1) && region != null && index < region.Pods.Count ? region.Pods[index].Name : null);
-        return (name != null ? $"{kindName} {index}: {name}" : $"{kindName} {index}", entity);
+            IEnumerable<(int, string, Entity?)> found = kind switch
+            {
+                "Moby" => region.MobyInstances.Entities.OfType<EntityMoby>().Select(m => (m.GameplayIndex, m.Name, (Entity?)m)),
+                "Volume" => region.Volumes.Entities.OfType<EntityVolume>().Select(v => (v.BaseVolume.Index, v.Name, (Entity?)v)),
+                "Clue" => region.Volumes.Entities.OfType<EntityVolume>().Where(v => v.BaseVolume.Clue != null)
+                    .Select(v => (v.BaseVolume.Clue!.Index, v.Name, (Entity?)v)),
+                "Path" => region.Paths.Entities.OfType<EntityPath>().Select(p => (p.Path.Index, p.Name, (Entity?)p)),
+                "Controller" => region.Cameras.Entities.Concat(region.ControllerInstances.Entities).OfType<EntityController>()
+                    .Select(c => (c.Controller.Index, c.Name, (Entity?)c)),
+                "Pod" => region.Pods.Select((p, i) => (i, p.Name, (Entity?)null)),
+                "Area" => region.AreaNames.Select((n, i) => (i, n, (Entity?)null)),
+                "Scent" => region.ScentNames.Select((n, i) => (i, n, (Entity?)null)),
+                _ => [],
+            };
+            list = [.. found.Where(c => c.Item1 >= 0).OrderBy(c => c.Item1)];
+            if (list.Count == 0) list = null;
+        }
+        return _choices[kind] = list;
+    }
+
+    /// <summary>What a kind and index name: the text a node shows and the instance, when it is one.</summary>
+    private (string Text, Entity? Entity) Instance(string kind, int index)
+    {
+        if (index < 0) return ($"{kind}: {LM.Get("GUI_ScriptGraph_None")}", null);
+        var choice = Choices(kind)?.FirstOrDefault(c => c.Index == index);
+        return choice is { Name: { Length: > 0 } name } c ? ($"{kind} {index}: {name}", c.Entity) : ($"{kind} {index}", null);
     }
 
     private string InstanceText(ScriptElement element, int kindOffset, bool target)
     {
         if (kindOffset + 8 > element.Data.Length) return "";
         int kind = (int)element.Word(kindOffset);
-        return Instance(kind, IndexOf(target, kind, element.Word(kindOffset + 4)), target).Text;
+        return Instance(KindName(target, kind), IndexOf(target, kind, element.Word(kindOffset + 4))).Text;
     }
 
-    /// <summary>A Moby target holds the Moby's handle, (index + 1) &lt;&lt; 16 | index, which the game checks against the
-    /// live Moby's id: anything else (0 in the shipped files) names none. Pods, volumes and areas hold the index.</summary>
-    private static bool IsHandle(bool target, int kind) => target && kind == 0;
+    /// <summary>A Moby target holds the Moby's handle, (index + 1) &lt;&lt; 16 | index, as old-engine class fields do
+    /// (<see cref="OldClassReferences"/>); the game checks it against the live Moby's id. Pods, volumes and areas
+    /// hold the index.</summary>
+    private static int IndexOf(bool target, int kind, uint word) => OldClassReferences.Decode(KindName(target, kind), word);
 
-    private static int IndexOf(bool target, int kind, uint word)
+    private static uint WordOf(bool target, int kind, int index) => OldClassReferences.Encode(KindName(target, kind), index);
+
+    /// <summary>A target or area pair: its kind decides what the picker lists, and an instance dropped on it sets both.</summary>
+    private void PairEditor(ScriptElement element, int offset, bool target, float width, bool compact)
     {
-        if (!IsHandle(target, kind)) return (int)word;
-        uint index = word & 0xFFFF;
-        return word >> 16 == index + 1 ? (int)index : -1;
+        int kind = (int)element.Word(offset - 4);
+        InstanceEditor(KindName(target, kind), IndexOf(target, kind, element.Word(offset)), width, compact, (to, at) =>
+        {
+            int word = KindWord(target, to);
+            if (word < 0) return false;
+            element.SetWord(offset - 4, (uint)word);
+            element.SetWord(offset, WordOf(target, word, at));
+            return true;
+        });
     }
-
-    private static uint WordOf(bool target, int kind, int index) =>
-        !IsHandle(target, kind) ? (uint)Math.Max(-1, index) : index is < 0 or >= 0xFFFF ? 0u : (uint)(index + 1) << 16 | (uint)index;
 
     private static string _instanceFilter = "";
 
-    /// <summary>The instances a kind can name, as the picker lists them; null when the level has no table of them
-    /// (Pods and Areas), so the index is typed.</summary>
-    private List<(int Index, Entity Entity)>? Choices(bool target, int kind)
+    /// <summary>What a reference field takes from an instance dragged from the hierarchy: every kind it can stand for.</summary>
+    private static IEnumerable<(string Kind, int Index)> ReferencesTo(Entity? entity)
     {
-        if (kind != 0 || Region() is not { } region) return null;
-        return target
-            ? [.. region.MobyInstances.Entities.OfType<EntityMoby>().Where(m => m.GameplayIndex >= 0).OrderBy(m => m.GameplayIndex).Select(m => (m.GameplayIndex, (Entity)m))]
-            : [.. region.Volumes.Entities.OfType<EntityVolume>().Where(v => v.BaseVolume.Index >= 0).OrderBy(v => v.BaseVolume.Index).Select(v => (v.BaseVolume.Index, (Entity)v))];
+        switch (entity)
+        {
+            case EntityMoby moby: yield return ("Moby", moby.GameplayIndex); break;
+            case EntityVolume volume:
+                if (volume.BaseVolume.Clue is { } clue) yield return ("Clue", clue.Index);
+                yield return ("Volume", volume.BaseVolume.Index);
+                break;
+            case EntityPath path: yield return ("Path", path.Path.Index); break;
+            case EntityController controller: yield return ("Controller", controller.Controller.Index); break;
+        }
     }
 
-    /// <summary>A target or area, by its kind: the instance it names (a click selects it and shows it in the 3D
-    /// view), a list of the kind's instances to pick another from, a cross to unset it, and a drop target for an
-    /// instance dragged from the hierarchy. A kind with no table takes the index.</summary>
-    private void InstanceEditor(ScriptElement element, int offset, bool target, float width, bool compact)
+    /// <summary>A reference to an instance of <paramref name="kind"/>: the instance it names (a click selects it and
+    /// shows it in the 3D view), a list of the kind's instances to pick another from, a cross to unset it, and a drop
+    /// target for an instance dragged from the hierarchy. A kind the level has no table of takes the index.
+    /// <paramref name="write"/> sets a kind and index, false when the field cannot take that kind.</summary>
+    private void InstanceEditor(string kind, int index, float width, bool compact, Func<string, int, bool> write)
     {
-        int kind = (int)element.Word(offset - 4), index = IndexOf(target, kind, element.Word(offset));
-        var (text, entity) = Instance(kind, index, target);
-        var choices = Choices(target, kind);
+        var (text, entity) = Instance(kind, index);
+        var choices = Choices(kind);
         float spacing = ImGui.GetStyle().ItemInnerSpacing.X, button = ImGui.GetFrameHeight();
         float room = MathF.Max(20f, width - (choices != null ? 2f : 1f) * (button + spacing));
-        void Set(int to)
+        void Set(string to, int at)
         {
-            element.SetWord(offset, WordOf(target, kind, to));
-            Commit("GUI_ScriptGraph_UndoEdit");
+            if (write(to, at)) Commit("GUI_ScriptGraph_UndoEdit");
         }
 
         if (choices == null)
         {
             ImGui.SetNextItemWidth(room);
-            if (ImGui.InputInt("##v", ref index, 0)) element.SetWord(offset, WordOf(target, kind, index));
+            if (ImGui.InputInt("##v", ref index, 0)) write(kind, Math.Max(-1, index));
             if (ImGui.IsItemDeactivatedAfterEdit()) Commit("GUI_ScriptGraph_UndoEdit");
         }
         else
         {
-            string label = entity?.Name is { Length: > 0 } name ? name : index < 0 ? LM.Get("GUI_ScriptGraph_None") : $"{index} ?";
-            ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)(entity != null ? ImGuiCol.Text : ImGuiCol.TextDisabled)]);
+            string label = entity?.Name is { Length: > 0 } name ? name
+                : index < 0 ? LM.Get("GUI_ScriptGraph_None")
+                : choices.FirstOrDefault(c => c.Index == index).Name is { Length: > 0 } listed ? listed : $"{index} ?";
+            bool known = index >= 0 && choices.Any(c => c.Index == index);
+            ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)(known ? ImGuiCol.Text : ImGuiCol.TextDisabled)]);
             if (ImGui.Selectable($"{label}##link", false, ImGuiSelectableFlags.None, new Vector2(room, button)) && entity != null)
             {
                 SelectionManager.Singleton.Select(entity);
@@ -487,18 +571,13 @@ public sealed partial class ScriptGraphFrame
             var payload = ImGui.AcceptDragDropPayload(PropertyInspectorFrame.DragPayload);
             unsafe
             {
-                (int Kind, int Index)? dropped = (target, PropertyInspectorFrame.DraggedEntity) switch
-                {
-                    (true, EntityMoby moby) when moby.GameplayIndex >= 0 => (0, moby.GameplayIndex),
-                    (false, EntityVolume volume) when volume.BaseVolume.Index >= 0 => (0, volume.BaseVolume.Index),
-                    _ => null,
-                };
-                if (payload.Handle != null && dropped is { } d)
-                {
-                    element.SetWord(offset - 4, (uint)d.Kind);
-                    element.SetWord(offset, WordOf(target, d.Kind, d.Index));
-                    Commit("GUI_ScriptGraph_UndoEdit");
-                }
+                if (payload.Handle != null)
+                    foreach (var (to, at) in ReferencesTo(PropertyInspectorFrame.DraggedEntity))
+                        if (at >= 0 && write(to, at))
+                        {
+                            Commit("GUI_ScriptGraph_UndoEdit");
+                            break;
+                        }
             }
             ImGui.EndDragDropTarget();
         }
@@ -506,11 +585,11 @@ public sealed partial class ScriptGraphFrame
         {
             ImGui.SameLine(0f, spacing);
             if (ImGui.ArrowButton("##pick", ImGuiDir.Down)) { _instanceFilter = ""; ImGui.OpenPopup("##instances"); }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferencePick", target ? "Moby" : "Volume"));
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferencePick", kind));
         }
         ImGui.SameLine(0f, spacing);
         ImGui.BeginDisabled(index < 0);
-        if (ImGui.Button("x##unset", new Vector2(button, 0f))) Set(-1);
+        if (ImGui.Button("x##unset", new Vector2(button, 0f))) Set(kind, -1);
         ImGui.EndDisabled();
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceUnset"));
         if (!compact) ImGui.TextDisabled(text);
@@ -521,14 +600,14 @@ public sealed partial class ScriptGraphFrame
         if (ImGui.BeginChild("##list", new Vector2(320f, 260f)))
         {
             int shown = 0;
-            foreach (var (at, instance) in choices)
+            foreach (var (at, name, _) in choices)
             {
-                if (_instanceFilter.Length > 0 && !instance.Name.Contains(_instanceFilter, StringComparison.OrdinalIgnoreCase)
+                if (_instanceFilter.Length > 0 && !name.Contains(_instanceFilter, StringComparison.OrdinalIgnoreCase)
                     && !at.ToString().StartsWith(_instanceFilter, StringComparison.Ordinal)) continue;
                 if (++shown > 300) break;
-                if (ImGui.Selectable($"{at}  {instance.Name}##{at}", at == index))
+                if (ImGui.Selectable($"{at}  {name}##{at}", at == index))
                 {
-                    Set(at);
+                    Set(kind, at);
                     ImGui.CloseCurrentPopup();
                 }
             }

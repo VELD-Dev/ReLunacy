@@ -2,30 +2,11 @@
 # Same syntax as ACrackInTime.fields (see its header). Offsets are into the class data, which starts with the class number;
 # parents come from the game's own class table. Fields some level sets are listed; unnamed ones are not yet traced.
 
-enum ScriptTarget : u32
+enum CompareTest : u32
 {
-    Moby = 0;
-    Pod = 1;
-}
-
-enum ScriptArea : u32
-{
-    Volume = 0;
-    Area = 1;
-}
-
-enum ScriptWatch : u32
-{
-    Off = 0;
-    TurnsTrue = 1;
-    TurnsFalse = 2;
-    Either = 3;
-}
-
-flags ScriptForce : u32
-{
-    True = 0x1;
-    False = 0x2;
+    Greater = 0;
+    Less = 1;
+    Near = 2;
 }
 
 enum NuggetOp : u32
@@ -38,11 +19,30 @@ enum NuggetOp : u32
     Xnor = 5;
 }
 
-enum CompareTest : u32
+enum ScriptArea : u32
 {
-    Greater = 0;
-    Less = 1;
-    Near = 2;
+    Volume = 0;
+    Area = 1;
+}
+
+flags ScriptForce : u32
+{
+    True = 0x1;
+    False = 0x2;
+}
+
+enum ScriptTarget : u32
+{
+    Moby = 0;
+    Pod = 1;
+}
+
+enum ScriptWatch : u32
+{
+    Off = 0;
+    TurnsTrue = 1;
+    TurnsFalse = 2;
+    Either = 3;
 }
 
 class 0x1 IGG_GameObjectUpdate
@@ -3111,7 +3111,7 @@ class 0x2B3 CoverBase : 0x50
 
 class 0x2B5 PowerupPad : 0x4D
 {
-    [0x34, u32] Pickup = "The Moby class it spawns.";
+    [0x34, mobyclass] Pickup = "The Moby class it spawns.";
     [0x38, u32] = "";
     [0x70, u32] = "";
 }
@@ -4075,7 +4075,7 @@ class 0x4F5 ScriptElem_GiveIntel : 0xF9
 {
     size 0x44;
     label "Give Intel";
-    [0x3C, u32] = "";
+    [0x3C, sound] Intel = "";
     [0x40, s32, runtime] = "";
 }
 

@@ -231,6 +231,7 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
                 RenderSettings(moby.Settings, moby.References, mobyClass, moby: true, region: RegionOf(moby));
             }
             RenderUsedBy(moby, "Moby", moby.GameplayIndex);
+            RenderScriptUsers(moby, "Moby", moby.GameplayIndex);
 
             ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_AnimationCategory"));
             RenderAnimationSection(moby);
@@ -277,6 +278,7 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
                 RenderSettings(clueSettings.Settings, clueSettings.References, clueSettings.Class, region: clueRegion);
             }
             RenderUsedBy(volumeEntity);
+            RenderScriptUsers(volumeEntity, "Volume", volumeEntity.BaseVolume.Index);
             RenderVolumeScripts(volumeEntity);
         }
         else if (SelectedEntity is EntityController controllerEntity)
@@ -910,170 +912,6 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
             }
         }
 
-        // A sound id: the sound's name, a button to hear it, and a list of the level's sounds to pick another from.
-        void SoundEditor(int offset, int id, bool locked)
-        {
-            var files = Core.LunaWindow.Instance.fileManager;
-            var sounds = files != null ? Engine.Loading.Readers.SoundReader.For(files) : null;
-            var sound = sounds?.Find(id);
-            float spacing = ImGui.GetStyle().ItemInnerSpacing.X;
-            float play = ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_SoundPlay")).X + ImGui.GetStyle().FramePadding.X * 2f;
-            float buttons = (sound != null ? play + spacing : 0f) + (locked || sounds == null ? 0f : ImGui.GetFrameHeight() + spacing);
-            ImGui.SameLine();
-            float start = ImGui.GetCursorPosX(), room = ImGui.GetContentRegionAvail().X - buttons;
-            string label = id == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone")
-                : sound != null ? (sound.SpecName.Length > 0 ? sound.SpecName : sound.Name)
-                : sounds == null ? LM.Get("GUI_Frame_InstanceInspector_SoundLoading")
-                : (sounds.SpecName(id) is { } spec ? spec + "  " : "") + LM.Get("GUI_Frame_InstanceInspector_SoundNotInLevel");
-            ImGui.PushClipRect(ImGui.GetCursorScreenPos(), ImGui.GetCursorScreenPos() + new Vector2(MathF.Max(room, 0f), ImGui.GetFrameHeight()), true);
-            if (sound != null) ImGui.TextUnformatted(label);
-            else ImGui.TextDisabled(label);
-            ImGui.PopClipRect();
-            if (sound != null && ImGui.IsItemHovered())
-                ImGui.SetTooltip($"{sound.Name}\n{LM.Get(sound.Bank == Engine.Assets.Audio.SoundBank.Streamed ? "GUI_Frame_InstanceInspector_SoundStreamed" : "GUI_Frame_InstanceInspector_SoundResident")} {sound.BankIndex}"
-                    + "\n" + LM.Get("GUI_Frame_InstanceInspector_SoundOpen"));
-            if (sound != null && ImGui.IsItemClicked())
-            {
-                var banks = LunaWindow.Instance.GetFirstFrame<SoundBanksFrame>();
-                if (banks == null) { banks = new SoundBanksFrame(); LunaWindow.Instance.AddFrame(banks); }
-                banks.Show(id);
-            }
-            bool first = true;
-            void NextButton()
-            {
-                if (first) { ImGui.SameLine(); ImGui.SetCursorPosX(start + MathF.Max(room, 0f)); first = false; }
-                else ImGui.SameLine(0f, spacing);
-            }
-            if (sound != null)
-            {
-                NextButton();
-                bool playing = ReferenceEquals(SoundPlayer.Current, sound);
-                if (ImGui.SmallButton(LM.Get(playing ? "GUI_Frame_InstanceInspector_SoundStop" : "GUI_Frame_InstanceInspector_SoundPlay") + "##play"))
-                {
-                    if (playing) SoundPlayer.Stop();
-                    else
-                    {
-                        var heard = sound;
-                        Task.Run(() =>
-                        {
-                            var source = Engine.Loading.Readers.SoundReader.Open(sounds!, heard);
-                            if (source == null || !SoundPlayer.Play(source, heard)) _unplayable = heard;
-                        });
-                    }
-                }
-                if (ReferenceEquals(_unplayable, sound) && ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SoundNoSample"));
-            }
-            if (locked || sounds == null) return;
-            NextButton();
-            if (ImGui.ArrowButton("##picksound", ImGuiDir.Down)) { _referenceFilter = ""; ImGui.OpenPopup("##sounds"); }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SoundPick"));
-            if (!ImGui.BeginPopup("##sounds")) return;
-            ImGui.SetNextItemWidth(260f);
-            if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
-            ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _referenceFilter, 64);
-            if (ImGui.BeginChild("##list", new Vector2(420f, 300f)))
-            {
-                int shown = 0;
-                foreach (var s in sounds.Sounds)
-                {
-                    if (_referenceFilter.Length > 0 && !s.SpecName.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase)
-                        && !s.Name.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase) && !s.Id.ToString().StartsWith(_referenceFilter, StringComparison.Ordinal))
-                        continue;
-                    if (++shown > 400) break;
-                    if (ImGui.Selectable($"{s.Id}  {(s.SpecName.Length > 0 ? s.SpecName : s.Name)}##{s.Id}", s.Id == id))
-                    {
-                        WriteWord(offset, (uint)s.Id);
-                        ImGui.CloseCurrentPopup();
-                    }
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(s.Name);
-                }
-                if (shown > 400) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ReferenceMore"));
-            }
-            ImGui.EndChild();
-            ImGui.EndPopup();
-        }
-
-        // An FxController's effect key: its Tags name, what it plays here, and a list of the level's keys to pick another from.
-        void EffectEditor(int offset, uint key, bool locked)
-        {
-            var effects = LevelEffectPlayer.Current;
-            string? source = Core.LunaWindow.Instance.fileManager?.SourcePath;
-            var names = Engine.Assets.Effects.EffectTags.For(string.IsNullOrEmpty(source) ? null : Engine.Config.GameConfigs.GameFolderFor(source));
-            var resolution = key != 0 ? LevelEffectPlayer.ResolveKey(key) : null;
-            float spacing = ImGui.GetStyle().ItemInnerSpacing.X;
-            var controller = SelectionManager.Singleton.SelectedEntity as EntityController;
-            bool playable = controller != null && effects != null && resolution?.Package != null;
-            bool running = playable && LevelEffectPlayer.IsPlaying(controller!);
-            float framePad = ImGui.GetStyle().FramePadding.X * 2f;
-            float playWidth = ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_EffectPause")).X
-                              + framePad, restartWidth = ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_EffectRestart")).X + framePad;
-            playWidth = MathF.Max(playWidth, ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_EffectPlay")).X + framePad);
-            float buttons = (locked || effects == null ? 0f : ImGui.GetFrameHeight() + spacing)
-                            + (playable ? playWidth + restartWidth + spacing * 2f : 0f);
-            ImGui.SameLine();
-            float start = ImGui.GetCursorPosX(), room = ImGui.GetContentRegionAvail().X - buttons;
-            string? name = names?.GetValueOrDefault(key);
-            string label = key == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone")
-                : effects == null ? LM.Get("GUI_Frame_InstanceInspector_EffectLoading")
-                : resolution?.Package != null ? name ?? key.ToString()
-                : (name != null ? name + "  " : "") + LM.Get("GUI_Frame_InstanceInspector_EffectNotInLevel");
-            ImGui.PushClipRect(ImGui.GetCursorScreenPos(), ImGui.GetCursorScreenPos() + new Vector2(MathF.Max(room, 0f), ImGui.GetFrameHeight()), true);
-            if (resolution?.Package != null) ImGui.TextUnformatted(label);
-            else ImGui.TextDisabled(label);
-            ImGui.PopClipRect();
-            if (resolution?.Package is { } package && ImGui.IsItemHovered())
-                ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectId", resolution.EffectId, package.Summary));
-            if (resolution?.Package != null && ImGui.BeginPopupContextItem("##effect_menu"))
-            {
-                if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_EffectOpen")) && OpenAssetViewer() is { } viewer)
-                {
-                    viewer.SelectEffectById(resolution.EffectId);
-                    viewer.Focus();
-                }
-                ImGui.EndPopup();
-            }
-            if (playable)
-            {
-                ImGui.SameLine();
-                ImGui.SetCursorPosX(start + MathF.Max(room, 0f));
-                if (ImGui.SmallButton(LM.Get(running ? "GUI_Frame_InstanceInspector_EffectPause" : "GUI_Frame_InstanceInspector_EffectPlay") + "##playfx"))
-                    LevelEffectPlayer.Toggle(controller!);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(running ? "GUI_Frame_InstanceInspector_EffectPauseTip" : "GUI_Frame_InstanceInspector_EffectPlayTip"));
-                ImGui.SameLine(0f, spacing);
-                if (ImGui.SmallButton(LM.Get("GUI_Frame_InstanceInspector_EffectRestart") + "##restartfx"))
-                    LevelEffectPlayer.Restart(controller!);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectRestartTip"));
-            }
-            if (locked || effects == null) return;
-            ImGui.SameLine(0f, playable ? spacing : -1f);
-            if (!playable) ImGui.SetCursorPosX(start + MathF.Max(room, 0f));
-            if (ImGui.ArrowButton("##pickeffect", ImGuiDir.Down)) { _referenceFilter = ""; ImGui.OpenPopup("##effects"); }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectPick"));
-            if (!ImGui.BeginPopup("##effects")) return;
-            ImGui.SetNextItemWidth(260f);
-            if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
-            ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _referenceFilter, 64);
-            if (ImGui.BeginChild("##list", new Vector2(420f, 300f)))
-            {
-                foreach (uint k in effects.ControllerKeys())
-                {
-                    string kName = names?.GetValueOrDefault(k) ?? "";
-                    if (_referenceFilter.Length > 0 && !kName.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase)
-                        && !k.ToString().StartsWith(_referenceFilter, StringComparison.Ordinal))
-                        continue;
-                    if (ImGui.Selectable($"{k}  {kName}##{k}", k == key))
-                    {
-                        WriteWord(offset, k);
-                        ImGui.CloseCurrentPopup();
-                    }
-                    if (ImGui.IsItemHovered() && LevelEffectPlayer.ResolveKey(k) is { Package: { } p } r)
-                        ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectId", r.EffectId, p.Summary));
-                }
-            }
-            ImGui.EndChild();
-            ImGui.EndPopup();
-        }
-
         void Row(SettingRow row)
         {
             var bytes = settings.AsSpan(row.Offset, row.Size);
@@ -1196,7 +1034,19 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
                         if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         tracked = false;
                         ImGui.EndDisabled();
-                        SoundEditor(row.Offset, v, field.RunTime);
+                        SoundEditor(v, field.RunTime, value => WriteWord(row.Offset, value));
+                        ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
+                        break;
+                    }
+                    case Engine.Assets.LevelElements.ClassFieldKind.MobyClass:
+                    {
+                        int v = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes);
+                        ImGui.SetNextItemWidth(64f);
+                        if (ImGui.DragInt("##v", ref v, 0.2f, 0, 0xFFFF)) System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, v);
+                        if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
+                        tracked = false;
+                        ImGui.EndDisabled();
+                        MobyClassEditor((uint)v, field.RunTime || _readOnlySettings, value => WriteWord(row.Offset, value));
                         ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                         break;
                     }
@@ -1208,7 +1058,7 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
                         if (!field.RunTime) TrackField(settingsBefore, "GUI_Undo_EditSetting");
                         tracked = false;
                         ImGui.EndDisabled();
-                        EffectEditor(row.Offset, (uint)v, field.RunTime);
+                        EffectEditor((uint)v, field.RunTime, value => WriteWord(row.Offset, value));
                         ImGui.BeginDisabled(field.RunTime || _readOnlySettings);
                         break;
                     }
@@ -1380,6 +1230,221 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
         if (game is { } id) RenderFieldEditors(id, cls, chain);
     }
 
+    /// <summary>A sound id: the sound's name, a button to hear it, and a list of the level's sounds to pick another
+    /// from (<paramref name="write"/> takes the pick). <paramref name="avail"/> is the room left on the line, the
+    /// rest of the region when not given.</summary>
+    internal static void SoundEditor(int id, bool locked, Action<uint> write, float avail = -1f)
+    {
+        var files = Core.LunaWindow.Instance.fileManager;
+        var sounds = files != null ? Engine.Loading.Readers.SoundReader.For(files) : null;
+        var sound = sounds?.Find(id);
+        float spacing = ImGui.GetStyle().ItemInnerSpacing.X;
+        float play = ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_SoundPlay")).X + ImGui.GetStyle().FramePadding.X * 2f;
+        float buttons = (sound != null ? play + spacing : 0f) + (locked || sounds == null ? 0f : ImGui.GetFrameHeight() + spacing);
+        ImGui.SameLine();
+        float start = ImGui.GetCursorPosX(), room = (avail >= 0f ? avail : ImGui.GetContentRegionAvail().X) - buttons;
+        string label = id == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone")
+            : sound != null ? (sound.SpecName.Length > 0 ? sound.SpecName : sound.Name)
+            : sounds == null ? LM.Get("GUI_Frame_InstanceInspector_SoundLoading")
+            : (sounds.SpecName(id) is { } spec ? spec + "  " : "") + LM.Get("GUI_Frame_InstanceInspector_SoundNotInLevel");
+        ImGui.PushClipRect(ImGui.GetCursorScreenPos(), ImGui.GetCursorScreenPos() + new Vector2(MathF.Max(room, 0f), ImGui.GetFrameHeight()), true);
+        if (sound != null) ImGui.TextUnformatted(label);
+        else ImGui.TextDisabled(label);
+        ImGui.PopClipRect();
+        if (sound != null && ImGui.IsItemHovered())
+            ImGui.SetTooltip($"{sound.Name}\n{LM.Get(sound.Bank == Engine.Assets.Audio.SoundBank.Streamed ? "GUI_Frame_InstanceInspector_SoundStreamed" : "GUI_Frame_InstanceInspector_SoundResident")} {sound.BankIndex}"
+                + "\n" + LM.Get("GUI_Frame_InstanceInspector_SoundOpen"));
+        if (sound != null && ImGui.IsItemClicked())
+        {
+            var banks = LunaWindow.Instance.GetFirstFrame<SoundBanksFrame>();
+            if (banks == null) { banks = new SoundBanksFrame(); LunaWindow.Instance.AddFrame(banks); }
+            banks.Show(id);
+        }
+        bool first = true;
+        void NextButton()
+        {
+            if (first) { ImGui.SameLine(); ImGui.SetCursorPosX(start + MathF.Max(room, 0f)); first = false; }
+            else ImGui.SameLine(0f, spacing);
+        }
+        if (sound != null)
+        {
+            NextButton();
+            bool playing = ReferenceEquals(SoundPlayer.Current, sound);
+            if (ImGui.SmallButton(LM.Get(playing ? "GUI_Frame_InstanceInspector_SoundStop" : "GUI_Frame_InstanceInspector_SoundPlay") + "##play"))
+            {
+                if (playing) SoundPlayer.Stop();
+                else
+                {
+                    var heard = sound;
+                    Task.Run(() =>
+                    {
+                        var source = Engine.Loading.Readers.SoundReader.Open(sounds!, heard);
+                        if (source == null || !SoundPlayer.Play(source, heard)) _unplayable = heard;
+                    });
+                }
+            }
+            if (ReferenceEquals(_unplayable, sound) && ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SoundNoSample"));
+        }
+        if (locked || sounds == null) return;
+        NextButton();
+        if (ImGui.ArrowButton("##picksound", ImGuiDir.Down)) { _referenceFilter = ""; ImGui.OpenPopup("##sounds"); }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_SoundPick"));
+        if (!ImGui.BeginPopup("##sounds")) return;
+        ImGui.SetNextItemWidth(260f);
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _referenceFilter, 64);
+        if (ImGui.BeginChild("##list", new Vector2(420f, 300f)))
+        {
+            int shown = 0;
+            foreach (var s in sounds.Sounds)
+            {
+                if (_referenceFilter.Length > 0 && !s.SpecName.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase)
+                    && !s.Name.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase) && !s.Id.ToString().StartsWith(_referenceFilter, StringComparison.Ordinal))
+                    continue;
+                if (++shown > 400) break;
+                if (ImGui.Selectable($"{s.Id}  {(s.SpecName.Length > 0 ? s.SpecName : s.Name)}##{s.Id}", s.Id == id))
+                {
+                    write((uint)s.Id);
+                    ImGui.CloseCurrentPopup();
+                }
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(s.Name);
+            }
+            if (shown > 400) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ReferenceMore"));
+        }
+        ImGui.EndChild();
+        ImGui.EndPopup();
+    }
+
+    /// <summary>A Moby class id: the Moby's name (a click opens it in the Asset Viewer), and a list of the level's
+    /// Mobys to pick another from (<paramref name="write"/> takes the pick).</summary>
+    internal static void MobyClassEditor(uint id, bool locked, Action<uint> write, float avail = -1f)
+    {
+        var mobys = Core.LunaWindow.Instance.Level?.Mobys;
+        var moby = id != 0 ? mobys?.GetValueOrDefault(id) : null;
+        float spacing = ImGui.GetStyle().ItemInnerSpacing.X;
+        float buttons = locked || mobys == null ? 0f : ImGui.GetFrameHeight() + spacing;
+        ImGui.SameLine();
+        float start = ImGui.GetCursorPosX(), room = MathF.Max(0f, (avail >= 0f ? avail : ImGui.GetContentRegionAvail().X) - buttons);
+        string label = id == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone")
+            : moby != null ? MobyName(moby) : LM.Get("GUI_Frame_InstanceInspector_MobyClassNotInLevel");
+        ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)(moby != null ? ImGuiCol.Text : ImGuiCol.TextDisabled)]);
+        if (ImGui.Selectable($"{label}##mobyclass", false, ImGuiSelectableFlags.None, new Vector2(MathF.Max(1f, room), 0f)) && moby != null)
+            OpenMobyInAssetViewer(id);
+        ImGui.PopStyleColor();
+        if (moby != null && ImGui.IsItemHovered()) ImGui.SetTooltip($"{moby.Name}\n" + LM.Get("GUI_Frame_InstanceInspector_MobyClassOpen"));
+        if (locked || mobys == null) return;
+        ImGui.SameLine();
+        ImGui.SetCursorPosX(start + room + spacing);
+        if (ImGui.ArrowButton("##pickmoby", ImGuiDir.Down)) { _referenceFilter = ""; ImGui.OpenPopup("##mobyclasses"); }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_MobyClassPick"));
+        if (!ImGui.BeginPopup("##mobyclasses")) return;
+        ImGui.SetNextItemWidth(260f);
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _referenceFilter, 64);
+        if (ImGui.BeginChild("##list", new Vector2(420f, 300f)))
+        {
+            foreach (var (key, m) in mobys.OrderBy(m => m.Key))
+            {
+                string name = MobyName(m);
+                if (_referenceFilter.Length > 0 && !(m.Name ?? "").Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase)
+                    && !key.ToString().StartsWith(_referenceFilter, StringComparison.Ordinal))
+                    continue;
+                if (ImGui.Selectable($"{key}  {name}##{key}", key == id))
+                {
+                    write((uint)key);
+                    ImGui.CloseCurrentPopup();
+                }
+                if (ImGui.IsItemHovered() && m.Name != null) ImGui.SetTooltip(m.Name);
+            }
+        }
+        ImGui.EndChild();
+        ImGui.EndPopup();
+    }
+
+    private static string MobyName(Engine.Assets.Mobys.Moby moby) => moby.Name?.Split('/')[^1] is { Length: > 0 } name ? name : $"0x{moby.Id:X}";
+
+    /// <summary>An FxController's effect key: its Tags name, what it plays here, and a list of the level's keys to
+    /// pick another from.</summary>
+    internal static void EffectEditor(uint key, bool locked, Action<uint> write, float avail = -1f)
+    {
+        var effects = LevelEffectPlayer.Current;
+        string? source = Core.LunaWindow.Instance.fileManager?.SourcePath;
+        var names = Engine.Assets.Effects.EffectTags.For(string.IsNullOrEmpty(source) ? null : Engine.Config.GameConfigs.GameFolderFor(source));
+        var resolution = key != 0 ? LevelEffectPlayer.ResolveKey(key) : null;
+        float spacing = ImGui.GetStyle().ItemInnerSpacing.X;
+        var controller = SelectionManager.Singleton.SelectedEntity as EntityController;
+        bool playable = controller != null && effects != null && resolution?.Package != null;
+        bool running = playable && LevelEffectPlayer.IsPlaying(controller!);
+        float framePad = ImGui.GetStyle().FramePadding.X * 2f;
+        float playWidth = ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_EffectPause")).X
+                          + framePad, restartWidth = ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_EffectRestart")).X + framePad;
+        playWidth = MathF.Max(playWidth, ImGui.CalcTextSize(LM.Get("GUI_Frame_InstanceInspector_EffectPlay")).X + framePad);
+        float buttons = (locked || effects == null ? 0f : ImGui.GetFrameHeight() + spacing)
+                        + (playable ? playWidth + restartWidth + spacing * 2f : 0f);
+        ImGui.SameLine();
+        float start = ImGui.GetCursorPosX(), room = (avail >= 0f ? avail : ImGui.GetContentRegionAvail().X) - buttons;
+        string? name = names?.GetValueOrDefault(key);
+        string label = key == 0 ? LM.Get("GUI_Frame_InstanceInspector_ReferenceNone")
+            : effects == null ? LM.Get("GUI_Frame_InstanceInspector_EffectLoading")
+            : resolution?.Package != null ? name ?? key.ToString()
+            : (name != null ? name + "  " : "") + LM.Get("GUI_Frame_InstanceInspector_EffectNotInLevel");
+        ImGui.PushClipRect(ImGui.GetCursorScreenPos(), ImGui.GetCursorScreenPos() + new Vector2(MathF.Max(room, 0f), ImGui.GetFrameHeight()), true);
+        if (resolution?.Package != null) ImGui.TextUnformatted(label);
+        else ImGui.TextDisabled(label);
+        ImGui.PopClipRect();
+        if (resolution?.Package is { } package && ImGui.IsItemHovered())
+            ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectId", resolution.EffectId, package.Summary));
+        if (resolution?.Package != null && ImGui.BeginPopupContextItem("##effect_menu"))
+        {
+            if (ImGui.MenuItem(LM.Get("GUI_Frame_InstanceInspector_EffectOpen")) && OpenAssetViewer() is { } viewer)
+            {
+                viewer.SelectEffectById(resolution.EffectId);
+                viewer.Focus();
+            }
+            ImGui.EndPopup();
+        }
+        if (playable)
+        {
+            ImGui.SameLine();
+            ImGui.SetCursorPosX(start + MathF.Max(room, 0f));
+            if (ImGui.SmallButton(LM.Get(running ? "GUI_Frame_InstanceInspector_EffectPause" : "GUI_Frame_InstanceInspector_EffectPlay") + "##playfx"))
+                LevelEffectPlayer.Toggle(controller!);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(running ? "GUI_Frame_InstanceInspector_EffectPauseTip" : "GUI_Frame_InstanceInspector_EffectPlayTip"));
+            ImGui.SameLine(0f, spacing);
+            if (ImGui.SmallButton(LM.Get("GUI_Frame_InstanceInspector_EffectRestart") + "##restartfx"))
+                LevelEffectPlayer.Restart(controller!);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectRestartTip"));
+        }
+        if (locked || effects == null) return;
+        ImGui.SameLine(0f, playable ? spacing : -1f);
+        if (!playable) ImGui.SetCursorPosX(start + MathF.Max(room, 0f));
+        if (ImGui.ArrowButton("##pickeffect", ImGuiDir.Down)) { _referenceFilter = ""; ImGui.OpenPopup("##effects"); }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectPick"));
+        if (!ImGui.BeginPopup("##effects")) return;
+        ImGui.SetNextItemWidth(260f);
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _referenceFilter, 64);
+        if (ImGui.BeginChild("##list", new Vector2(420f, 300f)))
+        {
+            foreach (uint k in effects.ControllerKeys())
+            {
+                string kName = names?.GetValueOrDefault(k) ?? "";
+                if (_referenceFilter.Length > 0 && !kName.Contains(_referenceFilter, StringComparison.OrdinalIgnoreCase)
+                    && !k.ToString().StartsWith(_referenceFilter, StringComparison.Ordinal))
+                    continue;
+                if (ImGui.Selectable($"{k}  {kName}##{k}", k == key))
+                {
+                    write(k);
+                    ImGui.CloseCurrentPopup();
+                }
+                if (ImGui.IsItemHovered() && LevelEffectPlayer.ResolveKey(k) is { Package: { } p } r)
+                    ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_EffectId", r.EffectId, p.Summary));
+            }
+        }
+        ImGui.EndChild();
+        ImGui.EndPopup();
+    }
+
     private static bool BeginInspectorFields(string id)
     {
         if (!ImGui.BeginTable(id, 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings))
@@ -1396,7 +1461,7 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
         else ImGui.TextUnformatted(name);
     }
 
-    private static void RenderTextFieldLink(int id, string? text, string? tag, float width = 0f, bool useTag = false)
+    internal static void RenderTextFieldLink(int id, string? text, string? tag, float width = 0f, bool useTag = false)
     {
         if (text == null && (!useTag || string.IsNullOrEmpty(tag)))
         {
@@ -1447,7 +1512,7 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
             ImGui.SetNextItemWidth(320f);
             if (ImGui.BeginCombo(LM.Get("GUI_Frame_InstanceInspector_FieldType"), type))
             {
-                foreach (string option in new[] { "u8", "u16", "u32", "s32", "float", "bool", "bool32", "text", "sound", "effect", "ref" })
+                foreach (string option in new[] { "u8", "u16", "u32", "s32", "float", "bool", "bool32", "text", "sound", "effect", "mobyclass", "ref" })
                     if (ImGui.Selectable(option, option == type)) type = option;
                 ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_FieldTypeReferences"));
                 foreach (string option in Engine.Assets.LevelElements.ClassFields.ReferenceKinds)
@@ -1770,6 +1835,13 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
 
     /// <summary>What names this volume in its settings, in a field or a list (a moon's area, a camera's look-at
     /// volume, a sound environment's volumes...), and what names an Area it is in; each a link to it.</summary>
+    /// <summary>Fall of Man: the script nodes that name the instance (nothing else starts a script).</summary>
+    private static void RenderScriptUsers(Entity entity, string kind, int index)
+    {
+        if (Core.LunaWindow.Instance.Level?.GameDefinition?.Id == Engine.Games.GameId.RFallOfMan && RegionOf(entity) is { } region)
+            ScriptGraphFrame.RenderUsers(entity, region.RegionName, kind, index);
+    }
+
     private void RenderUsedBy(EntityVolume volume) => RenderUsedBy(volume, "Volume", volume.BaseVolume.Index, volume.BaseVolume.AreaIndexes);
 
     /// <summary>What names this instance in its settings, each a link to it; for a volume or a path, also what

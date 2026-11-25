@@ -162,6 +162,7 @@ public sealed partial class ScriptGraphFrame : DockedFrame, IDisposable
     private void Commit(string labelKey)
     {
         if (_scripts == null || _state == null) return;
+        _revision++;
         byte[] bytes;
         try { bytes = _scripts.ToBytes(); }
         catch (InvalidDataException e)
@@ -182,6 +183,7 @@ public sealed partial class ScriptGraphFrame : DockedFrame, IDisposable
     private void Restore(State state)
     {
         if (_scripts == null || !ReferenceEquals(state.Files, _files)) return;
+        _revision++;
         try { _scripts = FallOfManScripts.Parse(state.Bytes); }
         catch (InvalidDataException e)
         {
