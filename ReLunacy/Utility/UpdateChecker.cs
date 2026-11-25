@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Runtime.InteropServices;
 using Newtonsoft.Json.Linq;
 using ReLunacy.Core;
 using ReLunacy.Core.Frames.Modals;
@@ -119,7 +120,8 @@ public static class UpdateChecker
 
         // Filenames are "ReLunacy-nightly-{yyyy-MM-dd}.{shortCommit}.{platformRid}.{ext}"; sorting
         // lexicographically also sorts chronologically thanks to the leading yyyy-MM-dd.
-        string platformRid = OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
+        string platformRid = (OperatingSystem.IsWindows() ? "win-" : "linux-")
+            + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64");
         var latestForPlatform = assets
             .Where(a => ((string?)a["name"])?.Contains(platformRid) == true)
             .OrderByDescending(a => (string?)a["name"], StringComparer.Ordinal)
