@@ -632,9 +632,6 @@ class 0x134 ScriptElem_SetKillZone : 0xF9
 {
     size 0x4C;
     label "Set Kill Zone";
-    [0x3C, u32] = "";
-    [0x40, u32] = "";
-    [0x44, u32] = "";
     [0x48, u32] = "";
 }
 
@@ -1513,8 +1510,8 @@ class 0x18D ScriptElem_AircraftFollowPath : 0xF9
 {
     size 0x44;
     label "Aircraft Follow Path";
-    [0x3C, u32] = "";
-    [0x40, u32] = "";
+    [0x3C, Moby] Target Aircraft = "";
+    [0x40, Path] Path to follow = "";
 }
 
 class 0x18E ScriptElem_AircraftFollowPath2 : 0xF9
@@ -1546,7 +1543,7 @@ class 0x191 ScriptElem_AircraftSetSpeedRange : 0xF9
 {
     size 0x48;
     label "Aircraft Set Speed Range";
-    [0x3C, Path] Target Moby = "";
+    [0x3C, Moby] Target Moby = "";
     [0x40, u32] Range Begin? = "";
     [0x44, u32] Range End? = "";
 }
@@ -2324,13 +2321,13 @@ class 0x1E6 ScriptElem_DamageMobyInArea : 0xF9
 {
     size 0x64;
     label "Damage Moby In Area";
-    [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
-    [0x44, ScriptArea] Area kind = "";
-    [0x48, s32] Area = "Index; -1 for none.";
+    [0x3C, ScriptTarget] Affected Kind = "";
+    [0x40, s32] Affected = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Damage Area Kind = "";
+    [0x48, s32] Damage Area = "Index; -1 for none.";
     [0x4C, float] = "";
     [0x50, float] = "";
-    [0x54, float] = "";
+    [0x54, float] Damage Amount = "";
     [0x58, ScriptArea] Area 2 kind = "";
     [0x5C, s32] Area 2 = "Index; -1 for none.";
     [0x60, u32] = "";

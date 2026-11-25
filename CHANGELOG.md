@@ -3,6 +3,30 @@
 This file lists all the changes of every version. This file is edited constantly during the development, in order not to forget what have been done for X or Y version. It's better to keep it up to date on dev branch.
 Because the European date format is better, please keep date format like this: `DD-MM-YYYY`.
 
+## [v0.06](https://github.com/VELD-Dev/ReLunacy/releases/0.06) - ??-11-2026
+
+- New Script Graph for **Resistance: Fall of Man**: its scripts (`ps3script.dat`) as node graphs. Edit fields, links, scripts and variables, add nodes from every documented class, and save the layout in the project.
+  - Targets and areas pick their Moby or Volume from a list, by dragging from the hierarchy, or from the selection, and show in the 3D view.
+  - Mobys and Volumes list the script nodes that name them.
+  - Reference, sound, effect, text and Moby class fields use the Property Inspector's editors.
+- New Resistance: Fall of Man support: effects, foliages, shrubs and sound banks (links, volumes and reverb included).
+- New Moby collision in the 3D view and the Asset Viewer, with its own toolbar button, panel, filters and colour modes.
+- New scripts in the Assets Browser (Scripts > Level, Game, Configs, Other levels), with New script. The Lua Environment opens each script in its own tab (Ctrl+PageUp/PageDown to switch).
+- New water bodies, vertical fog, weather and wind controllers, and custom shaders and materials.
+- Added Lua API documentation for every native of A Crack in Time (993) and Tools of Destruction (685 + 24 methods).
+- Added the names of all 1,272 Resistance: Fall of Man classes, and typed settings fields for the classes placed in levels.
+- Added more named fields for A Crack in Time's classes.
+- Added renaming Clue and Controller classes from the hierarchy.
+- Added controller icons for Resistance: Fall of Man (Fx, sound environment, emitter, crowd, cuboid).
+- Improved the Project system and backup management.
+- Changed: the nightly update checker takes the newest nightly and the build for your own architecture (Windows and Linux, x64 and ARM64).
+- Fixed blended UFrags under water not being refracted.
+- Fixed Moby collision looking rotated or flipped.
+- Fixed visual effect transformations and animations being read wrong.
+- Fixed Tools of Destruction's `wait` not yielding the script.
+- Fixed Resistance: Fall of Man shrubs swaying.
+
+
 ## [v0.06-alpha.2](https://github.com/VELD-Dev/ReLunacy/releases/0.06-alpha.2) - 22-11-2026
 
 - Added **Resistance: Fall of Man** support.
