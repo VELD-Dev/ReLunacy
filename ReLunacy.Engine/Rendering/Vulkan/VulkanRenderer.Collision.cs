@@ -22,6 +22,11 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// Hiding a category, a primitive kind, a region, a material or a triangle-flag value collapses the
 /// vertices in the vertex shader rather than rebuilding the batches; so does the editor's per-instance
 /// hidden bit (the instance-flag filter), and its selected bits tint the faces in edit mode.
+///
+/// Moby collision is a second layer (<see cref="SetMobyCollision"/>) drawn by the same pipeline, so the
+/// collision editor's indices into the level layer never see it. It is shown on its own
+/// (<see cref="MobyCollisionVisible"/>); its instances carry <see cref="CollisionGeometry.MobyInstanceBit"/>,
+/// skip the categories and regions, and follow their own filters (uMoby).
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
@@ -29,8 +34,10 @@ public sealed unsafe partial class VulkanRenderer
     // uFlags: x visible categories (CollisionCategories), y colour mode (CollisionColorMode), z visible
     // regions (bit N = the Nth region given to CollisionGeometry.Build), w visible primitive kinds.
     // uMat0/uMat1: visible materials, bit m of the 256. uMisc.x: visible triangle-flag values, bit f of 32.
-    private const string CollisionPushGlsl = @"layout(push_constant) uniform PC { vec4 uParams; uvec4 uFlags; uvec4 uMat0; uvec4 uMat1; uvec4 uMisc; vec4 uSelColor; };";
-    private const int CollisionPushSize = 96;
+    // uMoby: x bits 0-1 visible parts (MobyCollisionParts), bits 8-15 colour mode (MobyCollisionColorMode);
+    // y visible primitive kinds; z visible primitive mask bits; w visible triangle-flag values.
+    private const string CollisionPushGlsl = @"layout(push_constant) uniform PC { vec4 uParams; uvec4 uFlags; uvec4 uMat0; uvec4 uMat1; uvec4 uMisc; uvec4 uMoby; vec4 uSelColor; };";
+    private const int CollisionPushSize = 112;
 
     private const string CollisionVertexGlsl = @"#version 450
 layout(set = 0, binding = 0) uniform Mvp { mat4 uMvp; };
@@ -67,12 +74,22 @@ void main()
 {
     uint kind = (inAttr >> 13) & 7u;
     bool tie = (inInstance & 1u) != 0u;
+    bool moby = (inInstance & 8u) != 0u;
     uint category = kind != 0u ? 4u : (tie ? 2u : 1u);
     // Hidden: by category, region, the instance-flag filter (bit 2, set by the editor), and per face by
     // material and triangle flags (meshes) or primitive kind. A face's three corners share their
-    // attributes, so collapsing each one collapses the face.
-    bool visible = (uFlags.x & category) != 0u && (uFlags.z & inRegions) != 0u && (inInstance & 4u) == 0u;
-    if (kind == 0u)
+    // attributes, so collapsing each one collapses the face. Mobys have their own filters.
+    bool visible = (moby || ((uFlags.x & category) != 0u && (uFlags.z & inRegions) != 0u)) && (inInstance & 4u) == 0u;
+    uint primitiveMask = (inAttr >> 18) & 0x7Fu;
+    if (moby)
+    {
+        if (kind == 0u)
+            visible = visible && (uMoby.x & 1u) != 0u && (uMoby.w & (1u << ((inAttr >> 8) & 0x1Fu))) != 0u;
+        else
+            visible = visible && (uMoby.x & 2u) != 0u && (uMoby.y & (1u << (kind - 1u))) != 0u
+                && (primitiveMask == 0u || (primitiveMask & uMoby.z) != 0u);
+    }
+    else if (kind == 0u)
     {
         uint material = inAttr & 0xFFu;
         uint word = material < 128u ? uMat0[material >> 5] : uMat1[(material >> 5) - 4u];
@@ -92,8 +109,16 @@ void main()
     vSelected = uParams.z > 0.5 && ((inAttr & 0x10000u) != 0u || (inInstance & 2u) != 0u) ? 1.0 : 0.0;
 
     uint mode = uFlags.y;
+    uint mobyMode = (uMoby.x >> 8) & 0xFFu;
     // Bit 17: a primitive that carries a material (a Moby's, see MobyCollisionGeometry).
-    if (mode == 1u)      vColor = kind == 0u || (inAttr & 0x20000u) != 0u ? idColour(inAttr & 0xFFu) : vec3(0.5);
+    if (moby)
+    {
+        if (mobyMode == 1u)      vColor = kind == 0u ? flagColour((inAttr >> 8) & 0x1Fu) : idColour(primitiveMask);
+        else if (mobyMode == 2u) vColor = idColour(inInstance >> 16);
+        else if (mobyMode == 3u) vColor = idColour(inAttr & 0xFFu);
+        else                     vColor = kind == 0u ? vec3(0.20, 0.85, 0.85) : typeColour(kind, false);
+    }
+    else if (mode == 1u)      vColor = kind == 0u || (inAttr & 0x20000u) != 0u ? idColour(inAttr & 0xFFu) : vec3(0.5);
     else if (mode == 2u) vColor = kind == 0u ? flagColour((inAttr >> 8) & 0x1Fu) : vec3(0.5);
     else if (mode == 3u) vColor = idColour(inInstance >> 16);
     else                 vColor = typeColour(kind, tie);
@@ -143,16 +168,26 @@ void main()
     private VkPipelineLayout _colLayout;
     private VkPipeline _colPipeline;
 
-    private VkBuffer _colVertexBuffer, _colInstanceBuffer;
-    private VkDeviceMemory _colVbMemory, _colInstanceMemory;
-    // Kept mapped (host-coherent) so the collision editor can rewrite a face's or an instance's
-    // attribute word in place. The race with a frame in flight only shows as a one-frame-late highlight.
-    private CollisionVertex* _colVertexMapped;
-    private CollisionInstanceData* _colInstanceMapped;
-    private int _colVertexCount, _colInstanceCount;
-    private CollisionBatch[] _colBatches = [];
+    /// <summary>One uploaded set of collision buffers. Kept mapped (host-coherent) so the collision editor
+    /// can rewrite a face's or an instance's attribute word in place. The race with a frame in flight only
+    /// shows as a one-frame-late highlight.</summary>
+    private sealed class CollisionLayer
+    {
+        public VkBuffer VertexBuffer, InstanceBuffer;
+        public VkDeviceMemory VertexMemory, InstanceMemory;
+        public CollisionVertex* Vertices;
+        public CollisionInstanceData* Instances;
+        public int VertexCount, InstanceCount;
+        public CollisionBatch[] Batches = [];
+    }
 
+    private readonly CollisionLayer _colLevel = new(), _colMoby = new();
+
+    /// <summary>The level layer (world and Tie collision).</summary>
     public bool CollisionVisible { get; set; }
+
+    /// <summary>The Moby layer, shown independently of the level layer.</summary>
+    public bool MobyCollisionVisible { get; set; }
 
     /// <summary>0..1; at 1 the collision hides the art behind it.</summary>
     public float CollisionOpacity { get; set; } = 0.85f;
@@ -181,7 +216,20 @@ void main()
 
     /// <summary>True once collision has been uploaded, so the UI can grey out its toggle on a level
     /// that has none.</summary>
-    public bool HasCollision => _colBatches.Length > 0;
+    public bool HasCollision => _colLevel.Batches.Length > 0;
+
+    /// <summary>Which parts of the Moby layer are drawn.</summary>
+    public MobyCollisionParts MobyCollisionParts { get; set; } = MobyCollisionParts.All;
+
+    public MobyCollisionColorMode MobyCollisionColorMode { get; set; } = MobyCollisionColorMode.Kind;
+
+    public CollisionPrimitiveKinds MobyCollisionPrimitiveKinds { get; set; } = CollisionPrimitiveKinds.All;
+
+    /// <summary>Bit b shows the Moby primitives whose mask (descriptor +0x0A) has bit b.</summary>
+    public uint MobyCollisionMaskBits { get; set; } = uint.MaxValue;
+
+    /// <summary>Bit f shows the Moby mesh faces whose five triangle-flag bits equal f.</summary>
+    public uint MobyCollisionTriangleFlagMask { get; set; } = uint.MaxValue;
 
     private void CreateCollisionPipeline()
     {
@@ -270,59 +318,89 @@ void main()
     /// was uploaded, which is what a level without collision wants.
     /// </summary>
     public void SetCollision(ReadOnlySpan<CollisionVertex> vertices, ReadOnlySpan<CollisionInstanceData> instances, ReadOnlySpan<CollisionBatch> batches)
+        => Upload(_colLevel, vertices, instances, batches);
+
+    /// <summary>Uploads the Moby layer (see MobyCollisionGeometry). Empty spans free it.</summary>
+    public void SetMobyCollision(ReadOnlySpan<CollisionVertex> vertices, ReadOnlySpan<CollisionInstanceData> instances, ReadOnlySpan<CollisionBatch> batches)
+        => Upload(_colMoby, vertices, instances, batches);
+
+    /// <summary>Rewrites the Moby layer's vertices in place (a new pose), or uploads them again when their
+    /// count changed. The instances and batches are kept.</summary>
+    public void UpdateMobyCollisionVertices(ReadOnlySpan<CollisionVertex> vertices, ReadOnlySpan<CollisionInstanceData> instances, ReadOnlySpan<CollisionBatch> batches)
+    {
+        if (_colMoby.Vertices == null || vertices.Length != _colMoby.VertexCount || instances.Length != _colMoby.InstanceCount)
+        {
+            Upload(_colMoby, vertices, instances, batches);
+            return;
+        }
+        vertices.CopyTo(new Span<CollisionVertex>(_colMoby.Vertices, _colMoby.VertexCount));
+    }
+
+    private void Upload(CollisionLayer layer, ReadOnlySpan<CollisionVertex> vertices, ReadOnlySpan<CollisionInstanceData> instances, ReadOnlySpan<CollisionBatch> batches)
     {
         WaitForPendingFrames();
-        DestroyCollisionBuffers();
-        _colBatches = [];
+        DestroyCollisionBuffers(layer);
         if (vertices.IsEmpty || instances.IsEmpty || batches.IsEmpty) return;
 
         ulong vSize = (ulong)vertices.Length * (ulong)sizeof(CollisionVertex);
-        (_colVertexBuffer, _colVbMemory) = CreateBuffer(vSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        (layer.VertexBuffer, layer.VertexMemory) = CreateBuffer(vSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
         void* vp;
-        Check(_api.vkMapMemory(_colVbMemory, 0, vSize, 0, &vp), "vkMapMemory(collisionVb)");
+        Check(_api.vkMapMemory(layer.VertexMemory, 0, vSize, 0, &vp), "vkMapMemory(collisionVb)");
         vertices.CopyTo(new Span<CollisionVertex>(vp, vertices.Length));
-        _colVertexMapped = (CollisionVertex*)vp;
-        _colVertexCount = vertices.Length;
+        layer.Vertices = (CollisionVertex*)vp;
+        layer.VertexCount = vertices.Length;
 
         ulong iSize = (ulong)instances.Length * (ulong)sizeof(CollisionInstanceData);
-        (_colInstanceBuffer, _colInstanceMemory) = CreateBuffer(iSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        (layer.InstanceBuffer, layer.InstanceMemory) = CreateBuffer(iSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
         void* ip;
-        Check(_api.vkMapMemory(_colInstanceMemory, 0, iSize, 0, &ip), "vkMapMemory(collisionInstances)");
+        Check(_api.vkMapMemory(layer.InstanceMemory, 0, iSize, 0, &ip), "vkMapMemory(collisionInstances)");
         instances.CopyTo(new Span<CollisionInstanceData>(ip, instances.Length));
-        _colInstanceMapped = (CollisionInstanceData*)ip;
-        _colInstanceCount = instances.Length;
+        layer.Instances = (CollisionInstanceData*)ip;
+        layer.InstanceCount = instances.Length;
 
-        _colBatches = batches.ToArray();
+        layer.Batches = batches.ToArray();
     }
 
     /// <summary>Rewrites the attribute word of pool vertices [first, first + attributes.Length).</summary>
     public void UpdateCollisionVertexAttributes(uint first, ReadOnlySpan<uint> attributes)
     {
-        if (_colVertexMapped == null || first + (ulong)attributes.Length > (ulong)_colVertexCount) return;
+        if (_colLevel.Vertices == null || first + (ulong)attributes.Length > (ulong)_colLevel.VertexCount) return;
         for (int i = 0; i < attributes.Length; i++)
         {
-            CollisionVertex* v = _colVertexMapped + first + i;
+            CollisionVertex* v = _colLevel.Vertices + first + i;
             *v = new CollisionVertex(v->Position, attributes[i]);
         }
     }
 
     /// <summary>Rewrites one instance's matrix (a Tie that moved carries its collision with it).</summary>
-    public void UpdateCollisionInstanceTransform(int index, Matrix4x4 transform)
-    {
-        if (_colInstanceMapped == null || (uint)index >= (uint)_colInstanceCount) return;
-        _colInstanceMapped[index].Transform = transform;
-    }
+    public void UpdateCollisionInstanceTransform(int index, Matrix4x4 transform) => SetInstanceTransform(_colLevel, index, transform);
 
     /// <summary>Rewrites one instance's attribute word.</summary>
-    public void UpdateCollisionInstanceAttributes(int index, uint attributes)
+    public void UpdateCollisionInstanceAttributes(int index, uint attributes) => SetInstanceAttributes(_colLevel, index, attributes);
+
+    /// <summary>Rewrites one Moby layer instance's matrix (a Moby that moved).</summary>
+    public void UpdateMobyCollisionInstanceTransform(int index, Matrix4x4 transform) => SetInstanceTransform(_colMoby, index, transform);
+
+    /// <summary>Rewrites one Moby layer instance's attribute word (its hidden bit).</summary>
+    public void UpdateMobyCollisionInstanceAttributes(int index, uint attributes) => SetInstanceAttributes(_colMoby, index, attributes);
+
+    private static void SetInstanceTransform(CollisionLayer layer, int index, Matrix4x4 transform)
     {
-        if (_colInstanceMapped == null || (uint)index >= (uint)_colInstanceCount) return;
-        _colInstanceMapped[index].Attributes = attributes;
+        if (layer.Instances == null || (uint)index >= (uint)layer.InstanceCount) return;
+        layer.Instances[index].Transform = transform;
+    }
+
+    private static void SetInstanceAttributes(CollisionLayer layer, int index, uint attributes)
+    {
+        if (layer.Instances == null || (uint)index >= (uint)layer.InstanceCount) return;
+        layer.Instances[index].Attributes = attributes;
     }
 
     private void DrawCollision()
     {
-        if (!CollisionVisible || _colBatches.Length == 0 || CollisionCategories == CollisionCategories.None || CollisionRegionMask == 0) return;
+        bool level = CollisionVisible && _colLevel.Batches.Length > 0 && CollisionCategories != CollisionCategories.None && CollisionRegionMask != 0;
+        bool mobys = MobyCollisionVisible && _colMoby.Batches.Length > 0 && MobyCollisionParts != MobyCollisionParts.None;
+        if (!level && !mobys) return;
 
         VkDescriptorSet s0 = _descSet;
         byte* pc = stackalloc byte[CollisionPushSize];
@@ -335,34 +413,46 @@ void main()
         for (int i = 0; i < 8; i++) words[4 + i] = CollisionMaterialMask[i];
         words[12] = CollisionTriangleFlagMask;
         words[13] = words[14] = words[15] = 0;
-        *(Vector4*)(pc + 80) = CollisionSelectionColor;
+        words[16] = (uint)MobyCollisionParts | ((uint)MobyCollisionColorMode << 8);
+        words[17] = (uint)MobyCollisionPrimitiveKinds;
+        words[18] = MobyCollisionMaskBits;
+        words[19] = MobyCollisionTriangleFlagMask;
+        *(Vector4*)(pc + 96) = CollisionSelectionColor;
 
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _colPipeline);
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _colLayout, 0, 1, &s0, 0, null);
         _api.vkCmdPushConstants(_cmd, _colLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, CollisionPushSize, pc);
-        VkBuffer* buffers = stackalloc VkBuffer[2] { _colVertexBuffer, _colInstanceBuffer };
+        if (level) DrawCollisionLayer(_colLevel);
+        if (mobys) DrawCollisionLayer(_colMoby);
+    }
+
+    private void DrawCollisionLayer(CollisionLayer layer)
+    {
+        VkBuffer* buffers = stackalloc VkBuffer[2] { layer.VertexBuffer, layer.InstanceBuffer };
         ulong* offsets = stackalloc ulong[2] { 0, 0 };
         _api.vkCmdBindVertexBuffers(_cmd, 0, 2, buffers, offsets);
         // One instanced draw per unique shape. Every shape's range starts on a multiple of three, so
         // gl_VertexIndex % 3 is the corner within its triangle.
-        foreach (var batch in _colBatches)
+        foreach (var batch in layer.Batches)
             _api.vkCmdDraw(_cmd, batch.VertexCount, batch.InstanceCount, batch.FirstVertex, batch.FirstInstance);
     }
 
-    private void DestroyCollisionBuffers()
+    private void DestroyCollisionBuffers(CollisionLayer layer)
     {
-        if (_colVertexMapped != null) { _api.vkUnmapMemory(_colVbMemory); _colVertexMapped = null; }
-        if (_colInstanceMapped != null) { _api.vkUnmapMemory(_colInstanceMemory); _colInstanceMapped = null; }
-        _colVertexCount = _colInstanceCount = 0;
-        if (_colVertexBuffer.Handle != 0) { _api.vkDestroyBuffer(_colVertexBuffer); _colVertexBuffer = default; }
-        if (_colVbMemory.Handle != 0) { _api.vkFreeMemory(_colVbMemory); _colVbMemory = default; }
-        if (_colInstanceBuffer.Handle != 0) { _api.vkDestroyBuffer(_colInstanceBuffer); _colInstanceBuffer = default; }
-        if (_colInstanceMemory.Handle != 0) { _api.vkFreeMemory(_colInstanceMemory); _colInstanceMemory = default; }
+        if (layer.Vertices != null) { _api.vkUnmapMemory(layer.VertexMemory); layer.Vertices = null; }
+        if (layer.Instances != null) { _api.vkUnmapMemory(layer.InstanceMemory); layer.Instances = null; }
+        layer.VertexCount = layer.InstanceCount = 0;
+        layer.Batches = [];
+        if (layer.VertexBuffer.Handle != 0) { _api.vkDestroyBuffer(layer.VertexBuffer); layer.VertexBuffer = default; }
+        if (layer.VertexMemory.Handle != 0) { _api.vkFreeMemory(layer.VertexMemory); layer.VertexMemory = default; }
+        if (layer.InstanceBuffer.Handle != 0) { _api.vkDestroyBuffer(layer.InstanceBuffer); layer.InstanceBuffer = default; }
+        if (layer.InstanceMemory.Handle != 0) { _api.vkFreeMemory(layer.InstanceMemory); layer.InstanceMemory = default; }
     }
 
     private void DestroyCollisionPipeline()
     {
-        DestroyCollisionBuffers();
+        DestroyCollisionBuffers(_colLevel);
+        DestroyCollisionBuffers(_colMoby);
         if (_colPipeline.Handle != 0) _api.vkDestroyPipeline(_colPipeline);
         if (_colLayout.Handle != 0) _api.vkDestroyPipelineLayout(_colLayout);
         if (_colVs.Handle != 0) _api.vkDestroyShaderModule(_colVs);

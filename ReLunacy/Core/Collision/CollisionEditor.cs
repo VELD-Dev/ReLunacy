@@ -65,6 +65,8 @@ public sealed class CollisionEditor
     // outlive the scene, so a Tie that already moved stays linked.
     private readonly Dictionary<EntityTie, (List<(CollisionInstance Source, Matrix4x4 Offset)> Links, Matrix4x4 Last)> _tieLinks = [];
     private object? _level;
+    // A Crack in Time onwards has no wall jump, and bits 0 and 1 mean something else there.
+    private bool _newEngineFlags;
 
     /// <summary>Frame tint of a flag checkbox some of the selection has and some does not.</summary>
     private static readonly Vector4 MixedColour = new(0.55f, 0.40f, 0.10f, 0.9f);
@@ -79,6 +81,7 @@ public sealed class CollisionEditor
     {
         if (!ReferenceEquals(level, _level)) _tieLinks.Clear();
         _level = level;
+        _newEngineFlags = level is Engine.Loading.Readers.LevelData { GameDefinition.Id: >= Engine.Games.GameId.ACrackInTime };
         Scene = scene is { IsEmpty: false } ? scene : null;
         _renderer = renderer;
         _faces.Clear();
@@ -690,7 +693,7 @@ public sealed class CollisionEditor
                 v => CollisionGeometry.FlagColor(v), v => LM.Get("GUI_Label_CollisionTriangleFlags", v.Key, FlagNames(v.Key), v.Value),
                 v => (_triangleFlagMask & (1u << v)) != 0,
                 (v, on) => _triangleFlagMask = on ? _triangleFlagMask | (1u << v) : _triangleFlagMask & ~(1u << v));
-            ImGui.TextDisabled(LM.Get("GUI_Label_CollisionTriangleFlagsNote"));
+            ImGui.TextDisabled(LM.Get(_newEngineFlags ? "GUI_Label_CollisionTriangleFlagsNoteNewEngine" : "GUI_Label_CollisionTriangleFlagsNote"));
         }
         if (ImGui.CollapsingHeader(LM.Get("GUI_Collision_FilterInstanceFlags")))
         {
@@ -793,7 +796,7 @@ public sealed class CollisionEditor
                     Recorded("GUI_Undo_CollisionFlags", () => EditFaces(m => m, f => on ? (byte)(f | mask) : (byte)(f & ~mask)));
                 }
                 if (mixed) ImGui.PopStyleColor();
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(bit == 0 ? "GUI_Collision_FlagBit0" : "GUI_Collision_FlagBitUnknown", with, meshes.Count));
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(FlagKey(bit, "GUI_Collision_FlagBit"), with, meshes.Count));
                 ImGui.SameLine();
                 ImGui.TextDisabled(LM.Get("GUI_Collision_FlagCount", with, meshes.Count));
             }
@@ -896,10 +899,18 @@ public sealed class CollisionEditor
     }
 
     /// <summary>What a triangle flag bit does, as far as it is decoded.</summary>
-    private static string FlagName(int bit) => LM.Get(bit == 0 ? "GUI_Collision_FlagName0" : "GUI_Collision_FlagNameUnknown");
+    private string FlagName(int bit) => LM.Get(FlagKey(bit, "GUI_Collision_FlagName"));
+
+    /// <summary>The locale key for a flag bit under <paramref name="prefix"/>, by game.</summary>
+    private string FlagKey(int bit, string prefix) => (bit, _newEngineFlags) switch
+    {
+        (0, false) => prefix + "0",
+        (0 or 1, true) => $"{prefix}{bit}NewEngine",
+        _ => prefix + "Unknown",
+    };
 
     /// <summary>A flags value by its bits' names; no bit set is the default walkable surface.</summary>
-    private static string FlagNames(int flags) =>
+    private string FlagNames(int flags) =>
         flags == 0 ? LM.Get("GUI_Collision_FlagNone") :
         string.Join(" + ", Enumerable.Range(0, 5).Where(b => (flags & (1 << b)) != 0).Select(b => $"{b} {FlagName(b)}"));
 

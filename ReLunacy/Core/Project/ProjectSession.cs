@@ -1,8 +1,11 @@
 using ReLunacy.Core.Frames;
 using ReLunacy.Core.Frames.Modals;
+using ReLunacy.Core.Frames.DockedFrames;
+using ReLunacy.Engine.Config;
 using ReLunacy.Core.Undo;
 using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Projects;
+using ReLunacy.Engine.Scene;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
@@ -22,13 +25,42 @@ internal static class ProjectSession
     private static string? _title;
 
     /// <summary>Changes made since the level was opened or last saved, with or without a project.</summary>
-    public static bool HasUnsavedEdits => LunaWindow.Instance.Level != null && UndoManager.Singleton.Revision != _savedRevision;
+    public static bool HasUnsavedEdits => LunaWindow.Instance.Level != null &&
+        (UndoManager.Singleton.Revision != _savedRevision || EntityManager.Singleton.Regions.Any(r =>
+            r.PendingTextures.Count != 0 || r.PendingShaders.Count != 0 || r.PendingTieClasses.Count != 0));
 
-    /// <summary>Changes the open project does not hold yet (the title's star).</summary>
-    public static bool Dirty => Current != null && (HasUnsavedEdits || PendingTextEdits);
+    public static GameId? Game => Current?.Game ?? LunaWindow.Instance.Level?.GameDefinition?.Id;
 
-    /// <summary>The Text Tables frame holds strings the project does not.</summary>
-    public static bool PendingTextEdits { get; set; }
+    public static string? GameFolder
+    {
+        get
+        {
+            if (Current is { } project)
+            {
+                string folder = Path.Combine(project.GameRoot, "packed", "game");
+                if (Directory.Exists(folder)) return folder;
+            }
+            return Program.ProvidedPath.Length > 0 ? GameConfigs.GameFolderFor(Program.ProvidedPath) : null;
+        }
+    }
+
+    public static bool HasPendingFiles => LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>()?.Dirty == true
+        || LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Dirty == true;
+
+    public static bool Dirty => Current != null && (HasUnsavedEdits || HasPendingFiles);
+
+    public static bool SavePendingFiles()
+    {
+        bool text = LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Save() != false;
+        bool lua = LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>()?.Save() != false;
+        return text && lua;
+    }
+
+    public static void DiscardPendingFiles()
+    {
+        LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>()?.Revert();
+        LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Revert();
+    }
 
     /// <summary>
     /// Runs <paramref name="proceed"/> - something that throws the open level's edits away (opening or closing a project,
@@ -37,7 +69,7 @@ internal static class ProjectSession
     /// </summary>
     public static void Guard(Action proceed)
     {
-        if (!HasUnsavedEdits) { proceed(); return; }
+        if (!HasUnsavedEdits && (!HasPendingFiles || SavePendingFiles())) { proceed(); return; }
         if (!LunaWindow.Instance.IsAnyFrameOpened<UnsavedChangesModal>())
             LunaWindow.Instance.AddFrame(new UnsavedChangesModal(proceed));
     }
@@ -50,7 +82,7 @@ internal static class ProjectSession
         string level = Program.ProvidedPath;
         bool keepLevel = level.Length > 0 && project.Covers(level);
         // The level stays as it is only when it is kept and not read again.
-        if (!keepLevel || project.EntryCount > 0) Guard(() => OpenNow(project, level, keepLevel));
+        if (HasPendingFiles || !keepLevel || project.EntryCount > 0) Guard(() => OpenNow(project, level, keepLevel));
         else OpenNow(project, level, keepLevel);
     }
 

@@ -32,6 +32,19 @@ internal static class CreateMenuDraw
             ImGui.EndMenu();
         }
 
+        if (ImGui.BeginMenu(ImGuiPlus.Label(Icons.Globe, LM.Get("GUI_Create_LocationVolume")),
+                enabled && PropertyInspectorFrame.CanLinkLocation(InstancePlacer.TargetRegion())))
+        {
+            foreach (var shape in new[] { VolumeShape.Box, VolumeShape.Sphere, VolumeShape.Cylinder, VolumeShape.Capsule })
+                if (ImGui.MenuItem(LM.Get($"GUI_Create_Shape{shape}")))
+                {
+                    var point = view!.CentrePlacement().Point;
+                    if (InstancePlacer.CreateVolume(shape, point, view.MoonRotation(point)) is ReLunacy.Engine.Scene.EntityVolume volume)
+                        PropertyInspectorFrame.EditLocation(volume);
+                }
+            ImGui.EndMenu();
+        }
+
         if (ImGui.MenuItem($"{Icons.BezierCurve}  {LM.Get("GUI_Create_Path")}", "", false, enabled))
         {
             var place = view!.CentrePlacement();

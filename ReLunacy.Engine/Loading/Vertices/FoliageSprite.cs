@@ -9,8 +9,7 @@ namespace ReLunacy.Engine.Loading.Vertices;
 /// <see cref="OffsetX"/>/<see cref="OffsetY"/> are in the card's own 2D plane and become world
 /// units only after that constant is applied.
 ///
-/// The UVs address one quadrant of the atlas (components are multiples of 0.5). V is negated
-/// relative to this renderer's convention - see FoliageReader.ReadCorners.</summary>
+/// The UVs address a region of the atlas. The foliage reader converts the stored V to renderer coordinates.</summary>
 public readonly record struct FoliageSpriteCorner
 {
     /// <summary>Bytes per corner - the RSX attribute's stride.</summary>
@@ -36,8 +35,8 @@ public readonly record struct FoliageSpriteCorner
         new((float)sh.ReadHalf(), (float)sh.ReadHalf(), (float)sh.ReadHalf(), (float)sh.ReadHalf());
 }
 
-/// <summary>The per-quad record behind a foliage card: three big-endian half floats of anchor
-/// position plus two trailing bytes, 8 bytes total, one per sprite rather than per vertex. RSX
+/// <summary>The per-quad record behind a foliage card starts with three big-endian half floats of
+/// anchor position. On the old engine it has two trailing bytes, 8 bytes total. RSX
 /// attribute locations 1 and 2 of the same 8-byte record (loc1 = position, loc2 read at +6/+7).
 ///
 /// The anchor is transformed by an object-to-world matrix before the corner offset is added, so
@@ -50,6 +49,7 @@ public readonly record struct FoliageSpriteAnchor
 {
     /// <summary>Bytes per sprite - the RSX attribute's stride, with a frequency divisor of 4.</summary>
     public const uint Size = 0x08;
+    public const uint NewSize = 0x0E;
 
     public readonly float X;
     public readonly float Y;
@@ -68,13 +68,13 @@ public readonly record struct FoliageSpriteAnchor
         Packed1 = packed1;
     }
 
-    public static FoliageSpriteAnchor Read(StreamHelper sh)
+    public static FoliageSpriteAnchor Read(StreamHelper sh, bool isOld = true)
     {
         float x = (float)sh.ReadHalf();
         float y = (float)sh.ReadHalf();
         float z = (float)sh.ReadHalf();
-        byte p0 = sh.ReadByte();
-        byte p1 = sh.ReadByte();
+        byte p0 = isOld ? sh.ReadByte() : (byte)0;
+        byte p1 = isOld ? sh.ReadByte() : (byte)0;
         return new FoliageSpriteAnchor(x, y, z, p0, p1);
     }
 }

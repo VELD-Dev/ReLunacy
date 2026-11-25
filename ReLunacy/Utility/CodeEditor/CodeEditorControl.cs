@@ -230,8 +230,11 @@ public sealed class CodeEditorControl
             ? ImGui.CalcTextSize(Document.LineCount.ToString()).X + style.ItemSpacing.X * 2f
             : 0f;
 
-        if (!ImGui.BeginChild(id, size, ImGuiChildFlags.Borders,
-                              ImGuiWindowFlags.HorizontalScrollbar | ImGuiWindowFlags.NoNavInputs))
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Theme.ColourFor(LuaEditorThemeRole.Background));
+        bool visible = ImGui.BeginChild(id, size, ImGuiChildFlags.Borders,
+            ImGuiWindowFlags.HorizontalScrollbar | ImGuiWindowFlags.NoNavInputs);
+        ImGui.PopStyleColor();
+        if (!visible)
         {
             ImGui.EndChild();
             return;

@@ -39,8 +39,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private enum Kinds
     {
         None = 0,
-        Mobys = 1, Ties = 2, UFrags = 4, Volumes = 8, Cameras = 16, Paths = 32, Navmesh = 64, Controllers = 128,
-        All = Mobys | Ties | UFrags | Volumes | Cameras | Paths | Navmesh | Controllers,
+        Mobys = 1, Ties = 2, UFrags = 4, Volumes = 8, Cameras = 16, Paths = 32, Navmesh = 64, Controllers = 128, Shrubs = 256,
+        Water = 512,
+        All = Mobys | Ties | UFrags | Volumes | Cameras | Paths | Navmesh | Controllers | Shrubs | Water,
     }
 
     private enum Grouping { None, Asset, AssetFolder }
@@ -51,11 +52,13 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         (Kinds.Mobys, Icons.Cube, "GUI_Frame_EntityExplorer_Mobys", new(0.55f, 0.78f, 1f, 1f)),
         (Kinds.Ties, Icons.Cubes, "GUI_Frame_EntityExplorer_Ties", new(0.85f, 0.72f, 0.55f, 1f)),
         (Kinds.UFrags, Icons.MountainSun, "GUI_Frame_EntityExplorer_UFrags", new(0.55f, 0.85f, 0.55f, 1f)),
+        (Kinds.Shrubs, Icons.Seedling, "GUI_Frame_EntityExplorer_Shrubs", new(0.5f, 0.85f, 0.3f, 1f)),
         (Kinds.Volumes, Icons.VectorSquare, "GUI_Frame_EntityExplorer_Volumes", new(0.95f, 0.6f, 0.6f, 1f)),
         (Kinds.Cameras, Icons.Camera, "GUI_Frame_EntityExplorer_Cameras", new(0.95f, 0.85f, 0.45f, 1f)),
         (Kinds.Controllers, Icons.Gear, "GUI_Frame_EntityExplorer_Controllers", new(0.75f, 0.75f, 0.95f, 1f)),
         (Kinds.Paths, Icons.BezierCurve, "GUI_Frame_EntityExplorer_Paths", new(0.9f, 0.6f, 0.95f, 1f)),
         (Kinds.Navmesh, Icons.Route, "GUI_Frame_EntityExplorer_Navmesh", new(0.5f, 0.85f, 0.85f, 1f)),
+        (Kinds.Water, Icons.Droplet, "GUI_Frame_EntityExplorer_Water", new(0.4f, 0.65f, 1f, 1f)),
     ];
 
     private static readonly Vector4 FolderColour = new(0.91f, 0.76f, 0.42f, 1f);
@@ -79,6 +82,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         public int Order;
         /// <summary>An asset (or class) group, rather than a layer or type folder.</summary>
         public bool IsGroup;
+        /// <summary>A Clue's or a Controller's class group: the class, which Edit class info names.</summary>
+        public uint? ClassId;
         /// <summary>A Pod's or an Area's folder (grouped by Pod or Area): its region and its place in its table, which a rename needs.</summary>
         public EntityRegion? GroupRegion;
         public int PodIndex = -1, AreaIndex = -1, ScentIndex = -1;
@@ -160,6 +165,66 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         else
             DrawTree();
         ImGui.EndChild();
+        DrawClassInfo();
+    }
+
+    private static Engine.Games.GameId? Game => Core.LunaWindow.Instance.Level?.GameDefinition?.Id;
+
+    private uint? _classInfo;
+    private string _classInfoName = "";
+    private bool _classInfoOpen;
+
+    /// <summary>Edit class info: the class's name in the game's class fields table, which the hierarchy, the
+    /// inspector and the Clue labels show.</summary>
+    private void DrawClassInfo()
+    {
+        if (_classInfo is not { } cls || Game is not { } game) return;
+        if (_classInfoOpen) { ImGui.OpenPopup("##class_info"); _classInfoOpen = false; }
+        bool open = true;
+        ImGui.SetNextWindowSize(new Vector2(320f, 0f), ImGuiCond.Appearing);
+        if (!ImGui.BeginPopupModal($"{LM.Get("GUI_Frame_EntityExplorer_ClassInfo")}###class_info", ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            if (!open) _classInfo = null;
+            return;
+        }
+        var registry = Engine.Loading.Readers.ClassRegistry.Find(game);
+        int? parent = registry != null && registry.Parents.TryGetValue(cls, out int p) && p >= 0 ? p : null;
+        ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoNumber", $"0x{cls:X}"));
+        if (parent is { } up)
+            ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoParent",
+                Engine.Assets.LevelElements.ClassFields.ClassName(game, (uint)up) is { } upName ? $"{upName} (0x{up:X})" : $"0x{up:X}"));
+        if (registry != null && registry.Sizes.TryGetValue(cls, out int size))
+            ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoSize", $"0x{size:X}"));
+        ImGui.Spacing();
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.SetNextItemWidth(-1f);
+        bool enter = ImGui.InputTextWithHint("##class_name", LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _classInfoName, 64, ImGuiInputTextFlags.EnterReturnsTrue);
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")) || enter)
+        {
+            RenameClass(game, cls, _classInfoName.Trim(), parent);
+            _classInfo = null;
+            ImGui.CloseCurrentPopup();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldCancel")) || ImGui.IsKeyPressed(ImGuiKey.Escape))
+        {
+            _classInfo = null;
+            ImGui.CloseCurrentPopup();
+        }
+        ImGui.EndPopup();
+    }
+
+    /// <summary>Writes the name to the class fields table and relabels the class's Clues (Controllers read it live).</summary>
+    private void RenameClass(Engine.Games.GameId game, uint cls, string name, int? parent)
+    {
+        Engine.Assets.LevelElements.ClassFields.SetClassName(game, cls, name, parent);
+        foreach (var region in EntityManager.Singleton.Regions)
+        {
+            var clues = region.Volumes.Entities.OfType<EntityVolume>().Select(v => v.BaseVolume.Clue).Where(c => c?.Class == cls).ToList();
+            string label = Engine.Assets.LevelElements.ClueClasses.Name(cls, clues.Select(c => c!.Name), game);
+            foreach (var clue in clues) clue!.ClassName = label;
+        }
+        _dirty = true;
     }
 
     // No RenderAsWindow override - see ShaderBrowser's comment: SetNextWindowSize/Pos on first
@@ -379,6 +444,16 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             if (readOnly && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
             ImGui.Separator();
         }
+        if (node.ClassId is { } cls && Game is not null)
+        {
+            if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_EditClassInfo")))
+            {
+                _classInfo = cls;
+                _classInfoName = Engine.Assets.LevelElements.ClassFields.ClassName(Game, cls) ?? "";
+                _classInfoOpen = true;
+            }
+            ImGui.Separator();
+        }
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_SelectContents")))
             SelectionManager.Singleton.Set(Entities(node).Distinct().ToList());
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_AddContents")))
@@ -446,7 +521,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             {
                 foreach (var e in zone.TieInstances.Entities) e.allowRender = true;
                 foreach (var e in zone.UFrags.Entities) e.allowRender = true;
+                foreach (var e in zone.ShrubInstances.Entities) e.allowRender = true;
                 foreach (var e in zone.Navmeshes) e.allowRender = true;
+                foreach (var e in zone.Waters) e.allowRender = true;
             }
         }
         em.VisibilityVersion++;
@@ -631,6 +708,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         }
     }
 
+    private bool _canConvertLocationVolume;
+
     private void EntityMenu(Entity entity, Node node, int row)
     {
         if (!ImGui.BeginPopupContextItem($"entity_menu_{entity.ID}_{node.Key}")) return;
@@ -640,6 +719,12 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (ImGui.MenuItem(LM.Get("GUI_Rename"), "F2", false, canRename)) BeginRename(entity);
         if (!canRename && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) && RenameActions.RegionOf(entity)?.IsOldEngine == true)
             ImGui.SetTooltip(LM.Get("GUI_Rename_ReadOnly"));
+        if (entity is EntityVolume volume)
+        {
+            if (ImGui.IsWindowAppearing()) _canConvertLocationVolume = PropertyInspectorFrame.CanConvertToLocation(volume);
+            if (_canConvertLocationVolume && ImGui.MenuItem(LM.Get("GUI_Volume_UseAsLocation")))
+                PropertyInspectorFrame.EditLocation(volume);
+        }
         var selection = SelectionManager.Singleton.Selection;
         bool anyHidden = selection.Any(e => !e.allowRender), anyShown = selection.Any(e => e.allowRender);
         if (ImGui.MenuItem(LM.Get("GUI_Frame_EntityExplorer_ShowSelection"), "", false, anyHidden)) SetVisible(selection, true);
@@ -779,10 +864,26 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
                 var ufrags = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_UFrags"), Icons.MountainSun, ColourOf(Kinds.UFrags), 2);
                 foreach (var ufrag in zone.UFrags.Entities) Add(ufrags, ufrag, Kinds.UFrags, terms, grouped: false);
             }
+            if (zone.ShrubInstances.Size > 0 && (_shown & Kinds.Shrubs) != 0)
+            {
+                var shrubs = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Shrubs"), Icons.Seedling, ColourOf(Kinds.Shrubs), 2);
+                foreach (var shrub in zone.ShrubInstances.Entities) Add(shrubs, shrub, Kinds.Shrubs, terms);
+            }
             if (zone.Navmeshes.Count > 0 && (_shown & Kinds.Navmesh) != 0)
             {
                 var navmesh = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Navmesh"), Icons.Route, ColourOf(Kinds.Navmesh), 2);
                 foreach (var chunk in zone.Navmeshes) Add(navmesh, chunk, Kinds.Navmesh, terms, grouped: false);
+            }
+            if (zone.Waters.Count > 0 && (_shown & Kinds.Water) != 0)
+            {
+                var waters = Folder(zoneNode, LM.Get("GUI_Frame_EntityExplorer_Water"), Icons.Droplet, ColourOf(Kinds.Water), 2);
+                // A body of several rectangles gets a folder of its own (see WaterSurface.Bodies).
+                foreach (var water in zone.Waters)
+                    Add(water.PartCount > 1
+                            ? Folder(waters, LM.Get("GUI_Frame_EntityExplorer_WaterBody", water.Body), Icons.Droplet,
+                                ColourOf(Kinds.Water) with { W = 0.75f }, 0, $"body{water.Body}", group: true)
+                            : waters,
+                        water, Kinds.Water, terms, grouped: false);
             }
         }
         foreach (var entity in region.MobyInstances.Entities)
@@ -894,7 +995,9 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         {
             foreach (var tie in zone.TieInstances.Entities) Add(Type(Kinds.Ties), tie, Kinds.Ties, terms);
             foreach (var ufrag in zone.UFrags.Entities) Add(Type(Kinds.UFrags), ufrag, Kinds.UFrags, terms, grouped: false);
+            foreach (var shrub in zone.ShrubInstances.Entities) Add(Type(Kinds.Shrubs), shrub, Kinds.Shrubs, terms);
             foreach (var chunk in zone.Navmeshes) Add(Type(Kinds.Navmesh), chunk, Kinds.Navmesh, terms, grouped: false);
+            foreach (var water in zone.Waters) Add(Type(Kinds.Water), water, Kinds.Water, terms, grouped: false);
         }
         foreach (var entity in region.Volumes.Entities) Add(Type(Kinds.Volumes), entity, Kinds.Volumes, terms);
         foreach (var entity in region.Cameras.Entities) Add(Type(Kinds.Cameras), entity, Kinds.Cameras, terms);
@@ -936,8 +1039,11 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         string name = DisplayName(entity);
         if (terms.Length > 0 && !terms.Any(t => name.Contains(t, StringComparison.OrdinalIgnoreCase))) return null;
         if (grouped)
+        {
             foreach (string group in GroupPath(entity))
                 folder = Folder(folder, group, IconOf(kind), ColourOf(kind) with { W = 0.75f }, 0, group: true);
+            if (folder.IsGroup && ClassOf(entity) is { } cls) folder.ClassId ??= cls;
+        }
         var node = new Node { Key = folder.Key, Label = name, Icon = IconOf(kind), IconColour = ColourOf(kind), Entity = entity, Kind = kind, Parent = folder, Order = 3 };
         folder.Children.Add(node);
         _nodeOf.TryAdd(entity, node);
@@ -986,6 +1092,7 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         {
             case EntityMoby moby: return AssetGroups(moby.BaseMoby.Name);
             case EntityTie tie: return AssetGroups(tie.BaseTie.Name);
+            case EntityShrub shrub: return AssetGroups(shrub.BaseShrub.SourcePath);
             case EntityVolume volume:
                 return [volume.BaseVolume.Clue is { } clue ? clue.ClassName : LM.Get("GUI_Frame_EntityExplorer_PlainVolumes")];
             case EntityController controller:
@@ -995,6 +1102,15 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
             default: return [];
         }
     }
+
+    /// <summary>The class an entity's group stands for: a Clue's or a Controller's (Mobys group by asset). Fall of Man's
+    /// Clues hold a type, not a class.</summary>
+    private static uint? ClassOf(Entity entity) => entity switch
+    {
+        EntityVolume { BaseVolume.Clue: { } clue } when Game != Engine.Games.GameId.RFallOfMan => clue.Class,
+        EntityController controller => controller.Controller.Class,
+        _ => null,
+    };
 
     /// <summary>An asset's group: its name, or the folder it is in and then its name. The folder is the one
     /// under "entities" (levels/krell_canyon/entities/rock/...: "rock"), else the path's first two
@@ -1015,6 +1131,8 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
     private static string DisplayName(Entity entity) => entity switch
     {
         EntityNavmesh chunk => LM.Get("GUI_Frame_EntityExplorer_NavmeshChunk", chunk.ChunkIndex),
+        EntityWater { PartCount: > 1 } water => LM.Get("GUI_Frame_EntityExplorer_WaterPart", water.Body, water.Part),
+        EntityWater water => LM.Get("GUI_Frame_EntityExplorer_WaterBody", water.Body),
         _ when string.IsNullOrEmpty(entity.Name) => $"{entity.GetType().Name[6..]} {entity.ID}",
         _ => entity.Name.Split('/')[^1],
     };

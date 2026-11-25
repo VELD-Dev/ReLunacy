@@ -6,21 +6,14 @@ using ReLunacy.Engine.Loading.Vertices;
 
 namespace ReLunacy.Engine.Loading.Readers;
 
-/// <summary>Reads old-engine foliage: the card sets in section 0xA200 and their placements in
-/// 0x9340. See <see cref="FoliageMetadata"/> and <see cref="FoliageSpriteCorner"/> for the format.
-///
-/// New engine is not handled - its equivalents use different section IDs (InsomniaToolset's
-/// FoliageV2 family) and aren't parsed, so ReadAll returns empty rather than reading old-engine
-/// offsets out of a new-engine file.</summary>
-public sealed class FoliageReader
+/// <summary>Reads foliage card sets and their placements on both engine generations.</summary>
+public sealed partial class FoliageReader
 {
     private readonly FileManager _fileManager;
     private readonly MaterialReader? _materialReader;
 
-    /// <param name="materialReader">Resolves each asset's atlas from its direct texture index
-    /// (A200+0x08 into the 0x5200 table). Optional: when null (e.g. a standalone geometry-only read)
-    /// foliage still loads, just with no material, and the renderer falls back to the default
-    /// billboard texture.</param>
+    /// <param name="materialReader">Resolves the atlas from an old-engine texture index or a
+    /// new-engine shader TUID. Optional for standalone geometry reads.</param>
     public FoliageReader(FileManager fileManager, MaterialReader? materialReader = null)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
@@ -30,7 +23,8 @@ public sealed class FoliageReader
     /// <param name="progress">The level load's bar; the Foliage phase counts one item per asset.</param>
     public IReadOnlyList<Assets.Foliage.Foliage> ReadAll(LevelLoadProgress? progress = null)
     {
-        if (!_fileManager.isOld) return [];
+        if (!_fileManager.isOld) return ReadAllNew(progress);
+        if (_fileManager.IsFallOfMan) return ReadAllFallOfMan(progress);
         if (!_fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null) return [];
         if (!_fileManager.igfiles.TryGetValue("vertices.dat", out IGFile? vertices) || vertices is null) return [];
 
@@ -56,7 +50,7 @@ public sealed class FoliageReader
             uint recordBase = (uint)(assets.offset + FoliageMetadata.Size * i);
             var meta = FoliageMetadata.Read(main.sh, recordBase);
 
-            var sprites = ReadSprites(vertices.sh, (uint)vertSection.offset, meta);
+            var sprites = ReadSprites(vertices.sh, vertSection.offset, vertices.sh.BaseStream.Length, meta);
 
             // Atlas resolved from the direct texture index (A200+0x08 -> 0x5200[index], see
             // FoliageMetadata.TextureIndex). Null on the 0xFFFFFFFF sentinel, an out-of-range
@@ -83,7 +77,7 @@ public sealed class FoliageReader
     {
         if (foliages.Count == 0)
         {
-            Console.WriteLine("Foliage: none (no 0xA200 section, or new engine).");
+            Console.WriteLine("Foliage: none.");
             return;
         }
 
@@ -105,24 +99,31 @@ public sealed class FoliageReader
 
     /// <summary>Expands the card set into flat sprite records. Each card is four corners plus
     /// one shared anchor record.</summary>
-    private static List<Assets.Foliage.FoliageSpriteCard> ReadSprites(StreamHelper sh, uint sectionOffset, in FoliageMetadata meta)
+    private static List<Assets.Foliage.FoliageSpriteCard> ReadSprites(
+        StreamHelper sh, uint sectionOffset, long sectionEnd, in FoliageMetadata meta, bool isOld = true)
     {
         var cards = new List<Assets.Foliage.FoliageSpriteCard>();
         int total = meta.TotalCorners;
         if (total <= 0 || total % FoliageSpriteCorner.CornersPerSprite != 0) return cards;
 
         int spriteCount = meta.TotalSprites;
-        long cornersEnd = sectionOffset + meta.SpriteCornerOffset + (long)total * FoliageSpriteCorner.Size;
-        long anchorsEnd = sectionOffset + meta.SpriteAnchorOffset + (long)spriteCount * FoliageSpriteAnchor.Size;
-        if (cornersEnd > sh.BaseStream.Length || anchorsEnd > sh.BaseStream.Length) return cards;
+        uint anchorStride = isOld ? FoliageSpriteAnchor.Size : FoliageSpriteAnchor.NewSize;
+        long cornerStart = (long)sectionOffset + meta.SpriteCornerOffset;
+        long anchorStart = (long)sectionOffset + meta.SpriteAnchorOffset;
+        long cornersEnd = cornerStart + (long)total * FoliageSpriteCorner.Size;
+        long anchorsEnd = anchorStart + (long)spriteCount * anchorStride;
+        if (cornersEnd > sectionEnd || anchorsEnd > sectionEnd) return cards;
 
         var corners = new FoliageSpriteCorner[total];
-        sh.Seek(sectionOffset + meta.SpriteCornerOffset);
+        sh.Seek(cornerStart);
         for (int i = 0; i < total; i++) corners[i] = FoliageSpriteCorner.Read(sh);
 
         var anchors = new FoliageSpriteAnchor[spriteCount];
-        sh.Seek(sectionOffset + meta.SpriteAnchorOffset);
-        for (int i = 0; i < spriteCount; i++) anchors[i] = FoliageSpriteAnchor.Read(sh);
+        for (int i = 0; i < spriteCount; i++)
+        {
+            sh.Seek(anchorStart + (long)i * anchorStride);
+            anchors[i] = FoliageSpriteAnchor.Read(sh, isOld);
+        }
 
         for (int s = 0; s < spriteCount; s++)
         {
@@ -133,8 +134,8 @@ public sealed class FoliageReader
             {
                 var c = corners[c0 + k];
                 offsets[k] = new Vector2(c.OffsetX, c.OffsetY);
-                // V is negated - the file's atlas V convention is inverted relative to this renderer's.
-                uvs[k] = new Vector2(c.U, -c.V);
+                // Convert the atlas origin within the texture's normalized UV range.
+                uvs[k] = new Vector2(c.U, isOld ? -c.V : 1f - c.V);
             }
 
             var a = anchors[s];
@@ -161,12 +162,13 @@ public sealed class FoliageReader
         return 0;
     }
 
-    private static void AttachPlacements(IGFile main, List<Assets.Foliage.Foliage> assets, Dictionary<uint, int> byOffset)
+    private static void AttachPlacements(IGFile main, List<Assets.Foliage.Foliage> assets, Dictionary<uint, int> byOffset,
+        uint sectionId = FoliageInstance.ID)
     {
         IGFile.SectionHeader instances;
         try
         {
-            instances = main.QuerySection(FoliageInstance.ID);
+            instances = main.QuerySection(sectionId);
         }
         catch
         {

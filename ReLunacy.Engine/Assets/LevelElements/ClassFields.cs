@@ -148,6 +148,12 @@ public sealed class NamedNumbers
         while (_lines.Count > 0 && _lines[^1].Length == 0) _lines.RemoveAt(_lines.Count - 1);
     }
 
+    public IEnumerable<(long Number, string Name)> Names()
+    {
+        lock (_lines)
+            return _names.Select(n => (n.Key, n.Value.Name)).ToArray();
+    }
+
     public int Count => _names.Count;
     public string? Name(long number) => _names.TryGetValue(number, out var entry) ? entry.Name : null;
 
@@ -201,11 +207,13 @@ public sealed class NamedNumbers
 ///       [0xC8, Level] Destination level = "The level the ship loads when it lands here.";
 ///       [0xD4, Volume] Location volume = "The ship can land while it is inside.";
 ///       [0xE8, float, runtime] Barrier spacing = "";
+///       icon SpaceAttackController;
 ///   }
 ///
 /// A field is [offset, type] or [offset, type, runtime], a name, and a description in quotes. Types: u8 u16 u32 s32
 /// float bool bool32 text (a text id), sound (a SoundSpecs id), effect (a Tags key of the level's effects), ref (any instance) or Moby Path Volume Clue Controller Scent Area Pod,
-/// any of those followed by "list" (a pointer to a list of them: "Volume list"), component(size), or the name of an enum. A class inherits its parents' fields, so the file carries each class's
+/// any of those followed by "list" (a pointer to a list of them: "Volume list"), component(size), or the name of an enum.
+/// "icon Name;" gives the class's controllers the editor's Assets/Icons/Name.png. A class inherits its parents' fields and icon, so the file carries each class's
 /// parent and needs no EBOOT. Lines starting with # are comments; a comment above a class, an enum or a field stays
 /// with it when the editor rewrites the file.
 /// </summary>
@@ -218,6 +226,7 @@ public static class ClassFields
         public List<string> Header = [];
         public readonly Dictionary<uint, int> Parents = [];
         public readonly Dictionary<uint, string> Names = [];
+        public readonly Dictionary<uint, string> Icons = [];
         public readonly Dictionary<uint, SortedDictionary<(int Offset, bool Field), ClassField>> Own = [];
         public readonly Dictionary<string, ClassEnum> Enums = new(StringComparer.Ordinal);
         public readonly Dictionary<string, List<string>> Comments = new(StringComparer.Ordinal);
@@ -307,6 +316,22 @@ public static class ClassFields
         if (game is not { } id) return null;
         var table = Load(id);
         lock (Lock) return table.Names.TryGetValue(cls, out var name) && name.Length > 0 ? name : null;
+    }
+
+    /// <summary>The icon of the class or its nearest ancestor that has one (a file name without .png), or null.</summary>
+    public static string? IconName(GameId? game, uint cls)
+    {
+        if (game is not { } id) return null;
+        var table = Load(id);
+        // Walked in place, not through Chain: the viewport asks for every controller every frame.
+        lock (Lock)
+            for (int depth = 0; depth < 64; depth++)
+            {
+                if (table.Icons.TryGetValue(cls, out var icon)) return icon;
+                if (!table.Parents.TryGetValue(cls, out int parent) || parent < 0) break;
+                cls = (uint)parent;
+            }
+        return null;
     }
 
     /// <summary>The game's enums, by name.</summary>
@@ -495,6 +520,7 @@ public static class ClassFields
             int parent = table.Parents.GetValueOrDefault(cls, -1);
             Comment($"class {cls:X}", "");
             text.Append($"class 0x{cls:X}{(name.Length > 0 ? " " + name : "")}{(parent >= 0 ? $" : 0x{parent:X}" : "")}\n{{\n");
+            if (table.Icons.TryGetValue(cls, out var icon)) text.Append($"    icon {icon};\n");
             if (table.Own.TryGetValue(cls, out var own))
                 foreach (var field in own.Values)
                 {
@@ -566,6 +592,13 @@ public static class ClassFields
                 int eq = line.IndexOf('=');
                 if (eq > 0 && TryNumber(line[(eq + 1)..].TrimEnd(';').Trim(), out long value))
                     currentEnum.Entries.Add((line[..eq].Trim(), value));
+                continue;
+            }
+            if (currentClass is { } iconOf && line.StartsWith("icon ", StringComparison.Ordinal))
+            {
+                string icon = line[5..].TrimEnd(';').Trim();
+                if (icon.Length > 0) table.Icons[iconOf] = icon;
+                pending.Clear();
                 continue;
             }
             if (currentClass is { } cls && line[0] == '[')

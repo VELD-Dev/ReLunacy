@@ -1,5 +1,7 @@
 using System.Numerics;
 using ReLunacy.Engine.Scripting;
+using ReLunacy.Engine.Projects;
+using ReLunacy.Core.Project;
 using ReLunacy.Utility;
 using ReLunacy.Utility.CodeEditor;
 using ReLunacy.Utility.Localization;
@@ -28,15 +30,10 @@ public sealed class LuaEditorView
     private LuaSnippetSession? _snippet;
     private string _path = "";
     private string? _status;
-    private bool _modified;
-
-    /// <summary>Why an install was refused, shown under the status line so a compile error is
-    /// readable rather than summarised away.</summary>
-    private IReadOnlyList<string> _installProblems = [];
-
-    /// <summary>An install in flight. The write takes seconds on a real archive and now runs on a
-    /// worker, so the button has to stop a second one being started over the same file.</summary>
-    private bool _installing;
+    private string _savedText = "";
+    private string _fileToOpen = "";
+    private IReadOnlyList<string> _saveProblems = [];
+    private LuaScriptIndex? _lastShared;
 
     /// <summary>Scope analysis of the current text, refreshed when it changes. F2 and completion
     /// read this; it is recomputed lazily so typing does not reparse on every keystroke.</summary>
@@ -54,12 +51,6 @@ public sealed class LuaEditorView
     /// </summary>
     public Func<LuaScriptIndex?>? SharedScripts { get; set; }
 
-    /// <summary>
-    /// The archive a script came from, for writing one back. A hook for the same reason as
-    /// <see cref="SharedScripts"/>: the editor does not need to know how an archive is found.
-    /// </summary>
-    public Func<string, string?>? ArchivePath { get; set; }
-
     /// <summary>The level's sibling sources, for searching them. Separate from
     /// <see cref="SharedScripts"/> because that one hands over declarations, and a reference search
     /// needs the text they were read from.</summary>
@@ -67,7 +58,7 @@ public sealed class LuaEditorView
 
     /// <summary>Opens another script, for a declaration or a reference that is not in this file.
     /// Null means there is nowhere to go, and the view says so rather than doing nothing.</summary>
-    public Action<string>? OpenScript { get; set; }
+    public Func<string, bool>? OpenScript { get; set; }
 
     /// <summary>
     /// Script names to offer inside a string argument - what <c>load_level_script("</c> completes
@@ -75,20 +66,29 @@ public sealed class LuaEditorView
     /// </summary>
     public Func<LuaScriptNameKind, IEnumerable<string>>? ScriptNames { get; set; }
 
-    /// <summary>Raised after the archive has been written, so whatever holds it open can reopen it
-    /// - a handle kept across the write keeps reading the file as it was.</summary>
-    public Action? Installed { get; set; }
-
-    /// <summary>Whether the archive holds this path, which is to say the script came from one
-    /// rather than from the filesystem.</summary>
-    /// <summary>Whether the open script was read from a game archive (its path is then an archive path,
-    /// <c>/levels/...</c>), rather than from a file on disk. Told by whoever loads it: an absolute
-    /// disk path on Linux starts with '/' too.</summary>
-    private bool CameFromArchive => _fromArchive;
-    private bool _fromArchive;
+    public Func<IEnumerable<LuaCompletionItem>>? TextTags { get; set; }
+    public string? Archive { get; private set; }
+    public LunaProject? Project { get; private set; }
+    public bool IsDraft { get; private set; }
 
     public string Path => _path;
     public TextDocument Document => _editor.Document;
+    private int _dirtyVersion = -1;
+    private bool _dirty;
+    public bool Dirty
+    {
+        get
+        {
+            if (_dirtyVersion != Document.Version)
+            {
+                _dirty = _path.Length > 0 && _savedText != Document.GetText();
+                _dirtyVersion = Document.Version;
+            }
+            return _dirty;
+        }
+    }
+
+    public void ShowStatus(string status) => _status = status;
 
     public LuaEditorView()
     {
@@ -122,7 +122,7 @@ public sealed class LuaEditorView
             if (!string.Equals(hit.Path, _path, StringComparison.OrdinalIgnoreCase))
             {
                 if (OpenScript is null) { _status = string.Format(LM.Get("GUI_LuaEnv_DeclNone"), hit.Path); return; }
-                OpenScript(hit.Path);
+                if (!OpenScript(hit.Path)) return;
             }
             Reveal(hit.Span);
         };
@@ -203,7 +203,7 @@ public sealed class LuaEditorView
                                         System.IO.Path.GetFileName(declaration.Path));
                 return;
             }
-            OpenScript(declaration.Path);
+            if (!OpenScript(declaration.Path)) return;
         }
         Reveal(declaration.Span);
         _status = null;
@@ -277,11 +277,12 @@ public sealed class LuaEditorView
     /// </summary>
     private LuaScriptIndex Scripts()
     {
-        if (_scriptIndex is null || _scriptIndexVersion != _editor.Document.Version)
+        var shared = SharedScripts?.Invoke();
+        if (_scriptIndex is null || _scriptIndexVersion != Document.Version || !ReferenceEquals(shared, _lastShared))
         {
-            _scriptIndex = LuaScriptIndex.Build(
-                new LuaScriptSource(_path, _editor.Document.GetText()), SharedScripts?.Invoke());
-            _scriptIndexVersion = _editor.Document.Version;
+            _scriptIndex = LuaScriptIndex.Build(new LuaScriptSource(_path, Document.GetText()), shared);
+            _scriptIndexVersion = Document.Version;
+            _lastShared = shared;
         }
         return _scriptIndex;
     }
@@ -290,7 +291,7 @@ public sealed class LuaEditorView
     /// is per game, and a session may never open a level at all.</summary>
     private LuaApiDatabase Api()
     {
-        var game = Core.LunaWindow.Instance?.Level?.GameDefinition?.Id;
+        var game = ProjectSession.Game;
         if (_api.IsEmpty || game != _apiGame)
         {
             _api = LuaApiLoader.Load(System.IO.Path.Combine(Program.EditorPath, "LuaApi"), game);
@@ -355,20 +356,65 @@ public sealed class LuaEditorView
         }
     }
 
-    /// <summary>Where a script from an archive is saved on disk: its archive path under the editor's
-    /// LuaScripts folder.</summary>
-    private static string ExportPath(string archivePath) =>
-        System.IO.Path.Combine(Program.EditorPath, "LuaScripts", archivePath.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar));
-
-    public void Load(string text, string label, bool fromArchive = false)
+    public void Load(string text, string label, string? archive = null, LunaProject? project = null, bool isDraft = false)
     {
         _editor.SetText(text);
         _path = label;
-        _fromArchive = fromArchive;
-        _modified = false;
+        Archive = archive;
+        Project = project;
+        IsDraft = isDraft;
+        _savedText = text;
+        _dirtyVersion = -1;
         _status = null;
+        _saveProblems = [];
+        if (isDraft)
+        {
+            LuaParser.Parse(text, out var diagnostics);
+            _saveProblems = diagnostics.Select(d => $"{d.Span.Start}: {d.Message}").ToArray();
+        }
         _scopesVersion = -1;
+        _scriptIndexVersion = -1;
         _snippet = null;
+        _completion.Close();
+        _search.Close();
+        _references.Clear();
+    }
+
+    public void Revert() => Load(_savedText, _path, Archive, Project, IsDraft);
+
+    public bool Save()
+    {
+        if (!Dirty) return true;
+        try
+        {
+            string source = Document.GetText();
+            if (Archive is { } archive)
+            {
+                var result = LuaScriptBrowser.Save(archive, _path, source, Project);
+                _status = result.Summary;
+                _saveProblems = result.Problems;
+                if (!result.Succeeded && (!result.CompileFailed || Project == null)) return false;
+                Project?.SetLuaDraft(archive, _path, result.CompileFailed ? source : null);
+                IsDraft = result.CompileFailed;
+                if (IsDraft) _status = null;
+            }
+            else
+            {
+                File.WriteAllBytes(_path, LuaText.ToBytes(source));
+                _status = string.Format(LM.Get("GUI_LuaEnv_Saved"), _path);
+            }
+            _savedText = source;
+            _dirty = false;
+            if (!IsDraft) _saveProblems = [];
+            return true;
+        }
+        catch (Exception e) { _status = e.Message; return false; }
+    }
+
+    public void Reveal(LuaPosition position)
+    {
+        var caret = new TextPosition(position.Line, position.Column);
+        _editor.Reveal(new TextRange(caret, caret));
     }
 
     private LuaScopeAnalysis Scopes()
@@ -408,99 +454,37 @@ public sealed class LuaEditorView
     private string _renameText = "";
     private bool _openRenamePopup;
 
-    public void Render(double deltaTime)
+    public void Render(double deltaTime, Func<bool> save)
     {
-        ImGui.SetNextItemWidth(-220f);
-        ImGui.InputText(LM.Get("GUI_LuaEnv_Path"), ref _path, 1024);
-        ImGui.SameLine();
-        if (ImGui.Button(LM.Get("GUI_LuaEnv_Open")))
-        {
-            if (File.Exists(_path))
-            {
-                Load(LuaText.ReadFile(_path), _path);
-                _status = string.Format(LM.Get("GUI_LuaEnv_Opened"), Document.LineCount);
-            }
-            else _status = string.Format(LM.Get("GUI_LuaEnv_NoFile"), _path);
-        }
-        ImGui.SameLine();
-        if (ImGui.Button(LM.Get("GUI_LuaEnv_Save")))
-        {
-            try
-            {
-                // Written as bytes, not as text: a script may hold bytes that are not valid UTF-8 -
-                // 28 of the shipped ones do - and re-encoding them changes the file. A script from an
-                // archive has an archive path, not a place on disk: it is saved as a copy under the
-                // editor's LuaScripts folder (Install is what writes it into the game).
-                string file = CameFromArchive ? ExportPath(_path) : _path;
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(file))!);
-                File.WriteAllBytes(file, LuaText.ToBytes(Document.GetText()));
-                if (!CameFromArchive) _modified = false;
-                _status = string.Format(LM.Get("GUI_LuaEnv_Saved"), file);
-            }
-            catch (Exception e) { _status = e.Message; }
-        }
-
-        // Writing into the game is deliberately a separate action from saving a file, and only
-        // offered for an archive path - one starting with '/'. The script need not already be in
-        // the archive: a path that is not there yet is added, index entries and all.
-        ImGui.SameLine();
-        string? archivePath = ArchivePath?.Invoke(_path);
-        ImGui.BeginDisabled(archivePath is null || !CameFromArchive || _installing);
-        if (ImGui.Button(LM.Get("GUI_LuaEnv_Install")) && archivePath is not null)
-        {
-            // Off the main thread behind a progress bar: this reads the whole archive, rebuilds it,
-            // reads it back to verify and copies the original aside. The text is taken here, on the
-            // main thread, so the worker writes what was on screen when the button was pressed.
-            string text = Document.GetText();
-            string scriptPath = _path;
-            string archive = archivePath;
-            var labels = PhaseLabels<LuaSavePhase>.Snapshot("LuaSavePhase");
-            string installing = string.Format(LM.Get("GUI_LuaEnv_Installing"), System.IO.Path.GetFileName(archive));
-            _installing = true;
-            _status = installing;
-
-            BackgroundJob.Run(
-                LM.Get("GUI_LuaEnv_Install"),
-                installing,
-                bar => LuaScriptBrowser.SaveInto(archive, scriptPath, text,
-                    report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total)),
-                result =>
-                {
-                    _installing = false;
-                    _installProblems = result.Problems;
-                    if (result.Succeeded)
-                    {
-                        _modified = false;
-                        Installed?.Invoke();
-                        _status = result.BackupPath is { } backup
-                            ? string.Format(LM.Get("GUI_LuaEnv_InstalledWithBackup"), result.Summary,
-                                            System.IO.Path.GetFileName(backup))
-                            : result.Summary;
-                    }
-                    else _status = result.Summary;
-                },
-                e =>
-                {
-                    _installing = false;
-                    _status = e.Message;
-                });
-        }
+        ImGui.BeginDisabled(!Dirty);
+        if (ImGuiPlus.IconButton(Icons.Save, "save_lua")) save();
         ImGui.EndDisabled();
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_InstallHelp"));
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(LM.Get("GUI_LuaEnv_Save") + " (Ctrl+S)");
+        ImGui.SameLine();
+        if (_path.Length > 0)
+        {
+            ImGui.TextUnformatted($"{(Dirty ? "· " : "")}{System.IO.Path.GetFileName(_path)}");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(_path);
+        }
+        else ImGui.TextDisabled(LM.Get("GUI_LuaEnv_SelectScript"));
 
-        // Both feed the highlighter: the theme decides the colours, the API decides which names are
-        // functions or classes at all, so a newly documented global recolours without an edit.
+        if (ImGui.TreeNode(LM.Get("GUI_LuaEnv_OpenLocal")))
+        {
+            ImGui.SetNextItemWidth(-110f);
+            ImGui.InputText(LM.Get("GUI_LuaEnv_Path"), ref _fileToOpen, 1024);
+            ImGui.SameLine();
+            if (ImGui.Button(LM.Get("GUI_LuaEnv_Open")) && save())
+            {
+                try { Load(LuaText.ReadFile(_fileToOpen), System.IO.Path.GetFullPath(_fileToOpen)); }
+                catch (Exception e) { _status = e.Message; }
+            }
+            ImGui.TreePop();
+        }
+
+        _editor.ReadOnly = _path.Length == 0 || (Archive != null && Project == null);
+        if (Archive != null && Project == null) ImGui.TextDisabled(LM.Get("GUI_Install_NoProject"));
         _highlighter.Configure(Theme(), Api(), Scripts());
-
-        var analysis = Scopes();
-        ImGui.Text($"{Document.LineCount} lines  {(Document.LineEnding == "\r\n" ? "CRLF" : "LF")}"
-                 + $"{(Document.EndsWithNewline ? "" : "  no trailing newline")}"
-                 + $"  |  {_editor.Caret}{(_modified ? "  *" : "")}"
-                 + $"  |  {analysis.Locals.Count} local(s), {analysis.Globals.Count} global(s)"
-                 + $"  |  API: {Api().Functions.Count} fn, {Api().Types.Count} type(s)"
-                 + (Api().Diagnostics.Count > 0 ? $", {Api().Diagnostics.Count} doc issue(s)" : "")
-                 + $"  |  declared: {Scripts().CallableByName.Count()} fn"
-                 + (Scripts().Files.Count > 1 ? $" over {Scripts().Files.Count} script(s)" : ""));
 
         // Problems in annotations written in THIS file, on hover. The person writing them needs to
         // find out from the editor rather than from completion quietly saying nothing.
@@ -514,9 +498,10 @@ public sealed class LuaEditorView
                     .Select(d => $"line {d.Position.Line + 1}: {d.Message}")));
         }
 
-        if (_status is { } s) { ImGui.SameLine(); ImGui.TextDisabled($"|  {s}"); }
+        if (IsDraft) ImGui.TextWrapped(LM.Get("GUI_LuaEnv_DraftSaved"));
+        if (_status is { } s) ImGui.TextWrapped(s);
 
-        foreach (string problem in _installProblems.Take(6))
+        foreach (string problem in _saveProblems.Take(6))
             ImGui.TextColored(new Vector4(0.9f, 0.5f, 0.4f, 1f), problem);
 
         // Ctrl+F before the editor draws, so the bar is up on the same frame it is asked for.
@@ -537,13 +522,12 @@ public sealed class LuaEditorView
 
         // Ctrl+Space asks for the full list; otherwise it only follows an edit, and the engine
         // decides whether a bare prefix is worth showing.
-        bool requested = ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.Space);
+        bool requested = _editor.HasFocus && ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.Space);
         if (_editor.TextChanged)
         {
-            _modified = true;
-            _completion.Refresh(_editor, Api(), false, Scripts(), ScriptNames);
+            _completion.Refresh(_editor, Api(), false, Scripts(), ScriptNames, TextTags);
         }
-        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts(), ScriptNames);
+        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts(), ScriptNames, TextTags);
         _completion.Draw(_editor, Theme(), Api());
         HoverTooltip();
         if (_references.HasResults)
@@ -624,8 +608,7 @@ public sealed class LuaEditorView
                 _editor.ReplaceRanges(symbol.References.Select(ToRange), _renameText.Trim());
                 _status = string.Format(LM.Get("GUI_LuaEnv_Renamed"), symbol.Name, _renameText.Trim(),
                                         symbol.References.Count);
-                _modified = true;
-            }
+                }
             _pendingRename = null;
             ImGui.CloseCurrentPopup();
         }

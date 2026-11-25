@@ -70,6 +70,16 @@ public sealed class Transform : IEquatable<Transform>
         };
     }
 
+    internal static Transform FromExactMatrix(Matrix4x4 matrix)
+    {
+        var transform = FromMatrix(matrix);
+        transform._source = matrix;
+        transform._sourceTranslation = transform.Translation;
+        transform._sourceRotation = transform.Rotation;
+        transform._sourceScale = transform.Scale;
+        return transform;
+    }
+
     public bool Equals(Transform? other) =>
         other is not null && Translation.Equals(other.Translation) && Rotation.Equals(other.Rotation) && Scale.Equals(other.Scale);
 

@@ -219,6 +219,8 @@ public sealed class InstallProjectModal : Modal
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoDocking;
 
+    protected override bool CanClose => _installing is not { IsCompleted: false };
+
     private Task<List<InstallItem>>? _checking;
     private List<InstallItem>? _items;
     private Task<InstallResult>? _installing;
@@ -293,6 +295,7 @@ public sealed class InstallProjectModal : Modal
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Install_UseGameFileTip"));
         }
         if (_note != null) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), _note);
+        if (project.HasLuaDrafts) ImGui.TextWrapped(LM.Get("GUI_Install_LuaDrafts"));
         if (ProjectSession.Dirty) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), LM.Get("GUI_Install_Unsaved"));
         ImGui.Spacing();
 
@@ -315,6 +318,7 @@ public sealed class InstallProjectModal : Modal
         foreach (var item in result.Items)
         {
             ImGui.TextUnformatted($"{item.Archive}: {item.Message}");
+            if (item.PristinePath != null) ImGui.TextDisabled(LM.Get("GUI_Install_Pristine", item.PristinePath));
             if (item.BackupPath != null) ImGui.TextDisabled(LM.Get("GUI_Install_Backup", item.BackupPath));
         }
         foreach (var problem in result.Problems) ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), problem);
@@ -355,13 +359,14 @@ public sealed class UnsavedChangesModal : Modal
             if (ImGui.Button(LM.Get("GUI_Unsaved_Save")))
             {
                 isOpen = false;
-                LunaWindow.Instance.AddFrame(new SaveLevelModal(_proceed));
+                ReLunacy.MenuBar.FileMenuDraw.SaveProject(_proceed);
             }
             ImGui.SameLine();
         }
         if (ImGui.Button(LM.Get("GUI_Unsaved_Discard")))
         {
             isOpen = false;
+            ProjectSession.DiscardPendingFiles();
             ProjectSession.MarkSaved();
             _proceed();
         }

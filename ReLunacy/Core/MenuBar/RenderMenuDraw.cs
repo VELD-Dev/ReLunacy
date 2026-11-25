@@ -29,6 +29,7 @@ internal static class RenderMenuDraw
         settings.HidePaths = !em.renderPaths;
         settings.RenderNavmesh = em.renderNavmesh;
         settings.RenderCollision = em.renderCollision;
+        settings.RenderMobyCollision = em.renderMobyCollision;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;
         settings.MobyDistanceCullingEnabled = em.MobyDistanceCullingEnabled;
         settings.SaveSettingsToFile();
@@ -39,6 +40,15 @@ internal static class RenderMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderFoliage"), "", EntityManager.Singleton.renderFoliage)) return;
         EntityManager.Singleton.renderFoliage = !EntityManager.Singleton.renderFoliage;
         PersistRenderSettings();
+    }
+
+    /// <summary>Shrubs sway in the wind. Read by View3D every frame.</summary>
+    internal static void ShrubWind()
+    {
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_ShrubWind"), "", !settings.StillShrubs)) return;
+        settings.StillShrubs = !settings.StillShrubs;
+        settings.SaveSettingsToFile();
     }
 
     /// <summary>Selects the loaded region or Fall of Man gameplay group. A level with a single choice hides the menu.</summary>

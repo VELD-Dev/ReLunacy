@@ -40,7 +40,7 @@ public sealed class GameCacheNotice(string archivePath)
             }
         }
         ImGui.SameLine();
-        if (ImGui.Button(LM.Get("GUI_Backups_OpenFolder"))) ShellUtils.OpenFolder(_found[0]);
+        if (ImGui.Button(LM.Get("GUI_GameCache_OpenFolder"))) ShellUtils.OpenFolder(_found[0]);
     }
 
     private IReadOnlyList<string> Find()

@@ -49,6 +49,9 @@ public readonly record struct LuaScriptSource(string Path, string Text);
 /// </summary>
 public sealed class LuaScriptIndex
 {
+    private readonly Dictionary<string, LuaInstanceBinding> _instances = new(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, LuaInstanceBinding> Instances => _instances;
+
     private readonly Dictionary<string, LuaScriptFunction> _functions = new(StringComparer.Ordinal);
     private readonly List<LuaDocDiagnostic> _diagnostics = [];
     private readonly List<string> _files = [];
@@ -105,6 +108,9 @@ public sealed class LuaScriptIndex
         foreach (var (name, entry) in shared?._functions ?? [])
             if (!string.Equals(entry.Function.SourceFile, current.Path, StringComparison.OrdinalIgnoreCase))
                 index._functions.TryAdd(name, entry);
+        foreach (var (name, binding) in shared?._instances ?? [])
+            if (!string.Equals(binding.Path, current.Path, StringComparison.OrdinalIgnoreCase))
+                index._instances.TryAdd(name, binding);
         foreach (string file in shared?._files ?? [])
             if (!string.Equals(file, current.Path, StringComparison.OrdinalIgnoreCase))
                 index._files.Add(file);
@@ -147,6 +153,16 @@ public sealed class LuaScriptIndex
         catch
         {
             return;
+        }
+
+        if (Path.GetFileName(source.Path) is "instances.lua" or "instance.lua")
+        {
+            foreach (var assignment in block.Statements.OfType<LuaAssignStat>())
+                for (int i = 0; i < Math.Min(assignment.Targets.Count, assignment.Values.Count); i++)
+                    if (assignment.Targets[i] is LuaNameExpr name
+                        && assignment.Values[i] is LuaMethodCallExpr { Receiver: LuaNameExpr handle, Method: "new" }
+                        && handle.Name.EndsWith("_handle", StringComparison.Ordinal))
+                        _instances[name.Name] = new LuaInstanceBinding(name.Name, handle.Name, source.Path, name.Span);
         }
 
         foreach (var node in LuaAstWalker.Walk(block))
@@ -233,3 +249,5 @@ public sealed class LuaScriptIndex
         _functions.TryAdd(entry.QualifiedName, entry);
     }
 }
+
+public sealed record LuaInstanceBinding(string Name, string Type, string Path, LuaSpan Span);

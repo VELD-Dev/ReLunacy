@@ -63,9 +63,9 @@ public record struct FoliageMetadata : ILunaSerializable
     /// and non-overlapping.</summary>
     public FoliageSpriteLodRange[] SpriteLodRanges;
 
-    /// <summary>Total corners across every LOD = the last range's end. Divide by 4 for cards.</summary>
+    /// <summary>Total corners across every LOD. Unused trailing LOD slots can be zero.</summary>
     public readonly int TotalCorners =>
-        SpriteLodRanges is { Length: > 0 } ? SpriteLodRanges[^1].CornerEnd : 0;
+        SpriteLodRanges is { Length: > 0 } ? SpriteLodRanges.Max(r => r.CornerEnd) : 0;
 
     public readonly int TotalSprites => TotalCorners / FoliageSpriteCorner.CornersPerSprite;
 

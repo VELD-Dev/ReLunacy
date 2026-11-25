@@ -17,7 +17,7 @@ public sealed class CollisionInput
     /// words) from the words its triangles use.</summary>
     public required uint[] TriangleMaterialWord { get; init; }
 
-    /// <summary>Optional triangle flags (5 bits; bit 0 = no wall jump). Null = all 0.</summary>
+    /// <summary>Optional triangle flags (5 bits; bit 0 = no wall jump; from A Crack in Time on, bit 0 = slippery / no multi-jump, bit 1 = sliding). Null = all 0.</summary>
     public byte[]? TriangleFlags { get; init; }
 
     public int TriangleCount => Indices.Length / 3;

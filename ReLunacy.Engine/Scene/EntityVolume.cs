@@ -8,6 +8,8 @@ namespace ReLunacy.Engine.Scene;
 
 public class EntityVolume : Entity
 {
+    public int? PendingLocationTextId { get; set; }
+
     public readonly Volume BaseVolume;
 
     public override Vector4 BoundingSphere { get; set; } = Vector4.Zero;

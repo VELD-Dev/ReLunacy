@@ -25,7 +25,8 @@ public sealed unsafe partial class VulkanRenderer
         IReadOnlyDictionary<ulong, int>? cubeResources = null,
         Loading.Shaders.NewEngineStandardShaders? standardShaders = null,
         int maxSkeletonBones = 0,
-        int maxConcurrentAnimated = 0)
+        int maxConcurrentAnimated = 0,
+        IReadOnlyList<Assets.Interfaces.ITexture>? waterMasks = null)
         : this(
             graphicsDevice,
             geomVerts,
@@ -40,7 +41,8 @@ public sealed unsafe partial class VulkanRenderer
             cubeResources,
             standardShaders,
             maxSkeletonBones,
-            maxConcurrentAnimated)
+            maxConcurrentAnimated,
+            waterMasks)
     {
         if (wireOldTieSourceMetadata)
             WireOldTieSourceMetadata(geomVerts, geomIndices, instances);

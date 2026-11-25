@@ -124,7 +124,7 @@ public sealed class EffectLayout
         ClassZeroDisables = true,
         LightLifetimeOffset = 0x148,
         LightIntensityOffset = 0x14C,
-        // QForce minus the always-zero word at +0x20; the restart cycle sits at +0xC4 / +0xC8.
+        // QForce minus the always-zero word at +0x20.
         ComponentPlacementKnown = true,
         ComponentAttachedOffset = 0x20,
         ComponentOrientationOffset = 0x22,
@@ -132,8 +132,6 @@ public sealed class EffectLayout
         ComponentAzimuthOffset = 0x26,
         ComponentOffsetModeOffset = 0x2A,
         ComponentOffsetOffset = 0x2C,
-        ComponentCycleMaxOffset = 0xC4,
-        ComponentCycleMinOffset = 0xC8,
     };
 
     /// <summary>
@@ -151,6 +149,21 @@ public sealed class EffectLayout
         QuadLifetimeOffset = 0xCC,
         EmitterTexturesOffset = 0x8C,
         EmitterTextureCountOffset = 0x110,
+        EmitterShaderByteOffset = -1,
+        EmitterDistortKeysOffset = -1,
+        IsOldEngine = true,
+    };
+
+    public static readonly EffectLayout FallOfMan = new()
+    {
+        Name = "Resistance: Fall of Man",
+        PackageSize = 0x68, QuadSize = 0xE0, LightSize = 0xDC, EmitterSize = 0x15C, ComponentSize = 0x68,
+        PackageKeysOffset = -1,
+        QuadTexturesOffset = 0x40,
+        QuadTextureCountOffset = 0xC4,
+        QuadLifetimeOffset = 0xCC,
+        EmitterTexturesOffset = 0x7C,
+        EmitterTextureCountOffset = 0x100,
         EmitterShaderByteOffset = -1,
         EmitterDistortKeysOffset = -1,
         IsOldEngine = true,
@@ -239,7 +252,9 @@ public sealed partial class EffectLibrary
         new("Alpha", 0x0C, KeyKind.Scalar16, EffectTrackDomain.PieceLife),
         new("Alpha test", 0x18, KeyKind.Scalar16, EffectTrackDomain.PieceLife),
         new("Size", 0x38, KeyKind.Scalar16, EffectTrackDomain.PieceLife),
-        new("Track 0x44", 0x44, KeyKind.Scalar16, EffectTrackDomain.PieceLife),
+        // Width over size: 1.0 on 5,342 of 5,495 camera-facing ACiT quads whatever their size; 0.05-0.5 on the thin
+        // axial beams (SCEPTER_STASIS). INFERRED from the data; the binder passes it unscaled.
+        new("Width", 0x44, KeyKind.Scalar16, EffectTrackDomain.PieceLife),
     ];
 
     /// <summary>FxLiteKeys (84 bytes).</summary>
@@ -268,6 +283,7 @@ public sealed partial class EffectLibrary
 
     public static EffectLibrary Read(EffectChunkFile file)
     {
+        if (file.ChunksWithId(5).Any()) return ReadFallOfMan(file);
         var validation = new List<string>();
 
         // Lists: type -> record offsets.
@@ -393,6 +409,8 @@ public sealed partial class EffectLibrary
 
     private static EffectPackage ReadPackage(EffectChunkFile file, EffectLayout layout, int index, int at)
     {
+        bool acit = ReferenceEquals(layout, EffectLayout.CrackInTime);
+        float timelineDuration = acit ? MathF.Max(0f, Finite(file.F32(at + 0x10))) : 0f;
         var components = new List<EffectComponent>();
         int array = file.Pointer(at);
         if (array != 0)
@@ -412,7 +430,8 @@ public sealed partial class EffectLibrary
                 {
                     if (file.IsPointer(c + f) && file.U32(c + f) != 0)
                     {
-                        spin = ReadScalarTrack(file, c, new TrackSpec("Spin", f, KeyKind.Scalar16, EffectTrackDomain.PieceLife));
+                        KeyKind kind = acit ? KeyKind.Rot16 : KeyKind.Scalar16;
+                        spin = ReadScalarTrack(file, c, new TrackSpec("Spin", f, kind, EffectTrackDomain.PieceLife));
                         break;
                     }
                 }
@@ -422,7 +441,10 @@ public sealed partial class EffectLibrary
                     FileOffset = c,
                     Type = (EffectPieceType)((word >> 8) & 0xFF),
                     PieceIndex = (int)(word >> 16),
-                    StartDelay = known ? file.F32(c + 4) : 0f,
+                    // ACIT 0x69C8F0 scales the component's jittered fraction by package +0x10.
+                    StartDelay = known ? Finite(file.F32(c + 4)) * (acit ? timelineDuration : 1f) : 0f,
+                    StartDelaySpread = acit ? Finite(file.F32(c + 8)) : 0f,
+                    SpawnChance = acit ? Math.Clamp(Finite(file.F32(c + 0xC)), 0f, 1f) : 1f,
                     // FXVis 0x2058 reads the packed offset back as (+0x38, +0x40, +0x30), spread likewise (QForce).
                     Offset = known ? new Vector3(file.F32(o + 8), file.F32(o + 0x10), file.F32(o)) : Vector3.Zero,
                     OffsetSpread = known ? new Vector3(file.F32(o + 0x0C), file.F32(o + 0x14), file.F32(o + 4)) : Vector3.Zero,
@@ -433,22 +455,31 @@ public sealed partial class EffectLibrary
                     TiltMaxDegrees = known ? file.U8(c + layout.ComponentTiltOffset + 1) : 0,
                     AzimuthMinDegrees = known ? file.S16(c + layout.ComponentAzimuthOffset) : 0,
                     AzimuthMaxDegrees = known ? file.S16(c + layout.ComponentAzimuthOffset + 2) : 0,
-                    // The piece's restart cycle, max then min seconds (0 = none).
-                    CycleMax = known ? file.F32(c + layout.ComponentCycleMaxOffset) : 0f,
-                    CycleMin = known ? file.F32(c + layout.ComponentCycleMinOffset) : 0f,
+                    // ACIT packs +0xC4/+0xC8 into the optional 0xB0 control block
+                    // (0x6A4730), separately from the component's timing fields.
+                    CycleMax = known && !acit ? Finite(file.F32(c + layout.ComponentCycleMaxOffset)) : 0f,
+                    CycleMin = known && !acit ? Finite(file.F32(c + layout.ComponentCycleMinOffset)) : 0f,
                     Spin = spin,
                     Raw = file.Data.AsSpan(c, layout.ComponentSize).ToArray(),
                 });
             }
         }
 
-        var (scalars, colors) = ReadTracks(file, at + layout.PackageKeysOffset, PackageTrackOffsets);
+        // The ACIT package binder at 0x69C4B4 uses FxKeyRot for the spin track.
+        var (scalars, colors) = ReadTracks(file, at + layout.PackageKeysOffset, acit
+            ? PackageTrackOffsets.Select(spec => spec.Offset == 0x44 ? spec with { Kind = KeyKind.Rot16 } : spec)
+            : PackageTrackOffsets);
         return new EffectPackage
         {
             Type = EffectPieceType.Package,
             Index = index,
             FileOffset = at,
             Raw = RawOf(file, at, layout.PackageSize),
+            TimelineDuration = timelineDuration,
+            // The PPU packs these XYZ components at 0x6A4F90. FXVis 0xE9F4 uses them
+            // to turn the accumulated spin angle into an axis-angle rotation.
+            SpinAxis = acit ? new Vector3(Finite(file.F32(at + 0xA4)),
+                Finite(file.F32(at + 0xA8)), Finite(file.F32(at + 0xAC))) : Vector3.Zero,
             Components = components,
             ScalarTracks = scalars,
             ColorTracks = colors,
@@ -459,6 +490,7 @@ public sealed partial class EffectLibrary
     {
         var (scalars, colors) = ReadTracks(file, at, QuadTracks);
         int count = file.U8(at + layout.QuadTextureCountOffset);
+        int facing = layout.QuadLifetimeOffset >= 0 ? file.U8(at + layout.QuadLifetimeOffset + 0x0E) : 0;
         return new EffectQuad
         {
             Type = EffectPieceType.Quad,
@@ -470,7 +502,8 @@ public sealed partial class EffectLibrary
             Textures = ReadTextures(file, at + layout.QuadTexturesOffset, Math.Clamp(count, 1, 8)),
             TextureCount = count,
             Lifetime = layout.QuadLifetimeOffset >= 0 ? file.F32(at + layout.QuadLifetimeOffset) : 0f,
-            Facing = layout.QuadLifetimeOffset >= 0 ? file.U8(at + layout.QuadLifetimeOffset + 0x0E) : 0,
+            Facing = facing,
+            IsAxialBillboard = ReferenceEquals(layout, EffectLayout.CrackInTime) && facing == 2,
         };
     }
 

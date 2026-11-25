@@ -50,8 +50,8 @@ public sealed class MobyCollision
     private const byte TypePrimitiveSet = 2;
 
     /// <summary>Reads the collision of one class container. Null when it has none or it does not parse.</summary>
-    /// <param name="bindPose">The class skeleton's tms0 (bone to model, bind pose); a skinned mesh's vertices are
-    /// bone-local and need it.</param>
+    /// <param name="bindPose">The class skeleton's tms0 (bone to model, bind pose); primitives and a skinned mesh's
+    /// vertices are bone-local and need it.</param>
     public static MobyCollision? Read(byte[] container, Matrix4x4[]? bindPose)
     {
         uint d100;
@@ -71,7 +71,7 @@ public sealed class MobyCollision
         MobyCollisionMesh? mesh = null;
         if (primitivesAt != 0 && ReadSection(d, primitivesAt) is { Type: TypePrimitiveSet } ps)
         {
-            primitives = ReadPrimitives(d, (int)ps.ShapeOffset, ps.ShapeSize) ?? [];
+            primitives = ReadPrimitives(d, (int)ps.ShapeOffset, ps.ShapeSize, bindPose) ?? [];
             if (primitives.Count > 0) primitiveSection = ps;
         }
         if (meshAt != 0 && ReadSection(d, meshAt) is { Type: TypeMesh } ms)
@@ -115,8 +115,10 @@ public sealed class MobyCollision
     }
 
     /// <summary>Header: +0x00 u16 offset of the first entry (0x10), +0x02 u16 count. Each entry is 0x50 bytes: a
-    /// 16-byte descriptor, then four vec4 rows.</summary>
-    private static List<MobyCollisionPrimitive>? ReadPrimitives(ReadOnlySpan<byte> d, int o, int size)
+    /// 16-byte descriptor, then four vec4 rows, in bone A's space (end B in bone B's). Moved to model space here:
+    /// over great_clock_c and zolar_forest that fits the render mesh on every class it did before and on 25 of
+    /// the 37 that were off (dev/tools/mobycolrotprobe).</summary>
+    private static List<MobyCollisionPrimitive>? ReadPrimitives(ReadOnlySpan<byte> d, int o, int size, Matrix4x4[]? bindPose)
     {
         if (o + 0x10 > d.Length) return null;
         int first = U16(d, o);
@@ -149,8 +151,10 @@ public sealed class MobyCollision
                     Matrix4x4.Identity, default, d[e + 0x0A]),
                 var k => new CollisionPrimitive(k, Xyz(r0), Xyz(r1), r0.W, Matrix4x4.Identity, default, d[e + 0x0A]),
             };
-            list.Add(new MobyCollisionPrimitive(shape, d[e + 0x01], d[e + 0x03], U16(d, e + 0x04), U16(d, e + 0x06),
-                U16(d, e + 0x08), d[e + 0x0A], F32(d, e + 0x0C)));
+            var primitive = new MobyCollisionPrimitive(shape, d[e + 0x01], d[e + 0x03], U16(d, e + 0x04), U16(d, e + 0x06),
+                U16(d, e + 0x08), d[e + 0x0A], F32(d, e + 0x0C));
+            if (bindPose != null) primitive = primitive with { Shape = Rendering.MobyCollisionGeometry.Pose(primitive, bindPose) };
+            list.Add(primitive);
         }
         return list;
     }
@@ -258,7 +262,7 @@ public sealed record MobyCollisionSection(
 /// or cylinder's end A with the radius, then end B.
 /// </summary>
 public readonly record struct MobyCollisionPrimitive(
-    /// <summary>The shape in bind-pose model space.</summary>
+    /// <summary>The shape in bind-pose model space (moved there from its bones' space when read).</summary>
     CollisionPrimitive Shape,
     byte PaletteIndex,
     /// <summary>0xFF on a primitive that is always on; otherwise it follows bangle (byte + 1).</summary>

@@ -30,14 +30,22 @@ public sealed class LuaDisassemblyView
 
     /// <summary>Loads a chunk already in memory - how the PSARC browser and, later, the editor hand
     /// one over without going through the filesystem.</summary>
-    public void Load(byte[] bytes, string label)
+    public void Load(byte[]? bytes, string label)
     {
         _path = label;
+        _chunk = null;
+        _error = null;
+        _protos.Clear();
+        _lines = [];
+        if (bytes == null) return;
+        if (bytes.Length == 0 || bytes[0] != 0x1B)
+        {
+            _error = LM.Get("GUI_LuaEnv_Dis_SourceChunk");
+            return;
+        }
         try
         {
             _chunk = LuaChunkReader.Read(bytes);
-            _error = null;
-            _protos.Clear();
             Flatten(_chunk.Main, "main", 0);
             Select(0);
         }

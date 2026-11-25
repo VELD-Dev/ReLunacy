@@ -13,4 +13,7 @@ public interface IZone : IAsset
     /// <summary>This zone's navigation mesh, or null when it has none - which is most zones, on both
     /// engines. Only the handful carrying sections 0x19000/0x19200 have one.</summary>
     Navigation.Navmesh? Navmesh => null;
+
+    /// <summary>This zone's water bodies (new-engine section 0x6641). Empty on most zones and on the old engine.</summary>
+    IReadOnlyList<Water.WaterSurface> Waters => [];
 }

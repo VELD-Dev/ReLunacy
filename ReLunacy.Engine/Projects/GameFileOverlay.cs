@@ -88,7 +88,9 @@ public sealed class OverlaidArchive : IDisposable
     public OverlaidArchive(string archivePath)
     {
         Path = archivePath;
-        _base = new PSARC(File.OpenRead(GameFileOverlay.BaseOf(archivePath)));
+        var stream = File.Open(GameFileOverlay.BaseOf(archivePath), FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        try { _base = new PSARC(stream); }
+        catch { stream.Dispose(); throw; }
     }
 
     /// <summary>Every entry path, the project's additions included.</summary>

@@ -217,6 +217,11 @@ public class LevelDataFrame : DockedFrame
         Row(LM.Get("GUI_Frame_LevelData_MobyAssets"), level.Mobys.Count.ToString());
         Row(LM.Get("GUI_Frame_LevelData_TieInstances"), em.TiesCount.ToString());
         Row(LM.Get("GUI_Frame_LevelData_TieAssets"), level.Ties.Count.ToString());
+        if (!level.IsOldEngine)
+        {
+            Row(LM.Get("GUI_Frame_LevelData_ShrubInstances"), em.ShrubsCount.ToString());
+            Row(LM.Get("GUI_Frame_LevelData_ShrubAssets"), level.Shrubs.Count.ToString());
+        }
         Row(LM.Get("GUI_Frame_LevelData_UFrags"), em.UFragsCount.ToString());
         Row(LM.Get("GUI_Frame_LevelData_Zones"), level.Zones.Count.ToString());
         Row(LM.Get("GUI_Frame_LevelData_Volumes"), em.VolumesCount.ToString());

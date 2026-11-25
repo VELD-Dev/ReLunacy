@@ -129,8 +129,9 @@ public sealed class SoundBanksFrame : DockedFrame
         {
             _bankFiles = files;
             SelectBank(null);
-            _gameFolder = files != null && window.Level?.GameDefinition?.Id is GameId.ToolsOfDestruction or GameId.QuestForBooty or GameId.ACrackInTime
-                ? GameConfigs.GameFolderFor(files.SourcePath) : null;
+            _gameFolder = files != null && window.Level?.GameDefinition?.Id is GameId.RFallOfMan or GameId.ToolsOfDestruction
+                or GameId.QuestForBooty or GameId.ACrackInTime
+                ? SoundReader.BankFolderFor(files) : null;
             _bankDiscovery = _gameFolder is { } gameFolder ? Task.Run(() => SoundReader.ListLevelBanks(gameFolder)) : null;
         }
 
@@ -178,7 +179,9 @@ public sealed class SoundBanksFrame : DockedFrame
             return;
         if (ImGui.Selectable(current, _alternateBank == null))
             SelectBank(null);
-        string? currentLevel = Path.GetFileName(Path.GetDirectoryName(_bankFiles?.SourcePath));
+        string? source = _bankFiles?.SourcePath;
+        string? currentLevel = Directory.Exists(source) ? Path.GetFileName(Path.TrimEndingDirectorySeparator(source))
+            : Path.GetFileName(Path.GetDirectoryName(source));
         foreach (var bank in sources.Result)
         {
             if (bank.LevelName.Equals(currentLevel, StringComparison.OrdinalIgnoreCase)) continue;

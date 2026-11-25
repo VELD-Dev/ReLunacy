@@ -9,7 +9,8 @@ namespace ReLunacy.Engine.Assets.Interfaces;
 /// New engine only, and a separate asset family from <see cref="ITie"/> rather than a special case
 /// of one. A shrub has a single mesh and a single material, carries no lightmap UVs (its lighting
 /// arrives per instance instead), and is placed in the thousands - A Crack in Time ships 49 shrub
-/// classes and 142,644 placements across its 12 levels that use them.
+/// classes and 142,644 placements across its 12 levels that use them, All 4 One 18,067 placements over
+/// 6 levels and Into the Nexus 20,579 over 6, all in the same class format.
 /// </summary>
 public interface IShrub : IAsset
 {

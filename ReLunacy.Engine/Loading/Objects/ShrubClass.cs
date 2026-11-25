@@ -23,14 +23,27 @@ namespace ReLunacy.Engine.Loading.Objects;
 /// (49/49 equal 0xB400's length / 2) and +0x28 is the class's own TUID (49/49 equal the pointer
 /// table's). +0x10/+0x14/+0x18/+0x1C are floats whose value sets are small and suggestive -
 /// +0x14 takes 50/64/75/100/128/130/150/750 and +0x18 takes 10/25/75 - so they are read as a
-/// draw-distance pair, which is INFERRED from those ranges rather than proven.
+/// draw-distance pair, which is INFERRED from those ranges rather than proven. All 4 One and Into
+/// the Nexus keep the same pair (+0x18 is 25 in all 51 of their slices).
 ///
-/// Vertex, 16 bytes: three i16 position components and a fourth i16 that is 32767 in every vertex
-/// of every class, i.e. the w of a normalised i16 vector. Then four halves: u, v, a third value,
-/// and a zero. The UVs come out as exact quads - (0, 0.42) and (1, 0.42) over (0, 0) and (1, 0) -
-/// and the third half is non-zero ONLY on the vertices whose v is non-zero, i.e. the top of the
-/// blade. It is read here as a per-vertex bend weight, zero at the base, which is what a wind
-/// shader needs; that reading is INFERRED from the correlation, not from the shader itself.
+/// The same six sections, in the same order, at the same IGHW version (1.1), in every shrub slice of
+/// every level that ships shrubs.dat: 12 of A Crack in Time's 22 levels, 6 of All 4 One's 10 and 6 of
+/// Into the Nexus' 8 - 107 slices. Header +0x08 and +0x28 hold over all of them, and 0x3150 is a
+/// quarter of 0xB300 in all of them. No later game adds a section or widens the vertex.
+///
+/// Header +0x40 is the model's box centre and +0x50 its half-extents, three floats each. That box is
+/// what PROVES the position scale: it equals the i16 positions' own box divided by 1024 in 105 of the
+/// 107 slices, in all three games (to 2e-3). The other two are the same class, Into the Nexus'
+/// mc_vortex_large_01, whose x and z were clamped to the i16 range when it was built.
+///
+/// Vertex, 16 bytes: three i16 position components, scaled by 1/1024 as above, then a fourth i16 that
+/// is 32767 everywhere except a few vertices of two classes (0 there) and the clamped vortex (10570) - so it is
+/// NOT a normalising w, which made shrubs 32 times too small when it was read as one. Then four
+/// halves: u, v, a third value, and a zero (the fourth is 0.0 on every vertex of all three games). The
+/// UVs come out as exact quads - (0, 0.42) and (1, 0.42) over (0, 0) and (1, 0) - and the third half is
+/// non-zero ONLY on the vertices whose v is non-zero, i.e. the top of the blade. It is read here as a
+/// per-vertex bend weight, zero at the base, which is what a wind shader needs; that reading is
+/// INFERRED from the correlation, not from the shader itself.
 /// </summary>
 public sealed class ShrubClass
 {
@@ -44,15 +57,15 @@ public sealed class ShrubClass
     public const int VertexSize = 0x10;
     public const int HeaderSize = 0x80;
 
-    /// <summary>i16 position components are normalised by the w every vertex carries.</summary>
-    private const float PositionScale = 32767f;
+    /// <summary>i16 position components are fixed point with 10 fractional bits (see the header box above).</summary>
+    private const float PositionScale = 1f / 1024f;
 
     public ulong TUID { get; private init; }
     public ulong MaterialTUID { get; private init; }
     public string? SourcePath { get; private init; }
     public (float Near, float Far) DrawDistances { get; private init; }
 
-    /// <summary>xyz per vertex, already divided by the normalising w.</summary>
+    /// <summary>xyz per vertex, already scaled to model units.</summary>
     public float[] Positions { get; private init; } = [];
     public float[] UVs { get; private init; } = [];
 
@@ -62,8 +75,8 @@ public sealed class ShrubClass
 
     /// <summary>
     /// Section 0x3150 verbatim, one u32 per vertex, kept because it is not understood rather than
-    /// because anything reads it. It is exactly a quarter of the vertex section in all 12 levels,
-    /// so it is certainly per-vertex; the values are distinct within a class, but only for the two
+    /// because anything reads it. It is exactly a quarter of the vertex section in all 24 levels
+    /// of the three games, so it is certainly per-vertex; the values are distinct within a class, but only for the two
     /// cloth props are they a permutation of 0..vertexCount-1 - for the grass classes they run
     /// past the vertex count (62 vertices reaching 94, 832 reaching 1583), which rules out a plain
     /// reorder. The ACiT EBOOT is SCE-encrypted, so the renderer has not been read.
@@ -96,13 +109,9 @@ public sealed class ShrubClass
         for (int v = 0; v < vertexCount; v++)
         {
             ReadOnlySpan<byte> r = vertexBytes.Slice(v * VertexSize, VertexSize);
-            // The fourth i16 is the normalising w. It is 32767 everywhere measured, but it is read
-            // rather than assumed so a class that scales differently still decodes.
-            float w = BinaryPrimitives.ReadInt16BigEndian(r[0x06..]);
-            if (w == 0f) w = PositionScale;
-            positions[v * 3 + 0] = BinaryPrimitives.ReadInt16BigEndian(r) / w;
-            positions[v * 3 + 1] = BinaryPrimitives.ReadInt16BigEndian(r[0x02..]) / w;
-            positions[v * 3 + 2] = BinaryPrimitives.ReadInt16BigEndian(r[0x04..]) / w;
+            positions[v * 3 + 0] = BinaryPrimitives.ReadInt16BigEndian(r) * PositionScale;
+            positions[v * 3 + 1] = BinaryPrimitives.ReadInt16BigEndian(r[0x02..]) * PositionScale;
+            positions[v * 3 + 2] = BinaryPrimitives.ReadInt16BigEndian(r[0x04..]) * PositionScale;
             uvs[v * 2 + 0] = (float)BinaryPrimitives.ReadHalfBigEndian(r[0x08..]);
             uvs[v * 2 + 1] = (float)BinaryPrimitives.ReadHalfBigEndian(r[0x0A..]);
             bend[v] = (float)BinaryPrimitives.ReadHalfBigEndian(r[0x0C..]);

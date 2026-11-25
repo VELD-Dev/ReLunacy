@@ -23,14 +23,14 @@ public sealed unsafe partial class VulkanRenderer
     private VkPipelineLayout _bloomLayout;
     private VkDescriptorPool _bloomPool;
     private VkSampler _bloomSampler;
-    private VkShaderModule _bloomVs;
+    private VkShaderModule _fullscreenVs;
     private VkPipeline _bloomExtract, _bloomBlurH, _bloomBlurV, _bloomCombine, _bloomGaussH, _bloomGaussV, _bloomComposite;
 
     // Levels L0..L2 (1/4, 1/8, 1/16), their blur temporaries, and the result F (two, for the history).
     private readonly BloomTarget[] _bloomLevels = new BloomTarget[3];
     private readonly BloomTarget[] _bloomTemps = new BloomTarget[3];
     private readonly BloomTarget[] _bloomResult = new BloomTarget[2];
-    private readonly VkFramebuffer[] _fbBloomComposite = new VkFramebuffer[Frames];
+    private readonly VkFramebuffer[] _fbPostProcess = new VkFramebuffer[Frames];
     private bool _bloomTargetsReady;
     private bool _bloomHistoryValid;
     private int _bloomParity;
@@ -57,7 +57,7 @@ public sealed unsafe partial class VulkanRenderer
     /// <summary>Use the old engine's destination-alpha blend states for the sky passes.</summary>
     private bool DestinationAlphaGlow => _bloomActive && _oldLightingEnvironment?.Bloom is { DestinationAlpha: true };
 
-    private const string BloomVertexGlsl = @"#version 450
+    private const string FullscreenVertexGlsl = @"#version 450
 void main() {
     vec2 q = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     gl_Position = vec4(q * 2.0 - 1.0, 0.0, 1.0);
@@ -142,6 +142,11 @@ void main() {
         _rpBloom = MakeColorPass(att);
         VkAttachmentDescription sceneAtt = new() { format = SceneColorFormat, samples = VkSampleCountFlags.Count1, loadOp = VkAttachmentLoadOp.Load, storeOp = VkAttachmentStoreOp.Store, stencilLoadOp = VkAttachmentLoadOp.DontCare, stencilStoreOp = VkAttachmentStoreOp.DontCare, initialLayout = VkImageLayout.ShaderReadOnlyOptimal, finalLayout = VkImageLayout.ColorAttachmentOptimal };
         _rpBloomComposite = MakeColorPass(sceneAtt);
+        // FXAA shares the composite framebuffers and overwrites the entire colour attachment.
+        sceneAtt.loadOp = VkAttachmentLoadOp.DontCare;
+        sceneAtt.initialLayout = VkImageLayout.ColorAttachmentOptimal;
+        sceneAtt.finalLayout = VkImageLayout.ShaderReadOnlyOptimal;
+        _rpFxaa = MakeColorPass(sceneAtt);
         _rpResolveKeep = MakeResolveKeepPass();
 
         VkDescriptorSetLayoutBinding* b = stackalloc VkDescriptorSetLayoutBinding[4];
@@ -154,14 +159,14 @@ void main() {
         var layoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 1, pSetLayouts = &l, pushConstantRangeCount = 1, pPushConstantRanges = &range };
         VkPipelineLayout pl; Check(_api.vkCreatePipelineLayout(&layoutInfo, &pl), "vkCreatePipelineLayout(bloom)"); _bloomLayout = pl;
 
-        _bloomVs = Module(BloomVertexGlsl, ShaderStages.Vertex);
-        _bloomExtract = BloomPipeline(BloomExtractGlsl, _rpBloom, additive: false);
-        _bloomBlurH = BloomPipeline(BloomBlurGlsl, _rpBloom, additive: false);
+        _fullscreenVs = Module(FullscreenVertexGlsl, ShaderStages.Vertex);
+        _bloomExtract = CreateFullscreenPipeline(BloomExtractGlsl, _rpBloom, additive: false);
+        _bloomBlurH = CreateFullscreenPipeline(BloomBlurGlsl, _rpBloom, additive: false);
         _bloomBlurV = _bloomBlurH;
-        _bloomCombine = BloomPipeline(BloomCombineGlsl, _rpBloom, additive: false);
-        _bloomGaussH = BloomPipeline(BloomGaussGlsl, _rpBloom, additive: false);
+        _bloomCombine = CreateFullscreenPipeline(BloomCombineGlsl, _rpBloom, additive: false);
+        _bloomGaussH = CreateFullscreenPipeline(BloomGaussGlsl, _rpBloom, additive: false);
         _bloomGaussV = _bloomGaussH;
-        _bloomComposite = BloomPipeline(BloomCompositeGlsl, _rpBloomComposite, additive: true);
+        _bloomComposite = CreateFullscreenPipeline(BloomCompositeGlsl, _rpBloomComposite, additive: true);
     }
 
     private VkRenderPass MakeColorPass(VkAttachmentDescription attachment)
@@ -172,7 +177,7 @@ void main() {
         deps[0] = new VkSubpassDependency { srcSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, dstSubpass = 0, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput | VkPipelineStageFlags.FragmentShader, srcAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.ShaderRead, dstStageMask = VkPipelineStageFlags.ColorAttachmentOutput, dstAccessMask = VkAccessFlags.ColorAttachmentWrite | VkAccessFlags.ColorAttachmentRead };
         deps[1] = new VkSubpassDependency { srcSubpass = 0, dstSubpass = Vortice.Vulkan.Vulkan.VK_SUBPASS_EXTERNAL, srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput, srcAccessMask = VkAccessFlags.ColorAttachmentWrite, dstStageMask = VkPipelineStageFlags.FragmentShader | VkPipelineStageFlags.ColorAttachmentOutput, dstAccessMask = VkAccessFlags.ShaderRead | VkAccessFlags.ColorAttachmentRead | VkAccessFlags.ColorAttachmentWrite };
         var info = new VkRenderPassCreateInfo { attachmentCount = 1, pAttachments = &attachment, subpassCount = 1, pSubpasses = &subpass, dependencyCount = 2, pDependencies = deps };
-        VkRenderPass rp; Check(_api.vkCreateRenderPass(&info, &rp), "vkCreateRenderPass(bloom)"); return rp;
+        VkRenderPass rp; Check(_api.vkCreateRenderPass(&info, &rp), "vkCreateRenderPass(fullscreen)"); return rp;
     }
 
     /// <summary>The resolve pass that keeps depth and stencil for the overlay pass after the bloom (the
@@ -197,7 +202,7 @@ void main() {
         VkRenderPass rp; Check(_api.vkCreateRenderPass(&info, &rp), "vkCreateRenderPass(resolve keep)"); return rp;
     }
 
-    private VkPipeline BloomPipeline(string fragmentGlsl, VkRenderPass pass, bool additive)
+    private VkPipeline CreateFullscreenPipeline(string fragmentGlsl, VkRenderPass pass, bool additive)
     {
         VkShaderModule fs = Module(fragmentGlsl, ShaderStages.Fragment);
         try
@@ -206,7 +211,7 @@ void main() {
             fixed (byte* name = entry)
             {
                 VkPipelineShaderStageCreateInfo* stages = stackalloc VkPipelineShaderStageCreateInfo[2];
-                stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _bloomVs, pName = name };
+                stages[0] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Vertex, module = _fullscreenVs, pName = name };
                 stages[1] = new VkPipelineShaderStageCreateInfo { stage = VkShaderStageFlags.Fragment, module = fs, pName = name };
                 var vin = new VkPipelineVertexInputStateCreateInfo();
                 var ia = new VkPipelineInputAssemblyStateCreateInfo { topology = VkPrimitiveTopology.TriangleList };
@@ -222,7 +227,7 @@ void main() {
                 VkDynamicState* dyn = stackalloc VkDynamicState[2] { VkDynamicState.Viewport, VkDynamicState.Scissor };
                 var dynState = new VkPipelineDynamicStateCreateInfo { dynamicStateCount = 2, pDynamicStates = dyn };
                 var info = new VkGraphicsPipelineCreateInfo { stageCount = 2, pStages = stages, pVertexInputState = &vin, pInputAssemblyState = &ia, pViewportState = &vp, pRasterizationState = &raster, pMultisampleState = &ms, pDepthStencilState = &depth, pColorBlendState = &blend, pDynamicState = &dynState, layout = _bloomLayout, renderPass = pass, subpass = 0 };
-                VkPipeline p; Check(_api.vkCreateGraphicsPipelines(default, 1, &info, &p), "vkCreateGraphicsPipelines(bloom)");
+                VkPipeline p; Check(_api.vkCreateGraphicsPipelines(default, 1, &info, &p), "vkCreateGraphicsPipelines(fullscreen)");
                 return p;
             }
         }
@@ -250,10 +255,10 @@ void main() {
         {
             VkImageView v = _colorView[f];
             var fbInfo = new VkFramebufferCreateInfo { renderPass = _rpBloomComposite, attachmentCount = 1, pAttachments = &v, width = _width, height = _height, layers = 1 };
-            VkFramebuffer fb; Check(_api.vkCreateFramebuffer(&fbInfo, &fb), "vkCreateFramebuffer(bloom composite)"); _fbBloomComposite[f] = fb;
+            VkFramebuffer fb; Check(_api.vkCreateFramebuffer(&fbInfo, &fb), "vkCreateFramebuffer(bloom composite)"); _fbPostProcess[f] = fb;
         }
 
-        // One set per (pass, frame slot or result parity), allocated fresh with the targets.
+        // One set per combination of input views (including FXAA's scene copy), allocated fresh with the targets.
         var sizes = new VkDescriptorPoolSize { type = VkDescriptorType.CombinedImageSampler, descriptorCount = 4 * 32 };
         var poolInfo = new VkDescriptorPoolCreateInfo { maxSets = 32, poolSizeCount = 1, pPoolSizes = &sizes };
         VkDescriptorPool pool; Check(_api.vkCreateDescriptorPool(&poolInfo, &pool), "vkCreateDescriptorPool(bloom)"); _bloomPool = pool;
@@ -290,7 +295,7 @@ void main() {
                 group[i] = default;
             }
         for (int f = 0; f < Frames; f++)
-            _api.vkDestroyFramebuffer(_fbBloomComposite[f]);
+            _api.vkDestroyFramebuffer(_fbPostProcess[f]);
         _api.vkDestroyDescriptorPool(_bloomPool);
         _bloomSets.Clear();
         _bloomTargetsReady = false;
@@ -299,9 +304,11 @@ void main() {
     private void DestroyBloomPipelines()
     {
         if (_bloomLayout.Handle == 0) return;
+        _api.vkDestroyPipeline(_fxaaPipeline);
+        _api.vkDestroyRenderPass(_rpFxaa);
         foreach (VkPipeline p in new[] { _bloomExtract, _bloomBlurH, _bloomCombine, _bloomGaussH, _bloomComposite })
             _api.vkDestroyPipeline(p);
-        _api.vkDestroyShaderModule(_bloomVs);
+        _api.vkDestroyShaderModule(_fullscreenVs);
         _api.vkDestroyPipelineLayout(_bloomLayout);
         _api.vkDestroyDescriptorSetLayout(_bloomSetLayout);
         _api.vkDestroyRenderPass(_rpBloom);
@@ -313,7 +320,7 @@ void main() {
     // Descriptor sets keyed by the views they read (four bindings; unused ones repeat binding 0).
     private readonly Dictionary<(ulong, ulong, ulong, ulong), VkDescriptorSet> _bloomSets = [];
 
-    private VkDescriptorSet BloomSet(VkImageView v0, VkImageView? v1 = null, VkImageView? v2 = null, VkImageView? v3 = null)
+    private VkDescriptorSet GetFullscreenSet(VkImageView v0, VkImageView? v1 = null, VkImageView? v2 = null, VkImageView? v3 = null)
     {
         VkImageView a = v1 ?? v0, b = v2 ?? v0, c = v3 ?? v0;
         var key = (v0.Handle, a.Handle, b.Handle, c.Handle);
@@ -334,7 +341,7 @@ void main() {
         return set;
     }
 
-    private void BloomPass(VkPipeline pipeline, VkRenderPass pass, VkFramebuffer framebuffer, uint width, uint height,
+    private void RecordFullscreenPass(VkPipeline pipeline, VkRenderPass pass, VkFramebuffer framebuffer, uint width, uint height,
         VkDescriptorSet set, Vector4 a, Vector4 b)
     {
         var area = new VkRect2D { offset = default, extent = new VkExtent2D { width = width, height = height } };
@@ -361,7 +368,7 @@ void main() {
 
         // Extract + 4x downsample into L0.
         ref BloomTarget l0 = ref _bloomLevels[0];
-        BloomPass(_bloomExtract, _rpBloom, l0.Framebuffer, l0.Width, l0.Height, BloomSet(_colorView[_slot], _revealView),
+        RecordFullscreenPass(_bloomExtract, _rpBloom, l0.Framebuffer, l0.Width, l0.Height, GetFullscreenSet(_colorView[_slot], _revealView),
             Inv(_width, _height), new Vector4(p.ExtractScale, p.ExtractExponent, p.ColourExtract ? 1f : 0f, 0f));
 
         // Per level: horizontal from the level above (2x down for 1, 2), vertical back into the level.
@@ -370,10 +377,10 @@ void main() {
             ref BloomTarget src = ref _bloomLevels[Math.Max(i - 1, 0)];
             ref BloomTarget tmp = ref _bloomTemps[i];
             ref BloomTarget dst = ref _bloomLevels[i];
-            BloomPass(_bloomBlurH, _rpBloom, tmp.Framebuffer, tmp.Width, tmp.Height, BloomSet(src.View),
+            RecordFullscreenPass(_bloomBlurH, _rpBloom, tmp.Framebuffer, tmp.Width, tmp.Height, GetFullscreenSet(src.View),
                 new Vector4(1f / src.Width, 1f / src.Height, (float)src.Width / tmp.Width, (float)src.Height / tmp.Height),
                 new Vector4(1f, 0f, 0f, 0f));
-            BloomPass(_bloomBlurV, _rpBloom, dst.Framebuffer, dst.Width, dst.Height, BloomSet(tmp.View),
+            RecordFullscreenPass(_bloomBlurV, _rpBloom, dst.Framebuffer, dst.Width, dst.Height, GetFullscreenSet(tmp.View),
                 new Vector4(1f / tmp.Width, 1f / tmp.Height, 1f, 1f), new Vector4(0f, 1f, 0f, 0f));
         }
 
@@ -381,21 +388,21 @@ void main() {
         float s = Math.Clamp(p.MipWeight, 0.01f, 0.65f);
         float h = _bloomHistoryValid ? p.HistoryBlend : 0f;
         ref BloomTarget f = ref _bloomResult[cur];
-        BloomPass(_bloomCombine, _rpBloom, f.Framebuffer, f.Width, f.Height,
-            BloomSet(_bloomLevels[0].View, _bloomLevels[1].View, _bloomLevels[2].View, _bloomHistoryValid ? _bloomResult[prev].View : null),
+        RecordFullscreenPass(_bloomCombine, _rpBloom, f.Framebuffer, f.Width, f.Height,
+            GetFullscreenSet(_bloomLevels[0].View, _bloomLevels[1].View, _bloomLevels[2].View, _bloomHistoryValid ? _bloomResult[prev].View : null),
             Inv(f.Width, f.Height), new Vector4(s, 1f / 3f, 2f / 3f - s, h));
 
         // Two Gaussian rounds, through L0's surface.
         for (int round = 0; round < 2; round++)
         {
-            BloomPass(_bloomGaussH, _rpBloom, l0.Framebuffer, l0.Width, l0.Height, BloomSet(f.View),
+            RecordFullscreenPass(_bloomGaussH, _rpBloom, l0.Framebuffer, l0.Width, l0.Height, GetFullscreenSet(f.View),
                 Inv(f.Width, f.Height), new Vector4(1f, 0f, 0f, 0f));
-            BloomPass(_bloomGaussV, _rpBloom, f.Framebuffer, f.Width, f.Height, BloomSet(l0.View),
+            RecordFullscreenPass(_bloomGaussV, _rpBloom, f.Framebuffer, f.Width, f.Height, GetFullscreenSet(l0.View),
                 Inv(l0.Width, l0.Height), new Vector4(0f, 1f, 0f, 0f));
         }
 
         // scene.rgb += I x F, alpha = 1.
-        BloomPass(_bloomComposite, _rpBloomComposite, _fbBloomComposite[_slot], _width, _height, BloomSet(f.View),
+        RecordFullscreenPass(_bloomComposite, _rpBloomComposite, _fbPostProcess[_slot], _width, _height, GetFullscreenSet(f.View),
             Inv(_width, _height), new Vector4(p.Intensity, 0f, 0f, 0f));
 
         _bloomHistoryValid = true;

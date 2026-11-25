@@ -41,6 +41,12 @@ public class EntityCluster : IDisposable
         Entities.Add(new EntityTie(tieInstance, _assetManager));
     }
 
+    public void Add(IPlacedInstance<IShrub> shrubInstance)
+    {
+        TotalEntities++;
+        Entities.Add(new EntityShrub(shrubInstance, _assetManager));
+    }
+
     public void Add(IUFrag ufrag, GraphicsDevice gd)
     {
         TotalEntities++;

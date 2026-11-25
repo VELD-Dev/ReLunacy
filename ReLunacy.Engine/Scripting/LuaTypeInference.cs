@@ -94,6 +94,8 @@ public sealed class LuaTypeInference(
         // annotations do not express, so both resolve to the class.
         if (api.Carriers.TryGetValue(name.Name, out string? carried)) return carried;
         if (api.Types.ContainsKey(name.Name)) return name.Name;
+        if (scripts?.Instances.TryGetValue(name.Name, out var instance) == true)
+            return api.Carriers.TryGetValue(instance.Type, out string? type) ? type : instance.Type;
         return null;
     }
 

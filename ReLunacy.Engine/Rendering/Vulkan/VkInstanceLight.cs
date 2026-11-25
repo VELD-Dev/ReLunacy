@@ -148,6 +148,23 @@ public struct VkInstanceLight
     public const float FallOfManBakeFlag = 8f;
     public const float FallOfManPrelightFlag = 9f;
 
+    /// <summary>Direction0.w value of a new-engine shrub draw.</summary>
+    public const float ShrubFlag = 10f;
+
+    /// <summary>
+    /// A shrub placement: Ambient.xyz = its baked light (record +0x30), which the lit shader takes as the whole
+    /// unbaked fill, and Direction1.w = its sway phase (0-1). Ambient.w stays 0, so the spatial-lighting path
+    /// ignores the colour. The retail shrub shaders have not been read; the light-as-fill reading is INFERRED.
+    /// </summary>
+    public static VkInstanceLight ForShrub(Vector3 bakedLight, float phase)
+    {
+        var light = default(VkInstanceLight);
+        light.Ambient = new Vector4(bakedLight, 0f);
+        light.Direction0.W = ShrubFlag;
+        light.Direction1.W = phase;
+        return light;
+    }
+
     public static VkInstanceLight ForFallOfManBake(float scale, int wordDelta)
     {
         var light = default(VkInstanceLight);

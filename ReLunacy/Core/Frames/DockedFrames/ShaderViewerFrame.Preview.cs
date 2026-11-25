@@ -82,7 +82,8 @@ public sealed partial class ShaderViewerFrame
                     _renderer.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
                     _renderer.Frame(Camera.GetView(), Camera.GetProjection(), _lighting.BuildLightData(Camera.Position),
                         NoVolumes, 0.1f, selected: null, outlineColor: default, outlineThickness: 0f,
-                        cameraPosition: Camera.Position, mobyDistanceCulling: false, lit: Program.Settings.EnableLighting);
+                        cameraPosition: Camera.Position, mobyDistanceCulling: false, lit: Program.Settings.EnableLighting,
+                        fxaa: Program.Settings.EnableFxaa);
                     _renderer.SubmitFrame();
                 }
                 catch (Exception e)

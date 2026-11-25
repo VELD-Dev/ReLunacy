@@ -2,6 +2,8 @@ using System.Numerics;
 using NeoVeldrid;
 using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Importing;
+using ReLunacy.Engine.Packing;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Rendering.Resources;
 using ReLunacy.Utility;
@@ -81,7 +83,7 @@ public sealed class TextureViewerFrame : DockedFrame, ILevelListener
         if (level == null) return;
         _texture = _key.Kind switch
         {
-            AssetKind.Texture => level.AllTextures.TryGetValue(_key.Id, out var texture) ? texture : null,
+            AssetKind.Texture => level.AllTextures.TryGetValue(_key.Id, out var texture) ? texture : LunaWindow.Instance.Reader?.FindTexture(_key.Id),
             AssetKind.EffectTexture => LevelEffectPlayer.Current?.Textures[(int)_key.Id]?.Texture,
             _ => null,
         };
@@ -106,10 +108,24 @@ public sealed class TextureViewerFrame : DockedFrame, ILevelListener
                 Slot(shader.DetailMap, Role.Detail);
             }
         _usageSlots = [.. slots];
+        ImportTextureKind? importedKind = index?.Get(_key)?.Tag switch
+        {
+            PendingTexture pending => pending.Texture.Kind,
+            AuthoredTextureRecord saved => saved.Kind,
+            _ => null,
+        };
+        var importedRole = importedKind switch
+        {
+            ImportTextureKind.Albedo => Role.Albedo,
+            ImportTextureKind.Normal => Role.Normal,
+            ImportTextureKind.Expensive => Role.Expensive,
+            ImportTextureKind.Detail => Role.Detail,
+            _ => Role.Plain,
+        };
         _role = roles.Contains(Role.Expensive) ? Role.Expensive
             : roles.Contains(Role.Normal) ? Role.Normal
             : roles.Contains(Role.Detail) ? Role.Detail
-            : roles.Contains(Role.Albedo) ? Role.Albedo : Role.Plain;
+            : roles.Contains(Role.Albedo) ? Role.Albedo : importedRole;
         _reconstructed = false;
     }
 

@@ -7,12 +7,12 @@ namespace ReLunacy.Utility;
 /// each frame resolves into <see cref="ResolveTexture"/>, which the blit reads.</summary>
 public sealed class MainRenderTarget : IDisposable
 {
-    private readonly GraphicsDevice _graphicsDevice;
-    private readonly PixelFormat _colorFormat;
-    private readonly PixelFormat _depthFormat;
+    private const PixelFormat ColorFormat = PixelFormat.R8_G8_B8_A8_UNorm;
+    private const PixelFormat DepthFormat = PixelFormat.D32_Float_S8_UInt;
+    private const TextureUsage ColorUsage = TextureUsage.RenderTarget | TextureUsage.Sampled;
 
-    public uint Width { get; private set; }
-    public uint Height { get; private set; }
+    public uint Width { get; }
+    public uint Height { get; }
     public TextureSampleCount SampleCount { get; }
 
     public Texture ColorTexture { get; private set; } = null!;
@@ -24,43 +24,43 @@ public sealed class MainRenderTarget : IDisposable
 
     public MainRenderTarget(
         GraphicsDevice graphicsDevice, uint width, uint height, TextureSampleCount sampleCount,
-        PixelFormat colorFormat = PixelFormat.R8_G8_B8_A8_UNorm,
-        PixelFormat depthFormat = PixelFormat.D32_Float_S8_UInt)
-    {
-        _graphicsDevice = graphicsDevice;
-        _colorFormat = colorFormat;
-        _depthFormat = depthFormat;
-        SampleCount = sampleCount;
-        Create(width, height);
-    }
-
-    private void Create(uint width, uint height)
+        PixelFormat colorFormat = ColorFormat, PixelFormat depthFormat = DepthFormat)
     {
         Width = Math.Max(1, width);
         Height = Math.Max(1, height);
-        var factory = _graphicsDevice.ResourceFactory;
+        SampleCount = sampleCount;
+        var factory = graphicsDevice.ResourceFactory;
 
-        ColorTexture = factory.CreateTexture(new TextureDescription(
-            Width, Height, 1, 1, 1, _colorFormat,
-            TextureUsage.RenderTarget | TextureUsage.Sampled, TextureType.Texture2D, SampleCount));
+        try
+        {
+            ColorTexture = factory.CreateTexture(new TextureDescription(
+                Width, Height, 1, 1, 1, colorFormat, ColorUsage, TextureType.Texture2D, SampleCount));
 
-        DepthTexture = factory.CreateTexture(new TextureDescription(
-            Width, Height, 1, 1, 1, _depthFormat,
-            TextureUsage.DepthStencil, TextureType.Texture2D, SampleCount));
+            DepthTexture = factory.CreateTexture(new TextureDescription(
+                Width, Height, 1, 1, 1, depthFormat, TextureUsage.DepthStencil, TextureType.Texture2D, SampleCount));
 
-        Framebuffer = factory.CreateFramebuffer(new FramebufferDescription(DepthTexture, ColorTexture));
+            Framebuffer = factory.CreateFramebuffer(new FramebufferDescription(DepthTexture, ColorTexture));
 
-        // Never multisampled: this is the resolve destination, the only one of the two a shader can read.
-        ResolveTexture = factory.CreateTexture(TextureDescription.Texture2D(
-            Width, Height, 1, 1, _colorFormat, TextureUsage.Sampled));
-        ResolveTextureView = factory.CreateTextureView(ResolveTexture);
+            ResolveTexture = factory.CreateTexture(TextureDescription.Texture2D(
+                Width, Height, 1, 1, colorFormat, TextureUsage.Sampled));
+            ResolveTextureView = factory.CreateTextureView(ResolveTexture);
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
-    public void Resize(uint width, uint height)
+    internal static TextureSampleCount[] GetSupportedSampleCounts(GraphicsDevice graphicsDevice)
     {
-        if (width == Width && height == Height) return;
-        DestroyResources();
-        Create(width, height);
+        if (!graphicsDevice.GetPixelFormatSupport(ColorFormat, TextureType.Texture2D, ColorUsage, out var color) ||
+            !graphicsDevice.GetPixelFormatSupport(DepthFormat, TextureType.Texture2D, TextureUsage.DepthStencil, out var depth))
+            return [TextureSampleCount.Count1];
+
+        return Enum.GetValues<TextureSampleCount>()
+            .Where(count => color.IsSampleCountSupported(count) && depth.IsSampleCountSupported(count))
+            .ToArray();
     }
 
     /// <summary>Collapses this frame's render into <see cref="ResolveTexture"/>, ready to be blitted.</summary>
@@ -72,7 +72,7 @@ public sealed class MainRenderTarget : IDisposable
             commandList.CopyTexture(ColorTexture, ResolveTexture);
     }
 
-    private void DestroyResources()
+    public void Dispose()
     {
         ResolveTextureView?.Dispose();
         ResolveTexture?.Dispose();
@@ -80,6 +80,4 @@ public sealed class MainRenderTarget : IDisposable
         DepthTexture?.Dispose();
         ColorTexture?.Dispose();
     }
-
-    public void Dispose() => DestroyResources();
 }

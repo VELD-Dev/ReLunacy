@@ -65,8 +65,8 @@ public sealed class EffectSpriteBatch
     }
 
     /// <summary>
-    /// The quad of one sprite: camera-facing (or laid in its plane when <see cref="EffectBillboard.Oriented"/>) and turned
-    /// by its rotation, or - for a beam or streak
+    /// The quad of one sprite: facing the camera freely or around its fixed up axis, laid in a placement plane,
+    /// or, for a beam or streak
     /// (<see cref="EffectBillboard.Stretch"/>) - laid from its head to its tail and turned about that line
     /// to face the camera, as wide as the sprite. Shared by every effect renderer.
     /// </summary>
@@ -84,11 +84,24 @@ public sealed class EffectSpriteBatch
             ay = along;
             return;
         }
+        float halfWidth = s.HalfWidth > 0f ? s.HalfWidth : s.HalfSize;
+        if (s.Axial)
+        {
+            centre = s.Position;
+            Vector3 side = Vector3.Cross(s.AxisY, eye - centre);
+            if (side.LengthSquared() < 1e-8f)
+                side = right - s.AxisY * Vector3.Dot(right, s.AxisY);
+            if (side.LengthSquared() < 1e-8f)
+                side = Vector3.Cross(up, s.AxisY);
+            ax = Vector3.Normalize(side) * halfWidth;
+            ay = s.AxisY * s.HalfSize;
+            return;
+        }
         float c = MathF.Cos(s.Rotation), sn = MathF.Sin(s.Rotation);
         centre = s.Position;
         // A frame-oriented quad turns within its own plane; any other faces the camera.
         Vector3 x = s.Oriented ? s.AxisX : right, y = s.Oriented ? s.AxisY : up;
-        ax = (x * c + y * sn) * s.HalfSize;
+        ax = (x * c + y * sn) * halfWidth;
         ay = (y * c - x * sn) * s.HalfSize;
     }
 

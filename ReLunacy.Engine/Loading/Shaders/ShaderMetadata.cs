@@ -227,6 +227,11 @@ public record struct ShaderMetadataNew : ILunaSerializable
     [FileOffset(0x78)] public float detailTiling;
     [FileOffset(0x7C)] public float reserved7C;
 
+    /// <summary>ACIT places the embedded program TUID in the last eight bytes of its material.</summary>
+    public readonly ulong FragmentShaderBaseTuid(bool crackInTime) => crackInTime
+        ? ((ulong)BitConverter.SingleToUInt32Bits(detailTiling) << 32) | BitConverter.SingleToUInt32Bits(reserved7C)
+        : fragmentShaderBaseTuid;
+
     public readonly bool UsesParallax => (featureFlags & 0x01) != 0;
     /// <summary>Parallax as the game runs it: bit 0x01 survives the loader only with bit 0x08.</summary>
     public readonly bool ParallaxApplies => (featureFlags & 0x09) == 0x09;

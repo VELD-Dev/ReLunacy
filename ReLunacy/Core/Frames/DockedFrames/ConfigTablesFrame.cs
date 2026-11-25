@@ -29,7 +29,7 @@ public sealed class ConfigTablesFrame : DockedFrame
     private static readonly Vector4 SectionColour = ConfigDocument.SectionColour;
     private static readonly Vector4 ChangedColour = new(0.35f, 0.8f, 1f, 0.25f);
 
-    private string? _scannedFor;
+    private object? _scannedProject;
     private string? _gameFolder;
     private List<ConfigTableRef> _tables = [];
     private ConfigTableRef? _open;
@@ -67,9 +67,13 @@ public sealed class ConfigTablesFrame : DockedFrame
 
     private void Scan()
     {
-        if (_scannedFor == Program.ProvidedPath && _gameFolder != null) return;
-        _scannedFor = Program.ProvidedPath;
-        _gameFolder = string.IsNullOrEmpty(Program.ProvidedPath) ? null : GameConfigs.GameFolderFor(Program.ProvidedPath);
+        var project = Project.ProjectSession.Current;
+        string? folder = Project.ProjectSession.GameFolder;
+        if (_gameFolder == folder && ReferenceEquals(_scannedProject, project)) return;
+        _scannedProject = project;
+        _gameFolder = folder;
+        _doc = null;
+        _open = null;
         _tables = _gameFolder != null ? GameConfigs.List(_gameFolder) : [];
     }
 

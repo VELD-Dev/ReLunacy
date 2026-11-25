@@ -1,6 +1,7 @@
 // Ported from ReLunacy Resurgence by Fianshoo (GPL-3.0). "Docs/reverse/..." paths cite that repository.
 using System.Buffers.Binary;
 using System.Numerics;
+using ReLunacy.Engine.Assets.LevelElements;
 using ReLunacy.Engine.Loading.IO;
 
 namespace ReLunacy.Engine.Assets.Effects;
@@ -37,10 +38,25 @@ public sealed class LevelEffects
     public const uint CrackInTimeFxControllerClass = 0x3D0;
     /// <summary>EventType ACTIVE in A Crack in Time's /scripts/eventtypes.lua.</summary>
     public const uint CrackInTimeActiveEvent = 0;
+    public const uint FallOfManFxControllerClass = 0x43E;
 
     /// <summary>The FxController class and the ACTIVE event this level's conduit is looked up with.</summary>
     public uint ControllerClass { get; init; } = FxControllerClass;
     public uint ActiveEventType { get; init; } = ActiveEvent;
+    public bool UsesSceneControllers => ControllerClass is CrackInTimeFxControllerClass or FallOfManFxControllerClass;
+
+    public (uint Key, bool StartsActive, float RepeatMin, float RepeatMax)? ScenePlayback(GameplayController controller)
+    {
+        if (!UsesSceneControllers || controller.Class != ControllerClass) return null;
+        int keyAt = ControllerClass == FallOfManFxControllerClass ? 0x10 : 0x14;
+        int activeAt = ControllerClass == FallOfManFxControllerClass ? 0x18 : 0x1C;
+        int repeatAt = ControllerClass == FallOfManFxControllerClass ? 0x1C : 0x24;
+        ReadOnlySpan<byte> data = controller.Settings;
+        if (data.Length < repeatAt + 8) return null;
+        float min = Seconds(data, repeatAt), max = Seconds(data, repeatAt + 4);
+        return (BinaryPrimitives.ReadUInt32BigEndian(data[keyAt..]), BinaryPrimitives.ReadUInt32BigEndian(data[activeAt..]) != 0,
+            MathF.Min(min, max), MathF.Max(min, max));
+    }
 
     private const uint ControllerSection = 0x77C0;
     private const uint ClassDataSection = 0x25200;
@@ -86,16 +102,18 @@ public sealed class LevelEffects
 
     /// <summary>Reads the effect data of an old-engine level from its files (<paramref name="read"/>: one of
     /// <see cref="FileNames"/>, null when missing). Null, with the reason, when effect.dat is missing or unreadable.</summary>
-    public static LevelEffects? TryLoad(Func<string, byte[]?> read, string levelFolder, out string? error)
+    public static LevelEffects? TryLoad(Func<string, byte[]?> read, string levelFolder, out string? error, bool fallOfMan = false)
     {
         byte[]? effect = read("effect.dat");
         if (effect == null) { error = "effect.dat could not be read."; return null; }
         byte[]? globalHeader = null, globalTexel = null;
-        if (OldEngineEffectTexturePack.TryRead(levelFolder, out byte[] h, out byte[] t, out _))
+        if (fallOfMan
+            ? OldEngineEffectTexturePack.TryReadFallOfMan(levelFolder, out byte[] h, out byte[] t)
+            : OldEngineEffectTexturePack.TryRead(levelFolder, out h, out t, out _))
             (globalHeader, globalTexel) = (h, t);
         var effects = FromBytes(effect, read("system.tph"), read("system.tp"), globalHeader, globalTexel,
             read("fxconduit_packed.dat"), out error);
-        if (effects == null) return null;
+        if (effects == null || effects.UsesSceneControllers) return effects;
         try
         {
             if (read("gameplay.dat") is { } gameplay)
@@ -161,18 +179,18 @@ public sealed class LevelEffects
         try { library = EffectLibrary.Read(effect); }
         catch (Exception e) { error = $"effect.dat could not be read: {e.Message}"; return null; }
 
+        bool fallOfMan = ReferenceEquals(library.Layout, EffectLayout.FallOfMan);
         VfxTextureSet textures = VfxTextureSet.Empty;
         string? textureError = null;
         if (levelHeader != null && levelTexel != null)
         {
             try
             {
-                textures = VfxTextureSet.ReadOldEngine(levelHeader, levelTexel, globalHeader, globalTexel);
+                textures = VfxTextureSet.ReadOldEngine(levelHeader, levelTexel, globalHeader, globalTexel, fallOfMan);
                 library.BindGlobalTextures(textures.GlobalBase);
                 library.ComposeOldEngineLayers(textures);
                 if (textures.GlobalBase < 0)
-                    textureError = "The game's effect textures (processed/texpacks/effect.tp in global_cached.psarc) were not found; " +
-                                   "the pieces that use them draw a soft glow.";
+                    textureError = "The shared effect texture pack was not found; the pieces that use it draw a soft glow.";
                 else
                 {
                     // Quest for Booty's global pack is Tools of Destruction's plus five textures (69..73): a QfB level
@@ -187,7 +205,9 @@ public sealed class LevelEffects
             }
             catch (Exception e) { textureError = $"Effect textures unavailable ({e.Message}); sprites draw a soft glow."; }
         }
-        else textureError = "system.tph / system.tp missing; sprites draw a soft glow.";
+        else textureError = fallOfMan
+            ? "ps3fxsystem.tph / ps3fxsystem.tp missing; sprites draw a soft glow."
+            : "system.tph / system.tp missing; sprites draw a soft glow.";
 
         EffectConduit? conduit = null;
         string? conduitError = "fxconduit_packed.dat missing";
@@ -204,6 +224,7 @@ public sealed class LevelEffects
             Conduit = conduit,
             ConduitError = conduitError,
             TextureError = textureError,
+            ControllerClass = fallOfMan ? FallOfManFxControllerClass : FxControllerClass,
         };
     }
 

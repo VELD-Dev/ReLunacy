@@ -32,7 +32,7 @@ public static class OldEngineEffectTexturePack
             foreach (string game in new[] { Path.Combine(current.FullName, "game"), Path.Combine(current.FullName, "packed", "game") })
             {
                 string archive = Path.Combine(game, "global_cached.psarc");
-                if (File.Exists(archive) && TryReadArchive(archive, out header, out texel))
+                if (File.Exists(archive) && TryReadArchive(archive, HeaderMember, TexelMember, out header, out texel))
                 {
                     source = archive;
                     return true;
@@ -51,9 +51,33 @@ public static class OldEngineEffectTexturePack
         return false;
     }
 
-    private static bool TryReadArchive(string path, out byte[] header, out byte[] texel)
+    internal static bool TryReadFallOfMan(string levelFolder, out byte[] header, out byte[] texel)
     {
-        string key = Path.GetFullPath(path) + "|" + File.GetLastWriteTimeUtc(path).Ticks;
+        const string headerMember = "built/effects/ps3effects.tph";
+        const string texelMember = "built/effects/ps3effects.tp";
+        header = texel = [];
+        if (string.IsNullOrEmpty(levelFolder)) return false;
+        for (var folder = new DirectoryInfo(levelFolder); folder != null; folder = folder.Parent)
+        {
+            string path = Path.Combine(folder.FullName, headerMember);
+            string texelPath = Path.Combine(folder.FullName, texelMember);
+            if (File.Exists(path) && File.Exists(texelPath))
+            {
+                header = File.ReadAllBytes(path);
+                texel = File.ReadAllBytes(texelPath);
+                return true;
+            }
+
+            string archive = Path.Combine(folder.FullName, "game.psarc");
+            if (File.Exists(archive) && TryReadArchive(archive, headerMember, texelMember, out header, out texel))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool TryReadArchive(string path, string headerMember, string texelMember, out byte[] header, out byte[] texel)
+    {
+        string key = Path.GetFullPath(path) + "|" + File.GetLastWriteTimeUtc(path).Ticks + "|" + headerMember;
         lock (Cache)
         {
             if (Cache.TryGetValue(key, out var cached))
@@ -67,7 +91,7 @@ public static class OldEngineEffectTexturePack
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var archive = new PSARC(stream);
-            string? h = Find(archive, HeaderMember), t = Find(archive, TexelMember);
+            string? h = Find(archive, headerMember), t = Find(archive, texelMember);
             if (h == null || t == null) return false;
             using (IPSARCBuffer b = archive.OpenFile(h)) header = b.Data.ToArray();
             using (IPSARCBuffer b = archive.OpenFile(t)) texel = b.Data.ToArray();

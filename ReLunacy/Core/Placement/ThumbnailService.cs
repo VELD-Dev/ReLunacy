@@ -368,7 +368,8 @@ public sealed class ThumbnailService
                 StartWaveform(slot, cache);
                 return;
             case AssetKind.Texture:
-                if (!level.AllTextures.TryGetValue(key.Id, out var texture)) { slot.Stage = Stage.Failed; return; }
+                var texture = level.AllTextures.GetValueOrDefault(key.Id) ?? LunaWindow.Instance.Reader?.FindTexture(key.Id);
+                if (texture == null) { slot.Stage = Stage.Failed; return; }
                 StartDecode(slot, cache, () => DecodeTexture(texture), () => TextureStamp(texture));
                 return;
             case AssetKind.EffectTexture:

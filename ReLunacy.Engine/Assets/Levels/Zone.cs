@@ -17,6 +17,9 @@ public sealed class Zone : IZone
     /// handful carry one (see Navigation.Navmesh), and they are usually named navmesh or navigation.</summary>
     public Navigation.Navmesh? Navmesh { get; init; }
 
+    /// <summary>The zone's water bodies (section 0x6641, see Water.WaterSurface); empty on most zones.</summary>
+    public IReadOnlyList<Water.WaterSurface> Waters { get; init; } = [];
+
     public Zone(ulong id, IReadOnlyList<IUFrag> uFrags, IReadOnlyList<IPlacedInstance<ITie>> tieInstances,
                 string? name = null, IReadOnlyList<IPlacedInstance<IShrub>>? shrubInstances = null,
                 Navigation.Navmesh? navmesh = null)

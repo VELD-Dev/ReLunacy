@@ -347,13 +347,13 @@ public sealed class EffectQuad : EffectPiece
     public int TextureCount { get; init; }
     public float Lifetime { get; init; }
     /// <summary>
-    /// +0x15E (0 on 3 660 of 4 766 distinct QForce quads, 1 on 986, 2 on 120). Non-zero sets bit 0x10 of the quad's SPU
-    /// flags (PPU 0x007E6950), which the quad overlay A_4 turns into bit 30 of the render word it hands the RSX (0x38C).
-    /// Read as "laid in the placement's frame, not facing the camera": the quads placed with a non-zero orientation mode
-    /// (8, 2, 4, 5) have it set - STRONG (what 1 and 2 change in the vertex program is OPEN).
+    /// QForce +0x15E and ACIT +0x152. ACIT's packer selects distinct draw overlays B_5, B_6 and B_7
+    /// for camera-facing, frame-oriented and axial quads respectively (0x6A8F74).
     /// </summary>
     public int Facing { get; init; }
-    public bool IsFrameOriented => Facing != 0;
+    /// <summary>ACIT facing mode 2 selects the axial quad overlay (B_7).</summary>
+    public bool IsAxialBillboard { get; init; }
+    public bool IsFrameOriented => Facing != 0 && !IsAxialBillboard;
 
     public EffectScalarTrack? Scalar(string name) => EffectTracks.Find(ScalarTracks, name);
     public EffectColorTrack? Color(string name) => EffectTracks.Find(ColorTracks, name);
@@ -388,8 +388,10 @@ public sealed class EffectComponent
     public required int FileOffset { get; init; }
     public required EffectPieceType Type { get; init; }
     public required int PieceIndex { get; init; }
-    /// <summary>+0x04: start delay in seconds (0, 0.1, 0.2, 0.3...). INFERRED.</summary>
+    /// <summary>Nominal start delay in seconds. ACIT stores a fraction of the package timeline at +0x04.</summary>
     public float StartDelay { get; init; }
+    /// <summary>ACIT +0x08: relative random spread of the start delay.</summary>
+    public float StartDelaySpread { get; init; }
     /// <summary>
     /// The piece's offset: X = +0x38, Y = +0x40, Z = +0x30. PROVEN: the PPU packs +0x30/+0x38/+0x40 x 128 to the
     /// SPU component record +0x64/+0x66/+0x68 (0x007E34B8) and FXVis reads them back as (+0x66, +0x68, +0x64) / 128
@@ -437,7 +439,7 @@ public sealed class EffectComponent
     /// <summary>
     /// ToD FxDefFX +0x08: chance the piece is created when its package plays. PROVEN (ToD fxvis 0x1BBF8: the piece
     /// and its subtree are skipped when a draw U[0,1) exceeds it; the PPU drops pieces under 0.0001, 0x00602500).
-    /// 1 on 11 421 of 12 141 distinct components. QForce: 1 (no such field known).
+    /// ACIT +0x0C is the same probability (bind at 0x69C598, packed at 0x6A4250).
     /// </summary>
     public float SpawnChance { get; init; } = 1f;
     /// <summary>ToD FxDefFX +0x60 / +0x5C: the piece is created only when a context value (camera distance, STRONG) lies
@@ -457,6 +459,10 @@ public sealed class EffectComponent
 /// </summary>
 public sealed class EffectPackage : EffectPiece
 {
+    /// <summary>ACIT +0x10: duration in seconds used for the package's component delays and curves.</summary>
+    public float TimelineDuration { get; init; }
+    /// <summary>ACIT +0xA4: axis of the package spin in its local frame.</summary>
+    public Vector3 SpinAxis { get; init; }
     public required IReadOnlyList<EffectComponent> Components { get; init; }
     public required IReadOnlyList<EffectScalarTrack> ScalarTracks { get; init; }
     public required IReadOnlyList<EffectColorTrack> ColorTracks { get; init; }

@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Engine.Importing;
 using ReLunacy.Engine.Packing;
 using ReLunacy.Engine.Scene;
 using ReLunacy.Utility.Localization;
@@ -41,7 +42,7 @@ public sealed class SaveLevelModal : Modal
         try
         {
             GameplayWriter.Game = LunaWindow.Instance.Level?.GameDefinition?.Id;
-            var plan = GameplayWriter.PreviewPlan(files, EntityManager.Singleton.Regions.ToList(), Collisions());
+            var plan = GameplayWriter.PreviewPlan(files, EntityManager.Singleton.Regions.ToList(), Collisions(), Project.ShaderSwapEdits.Snapshot());
             (_preview, _previewProblems, _shifted) = ([.. plan.Changes], [.. plan.Problems], plan.ShiftedHandles);
         }
         catch (Exception e) { _error = e.Message; }
@@ -70,7 +71,7 @@ public sealed class SaveLevelModal : Modal
         }
 
         var preview = _preview ?? [];
-        if (Project.ProjectSession.Current is { } project) ImGui.TextDisabled(LM.Get("GUI_SaveLevel_IntoProject", project.Name));
+        if (Project.ProjectSession.Current is { } openProject) ImGui.TextDisabled(LM.Get("GUI_SaveLevel_IntoProject", openProject.Name));
         ImGui.TextWrapped(preview.Count == 0 ? LM.Get("GUI_SaveLevel_NothingChanged") : LM.Get("GUI_SaveLevel_Changes", preview.Count));
         List(preview, new Vector4(0.6f, 0.9f, 0.6f, 1f));
         List(_previewProblems, new Vector4(1f, 0.7f, 0.3f, 1f));
@@ -84,8 +85,29 @@ public sealed class SaveLevelModal : Modal
             var files = LunaWindow.Instance.fileManager!;
             var regions = EntityManager.Singleton.Regions.ToList();
             var collisions = Collisions();
-            var sink = Project.ProjectSession.Current!.Sink;
-            _saving = Task.Run(() => GameplayWriter.Save(files, regions, collisions: collisions, sink: sink));
+            var project = Project.ProjectSession.Current!;
+            var shaderSwaps = Project.ShaderSwapEdits.Snapshot();
+            var textures = regions.SelectMany(r => r.PendingTextures).ToList();
+            var shaders = regions.SelectMany(r => r.PendingShaders).Where(s => s.Standalone).ToList();
+            _saving = Task.Run(() =>
+            {
+                var result = GameplayWriter.Save(files, regions, collisions: collisions, sink: project.Sink, shaderSwaps: shaderSwaps);
+                if (result.Succeeded && (textures.Count > 0 || shaders.Count > 0))
+                {
+                    var remainingTextures = regions.SelectMany(r => r.PendingTextures).Select(t => t.Tuid).ToHashSet();
+                    var remainingShaders = regions.SelectMany(r => r.PendingShaders).Select(s => s.Tuid).ToHashSet();
+                    try
+                    {
+                        AuthoredMaterialRecords.Write(project, files.SourcePath, textures.Where(t => !remainingTextures.Contains(t.Tuid)).ToList(),
+                            shaders.Where(s => !remainingShaders.Contains(s.Tuid)).ToList());
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        result = result with { Problems = [.. result.Problems, $"The authored material metadata could not be stored in the project: {e.Message}"] };
+                    }
+                }
+                return result;
+            });
         }
         ImGui.EndDisabled();
         ImGui.SameLine();

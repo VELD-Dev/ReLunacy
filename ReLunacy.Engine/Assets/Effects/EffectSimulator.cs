@@ -3,12 +3,14 @@ using System.Numerics;
 
 namespace ReLunacy.Engine.Assets.Effects;
 
-/// <summary>One sprite the preview draws: camera-facing, laid in a plane (<see cref="Oriented"/>), or a beam.</summary>
+/// <summary>One sprite the preview draws: a billboard, a quad laid in a plane, or a beam.</summary>
 public struct EffectBillboard
 {
     public Vector3 Position;
     /// <summary>Half the side of the square, world units.</summary>
     public float HalfSize;
+    /// <summary>Half the width when it differs from <see cref="HalfSize"/> (a quad's width track); 0 = square.</summary>
+    public float HalfWidth;
     public float Rotation;
     public Vector4 Color;
     public int TextureIndex;
@@ -22,6 +24,8 @@ public struct EffectBillboard
     /// instead of facing the camera - shader 10/13 emitters and quads with FxDefQuad +0x15E != 0.
     /// </summary>
     public bool Oriented;
+    /// <summary>Face the camera around the fixed up direction in AxisY.</summary>
+    public bool Axial;
     public Vector3 AxisX, AxisY;
     /// <summary>Which piece produced it, for "solo" and highlighting.</summary>
     public EffectPiece Source;
@@ -64,8 +68,7 @@ public sealed class EffectSimulationSettings
     public bool ShowDistortion = true;
     public int MaxParticles = 20000;
     /// <summary>Period, seconds, over which a continuous emitter (duration 0, no component cycle) runs its
-    /// emitter-life curves. ASSUMED: 410 such emitters carry multi-key curves (on/off alpha patterns over
-    /// [0, 1]) and nothing in effect.dat names their period - the game's igParticle SPU job decides.</summary>
+    /// emitter-life curves in the legacy preview. ACIT uses the individual track's timing field.</summary>
     public float ContinuousCurvePeriod = 1f;
 }
 
@@ -165,7 +168,7 @@ public static class EffectSpace
     {
         sprite.Position = Vector3.Transform(sprite.Position, world);
         sprite.Stretch = Vector3.TransformNormal(sprite.Stretch, world);
-        if (sprite.Oriented)
+        if (sprite.Oriented || sprite.Axial)
         {
             sprite.AxisX = Unit(Vector3.TransformNormal(sprite.AxisX, world));
             sprite.AxisY = Unit(Vector3.TransformNormal(sprite.AxisY, world));
@@ -201,6 +204,7 @@ public sealed class EffectSimulator
         public float Age;
         public float Life;
         public float Rotation;
+        public bool ReverseSpin;
         public float R0, R1, R2, R3, R4;
         /// <summary>A beam's tail minus its head (class 2; zero when born).</summary>
         public Vector3 Beam;
@@ -217,15 +221,19 @@ public sealed class EffectSimulator
         public Matrix4x4 ChildSlot = Matrix4x4.Identity;
         /// <summary>Not created this play: its spawn chance failed, or its parent's did.</summary>
         public bool Skipped;
+        public float Delay, Tilt, Azimuth;
+        public float Spin, SpinRandom, PackageSpin, PackageSpinRandom;
+        public Vector3 Offset;
     }
 
     private sealed class EmitterInstance
     {
         public required EffectEmitter Emitter;
         public required int Placement;
+        public EffectScalarTrack? ParticleSpin;
         /// <summary>World-axis frame of this play (rows = local axes, translation = position).</summary>
         public Matrix4x4 Frame = Matrix4x4.Identity;
-        public required float Delay;
+        public float Delay;
         /// <summary>The component's restart cycle (+0xC0 max, +0xC4 min), 0 = none.</summary>
         public float CycleMin, CycleMax;
         /// <summary>This run's period, drawn in [CycleMin, CycleMax] at each (re)start.</summary>
@@ -244,7 +252,7 @@ public sealed class EffectSimulator
         public required int Placement;
         public Vector3 Position;
         public Matrix4x4 Frame = Matrix4x4.Identity;
-        public required float Delay;
+        public float Delay;
         public float Age = -1;
         public float R0, R1, R2;
     }
@@ -254,8 +262,9 @@ public sealed class EffectSimulator
         public required EffectLight Light;
         public required int Placement;
         public Vector3 Position;
-        public required float Delay;
+        public float Delay;
         public float Age = -1;
+        public float ColourRandom, RadiusRandom;
     }
 
     private readonly EffectLibrary _library;
@@ -263,8 +272,15 @@ public sealed class EffectSimulator
     private readonly List<EmitterInstance> _emitters = [];
     private readonly List<QuadInstance> _quads = [];
     private readonly List<LightInstance> _lights = [];
+    private readonly List<Placement> _spinningPlacements = [];
+    private readonly EffectScalarTrack? _rootSpinTrack;
+    private float _rootSpin, _rootSpinRandom;
     private Random _random;
     private readonly int _seed;
+    private bool UsesAcitTiming => ReferenceEquals(_library.Layout, EffectLayout.CrackInTime);
+    private const double SimulationStep = 1.0 / 60.0;
+    private double _pendingTime;
+    private int _simulationFrame;
     /// <summary>Fraction of a game frame not yet handed to the turbulence step.</summary>
     private float _frameClock;
 
@@ -289,19 +305,23 @@ public sealed class EffectSimulator
         Settings = settings ?? new EffectSimulationSettings();
         _seed = seed;
         _random = new Random(seed);
-        Instantiate(package, -1, 0f, 0);
-        Place();
+        _rootSpinTrack = UsesAcitTiming ? SpinTrack(package.Scalar("Spin")) : null;
+        Instantiate(package, -1, 0);
+        Place(reroll: true);
         ComputePlayLength();
     }
 
-    private void Instantiate(EffectPackage package, int parent, float delay, int depth)
+    private void Instantiate(EffectPackage package, int parent, int depth)
     {
         if (depth > 6) return;
         foreach (EffectComponent component in package.Components)
         {
             int placement = _placements.Count;
-            _placements.Add(new Placement { Component = component, Parent = parent });
-            float start = delay + MathF.Max(0f, component.StartDelay);
+            var instance = new Placement { Component = component, Parent = parent };
+            _placements.Add(instance);
+            if (UsesAcitTiming &&
+                (SpinTrack(component.Spin) != null || SpinTrack((component.Piece as EffectPackage)?.Scalar("Spin")) != null))
+                _spinningPlacements.Add(instance);
             switch (component.Piece)
             {
                 case EffectEmitter { Disabled: true }:
@@ -309,19 +329,19 @@ public sealed class EffectSimulator
                 case EffectEmitter emitter:
                     _emitters.Add(new EmitterInstance
                     {
-                        Emitter = emitter, Placement = placement, Delay = start,
+                        Emitter = emitter, Placement = placement, ParticleSpin = SpinTrack(emitter.Scalar("Particle spin")),
                         CycleMin = MathF.Max(0f, MathF.Min(component.CycleMin, component.CycleMax)),
                         CycleMax = MathF.Max(0f, component.CycleMax),
                     });
                     break;
                 case EffectQuad quad:
-                    _quads.Add(new QuadInstance { Quad = quad, Placement = placement, Delay = start });
+                    _quads.Add(new QuadInstance { Quad = quad, Placement = placement });
                     break;
                 case EffectLight light:
-                    _lights.Add(new LightInstance { Light = light, Placement = placement, Delay = start });
+                    _lights.Add(new LightInstance { Light = light, Placement = placement });
                     break;
                 case EffectPackage child when !ReferenceEquals(child, package):
-                    Instantiate(child, placement, start, depth + 1);
+                    Instantiate(child, placement, depth + 1);
                     break;
             }
         }
@@ -341,17 +361,42 @@ public sealed class EffectSimulator
     /// random tilt is drawn in +0x27..+0x28 towards an azimuth in +0x2A..+0x2C. A package hands its children M
     /// (+0x24 == 0) or M x S (+0x24 == 1) at its position. Parents come before children in <see cref="_placements"/>.
     /// </summary>
-    private void Place()
+    private void Place(bool reroll)
     {
-        Matrix4x4 spawn = Rotation(Settings.SpawnFrame);
+        if (reroll)
+        {
+            _rootSpin = 0f;
+            if (_rootSpinTrack != null) _rootSpinRandom = _random.NextSingle();
+        }
+        Matrix4x4 spawn = RootRotation();
         foreach (Placement p in _placements)
         {
             Matrix4x4 slot = p.Parent < 0 ? spawn : _placements[p.Parent].ChildSlot;
             Vector3 origin = slot.Translation;
             Matrix4x4 s = Rotation(slot);
             EffectComponent c = p.Component;
-            p.Skipped = p.Parent >= 0 && _placements[p.Parent].Skipped
-                || c.SpawnChance < 1f && _random.NextSingle() >= c.SpawnChance;
+            if (reroll)
+            {
+                Placement? parent = p.Parent < 0 ? null : _placements[p.Parent];
+                p.Skipped = parent?.Skipped == true || c.SpawnChance < 1f && _random.NextSingle() >= c.SpawnChance;
+                float delay = c.StartDelay;
+                if (c.StartDelaySpread != 0f) delay *= 1f + c.StartDelaySpread * Signed();
+                float limit = (parent?.Component.Piece as EffectPackage ?? Package).TimelineDuration;
+                if (UsesAcitTiming && limit > 0f)
+                    delay = MathF.Min(delay, limit);
+                p.Delay = (parent?.Delay ?? 0f) + MathF.Max(0f, delay);
+                p.Tilt = Lerp(c.TiltMinDegrees, c.TiltMaxDegrees, _random.NextSingle());
+                p.Azimuth = Lerp(c.AzimuthMinDegrees, c.AzimuthMaxDegrees, _random.NextSingle());
+                Vector3 spread = c.OldEngine ? Vector3.Clamp(c.OffsetSpread, Vector3.Zero, Vector3.One) : c.OffsetSpread;
+                p.Offset = c.Offset * (Vector3.One + spread * new Vector3(Signed(), Signed(), Signed()));
+                p.Spin = p.PackageSpin = 0f;
+                if (UsesAcitTiming)
+                {
+                    if (SpinTrack(c.Spin) != null) p.SpinRandom = _random.NextSingle();
+                    if (SpinTrack((c.Piece as EffectPackage)?.Scalar("Spin")) != null)
+                        p.PackageSpinRandom = _random.NextSingle();
+                }
+            }
             bool ownFrame = c.Attached || c.Type == EffectPieceType.Emitter;
             if (c.OldEngine)
             {
@@ -361,14 +406,14 @@ public sealed class EffectSimulator
             Matrix4x4 m = ownFrame
                 ? EffectSpace.Orient(c.OrientationMode, Matrix4x4.Identity, Matrix4x4.Transpose(s))
                 : EffectSpace.Orient(c.OrientationMode, s, Matrix4x4.Identity);
-            float tilt = Lerp(c.TiltMinDegrees, c.TiltMaxDegrees, _random.NextSingle());
-            float azimuth = Lerp(c.AzimuthMinDegrees, c.AzimuthMaxDegrees, _random.NextSingle());
-            m = EffectSpace.Tilt(m, tilt, azimuth);
+            m = EffectSpace.Tilt(m, p.Tilt, p.Azimuth);
             Matrix4x4 offsetFrame = ownFrame
                 ? EffectSpace.Orient(c.OffsetMode, m, Matrix4x4.Identity)
                 : EffectSpace.Orient(c.OffsetMode, s, Matrix4x4.Identity);
-            Vector3 v = c.Offset * (Vector3.One + c.OffsetSpread * new Vector3(Signed(), Signed(), Signed()));
-            Vector3 position = origin + Vector3.TransformNormal(Vector3.TransformNormal(v, offsetFrame), s);
+            Vector3 position = origin + Vector3.TransformNormal(Vector3.TransformNormal(p.Offset, offsetFrame), s);
+            if (p.PackageSpin != 0f && c.Piece is EffectPackage package)
+                m = PackageRotation(package, p.PackageSpin) * m;
+            if (p.Spin != 0f) m = Matrix4x4.CreateRotationZ(p.Spin) * m;
             Matrix4x4 frame = m * s;
             frame.Translation = position;
             p.Frame = frame;
@@ -379,15 +424,22 @@ public sealed class EffectSimulator
         foreach (EmitterInstance e in _emitters)
         {
             e.Frame = _placements[e.Placement].Frame;
+            e.Delay = _placements[e.Placement].Delay;
             int textures = Math.Min(e.Emitter.TextureCount, e.Emitter.Textures.Count);
-            e.TextureChoice = e.Emitter.OldEngineType > 0 && textures > 0 ? Math.Min(textures - 1, (int)(_random.NextSingle() * textures)) : -1;
+            if (reroll)
+                e.TextureChoice = e.Emitter.OldEngineType > 0 && textures > 0 ? _random.Next(textures) : -1;
         }
         foreach (QuadInstance q in _quads)
         {
             q.Frame = _placements[q.Placement].Frame;
             q.Position = q.Frame.Translation;
+            q.Delay = _placements[q.Placement].Delay;
         }
-        foreach (LightInstance l in _lights) l.Position = _placements[l.Placement].Frame.Translation;
+        foreach (LightInstance l in _lights)
+        {
+            l.Position = _placements[l.Placement].Frame.Translation;
+            l.Delay = _placements[l.Placement].Delay;
+        }
     }
 
     /// <summary>
@@ -406,22 +458,19 @@ public sealed class EffectSimulator
     /// </summary>
     private void PlaceOldEngine(Placement p, EffectComponent c, bool ownFrame, Vector3 origin, Matrix4x4 s)
     {
-        float tilt = Lerp(c.TiltMinDegrees, c.TiltMaxDegrees, _random.NextSingle());
-        float azimuth = Lerp(c.AzimuthMinDegrees, c.AzimuthMaxDegrees, _random.NextSingle());
-        Vector3 v = c.Offset * (Vector3.One + Vector3.Clamp(c.OffsetSpread, Vector3.Zero, Vector3.One) * new Vector3(Signed(), Signed(), Signed()));
         Matrix4x4 m;
         Vector3 position;
         if (ownFrame)
         {
-            m = EffectSpace.Tilt(EffectSpace.OrientOldEngine(c.OrientationMode, Matrix4x4.Identity), tilt, azimuth);
+            m = EffectSpace.Tilt(EffectSpace.OrientOldEngine(c.OrientationMode, Matrix4x4.Identity), p.Tilt, p.Azimuth);
             if (c.OrientationMode > 5) m *= Matrix4x4.Transpose(s);
             Matrix4x4 offsetFrame = EffectSpace.OrientOldEngine(c.OffsetMode, m);
-            position = origin + Vector3.TransformNormal(Vector3.TransformNormal(v, offsetFrame), s);
+            position = origin + Vector3.TransformNormal(Vector3.TransformNormal(p.Offset, offsetFrame), s);
         }
         else
         {
-            m = EffectSpace.Tilt(EffectSpace.OrientOldEngine(c.OrientationMode, s), tilt, azimuth);
-            Vector3 offset = Vector3.TransformNormal(v, EffectSpace.OrientOldEngine(c.OffsetMode, s));
+            m = EffectSpace.Tilt(EffectSpace.OrientOldEngine(c.OrientationMode, s), p.Tilt, p.Azimuth);
+            Vector3 offset = Vector3.TransformNormal(p.Offset, EffectSpace.OrientOldEngine(c.OffsetMode, s));
             position = origin + (c.Type == EffectPieceType.Package ? offset : Vector3.TransformNormal(offset, s));
         }
         m.Translation = Vector3.Zero;
@@ -461,8 +510,15 @@ public sealed class EffectSimulator
     private Matrix4x4 ParentRotation(int placement)
     {
         int parent = _placements[placement].Parent;
-        return Rotation(parent < 0 ? Settings.SpawnFrame : _placements[parent].ChildSlot);
+        return parent < 0 ? RootRotation() : Rotation(_placements[parent].ChildSlot);
     }
+
+    private Matrix4x4 RootRotation() => PackageRotation(Package, _rootSpin) * Rotation(Settings.SpawnFrame);
+
+    private static Matrix4x4 PackageRotation(EffectPackage package, float angle) =>
+        angle != 0f && package.SpinAxis.LengthSquared() > 1e-12f
+            ? Matrix4x4.CreateFromAxisAngle(Vector3.Normalize(package.SpinAxis), angle)
+            : Matrix4x4.Identity;
     private float Signed() => 2f * _random.NextSingle() - 1f;
 
     private void ComputePlayLength()
@@ -471,7 +527,10 @@ public sealed class EffectSimulator
         bool forever = false;
         foreach (EmitterInstance e in _emitters)
         {
-            float life = MaxOf(e.Emitter.Scalar("Spawn life"), 1f);
+            if (_placements[e.Placement].Skipped) continue;
+            float life = e.Emitter.Scalar("Spawn life") is { Keys.Length: > 0 } track && UsesAcitTiming
+                ? track.Keys.Max(k => MathF.Max(k.Min, k.IsRandom ? k.Max : k.Min) * (1f + MathF.Abs(k.Extra)))
+                : MaxOf(e.Emitter.Scalar("Spawn life"), 1f);
             if (e.Emitter.Duration <= 1e-4f || e.CycleMax > 1e-4f)
             {
                 forever = true;
@@ -481,11 +540,19 @@ public sealed class EffectSimulator
         }
         foreach (QuadInstance q in _quads)
         {
+            if (_placements[q.Placement].Skipped) continue;
             if (q.Quad.Lifetime <= 0f) forever = true;
             else end = MathF.Max(end, q.Delay + q.Quad.Lifetime);
         }
+        if (UsesAcitTiming)
+        {
+            foreach (LightInstance l in _lights)
+                if (!_placements[l.Placement].Skipped && l.Light.Lifetime > 0f)
+                    end = MathF.Max(end, l.Delay + l.Light.Lifetime);
+            if (end == 0f && _lights.Any(l => !_placements[l.Placement].Skipped)) forever = true;
+        }
         Continuous = forever;
-        PlayLength = end;
+        PlayLength = MathF.Max(end, Package.TimelineDuration);
         SteadyStateTime = forever ? steady : 0f;
     }
 
@@ -513,19 +580,22 @@ public sealed class EffectSimulator
     public void SetSpawnFrame(Matrix4x4 frame)
     {
         Settings.SpawnFrame = frame;
-        Place();
+        Place(reroll: false);
     }
 
-    public void Reset()
+    public void Reset(bool reseed = true)
     {
         Time = 0f;
         _frameClock = 0f;
-        _random = new Random(_seed);
+        _pendingTime = 0;
+        _simulationFrame = 0;
+        if (reseed) _random = new Random(_seed);
         foreach (EmitterInstance e in _emitters) { e.Age = -1; e.SpawnDebt = 0; e.Cycle = 0; e.Particles.Clear(); e.Spawned = 0; }
         foreach (QuadInstance q in _quads) q.Age = -1;
         foreach (LightInstance l in _lights) l.Age = -1;
         ParticleCount = 0;
-        Place();
+        Place(reroll: true);
+        ComputePlayLength();
     }
 
     /// <summary>True once every bounded piece has finished and no particle is alive.</summary>
@@ -535,57 +605,113 @@ public sealed class EffectSimulator
 
     public void Step(float dt)
     {
-        dt = Math.Clamp(dt * Settings.TimeScale, 0f, 0.1f);
-        Time += dt;
+        float elapsed = Math.Clamp(dt, 0f, 0.1f) * Settings.TimeScale;
+        if (!float.IsFinite(elapsed) || elapsed <= 0f) return;
+        _pendingTime += elapsed;
+        while (_pendingTime + 1e-8 >= SimulationStep)
+        {
+            _pendingTime -= SimulationStep;
+            Advance((float)SimulationStep);
+        }
+    }
+
+    private void Advance(float dt)
+    {
+        Time = (float)(++_simulationFrame * SimulationStep);
+        AdvancePlacementSpin(dt);
         // Turbulence is applied once per game frame (not scaled by dt): count the frames this step spans.
         float rate = Math.Max(1f, Settings.GameFrameRate);
         _frameClock += dt * rate;
         int frames = (int)_frameClock;
         _frameClock -= frames;
-        int total = 0;
+        int budget = Settings.MaxParticles - ParticleCount;
         foreach (EmitterInstance e in _emitters)
         {
             if (_placements[e.Placement].Skipped) continue;
-            StepEmitter(e, dt, Math.Min(frames, 4));
-            total += e.Particles.Count;
+            StepEmitter(e, dt, Math.Min(frames, 4), ref budget);
         }
         foreach (QuadInstance q in _quads)
         {
             if (Time < q.Delay || _placements[q.Placement].Skipped) continue;
-            if (q.Age < 0) { q.Age = 0; q.R0 = _random.NextSingle(); q.R1 = _random.NextSingle(); q.R2 = _random.NextSingle(); }
-            else q.Age += dt;
+            if (q.Age < 0) { q.R0 = _random.NextSingle(); q.R1 = _random.NextSingle(); q.R2 = _random.NextSingle(); }
+            q.Age = Time - q.Delay;
         }
         foreach (LightInstance l in _lights)
         {
             if (Time < l.Delay || _placements[l.Placement].Skipped) continue;
-            l.Age = l.Age < 0 ? 0 : l.Age + dt;
+            if (l.Age < 0)
+            {
+                l.ColourRandom = _random.NextSingle();
+                l.RadiusRandom = _random.NextSingle();
+            }
+            l.Age = Time - l.Delay;
         }
-        ParticleCount = total;
+        ParticleCount = _emitters.Sum(e => e.Particles.Count);
     }
+
+    private static EffectScalarTrack? SpinTrack(EffectScalarTrack? track) =>
+        track?.Keys.Any(key => key.Min != 0f || key.IsRandom && key.Max != 0f) == true ? track : null;
+
+    private void AdvancePlacementSpin(float dt)
+    {
+        bool changed = AdvanceSpin(_rootSpinTrack, Time, dt, Package.TimelineDuration, _rootSpinRandom, ref _rootSpin);
+        foreach (Placement p in _spinningPlacements)
+        {
+            float age = Time - p.Delay;
+            if (p.Skipped || age <= 0f) continue;
+            float elapsed = MathF.Min(age, dt);
+            float lifetime = p.Component.Piece switch
+            {
+                EffectEmitter emitter => emitter.Duration,
+                EffectQuad quad => quad.Lifetime,
+                EffectLight light => light.Lifetime,
+                EffectPackage package => package.TimelineDuration,
+                _ => 0f,
+            };
+            changed |= AdvanceSpin(p.Component.Spin, age, elapsed, lifetime, p.SpinRandom, ref p.Spin);
+            if (p.Component.Piece is EffectPackage child)
+                changed |= AdvanceSpin(child.Scalar("Spin"), age, elapsed, lifetime, p.PackageSpinRandom, ref p.PackageSpin);
+        }
+        if (changed) Place(reroll: false);
+    }
+
+    private static bool AdvanceSpin(EffectScalarTrack? track, float age, float dt, float lifetime, float random, ref float angle)
+    {
+        if (track is not { Keys.Length: > 0 }) return false;
+        float rate = track.Evaluate(TrackTime(age - dt * 0.5f, lifetime, track.Word1), random);
+        if (rate == 0f) return false;
+        angle = IntegrateSpin(angle, rate, dt);
+        return true;
+    }
+
+    private static float IntegrateSpin(float angle, float degreesPerSecond, float dt) =>
+        MathF.IEEERemainder(angle + degreesPerSecond * (MathF.PI / 180f) * dt, MathF.Tau);
 
     /// <summary>
-    /// Where an emitter is on its emitter-life curves, in [0, 1]: over its duration for a burst, over its
-    /// component cycle for a cycled continuous emitter, else looping over
-    /// <see cref="EffectSimulationSettings.ContinuousCurvePeriod"/>. (The spawn-rate track's two words after
-    /// the key pointer, once read as a period here, are 0 on every emitter of the corpus.)
+    /// Where an emitter track is in its cycle or emission window.
     /// </summary>
-    private float CurveTime(EmitterInstance e)
+    private float CurveTime(EmitterInstance e, float age, uint word1)
     {
         float duration = e.Emitter.Duration;
-        if (duration > 1e-4f) return Math.Clamp(e.Age / duration, 0f, 1f);
-        if (e.Cycle > 1e-4f) return Math.Clamp(e.Age / e.Cycle, 0f, 1f);
+        // 0x69D430 keeps a positive timing word for a multi-key track. With neither
+        // a timing word nor an emitter duration the binder keeps only the first key.
+        if (UsesAcitTiming) return TrackTime(age, duration, word1);
+        if (duration > 1e-4f) return Math.Clamp(age / duration, 0f, 1f);
+        if (e.Cycle > 1e-4f) return Math.Clamp(age / e.Cycle, 0f, 1f);
         float period = Settings.ContinuousCurvePeriod;
-        return period > 1e-3f ? e.Age / period % 1f : 0f;
+        return period > 1e-3f ? age / period % 1f : 0f;
     }
 
-    /// <summary>A quad's place on its curves: over its lifetime, else over the period its alpha track's second
-    /// word holds when that is a float, else frozen at 0.</summary>
-    private static float QuadTime(float age, float lifetime, uint word1)
+    /// <summary>Sample a track's explicit timing window, or use the lifetime of the track's owner.</summary>
+    private static float TrackTime(float age, float lifetime, uint word1, bool repeat = true)
     {
-        if (lifetime > 1e-4f) return Math.Clamp(age / lifetime, 0f, 1f);
         float period = BitConverter.UInt32BitsToSingle(word1);
-        if (float.IsNormal(period) && period > 1e-3f) return age / period % 1f;
-        return 0f;
+        if (float.IsNormal(period) && period > 0f)
+        {
+            float phase = age / period;
+            return repeat ? phase % 1f : Math.Clamp(phase, 0f, 1f);
+        }
+        return lifetime > 0f ? Math.Clamp(age / lifetime, 0f, 1f) : 0f;
     }
 
     /// <summary>
@@ -595,17 +721,15 @@ public sealed class EffectSimulator
     /// </summary>
     private void Begin(EmitterInstance e)
     {
-        e.SpawnDebt = MathF.Max(e.SpawnDebt, 1f);
+        e.SpawnDebt = 1f;
         e.Cycle = e.CycleMax > 1e-4f ? e.CycleMin + (e.CycleMax - e.CycleMin) * _random.NextSingle() : 0f;
     }
 
-    private void StepEmitter(EmitterInstance e, float dt, int gameFrames)
+    private void StepEmitter(EmitterInstance e, float dt, int gameFrames, ref int budget)
     {
         EffectEmitter emitter = e.Emitter;
         if (Time < e.Delay) return;
-        if (e.Age < 0) { e.Age = 0; Begin(e); }
-        else e.Age += dt;
-        if (e.Cycle > 1e-4f && e.Age >= e.Cycle) { e.Age -= e.Cycle; Begin(e); }
+        if (e.Age < 0) { e.Age = 0; dt = Math.Clamp(Time - e.Delay, 0f, dt); Begin(e); }
 
         // Age and move the live particles: the class overlays' update block (A_14 0xF90), in its order.
         Vector3 accel = AccelerationOf(e) - Vector3.UnitY * Settings.Gravity;
@@ -620,12 +744,12 @@ public sealed class EffectSimulator
         bool beam = emitter.EmitterClass == 2;
         float follow = beam ? MathF.Exp(-emitter.BeamFollow * dt) : 1f;
         float beamMin = emitter.BeamMinLength, beamMax = emitter.BeamMaxLength;
-        EffectScalarTrack? spinTrack = emitter.Scalar("Particle spin");
+        EffectScalarTrack? spinTrack = e.ParticleSpin;
         for (int i = e.Particles.Count - 1; i >= 0; i--)
         {
             Particle p = e.Particles[i];
             p.Age += dt;
-            if (p.Age >= p.Life) { e.Particles.RemoveAt(i); continue; }
+            if (p.Age >= p.Life) { e.Particles.RemoveAt(i); budget++; continue; }
             Vector3 tail = p.Position + p.Beam * follow;
             p.Position += p.Velocity * dt;
             Vector3 v = p.Velocity + accel * dt;
@@ -645,23 +769,52 @@ public sealed class EffectSimulator
                 float length = MathF.Max(MathF.Min(d2 > 0f ? MathF.Sqrt(d2) : 0f, beamMax), beamMin);
                 p.Beam = (d2 > 9.97e-8f ? d / MathF.Sqrt(d2) : Vector3.UnitX) * length;
             }
-            float spin = spinTrack?.Evaluate(p.Age / p.Life, p.R4) ?? 0f;
-            p.Rotation += spin * MathF.PI / 180f * dt;
+            if (spinTrack != null)
+            {
+                float spinTime = UsesAcitTiming
+                    ? TrackTime(p.Age, p.Life, spinTrack.Word1, repeat: false)
+                    : p.Age / p.Life;
+                float spin = spinTrack.Evaluate(spinTime, p.R4);
+                // ACIT FXVis 0x3B98 reads the spin direction from a bit in the particle state.
+                if (UsesAcitTiming)
+                    p.Rotation = IntegrateSpin(p.Rotation, p.ReverseSpin ? -spin : spin, dt);
+                else
+                    p.Rotation += spin * (MathF.PI / 180f) * dt;
+            }
         }
 
-        bool emitting = emitter.Duration <= 1e-4f || e.Age <= emitter.Duration;
-        if (!emitting) return;
+        // Finish the part of the step before each restart and carry the remaining time into the new cycle.
+        while (e.Cycle > 1e-4f && e.Age + dt >= e.Cycle)
+        {
+            float beforeRestart = MathF.Max(0f, e.Cycle - e.Age);
+            Emit(e, beforeRestart, ref budget);
+            dt -= beforeRestart;
+            e.Age = 0f;
+            Begin(e);
+        }
+        Emit(e, dt, ref budget);
+        e.Age += dt;
+    }
 
-        EffectScalarTrack? rate = emitter.Scalar("Spawn rate");
-        float te = CurveTime(e);
-        float perSecond = MathF.Max(0f, rate?.Evaluate(te, _random.NextSingle()) ?? 0f);
+    private void Emit(EmitterInstance e, float dt, ref int budget)
+    {
+        float duration = e.Emitter.Duration;
+        if (duration > 1e-4f)
+        {
+            if (e.Age >= duration) return;
+            dt = MathF.Min(dt, duration - e.Age);
+        }
+        if (e.Emitter.Scalar("Spawn rate") is not { } rate) return;
+        float age = e.Age + dt * 0.5f;
+        float perSecond = MathF.Max(0f, rate.Evaluate(CurveTime(e, age, rate.Word1), _random.NextSingle()));
+        if (!(perSecond > 0f)) return;
         e.SpawnDebt += perSecond * dt;
-        int budget = Settings.MaxParticles - ParticleCount;
-        while (e.SpawnDebt >= 1f && budget-- > 0)
+        while (e.SpawnDebt >= 1f && budget > 0)
         {
             e.SpawnDebt -= 1f;
-            e.Particles.Add(Spawn(e, te));
+            e.Particles.Add(Spawn(e, age));
             e.Spawned++;
+            budget--;
         }
         if (budget <= 0) e.SpawnDebt = 0;
     }
@@ -672,12 +825,20 @@ public sealed class EffectSimulator
     /// +0x25C field). Velocity = direction x spawn speed (a uniform draw between the key's min and max - the game
     /// draws mean x (1 + spread x U(-1, 1)) at 0x6C10, the same distribution).
     /// </summary>
-    private Particle Spawn(EmitterInstance e, float te)
+    private float SpawnValue(EmitterInstance e, string name, float age, float fallback, bool spread = false)
+    {
+        if (e.Emitter.Scalar(name) is not { } track) return fallback;
+        float time = CurveTime(e, age, track.Word1);
+        float value = track.Evaluate(time, _random.NextSingle(), fallback);
+        return spread && UsesAcitTiming ? value * (1f + track.EvaluateExtra(time) * Signed()) : value;
+    }
+
+    private Particle Spawn(EmitterInstance e, float age)
     {
         EffectEmitter emitter = e.Emitter;
-        float life = emitter.Scalar("Spawn life")?.Evaluate(te, _random.NextSingle(), 1f) ?? 1f;
-        float speed = emitter.Scalar("Spawn speed")?.Evaluate(te, _random.NextSingle()) ?? 0f;
-        float radius = emitter.Scalar("Spawn radius")?.Evaluate(te, _random.NextSingle()) ?? 0f;
+        float life = SpawnValue(e, "Spawn life", age, 1f, spread: true);
+        float speed = SpawnValue(e, "Spawn speed", age, 0f, spread: true);
+        float radius = SpawnValue(e, "Spawn radius", age, 0f);
 
         EffectSpawnStyles.Draw(emitter.SpawnStyle, _random, radius, emitter.ConeMinDegrees, emitter.ConeMaxDegrees,
             e.Spawned & 7, out Vector3 local, out Vector3 direction, oldEngine: emitter.OldEngineType > 0);
@@ -690,6 +851,7 @@ public sealed class EffectSimulator
             Rotation = _random.NextSingle() * MathF.Tau,
             R0 = _random.NextSingle(), R1 = _random.NextSingle(), R2 = _random.NextSingle(),
             R3 = _random.NextSingle(), R4 = _random.NextSingle(),
+            ReverseSpin = UsesAcitTiming && e.ParticleSpin != null && _random.Next(2) != 0,
         };
     }
 
@@ -700,6 +862,15 @@ public sealed class EffectSimulator
         EffectEmitter m = e.Emitter;
         if (m.Acceleration == 0f || !m.AccelerationAxis(out Vector3 axis, out bool world)) return Vector3.Zero;
         return (world ? axis : Vector3.TransformNormal(axis, e.Frame)) * m.Acceleration;
+    }
+
+    // Sampling a frame must not consume randomness from the simulation. Repeated draws of a paused
+    // or culled effect also need to agree about flicker.
+    private float Flicker(float seed)
+    {
+        uint hash = unchecked(BitConverter.SingleToUInt32Bits(seed) + (uint)_simulationFrame * 0x9E3779B9u);
+        hash = unchecked((hash ^ (hash >> 16)) * 0x21F0AAADu);
+        return (hash >> 8) * (1f / 16777216f);
     }
 
     /// <summary>Appends this frame's sprites and light markers.</summary>
@@ -714,10 +885,12 @@ public sealed class EffectSimulator
                 if (!Plays(e.Emitter) || e.Age < 0) continue;
                 if (e.Emitter.IsDistortion && !Settings.ShowDistortion) continue;
                 EffectEmitter m = e.Emitter;
-                float te = CurveTime(e);
-                Vector4 emtColor = m.Color("Emitter colour")?.Evaluate(te, 0f) ?? Vector4.One;
-                float emtAlpha = m.Scalar("Emitter alpha")?.Evaluate(te, 0f, 1f) ?? 1f;
-                float emtScale = m.Scalar("Emitter scale")?.Evaluate(te, 0f, 1f) ?? 1f;
+                var emitterColour = m.Color("Emitter colour");
+                var emitterAlpha = m.Scalar("Emitter alpha");
+                var emitterScale = m.Scalar("Emitter scale");
+                Vector4 emtColor = emitterColour?.Evaluate(CurveTime(e, e.Age, emitterColour.Word1), 0f) ?? Vector4.One;
+                float emtAlpha = emitterAlpha?.Evaluate(CurveTime(e, e.Age, emitterAlpha.Word1), 0f, 1f) ?? 1f;
+                float emtScale = emitterScale?.Evaluate(CurveTime(e, e.Age, emitterScale.Word1), 0f, 1f) ?? 1f;
                 EffectColorTrack? pColor = m.Color("Particle colour");
                 EffectScalarTrack? pAlpha = m.Scalar("Particle alpha");
                 EffectScalarTrack? pSize = m.Scalar("Particle size");
@@ -733,19 +906,29 @@ public sealed class EffectSimulator
                     ? EffectSpace.PlaneOf(EffectSpace.Orient(m.FacingMode, Rotation(e.Frame), ParentRotation(e.Placement)))
                     : (Vector3.Zero, Vector3.Zero);
 
-                foreach (Particle p in e.Particles)
+                // A Crack in Time class 4 (shader 5) joins each particle to the next one spawned with a ribbon: 1,056 of its
+                // 1,945 emitters carry a texture whose alpha only varies across U, and SCEPTER_STASIS's spinning spawns
+                // show as continuous spirals in game. INFERRED; the trail overlay is not read.
+                bool ribbon = UsesAcitTiming && m.EmitterClass == 4;
+                for (int i = 0; i < e.Particles.Count; i++)
                 {
+                    Particle p = e.Particles[i];
+                    if (ribbon && i + 1 >= e.Particles.Count) break;
                     float tl = p.Age / p.Life;
-                    Vector4 c = (pColor?.Evaluate(tl, colorFlicker ? _random.NextSingle() : p.R0) ?? Vector4.One) * emtColor * tint;
-                    float a = (pAlpha?.Evaluate(tl, alphaFlicker ? _random.NextSingle() : p.R1, 1f) ?? 1f) * emtAlpha;
-                    float size = (pSize?.Evaluate(tl, p.R2, 0.1f) ?? 0.1f) * emtScale;
+                    Vector4 c = (pColor?.Evaluate(tl, colorFlicker ? Flicker(p.R0) : p.R0) ?? Vector4.One) * emtColor * tint;
+                    float a = (pAlpha?.Evaluate(tl, alphaFlicker ? Flicker(p.R1) : p.R1, 1f) ?? 1f) * emtAlpha;
+                    // A timed particle size curve holds its final key through the rest of that particle's life.
+                    float size = (pSize?.Evaluate(UsesAcitTiming
+                        ? TrackTime(p.Age, p.Life, pSize.Word1, repeat: false)
+                        : tl, p.R2, 0.1f) ?? 0.1f) * emtScale;
                     if (size <= 0f || c.W * a <= 0.002f) continue;
                     EffectTexture? frameTex = e.TextureChoice >= 0 ? m.Textures[e.TextureChoice]
                         : frames > 1 ? m.Textures[Math.Min(frames - 1, (int)(tl * frames))] : tex;
                     billboards.Add(new EffectBillboard
                     {
                         Position = p.Position,
-                        Stretch = m.EmitterClass == 2 ? p.Beam : StretchOf(m, p.Velocity),
+                        Stretch = ribbon ? e.Particles[i + 1].Position - p.Position
+                            : m.EmitterClass == 2 ? p.Beam : StretchOf(m, p.Velocity),
                         HalfSize = size * 0.5f,
                         Rotation = p.Rotation,
                         Color = new Vector4(c.X, c.Y, c.Z, c.W * a),
@@ -773,20 +956,28 @@ public sealed class EffectSimulator
                 EffectColorTrack? color = quad.Color("Colour");
                 EffectScalarTrack? alpha = quad.Scalar("Alpha");
                 EffectScalarTrack? size = quad.Scalar("Size");
-                float tq = QuadTime(q.Age, quad.Lifetime, alpha?.Word1 ?? 0);
+                float tq = TrackTime(q.Age, quad.Lifetime, quad.Lifetime > 0f ? 0 : alpha?.Word1 ?? 0);
                 bool flicker = alpha?.Keys.Any(k => k.RerollsEveryFrame) == true;
-                Vector4 c = (color?.Evaluate(tq, q.R0) ?? Vector4.One) * tint;
-                float a = alpha?.Evaluate(tq, flicker ? _random.NextSingle() : q.R1, 1f) ?? 1f;
-                float s = size?.Evaluate(tq, q.R2, 1f) ?? 1f;
+                Vector4 c = (color?.Evaluate(UsesAcitTiming ? TrackTime(q.Age, quad.Lifetime, color.Word1) : tq, q.R0) ?? Vector4.One) * tint;
+                float a = alpha?.Evaluate(UsesAcitTiming ? TrackTime(q.Age, quad.Lifetime, alpha.Word1) : tq, flicker ? Flicker(q.R1) : q.R1, 1f) ?? 1f;
+                float s = size?.Evaluate(UsesAcitTiming ? TrackTime(q.Age, quad.Lifetime, size.Word1) : tq, q.R2, 1f) ?? 1f;
+                EffectScalarTrack? widthTrack = UsesAcitTiming ? quad.Scalar("Width") : null;
+                float width = widthTrack?.Evaluate(TrackTime(q.Age, quad.Lifetime, widthTrack.Word1), q.R2, 1f) ?? 1f;
                 EffectTexture? tex = quad.PrimaryTexture;
                 (Vector3 planeX, Vector3 planeY) = quad.IsFrameOriented ? EffectSpace.PlaneOf(q.Frame) : (Vector3.Zero, Vector3.Zero);
+                if (quad.IsAxialBillboard)
+                    // The local +Z axis is the upright direction of the axial quad.
+                    planeY = Vector3.Normalize(new Vector3(q.Frame.M31, q.Frame.M32, q.Frame.M33));
                 billboards.Add(new EffectBillboard
                 {
                     Position = q.Position,
                     Oriented = quad.IsFrameOriented,
+                    Axial = quad.IsAxialBillboard,
                     AxisX = planeX,
                     AxisY = planeY,
                     HalfSize = s * 0.5f,
+                    HalfWidth = width > 0f ? s * width * 0.5f : 0f,
+                    Rotation = quad.IsFrameOriented || quad.IsAxialBillboard ? 0f : _placements[q.Placement].Spin,
                     Color = new Vector4(c.X, c.Y, c.Z, c.W * a),
                     TextureIndex = tex?.DrawTextureIndex ?? -1,
                     Blend = tex?.SpriteBlend ?? EffectSpriteBlend.Additive,
@@ -795,14 +986,18 @@ public sealed class EffectSimulator
             }
         }
 
-        if (Settings.ShowLights)
+        if (Settings.ShowLights && (!UsesAcitTiming || !Finished))
         {
             foreach (LightInstance l in _lights)
             {
                 if (!Plays(l.Light) || l.Age < 0) continue;
                 if (l.Light.Lifetime > 0f && l.Age > l.Light.Lifetime) continue;
-                Vector4 c = l.Light.Color("Colour")?.Evaluate(0f, _random.NextSingle()) ?? Vector4.One;
-                float radius = l.Light.Scalar("Outer radius?")?.Evaluate(0f, 0f, 1f) ?? 1f;
+                var colour = l.Light.Color("Colour");
+                var size = l.Light.Scalar("Outer radius?");
+                Vector4 c = colour?.Evaluate(UsesAcitTiming ? TrackTime(l.Age, l.Light.Lifetime, colour.Word1) : 0f,
+                    l.ColourRandom) ?? Vector4.One;
+                float radius = size?.Evaluate(UsesAcitTiming ? TrackTime(l.Age, l.Light.Lifetime, size.Word1) : 0f,
+                    l.RadiusRandom, 1f) ?? 1f;
                 lights.Add(new EffectLightMarker { Position = l.Position, Color = c, Radius = radius, Source = l.Light });
             }
         }

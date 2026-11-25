@@ -52,6 +52,8 @@ public class View3D : DockedFrame
 
     // The toolbar's collision panel and edit mode (filters, selection, edits).
     private readonly Core.Collision.CollisionEditor _collisionEditor = new();
+    // The placed Mobys' collision: its own button, panel and renderer layer.
+    private readonly Core.Collision.MobyCollisionLayer _mobyCollision = new();
     // A left press in collision edit mode, held until release: a click, or a marquee once dragged.
     private Vector2? _marqueeStart;
     private const float MarqueeThreshold = 4f;
@@ -138,16 +140,30 @@ public class View3D : DockedFrame
     /// the renderer culls against, so it doubles as a way to SEE the culling: anything whose sphere does
     /// not contain it will pop at the screen edge.</summary>
     private int _appliedSphereVisibility;
+    private int _appliedWaterSelection = -1;
+    private bool _waterOutlined;
 
     private void UpdateBoundingSphereOverlay()
     {
         bool wanted = EntityManager.Singleton.renderBoundingSpheres;
         int visibility = EntityManager.Singleton.VisibilityVersion;
-        if (wanted == _appliedBoundingSpheres && (!wanted || visibility == _appliedSphereVisibility)) return;
+        // The selected water bodies' outlines ride on the same lines: the water pass has no outline of its own.
+        var selection = Core.Selection.SelectionManager.Singleton;
+        bool waterSelected = selection.Selection.Any(e => e is EntityWater);
+        bool waterChanged = selection.Version != _appliedWaterSelection && (waterSelected || _waterOutlined);
+        if (!waterChanged && wanted == _appliedBoundingSpheres && (!wanted || visibility == _appliedSphereVisibility)) return;
         _appliedBoundingSpheres = wanted;
         _appliedSphereVisibility = visibility;
+        _appliedWaterSelection = selection.Version;
+        _waterOutlined = waterSelected;
 
         _sphereLines.Clear();
+        foreach (var water in selection.Selection.OfType<EntityWater>())
+        {
+            var corners = water.Outline();
+            for (int i = 0; i < corners.Length; i++)
+                _sphereLines.Add((corners[i], corners[(i + 1) % corners.Length], Program.Settings.SelectionOutlineColor));
+        }
         if (wanted)
         {
             foreach (var entity in EntityManager.Singleton.AllEntities())
@@ -265,6 +281,16 @@ public class View3D : DockedFrame
                 settings.SaveSettingsToFile();
             }
         }
+        // Water bodies and vertical fog, greyed out where the level has neither.
+        bool water = !settings.HideWater;
+        bool hasWater = LevelWaterView.HasWater(Core.LunaWindow.Instance.Level)
+            || EntityManager.Singleton.Regions.Any(r => r.Controllers.Any(c => c.Class == LevelWaterView.VerticalFogControllerClass));
+        if (overlay.ToggleButton(Icons.Droplet, ref water,
+                LM.Get(hasWater ? "GUI_Viewport_Water" : "GUI_Viewport_NoWater"), enabled: hasWater))
+        {
+            settings.HideWater = !water;
+            settings.SaveSettingsToFile();
+        }
         // Particle effects: old-engine and A Crack in Time levels, greyed out where there are none to play.
         bool effects = !settings.HideEffects;
         bool hasEffects = LevelEffectPlayer.HasEffects;
@@ -301,6 +327,11 @@ public class View3D : DockedFrame
         // Edit mode takes the left button over; it does not outlive the panel that shows it is on.
         if (!_collisionEditor.PanelOpen) _collisionEditor.EditMode = false;
         float collisionAnchor = overlay.LastButtonLeft;
+        bool hasMobyCollision = _mobyCollision.HasCollision;
+        if (!hasMobyCollision) _mobyCollision.PanelOpen = false;
+        overlay.ToggleButton(Icons.Shapes, ref _mobyCollision.PanelOpen,
+            LM.Get(hasMobyCollision ? "GUI_Viewport_MobyCollision" : "GUI_Viewport_NoMobyCollision"), enabled: hasMobyCollision);
+        float mobyCollisionAnchor = overlay.LastButtonLeft;
 
         if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f), clipAnchor))
         {
@@ -328,6 +359,7 @@ public class View3D : DockedFrame
         DrawTransformBar(overlay);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
+        _mobyCollision.DrawPanel(overlay, mobyCollisionAnchor, settings);
         if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
     }
 
@@ -844,6 +876,7 @@ public class View3D : DockedFrame
                 // gates it so the editor can still inspect geometry double-sided. Pushed per frame so
                 // the toggle takes effect live, without a scene rebuild.
                 vkStage.RetailBackfaceCulling = Program.Settings.BackfaceCulling;
+                vkStage.ShrubWind = Program.Settings.StillShrubs ? 0f : 1f;
                 // The navmesh overlay. Colour and visibility are live; the geometry is uploaded only
                 // when the level or the renderer instance changes (a scene rebuild makes a new one).
                 vkStage.NavmeshColor = EntityManager.Singleton.NavmeshColor;
@@ -890,6 +923,8 @@ public class View3D : DockedFrame
                 vkStage.CollisionRegionMask = CollisionRegionMask();
                 _collisionEditor.RegionMask = vkStage.CollisionRegionMask;
                 _collisionEditor.Apply(vkStage, Program.Settings);
+                _mobyCollision.UploadIfStale(vkStage, Core.LunaWindow.Instance.Level);
+                _mobyCollision.Update(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
@@ -899,6 +934,8 @@ public class View3D : DockedFrame
                 vkStage.CameraMarkers = BuildCameraList();
                 vkStage.ControllerIconMarkers = _vkControllerIcons;
                 vkStage.Boundary = BuildSectorBoundary();
+                vkStage.Waters = Program.Settings.HideWater ? [] : LevelWaterView.Waters(Core.LunaWindow.Instance.Level);
+                vkStage.VerticalFogs = Program.Settings.HideWater ? [] : LevelWaterView.VerticalFogs(EntityManager.Singleton.Regions);
                 vkStage.FlyPlane = !Program.Settings.HideFlyPlane && ConfigDocument.LevelBoundsRadius() is { } flyRadius
                     ? (GameConfigs.AphelionFlyHeight, flyRadius) : null;
                 _paths.Update(vkStage, SelectedEntity, CollisionEditing);
@@ -923,7 +960,8 @@ public class View3D : DockedFrame
                     Program.Settings.EnableLighting,
                     EntityManager.Singleton.FrustumCullingEnabled,
                     VisibleEntityKinds(),
-                    Program.Settings.TextureFiltering);
+                    Program.Settings.TextureFiltering,
+                    fxaa: Program.Settings.EnableFxaa);
 
                 // The overlay's "entities rendered" readout comes from the renderer's own post-cull
                 // visible count.
@@ -1132,6 +1170,17 @@ public class View3D : DockedFrame
             Entity? hit = hitId != Engine.Rendering.Vulkan.VulkanRenderer.NoHit
                 ? EntityManager.Singleton.AllEntities().FirstOrDefault(e => (uint)e.ID == hitId)
                 : null;
+            if (hit is EntityWater water && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) &&
+                SurfaceProbe.ViewRay(Camera, _viewport.MousePos, _viewport.Size) is { } ray &&
+                MathF.Abs(ray.Direction.Y) > 1e-6f)
+            {
+                float distance = (water.Surface.Height - ray.Origin.Y) / ray.Direction.Y;
+                if (distance > 0f)
+                {
+                    Vector3 position = ray.Origin + ray.Direction * distance;
+                    vkStage.AddWaterRipple(hitId, new Vector2(position.X, position.Z));
+                }
+            }
             // Paths are picked on the CPU (PathOverlay.Pick); the nearer of the two wins, the mesh measured
             // at its bounding sphere's centre.
             if (!CollisionEditing && _paths.Pick(_viewport.MousePos, Camera.GetView() * Camera.GetProjection(), _viewport.Size,

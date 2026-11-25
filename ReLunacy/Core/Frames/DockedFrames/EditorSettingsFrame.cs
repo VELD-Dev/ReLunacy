@@ -9,7 +9,7 @@ internal class EditorSettingsFrame : Frame
 {
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.NoResize;
 
-    private readonly string[] AAoptions = ["Disabled", "x2", "x4", "x8", "x16", "x32"];
+    private static readonly string[] MsaaOptions = ["Disabled", "x2", "x4", "x8", "x16", "x32"];
     // Order must match the ReLunacy.Engine.Rendering.TextureFiltering enum (the combo index is
     // cast straight to it).
     private readonly string[] FilteringOptions = ["Nearest (Point)", "Bilinear"];
@@ -17,14 +17,11 @@ internal class EditorSettingsFrame : Frame
     private readonly string[] Languages;
     private int selectedLanguage;
     private int currLanguage;
-    public int currentMsaa;
-    private readonly int maxMsaa;
     public int currentLogLevel = (int)Program.Settings.LogLevel;
 
     public EditorSettingsFrame()
     {
         FrameName = LM.Get("GUI_Frame_EditorSettings");
-        maxMsaa = (int)LunaWindow.Instance.GraphicsDevice.GetSampleCountLimit(PixelFormat.R8_G8_B8_A8_SInt, false);
         Languages = [.. LM.Languages.Select(l => l.Value.LangName)];
     }
 
@@ -50,21 +47,27 @@ internal class EditorSettingsFrame : Frame
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_RestartRequiredHelp"));
                 ImGui.DragFloat(LM.Get("GUI_Frame_EditorSettings_FarClipDist"), ref Program.Settings.RenderDistance, 25, 150, 10000, "%0.1fm");
                 ImGui.InputInt(LM.Get("GUI_Frame_EditorSettings_MaxFramerate"), ref Program.Settings.TargetFPS);
-                // Resync from Program.Settings.MSAA_Level every frame (so external changes, e.g. the
-                // Cancel button's ReloadSettings, are reflected too) and write straight back on edit.
-                currentMsaa = (int)Program.Settings.MSAA_Level;
-                if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), ref currentMsaa, AAoptions, maxMsaa + 1))
-                    Program.Settings.MSAA_Level = (uint)currentMsaa;
+                ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_FXAA"), ref Program.Settings.EnableFxaa);
                 ImGui.SameLine();
-                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_RestartRequiredHelp"));
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_FXAAHelp"));
+                var window = LunaWindow.Instance;
+                var currentMsaa = window.RequestedMsaaSampleCount;
+                if (ImGui.BeginCombo(LM.Get("GUI_Frame_EditorSettings_MSAALevel"), MsaaOptions[(int)currentMsaa]))
+                {
+                    foreach (var sampleCount in window.SupportedMsaaSampleCounts)
+                        if (ImGui.Selectable(MsaaOptions[(int)sampleCount], sampleCount == currentMsaa))
+                            Program.Settings.MSAA_Level = (uint)sampleCount;
+                    ImGui.EndCombo();
+                }
+                ImGui.SameLine();
+                ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_MSAAHelp"));
                 if (ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_VSync"), ref Program.Settings.VSync))
                     LunaWindow.Instance.GraphicsDevice.SyncToVerticalBlank = Program.Settings.VSync;
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_UseFrustrumCulling"), ref Program.Settings.FrustrumCulling);
                 ImGui.Checkbox(LM.Get("GUI_Frame_EditorSettings_BackfaceCulling"), ref Program.Settings.BackfaceCulling);
                 ImGui.SameLine();
                 ImGuiPlus.HelpMarker(LM.Get("GUI_Frame_EditorSettings_BackfaceCullingHelp"));
-                // Same resync-every-frame pattern as currentMsaa above (see that comment) -
-                // applied live by Window.Update via AssetManager.SetTextureFiltering.
+                // Applied live by Window.Update via AssetManager.SetTextureFiltering.
                 currentFiltering = (int)Program.Settings.TextureFiltering;
                 if (ImGui.Combo(LM.Get("GUI_Frame_EditorSettings_TextureFiltering"), ref currentFiltering, FilteringOptions, FilteringOptions.Length))
                     Program.Settings.TextureFiltering = (ReLunacy.Engine.Rendering.TextureFiltering)currentFiltering;

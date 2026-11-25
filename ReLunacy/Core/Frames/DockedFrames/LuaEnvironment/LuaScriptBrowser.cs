@@ -1,494 +1,259 @@
 using System.Numerics;
-using LibreFios;
-using ReLunacy.Engine.Scripting;
+using ReLunacy.Core.Project;
 using ReLunacy.Engine.Games;
+using ReLunacy.Engine.Projects;
+using ReLunacy.Engine.Scripting;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 
-/// <summary>
-/// Lists the scripts a loaded level can reach, so one can be opened without knowing where it lives.
-///
-/// On the old engine they all live in <c>packed/game/global_cached.psarc</c>, not in the level's own
-/// archive, which is not where anyone would look first - the level folder holds main.dat and
-/// vertices.dat while its scripts sit in the shared archive, keyed by level name. From A Crack in
-/// Time on, the shared archive keeps only the game-wide scripts (/scripts/, /data/configs/) and each
-/// level's own sit in its <c>level_cached.psarc</c> (/levels/&lt;level&gt;/scripts/, compiled under
-/// /built/levels/&lt;level&gt;/scripts/). Both archives are opened; each script is read from, and
-/// installed back into, the one that holds it.
-///
-/// Both halves are offered: the current level's own scripts, and the game-wide ones every level
-/// runs. Other levels' scripts are available too but collapsed, because 481 of the 524 belong to
-/// levels other than the open one and would bury the relevant few.
-///
-/// Each source has a compiled counterpart, by a path mapping confirmed across all 524:
-///   /levels/&lt;level&gt;/..X.lua -> /built/levels/&lt;level&gt;/..X.lc
-///   /scripts/X.lua            -> /built/game/scripts/X.lc
-///   /data/configs/X.lua       -> /data/configs/X.lc
-/// so selecting a script can open its bytecode beside the source.
-/// </summary>
-public sealed class LuaScriptBrowser
+/// <summary>Looks up project scripts by their original archive and entry path.</summary>
+public sealed class LuaScriptBrowser(bool includeProjectLevels = true) : IDisposable
 {
-    /// <summary>Raised when a script is picked: its archive path, source text, and compiled bytes
-    /// when the matching chunk exists.</summary>
-    public Action<string, string, byte[]?>? ScriptSelected { get; set; }
-
-    /// <summary>The archives open, level's own first; empty until a level is loaded.</summary>
-    // Read through the open project (OverlaidArchive): a script saved into it shows its saved text.
-    private readonly List<(string Path, Engine.Projects.OverlaidArchive Archive)> _archives = [];
-
-    /// <summary>Which of <see cref="_archives"/> each script path was found in.</summary>
-    private readonly Dictionary<string, int> _owner = new(StringComparer.OrdinalIgnoreCase);
-
-    private string? _archiveKey;
-
-    /// <summary>The level's own archive when it holds the level's scripts (A Crack in Time on), else null.</summary>
-    private string? _levelArchivePath;
-    private string? _error;
-    private string _levelName = "";
-    private string _filter = "";
-    private string _newScript = "";
-    private string? _newScriptStatus;
-
+    private readonly List<OverlaidArchive> _archives = [];
+    private readonly Dictionary<string, OverlaidArchive> _owners = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _levelScripts = [];
     private readonly List<string> _gameScripts = [];
-    private readonly List<string> _configScripts = [];
+    private readonly List<string> _configs = [];
     private readonly List<string> _otherScripts = [];
 
-    /// <summary>
-    /// Functions declared by the scripts that share this level's global table, indexed once per
-    /// level. Rebuilding it per edit would mean re-parsing every sibling, so the editor merges its
-    /// own file into this rather than rebuilding the whole thing.
-    /// </summary>
+    private (LunaProject? Project, string Level, int Revision)? _context;
+    private string _levelName = "";
+    private string? _globalArchive;
+    private string? _levelArchive;
+    private string? _error;
+    private string? _status;
+    private string _filter = "";
+    private string _newScript = "";
+    private bool _newGameScript;
+
     private LuaScriptIndex? _shared;
-    private string? _sharedFor;
-    private List<LuaScriptSource> _sharedSources = [];
+    private string? _sharedLevel;
+    private List<LuaScriptSource> _sources = [];
 
-    /// <summary>A write to the archive is in flight, so the handle is deliberately closed: see
-    /// <see cref="BeginCreateLevelScript"/>.</summary>
-    private bool _writing;
-
-    /// <summary>Opens the archives for the level currently loaded, if they are not already open.</summary>
-    private void EnsureArchive()
+    public bool Refresh()
     {
-        if (_writing) return;
-        string levelSource = Program.ProvidedPath;
-        if (string.IsNullOrEmpty(levelSource))
+        var project = ProjectSession.Current;
+        var context = (project, Program.ProvidedPath, project?.Revision ?? 0);
+        if (_context == context) return false;
+
+        Dispose();
+        _context = context;
+        _levelName = GameLibraryScanner.GetLevelNameFromPath(context.ProvidedPath);
+        _globalArchive = Existing(ProjectSession.GameFolder, "global_cached.psarc");
+        _levelArchive = LevelArchive(context.ProvidedPath);
+        var archives = new[] { _levelArchive, _globalArchive };
+        if (includeProjectLevels && project != null)
+            archives = [.. archives, .. project.LevelSources().Select(LevelArchive)];
+        foreach (string archive in archives.OfType<string>().Distinct(StringComparer.Ordinal))
         {
-            Reset();
-            _error = LM.Get("GUI_LuaEnv_ScriptsNoLevel");
-            return;
+            try
+            {
+                var opened = new OverlaidArchive(archive);
+                _archives.Add(opened);
+                foreach (string path in opened.Paths.Where(IsSource))
+                {
+                    if (!_owners.TryAdd(path, opened)) continue;
+                    string? level = LevelOf(path);
+                    if (level != null && level.Equals(_levelName, StringComparison.OrdinalIgnoreCase)) _levelScripts.Add(path);
+                    else if (path.StartsWith("/scripts/", StringComparison.OrdinalIgnoreCase)) _gameScripts.Add(path);
+                    else if (path.StartsWith("/data/configs/", StringComparison.OrdinalIgnoreCase)) _configs.Add(path);
+                    else if (level != null) _otherScripts.Add(path);
+                }
+            }
+            catch (Exception e) { _error = e.Message; }
         }
-
-        string? shared = ResolveGlobalCached(levelSource);
-        string? own = ResolveLevelArchive(levelSource);
-        string key = $"{shared}|{own}";
-        if (key == _archiveKey && _archives.Count > 0) return;
-
-        Reset();
-        _archiveKey = key;
-        _levelName = GameLibraryScanner.GetLevelNameFromPath(levelSource);
-
-        if (shared is null && own is null)
-        {
-            _error = string.Format(LM.Get("GUI_LuaEnv_ScriptsNotFound"), "packed/game/global_cached.psarc");
-            return;
-        }
-
-        try
-        {
-            // The level's own first: its scripts are found there before anywhere else.
-            foreach (string path in new[] { own, shared }.OfType<string>())
-                _archives.Add((path, new Engine.Projects.OverlaidArchive(path)));
-            Categorise();
-        }
-        catch (Exception e) { _error = e.Message; }
+        foreach (var group in new[] { _levelScripts, _gameScripts, _configs, _otherScripts })
+            group.Sort(StringComparer.OrdinalIgnoreCase);
+        return true;
     }
 
-    /// <summary>
-    /// Closes and reopens the archive, after something has rewritten it.
-    ///
-    /// Necessary because installing replaces the file on disk: the handle held here keeps reading
-    /// the version that was there when it was opened, so without this an edit appears not to have
-    /// happened and a newly added script never shows up in the list.
-    /// </summary>
-    public void Reload()
+    private static string? LevelArchive(string level) => level.Length == 0 ? null
+        : Existing(File.Exists(level) ? Path.GetDirectoryName(level) : level, "level_cached.psarc");
+
+    private static string? Existing(string? directory, string name)
     {
-        Reset();
-        EnsureArchive();
+        if (directory == null) return null;
+        string path = Path.Combine(directory, name);
+        return File.Exists(path) ? path : null;
     }
 
-    private void Reset()
+    private static bool IsSource(string path) => path.EndsWith(".lua", StringComparison.OrdinalIgnoreCase);
+
+    private static string? LevelOf(string path)
     {
-        // The archives hold their files open, so switching level or closing one has to release them
-        // rather than leaving handles per level opened this session.
-        foreach (var (_, archive) in _archives) archive.Dispose();
-        _archives.Clear();
-        _owner.Clear();
-        _archiveKey = null;
-        _levelArchivePath = null;
-        _error = null;
+        var parts = path.TrimStart('/').Split('/', 4);
+        int levels = parts[0].Equals("built", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        return parts.Length > levels + 2 && parts[levels].Equals("levels", StringComparison.OrdinalIgnoreCase)
+            ? parts[levels + 1] : null;
+    }
+
+    public bool Contains(string path) => _owners.ContainsKey(path);
+
+    public (string Archive, string Source, byte[]? Chunk, bool Draft) Read(string path)
+    {
+        var owner = _owners[path];
+        string compiled = LuaScriptPackWriter.CompiledPathFor(path);
+        string? draft = Draft(path);
+        return (owner.Path, draft ?? LuaText.FromBytes(owner.Read(path)),
+            owner.Contains(compiled) ? owner.Read(compiled) : null, draft != null);
+    }
+
+    private string? Draft(string path) => ProjectSession.Current?.LuaDraft(_owners[path].Path, path);
+
+    public LuaScriptIndex SharedScripts(string path)
+    {
+        var sources = SharedSources(path);
+        return _shared ??= LuaScriptIndex.BuildShared(sources);
+    }
+
+    public IReadOnlyList<LuaScriptSource> SharedSources(string path)
+    {
+        Refresh();
+        string level = LevelOf(path) ?? _levelName;
+        if (string.Equals(_sharedLevel, level, StringComparison.OrdinalIgnoreCase)) return _sources;
+
+        _sources = [];
+        foreach (string candidate in _owners.Keys.Where(p => string.Equals(LevelOf(p), level, StringComparison.OrdinalIgnoreCase))
+                     .Concat(_gameScripts))
+        {
+            try { _sources.Add(new LuaScriptSource(candidate, Draft(candidate) ?? LuaText.FromBytes(_owners[candidate].Read(candidate)))); }
+            catch (Exception e) when (e is IOException or InvalidDataException) { _error = e.Message; }
+        }
+        _sharedLevel = level;
         _shared = null;
-        _sharedFor = null;
-        _levelScripts.Clear();
-        _gameScripts.Clear();
-        _configScripts.Clear();
-        _otherScripts.Clear();
+        return _sources;
     }
 
-    /// <summary>
-    /// Walks up from a level's folder or .psarc to <c>packed/</c> and across to the shared archive.
-    /// Only the standard packed/levels/&lt;name&gt; nesting is handled, same as the debug.dat lookup.
-    /// </summary>
-    private static string? ResolveGlobalCached(string levelSource)
+    public IEnumerable<string> ScriptNames(string path, LuaScriptNameKind kind)
     {
-        try
+        string level = LevelOf(path) ?? _levelName;
+        string prefix = $"/levels/{level}/scripts/";
+        return kind switch
         {
-            string trimmed = levelSource.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string levelDir = File.Exists(trimmed) ? Path.GetDirectoryName(trimmed) ?? trimmed : trimmed;
-            string? levels = Path.GetDirectoryName(levelDir);          // .../packed/levels
-            string? packed = Path.GetDirectoryName(levels ?? "");      // .../packed
-            if (packed is null) return null;
-            string candidate = Path.Combine(packed, "game", "global_cached.psarc");
-            return File.Exists(candidate) ? candidate : null;
-        }
-        catch { return null; }
-    }
-
-    /// <summary>The level's own <c>level_cached.psarc</c>, beside a level opened as a file or folder.</summary>
-    private static string? ResolveLevelArchive(string levelSource)
-    {
-        try
-        {
-            string trimmed = levelSource.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string levelDir = File.Exists(trimmed) ? Path.GetDirectoryName(trimmed) ?? trimmed : trimmed;
-            string candidate = Path.Combine(levelDir, "level_cached.psarc");
-            return File.Exists(candidate) ? candidate : null;
-        }
-        catch { return null; }
-    }
-
-    private void Categorise()
-    {
-        string levelPrefix = $"/levels/{_levelName}/";
-
-        for (int a = 0; a < _archives.Count; a++)
-        foreach (string path in _archives[a].Archive.Paths.Where(p => p.EndsWith(".lua", StringComparison.OrdinalIgnoreCase)))
-        {
-            if (!_owner.TryAdd(path, a)) continue;
-            if (path.StartsWith(levelPrefix, StringComparison.OrdinalIgnoreCase) && _archives[a].Path.EndsWith("level_cached.psarc", StringComparison.OrdinalIgnoreCase))
-                _levelArchivePath = _archives[a].Path;
-            if (path.StartsWith(levelPrefix, StringComparison.OrdinalIgnoreCase)) _levelScripts.Add(path);
-            else if (path.StartsWith("/scripts/", StringComparison.OrdinalIgnoreCase)) _gameScripts.Add(path);
-            else if (path.StartsWith("/data/configs/", StringComparison.OrdinalIgnoreCase)) _configScripts.Add(path);
-            else _otherScripts.Add(path);
-        }
-
-        _levelScripts.Sort(StringComparer.OrdinalIgnoreCase);
-        _gameScripts.Sort(StringComparer.OrdinalIgnoreCase);
-        _configScripts.Sort(StringComparer.OrdinalIgnoreCase);
-        _otherScripts.Sort(StringComparer.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// The archive a script came from, so the editor can write it back into it; for a path no archive
-    /// holds yet, the one it would be created in. Null until a level is loaded and an archive found.
-    /// </summary>
-    public string? ArchivePathFor(string scriptPath)
-    {
-        EnsureArchive();
-        if (_archives.Count == 0) return null;
-        if (_owner.TryGetValue(scriptPath, out int a)) return _archives[a].Path;
-        return scriptPath.StartsWith("/levels/", StringComparison.OrdinalIgnoreCase) ? LevelScriptArchive() : SharedArchive();
-    }
-
-    /// <summary>Where this level's scripts are written: its own archive when that is where they live,
-    /// else the shared one (the old engine).</summary>
-    private string? LevelScriptArchive() => _levelArchivePath ?? SharedArchive();
-
-    private string? SharedArchive() =>
-        _archives.Select(a => a.Path).FirstOrDefault(p => p.EndsWith("global_cached.psarc", StringComparison.OrdinalIgnoreCase))
-        ?? _archives.Select(a => a.Path).FirstOrDefault();
-
-    /// <summary>
-    /// Writes a script into an archive (<see cref="LuaScriptPackWriter.Save"/>), letting go of the
-    /// loaded level's hold on that archive while the file is replaced - a level's own archive is the
-    /// one the level was read from, and is open in the file manager.
-    /// </summary>
-    public static LuaScriptSaveResult SaveInto(string archive, string scriptPath, string text, Action<LuaSaveProgressReport>? progress)
-    {
-        var fm = LunaWindow.Instance.fileManager;
-        bool held = fm != null && fm.ArchivePaths.Any(p => string.Equals(Path.GetFullPath(p), Path.GetFullPath(archive), StringComparison.Ordinal));
-        if (held) fm!.ReleaseArchives();
-        try { return LuaScriptPackWriter.Save(archive, scriptPath, text, progress); }
-        finally { if (held) fm!.ReopenArchives(); }
-    }
-
-    /// <summary>
-    /// The level's own scripts and the global game scripts, indexed for their declarations.
-    ///
-    /// Both groups count: these games load a level's scripts into one shared global table, so a
-    /// function in the level's <c>utility.lua</c> or in <c>/scripts/</c> is callable from any of
-    /// them with nothing importing it. Configs and other levels are excluded - they are not loaded
-    /// alongside, and their names would be offered at call sites that cannot reach them.
-    /// </summary>
-    public LuaScriptIndex? SharedScripts()
-    {
-        EnsureArchive();
-        if (_archives.Count == 0) return null;
-
-        string key = $"{_archiveKey}|{_levelName}";
-        if (_sharedFor == key) return _shared;
-
-        var sources = new List<LuaScriptSource>();
-        foreach (string path in _levelScripts.Concat(_gameScripts))
-        {
-            // One unreadable entry must not cost the whole index.
-            try { sources.Add(new LuaScriptSource(path, ReadText(path))); }
-            catch { }
-        }
-
-        _sharedSources = sources;
-        _shared = LuaScriptIndex.BuildShared(sources);
-        _sharedFor = key;
-        return _shared;
-    }
-
-    /// <summary>
-    /// The texts the shared index was built from, so a reference search can read them.
-    ///
-    /// Kept rather than re-read: searching every sibling means opening every sibling, and these are
-    /// the same entries already decompressed to build the index.
-    /// </summary>
-    public IReadOnlyList<LuaScriptSource> SharedSources()
-    {
-        SharedScripts();
-        return _sharedSources;
-    }
-
-    /// <summary>
-    /// The bare names a script-name argument can take: this level's scripts, or the game-wide ones.
-    ///
-    /// Bare names, because that is what the loaders take - <c>load_level_script("music")</c>, no
-    /// folder and no extension. The 310 and 20 call sites in the shipped corpus agree on that
-    /// shape, which is what the entries in LuaStringArguments rest on.
-    /// </summary>
-    public IEnumerable<string> ScriptNames(LuaScriptNameKind kind)
-    {
-        EnsureArchive();
-        var paths = kind switch
-        {
-            LuaScriptNameKind.LevelScript => _levelScripts,
-            LuaScriptNameKind.GameScript => _gameScripts,
+            LuaScriptNameKind.LevelScript => _owners.Keys.Where(p => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(p => p[prefix.Length..^4]),
+            LuaScriptNameKind.GameScript => _gameScripts.Select(p => p["/scripts/".Length..^4]),
             _ => [],
         };
-        return paths.Select(Path.GetFileNameWithoutExtension)
-                    .Where(name => !string.IsNullOrEmpty(name))
-                    .Select(name => name!);
     }
 
-    /// <summary>
-    /// Creates a script in this level and opens it.
-    ///
-    /// The file goes into the archive and into the game's file index together, which is what
-    /// <see cref="LuaScriptPackWriter"/> does for a path the archive does not hold yet - so this is
-    /// the same write the Install button performs, with a starter body instead of an edit.
-    ///
-    /// The archive is closed first and reopened after. The write replaces the file on disk, and a
-    /// handle held across it keeps reading the version that was there before - so the new script
-    /// would be invisible until the level was reloaded.
-    ///
-    /// The write itself is the same one the Install button performs and takes just as long, so it
-    /// runs on a worker behind a progress bar; what can be refused on the spot still is, and the
-    /// rest arrives through <paramref name="onCompleted"/> on the main thread.
-    /// </summary>
-    /// <returns>An immediate refusal, or null once the write has been started.</returns>
-    public LuaScriptSaveResult? BeginCreateLevelScript(string name, Action<LuaScriptSaveResult> onCompleted)
+    public static LuaScriptSaveResult Save(string archive, string path, string source, LunaProject? project)
     {
-        EnsureArchive();
-        if (LevelScriptArchive() is not { } archivePath)
-            return LuaScriptSaveResult.Refused(LM.Get("GUI_LuaEnv_ScriptsNoLevel"));
-        if (!IsUsableName(name))
-            return LuaScriptSaveResult.Refused(string.Format(LM.Get("GUI_LuaEnv_NewScriptBadName"), name));
-        if (_writing)
-            return LuaScriptSaveResult.Refused(LM.Get("GUI_LuaEnv_ScriptsBusy"));
-
-        string path = $"/levels/{_levelName}/scripts/{name}.lua";
-        if (_owner.ContainsKey(path))
-            return LuaScriptSaveResult.Refused(string.Format(LM.Get("GUI_LuaEnv_NewScriptExists"), path));
-
-        // A comment-only file compiles to a valid chunk, so the pair that lands in the archive is
-        // real from the start rather than something that has to be fixed before it will build.
-        string loader = _levelArchivePath != null ? "run_script" : "load_level_script";
-        string source = $"-- {name}.lua\n-- Run with {loader}(\"{name}\")\n";
-        var labels = PhaseLabels<LuaSavePhase>.Snapshot("LuaSavePhase");
-
-        // The handle has to be released before the file is replaced, and must not be reopened while
-        // the worker is rebuilding it - EnsureArchive is called from Render, every frame.
-        Reset();
-        _writing = true;
-
-        BackgroundJob.Run(
-            LM.Get("GUI_LuaEnv_NewScript"),
-            string.Format(LM.Get("GUI_LuaEnv_Installing"), Path.GetFileName(archivePath)),
-            bar => SaveInto(archivePath, path, source,
-                report => labels.Apply(bar, report.Phase, report.Overall, report.Done, report.Total)),
-            result =>
-            {
-                _writing = false;
-                EnsureArchive();
-                if (result.Succeeded) Open(path);
-                onCompleted(result);
-            },
-            e =>
-            {
-                _writing = false;
-                EnsureArchive();
-                onCompleted(LuaScriptSaveResult.Refused(e.Message));
-            });
-
-        return null;
+        if (project == null) return LuaScriptSaveResult.Refused(LM.Get("GUI_Install_NoProject"));
+        var game = project.Game ?? LunaWindow.Instance.Level?.GameDefinition?.Id;
+        return LuaScriptPackWriter.Save(archive, path, source, sink: project.Sink,
+            useLua51: game is { } id ? !GameDefinitions.All.First(g => g.Id == id).IsOldEngine : null);
     }
 
-    /// <summary>
-    /// Whether a name can be a script. The loaders take a bare name, so anything with a folder or
-    /// an extension in it would be a name no call site could write.
-    /// </summary>
-    private static bool IsUsableName(string name) =>
-        name.Length > 0 && name.Length <= 64
-        && (char.IsLetter(name[0]) || name[0] == '_')
-        && name.All(c => char.IsLetterOrDigit(c) || c is '_' or '-');
-
-    /// <summary>The compiled chunk's path for a source path, by the mapping verified over all 524.</summary>
-    public static string CompiledPathFor(string sourcePath)
+    public void Render(string selected, bool dirty, Func<string, bool> open, Func<bool> save)
     {
-        string lc = Path.ChangeExtension(sourcePath, ".lc");
-        if (lc.StartsWith("/levels/", StringComparison.OrdinalIgnoreCase)) return "/built" + lc;
-        if (lc.StartsWith("/scripts/", StringComparison.OrdinalIgnoreCase)) return "/built/game" + lc;
-        return lc; // /data/configs keeps its path
-    }
-
-    public void Render()
-    {
-        EnsureArchive();
-
-        if (_error is { } error)
+        if (_error is { } error) ImGui.TextWrapped(error);
+        if (_archives.Count == 0)
         {
-            ImGui.TextWrapped(error);
+            ImGui.TextDisabled(LM.Get("GUI_LuaEnv_ScriptsNoLevel"));
             return;
         }
-        if (_archives.Count == 0) return;
 
-        ImGui.TextDisabled(string.Join(" + ", _archives.Select(a => Path.GetFileName(a.Path))));
         ImGui.SetNextItemWidth(-1f);
         ImGui.InputTextWithHint("##script_filter", LM.Get("GUI_LuaEnv_ScriptsFilter"), ref _filter, 128);
-
-        NewScriptRow();
+        NewScriptRow(open, save);
         ImGui.Separator();
 
-        if (!ImGui.BeginChild("script_list", new Vector2(0f, 0f))) { ImGui.EndChild(); return; }
-
-        // The level's own scripts open expanded: they are the reason the browser exists.
-        Group(string.Format(LM.Get("GUI_LuaEnv_ScriptsLevel"), _levelName, _levelScripts.Count),
-              _levelScripts, defaultOpen: true);
-        Group(string.Format(LM.Get("GUI_LuaEnv_ScriptsGame"), _gameScripts.Count), _gameScripts, defaultOpen: true);
-        Group(string.Format(LM.Get("GUI_LuaEnv_ScriptsConfigs"), _configScripts.Count), _configScripts, defaultOpen: false);
-        Group(string.Format(LM.Get("GUI_LuaEnv_ScriptsOther"), _otherScripts.Count), _otherScripts, defaultOpen: false);
-
+        if (ImGui.BeginChild("script_list", new Vector2(0f, 0f)))
+        {
+            Group("level", string.Format(LM.Get("GUI_LuaEnv_ScriptsLevel"), _levelName, _levelScripts.Count), _levelScripts, true);
+            Group("game", string.Format(LM.Get("GUI_LuaEnv_ScriptsGame"), _gameScripts.Count), _gameScripts, true);
+            Group("configs", string.Format(LM.Get("GUI_LuaEnv_ScriptsConfigs"), _configs.Count), _configs, false);
+            if (_otherScripts.Any(Matches)
+                && ImGui.TreeNodeEx($"{LM.Get("GUI_LuaEnv_ScriptsOther", _otherScripts.Count)}###other_levels",
+                    _filter.Length > 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None))
+            {
+                foreach (var level in _otherScripts.GroupBy(LevelOf))
+                    Group($"other:{level.Key}", LM.Get("GUI_LuaEnv_ScriptsLevel", level.Key ?? "", level.Count()),
+                        level.ToList(), false);
+                ImGui.TreePop();
+            }
+        }
         ImGui.EndChild();
+
+        bool Matches(string path) => path.Contains(_filter, StringComparison.OrdinalIgnoreCase);
+
+        void Group(string id, string label, List<string> paths, bool defaultOpen)
+        {
+            var matches = paths.Where(Matches).ToList();
+            if (matches.Count == 0) return;
+            if (!ImGui.TreeNodeEx($"{ImGuiPlus.Label(Icons.Folder, label)}###{id}",
+                    defaultOpen || _filter.Length > 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) return;
+
+            foreach (string path in matches)
+            {
+                bool active = path.Equals(selected, StringComparison.OrdinalIgnoreCase);
+                string name = Path.GetFileName(path);
+                if (Draft(path) != null) name += " " + LM.Get("GUI_LuaEnv_DraftName");
+                if (ImGui.Selectable($"{(active && dirty ? "· " : "")}{name}###{path}", active)) open(path);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(path);
+            }
+            ImGui.TreePop();
+        }
     }
 
-    /// <summary>
-    /// Creating a script in this level: a name, and the button that writes it.
-    ///
-    /// Deliberately not a confirmation-free one-click action - it writes a game archive and the
-    /// game's file index. The name is typed first, the button says what it will make, and the
-    /// result is reported including where the backup went.
-    /// </summary>
-    private void NewScriptRow()
+    private void NewScriptRow(Func<string, bool> open, Func<bool> save)
     {
-        ImGui.SetNextItemWidth(-ImGui.CalcTextSize(LM.Get("GUI_LuaEnv_NewScript")).X
-                               - ImGui.GetStyle().FramePadding.X * 4f - ImGui.GetStyle().ItemSpacing.X);
+        var project = ProjectSession.Current;
+        bool gameScope = _newGameScript || _levelName.Length == 0;
+        string? archive = gameScope ? _globalArchive : _levelArchive ?? _globalArchive;
+        ImGui.BeginDisabled(project == null);
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("##script_scope", LM.Get(gameScope ? "GUI_LuaEnv_NewGameScript" : "GUI_LuaEnv_NewLevelScript")))
+        {
+            if (_levelName.Length > 0 && ImGui.Selectable(LM.Get("GUI_LuaEnv_NewLevelScript"), !gameScope)) _newGameScript = false;
+            if (ImGui.Selectable(LM.Get("GUI_LuaEnv_NewGameScript"), gameScope)) _newGameScript = true;
+            ImGui.EndCombo();
+        }
+        float buttonWidth = ImGui.CalcTextSize(Icons.Plus).X + ImGui.GetStyle().FramePadding.X * 2f;
+        ImGui.SetNextItemWidth(-buttonWidth - ImGui.GetStyle().ItemSpacing.X);
         ImGui.InputTextWithHint("##new_script", LM.Get("GUI_LuaEnv_NewScriptHint"), ref _newScript, 64);
         ImGui.SameLine();
-
-        bool usable = IsUsableName(_newScript);
-        ImGui.BeginDisabled(!usable || _writing);
-        if (ImGui.Button(LM.Get("GUI_LuaEnv_NewScript")))
+        bool usable = _newScript.Length > 0 && (char.IsAsciiLetter(_newScript[0]) || _newScript[0] == '_')
+            && _newScript.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+        ImGui.BeginDisabled(!usable || archive == null);
+        if (ImGuiPlus.IconButton(Icons.Plus, "new_lua_script") && archive != null && save())
         {
-            void Report(LuaScriptSaveResult result)
+            string path = (gameScope ? "/scripts/" : $"/levels/{_levelName}/scripts/") + _newScript + ".lua";
+            if (Contains(path)) _status = string.Format(LM.Get("GUI_LuaEnv_NewScriptExists"), path);
+            else
             {
-                _newScriptStatus = result.Succeeded
-                    ? result.BackupPath is { } backup
-                        ? $"{result.Summary} (backup: {Path.GetFileName(backup)})"
-                        : result.Summary
-                    : result.Summary;
-                if (result.Succeeded) _newScript = "";
+                var result = Save(archive, path, $"-- {_newScript}.lua\n", project);
+                _status = result.Succeeded ? null : string.Join("\n", new[] { result.Summary }.Concat(result.Problems));
+                if (result.Succeeded)
+                {
+                    _newScript = "";
+                    Refresh();
+                    open(path);
+                }
             }
-
-            // A refusal comes back straight away; a write that started reports when it finishes.
-            if (BeginCreateLevelScript(_newScript, Report) is { } refused) Report(refused);
-            else _newScriptStatus = LM.Get("GUI_LuaEnv_ScriptsWriting");
         }
         ImGui.EndDisabled();
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(usable
-                ? string.Format(LM.Get("GUI_LuaEnv_NewScriptTooltip"), _levelName, _newScript)
-                : LM.Get("GUI_LuaEnv_NewScriptHint"));
-
-        if (_newScriptStatus is { } status) ImGui.TextWrapped(status);
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_NewScript"));
+        if (_status != null) ImGui.TextWrapped(_status);
     }
 
-    private void Group(string label, List<string> paths, bool defaultOpen)
+    public void Dispose()
     {
-        var matching = _filter.Length == 0
-            ? paths
-            : paths.Where(p => p.Contains(_filter, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (matching.Count == 0) return;
-
-        // A filter that matches opens its group, so typing reveals hits in collapsed sections.
-        var flags = defaultOpen || _filter.Length > 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None;
-        if (!ImGui.TreeNodeEx(label, flags)) return;
-
-        foreach (string path in matching)
-            if (ImGui.Selectable($"{Path.GetFileName(path)}###{path}"))
-                Open(path);
-
-        ImGui.TreePop();
-    }
-
-    /// <summary>
-    /// Opens a script by its archive path, as if it had been clicked. Public so a jump to a
-    /// declaration in another file can get there - the browser is what holds the archive.
-    /// </summary>
-    public void Open(string path)
-    {
-        EnsureArchive();
-        if (_archives.Count == 0) return;
-        try
-        {
-            string source = ReadText(path);
-            byte[]? compiled = TryRead(CompiledPathFor(path));
-            ScriptSelected?.Invoke(path, source, compiled);
-        }
-        catch (Exception e) { _error = $"{path}: {e.Message}"; }
-    }
-
-    /// <summary>The archive holding a path: the one its source was listed from, else the first that has it.</summary>
-    private Engine.Projects.OverlaidArchive? Holder(string path)
-    {
-        if (_owner.TryGetValue(path, out int a)) return _archives[a].Archive;
-        return _archives.Select(x => x.Archive).FirstOrDefault(x => x.Contains(path));
-    }
-
-    private string ReadText(string path) =>
-        LuaText.FromBytes((Holder(path) ?? throw new FileNotFoundException(path)).Read(path));
-
-    /// <summary>The compiled chunk, or null when this source has none. Presence is checked against
-    /// the manifest rather than by catching a failed read, so a genuine read error still surfaces.</summary>
-    private byte[]? TryRead(string path)
-    {
-        return Holder(path)?.Read(path);
+        foreach (var archive in _archives) archive.Dispose();
+        _archives.Clear();
+        _owners.Clear();
+        _levelScripts.Clear();
+        _gameScripts.Clear();
+        _configs.Clear();
+        _otherScripts.Clear();
+        _shared = null;
+        _sharedLevel = null;
+        _sources = [];
+        _context = null;
+        _error = null;
     }
 }

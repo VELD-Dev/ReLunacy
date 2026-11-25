@@ -35,11 +35,17 @@ public static class Backups
     /// <summary>Copies <paramref name="path"/> beside itself with the date and time in the name, and returns the copy's path.</summary>
     public static string Create(string path)
     {
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture);
         string backup = $"{path}.{stamp}.bak";
         // Two saves within the same second each keep their own copy.
         for (int n = 2; File.Exists(backup); n++) backup = $"{path}.{stamp}-{n}.bak";
-        File.Copy(path, backup);
-        return backup;
+        string temporary = $"{backup}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.Copy(path, temporary);
+            File.Move(temporary, backup);
+            return backup;
+        }
+        finally { File.Delete(temporary); }
     }
 }

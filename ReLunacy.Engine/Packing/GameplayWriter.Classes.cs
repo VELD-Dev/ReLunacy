@@ -66,7 +66,8 @@ public static partial class GameplayWriter
         var pending = new Dictionary<ulong, (PendingShader Shader, EntityRegion Owner)>();
         foreach (var region in regions)
             foreach (var s in region.PendingShaders) pending.TryAdd(s.Tuid, (s, region));
-        if (pending.Count == 0) return;
+        var textures = regions.SelectMany(r => r.PendingTextures.Select(t => (Texture: t, Region: r.RegionName))).ToList();
+        if (pending.Count == 0 && textures.Count == 0) return;
         foreach (var (s, owner) in pending.Values)
         {
             var names = new List<string> { owner.RegionName };
@@ -75,17 +76,22 @@ public static partial class GameplayWriter
             s.Regions.AddRange(names.Distinct());
         }
 
-        var result = ShaderRegistrar.Register(read, pending.Values.Select(p => p.Shader).ToList());
+        var result = ShaderRegistrar.Register(read, pending.Values.Select(p => p.Shader).ToList(), textures);
         plan.Changes.AddRange(result.Changes);
         plan.Problems.AddRange(result.Problems.Select(p => $"assets: {p}"));
         plan.Problems.AddRange(result.Refused.Select(r => $"shader {r.Shader.Name}: not saved, {r.Reason}"));
+        plan.Problems.AddRange(result.RefusedTextures.Select(r => $"texture {r.Texture.Name}: not saved, {r.Reason}"));
         foreach (var (name, bytes) in result.Files) { plan.Entries[name] = bytes; current[name] = bytes; }
-        if (result.Registered.Count > 0)
+        if (result.Registered.Count > 0 || result.RegisteredTextures.Count > 0)
         {
             plan.Structural = true;
             afterSave?.Add(() =>
             {
-                foreach (var region in regions) region.PendingShaders.RemoveAll(s => result.Registered.Contains(s.Tuid));
+                foreach (var region in regions)
+                {
+                    region.PendingShaders.RemoveAll(s => result.Registered.Contains(s.Tuid));
+                    region.PendingTextures.RemoveAll(t => result.RegisteredTextures.Contains(t.Tuid));
+                }
             });
         }
     }

@@ -383,6 +383,7 @@ public sealed class TextureShaderLoader
             texturesByPathCrc.TryAdd((uint)(tex.id >> 32), tex);
         var unresolved = new List<(Shader Shader, int Slot, string Name)>();
 
+        bool crackInTime = _fileManager.GameDefinition?.Id == Games.GameId.ACrackInTime;
         foreach (var (ptr, source, fromPatchLayer) in shaderPointers)
         {
             _progress?.Advance();
@@ -390,74 +391,8 @@ public sealed class TextureShaderLoader
             source.Seek(ptr.offset, SeekOrigin.Begin);
             source.ReadExactly(shaderBuffer);
 
-            using var memstream = new MemoryStream(shaderBuffer, writable: false);
-            var shadstream = new StreamHelper(memstream, StreamHelper.Endianness.Big);
-            var igshader = new IGFile(memstream);
-            var metadataSection = igshader.QuerySection(ShaderMetadataNew.ID);
-            if (metadataSection.id != ShaderMetadataNew.ID || metadataSection.length != ShaderMetadataNew.Size)
-            {
-                Console.WriteLine(
-                    $"New-engine shader 0x{ptr.TUID:X16}: invalid 0x5000 record " +
-                    $"(stride 0x{metadataSection.length:X}); skipped.");
-                continue;
-            }
-
-            shadstream.Seek(metadataSection.offset);
-            var shader = new Shader(shadstream, tuidOverride: ptr.TUID);
-            ShaderMetadataNew meta = shader.metadataNew!.Value;
-            ShaderReference sref = shader.reference!.Value;
-
-            var localBindings = ReadNewEngineTextureBindings(igshader, shadstream);
-            ReadOnlySpan<uint> namePointers =
-            [
-                sref.albedoNamePointer,
-                sref.normalNamePointer,
-                sref.expensiveNamePointer,
-                sref.detailNamePointer,
-                sref.texture4NamePointer,
-                sref.texture5NamePointer,
-            ];
-
-            for (int slot = 0; slot < Shader.NewTextureSlotCount; slot++)
-            {
-                string slotName = namePointers[slot] != 0
-                    ? shadstream.ReadString(namePointers[slot])
-                    : string.Empty;
-                shader.NewTextureSourceNames[slot] = slotName;
-
-                int localIndex = meta.GetTextureLocalIndex(slot);
-                if (localIndex < 0)
-                    continue;
-                if (localIndex >= localBindings.Length)
-                {
-                    Console.WriteLine(
-                        $"New-engine shader 0x{ptr.TUID:X16} '{shader.name}': 0x5000 slot {slot} " +
-                        $"indexes local texture {localIndex}, but 0x5A00/0x5200 has {localBindings.Length}; ignored.");
-                    continue;
-                }
-
-                var binding = localBindings[localIndex];
-                shader.NewTextureSourceIds[slot] = binding.Id;
-                shader.NewTextureDescriptors[slot] = binding.Descriptor;
-
-                if (texturesByLow32.TryGetValue(binding.Id, out var texture))
-                {
-                    SetSlot(shader, slot, texture);
-                    // Keep one descriptor on the source texture for generic asset inspection only.
-                    // MaterialReader uses the per-slot descriptor above and creates a binding-specific
-                    // wrapper when native state differs, so rendering no longer depends on first-wins.
-                    texture.NewEngineDescriptor ??= binding.Descriptor;
-                    if (string.IsNullOrEmpty(texture.name)) texture.name = slotName;
-                }
-                else if (slotName.Length > 0)
-                {
-                    unresolved.Add((shader, slot, slotName));
-                }
-            }
-
-            shader.name = shadstream.ReadString(sref.namePointer);
-            shader.ShaderBundle = NewEngineShaderBundle.TryRead(
-                igshader, shadstream, meta.fragmentShaderBaseTuid, shader.name);
+            var shader = ReadNewShader(shaderBuffer, ptr.TUID, texturesByLow32, crackInTime, unresolved);
+            if (shader == null) continue;
             if (fromPatchLayer)
             {
                 Shaders[ptr.TUID] = shader;
@@ -482,6 +417,91 @@ public sealed class TextureShaderLoader
             Console.WriteLine(
                 $"New-engine shaders: {byPath}/{unresolved.Count} local texture binding(s) " +
                 "missing from the global texture table resolved by source name.");
+    }
+
+    internal Shader? ReadPendingShader(byte[] bytes, ulong tuid)
+    {
+        var byId = new Dictionary<uint, Texture>();
+        foreach (var texture in Textures.Values) byId[(uint)texture.id] = texture;
+        var unresolved = new List<(Shader, int, string)>();
+        var shader = ReadNewShader(bytes, tuid, byId, _fileManager.GameDefinition?.Id == Games.GameId.ACrackInTime, unresolved);
+        if (unresolved.Count > 0) throw new InvalidDataException($"Missing texture for shader slot {unresolved[0].Item2}.");
+        return shader;
+    }
+
+    private static Shader? ReadNewShader(byte[] shaderBuffer, ulong tuid, IReadOnlyDictionary<uint, Texture> texturesByLow32,
+        bool crackInTime,
+        List<(Shader Shader, int Slot, string Name)>? unresolved = null)
+    {
+        using var memstream = new MemoryStream(shaderBuffer, writable: false);
+        var shadstream = new StreamHelper(memstream, StreamHelper.Endianness.Big);
+        var igshader = new IGFile(memstream);
+        var metadataSection = igshader.QuerySection(ShaderMetadataNew.ID);
+        if (metadataSection.id != ShaderMetadataNew.ID || metadataSection.length != ShaderMetadataNew.Size)
+        {
+            Console.WriteLine(
+                $"New-engine shader 0x{tuid:X16}: invalid 0x5000 record " +
+                $"(stride 0x{metadataSection.length:X}); skipped.");
+            return null;
+        }
+
+        shadstream.Seek(metadataSection.offset);
+        var shader = new Shader(shadstream, tuidOverride: tuid);
+        ShaderMetadataNew meta = shader.metadataNew!.Value;
+        ShaderReference sref = shader.reference!.Value;
+
+        var localBindings = ReadNewEngineTextureBindings(igshader, shadstream);
+        ReadOnlySpan<uint> namePointers =
+        [
+            sref.albedoNamePointer,
+            sref.normalNamePointer,
+            sref.expensiveNamePointer,
+            sref.detailNamePointer,
+            sref.texture4NamePointer,
+            sref.texture5NamePointer,
+        ];
+
+        for (int slot = 0; slot < Shader.NewTextureSlotCount; slot++)
+        {
+            string slotName = namePointers[slot] != 0
+                ? shadstream.ReadString(namePointers[slot])
+                : string.Empty;
+            shader.NewTextureSourceNames[slot] = slotName;
+
+            int localIndex = meta.GetTextureLocalIndex(slot);
+            if (localIndex < 0)
+                continue;
+            if (localIndex >= localBindings.Length)
+            {
+                Console.WriteLine(
+                    $"New-engine shader 0x{tuid:X16} '{shader.name}': 0x5000 slot {slot} " +
+                    $"indexes local texture {localIndex}, but 0x5A00/0x5200 has {localBindings.Length}; ignored.");
+                continue;
+            }
+
+            var binding = localBindings[localIndex];
+            shader.NewTextureSourceIds[slot] = binding.Id;
+            shader.NewTextureDescriptors[slot] = binding.Descriptor;
+
+            if (texturesByLow32.TryGetValue(binding.Id, out var texture))
+            {
+                SetSlot(shader, slot, texture);
+                // Keep one descriptor on the source texture for generic asset inspection only.
+                // MaterialReader uses the per-slot descriptor above and creates a binding-specific
+                // wrapper when native state differs, so rendering no longer depends on first-wins.
+                texture.NewEngineDescriptor ??= binding.Descriptor;
+                if (string.IsNullOrEmpty(texture.name)) texture.name = slotName;
+            }
+            else if (slotName.Length > 0)
+            {
+                unresolved?.Add((shader, slot, slotName));
+            }
+        }
+
+        shader.name = shadstream.ReadString(sref.namePointer);
+        shader.ShaderBundle = NewEngineShaderBundle.TryRead(
+            igshader, shadstream, meta.FragmentShaderBaseTuid(crackInTime), shader.name);
+        return shader;
     }
 
     private readonly record struct NewEngineTextureBinding(

@@ -1,6 +1,9 @@
 using System.Numerics;
 using NeoVeldrid;
 using ReLunacy.Core.Placement;
+using ReLunacy.Core.Project;
+using ReLunacy.Engine.Assets.Shrubs;
+using ReLunacy.Engine.Packing;
 using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Assets.Interfaces;
 using ReLunacy.Engine.Rendering.Resources;
@@ -14,6 +17,8 @@ public partial class AssetViewer
     private readonly Dictionary<(int Bangle, ulong Shader), IMaterial> _shaderSwaps = [];
     private readonly Dictionary<GpuTexture, Texture> _swapTextures = [];
     private bool _shaderSwapAwaitingUploads;
+    private int _shaderSwapRevision;
+    private Shrub? _selectedShrub;
     private (int Bangle, ulong Shader)? _selectedShaderSlot;
     private IMaterial? _originalShader;
     private bool _openShaderPicker, _scrollToPickerShader;
@@ -32,6 +37,23 @@ public partial class AssetViewer
         _filteredShaderChoices.Clear();
     }
 
+    private ShaderSwapSlot? GetSwapSlot((int Bangle, ulong Shader) slot)
+    {
+        if (selectedMobyAsset is { } moby) return new(ShaderSwapKind.Moby, moby.Moby.Id, slot.Bangle, slot.Shader);
+        if (selectedTieAsset is { } tie) return new(ShaderSwapKind.Tie, tie.Tie.Id, 0, slot.Shader);
+        if (selectedUFragAsset is { } ufrag) return new(ShaderSwapKind.UFrag, ufrag.ZoneId, ufrag.Index, slot.Shader);
+        if (_selectedShrub is { } shrub) return new(ShaderSwapKind.Shrub, shrub.Id, 0, slot.Shader);
+        return null;
+    }
+
+    private IMaterial? GetShaderSwap((int Bangle, ulong Shader) slot)
+    {
+        if (_shaderSwaps.TryGetValue(slot, out var preview)) return preview.Id == slot.Shader ? null : preview;
+        return GetSwapSlot(slot) is { } key && ShaderSwapEdits.Get(key) is { } edit
+            ? LunaWindow.Instance.Reader?.FindShaderMaterial(edit.Replacement)
+            : null;
+    }
+
     private void SelectShaderSlot((int Bangle, ulong Shader) slot, IMaterial material)
     {
         _selectedShaderSlot = slot;
@@ -40,7 +62,7 @@ public partial class AssetViewer
 
     private void DrawShaderSwapControls((int Bangle, ulong Shader) slot, IMaterial original, IMaterial current)
     {
-        if (selectedMobyAsset == null && selectedTieAsset == null) return;
+        if (GetSwapSlot(slot) is not { } key) return;
         if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_PreviewShaderSwap")))
         {
             var level = LunaWindow.Instance.Level;
@@ -53,14 +75,17 @@ public partial class AssetViewer
             _scrollToPickerShader = true;
             _openShaderPicker = true;
         }
-        if (!_shaderSwaps.ContainsKey(slot)) return;
+        bool staged = ShaderSwapEdits.Get(key) != null;
+        if (!_shaderSwaps.ContainsKey(slot) && !staged) return;
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_RestoreShader")))
         {
             _shaderSwaps.Remove(slot);
+            ShaderSwapEdits.Set(key, null, LM.Get("GUI_Frame_AssetViewer_RestoreShader"));
             previewDirty = true;
         }
         ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_OriginalShader", original.Name ?? $"0x{original.Id:X}"));
+        if (staged) ImGui.TextDisabled(LM.Get("GUI_Frame_AssetViewer_StagedShaderSwap"));
     }
 
     private void DrawShaderPicker()
@@ -103,10 +128,26 @@ public partial class AssetViewer
         var picked = _filteredShaderChoices.FirstOrDefault(e => e.Id == _pickedShader);
         ImGui.TextUnformatted(picked?.Name ?? LM.Get("GUI_Frame_ShaderBrowser_NoSelection"));
         ImGui.BeginDisabled(picked == null);
-        if (ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ApplyShaderPreview")) && picked != null &&
+        bool preview = ImGui.Button(LM.Get("GUI_Frame_AssetViewer_ApplyShaderPreview"));
+        bool stage = false;
+        var key = GetSwapSlot(slot);
+        if (key.HasValue && LunaWindow.Instance.Level?.IsOldEngine == false)
+        {
+            ImGui.SameLine();
+            stage = ImGui.Button(LM.Get("GUI_Frame_AssetViewer_StageShaderSwap"));
+        }
+        if ((preview || stage) && picked != null &&
             LunaWindow.Instance.Reader?.FindShaderMaterial(picked.Id) is { } replacement)
         {
-            if (replacement.Id == slot.Shader)
+            if (stage && key is { } persistent)
+            {
+                _shaderSwaps.Remove(slot);
+                var meshes = selectedMobyAsset?.Moby.Bangles[slot.Bangle].Meshes ?? selectedTieAsset?.Tie.Meshes;
+                int[] indices = meshes == null ? [0] : Enumerable.Range(0, meshes.Count)
+                    .Where(i => meshes[i].Material.Id == slot.Shader).ToArray();
+                ShaderSwapEdits.Set(persistent, new(replacement.Id, indices), LM.Get("GUI_Frame_AssetViewer_StageShaderSwap"));
+            }
+            else if (replacement.Id == slot.Shader && (!key.HasValue || ShaderSwapEdits.Get(key.Value) == null))
                 _shaderSwaps.Remove(slot);
             else
                 _shaderSwaps[slot] = replacement;
@@ -124,13 +165,45 @@ public partial class AssetViewer
 
     private (float[] Vertices, uint[] Indices, RenderMaterial Material)? TryBuildShaderSwap(uint pickId)
     {
-        if (_shaderSwaps.Count == 0 || assetManager == null) return null;
+        if (assetManager == null || pickId == uint.MaxValue) return null;
+        if (selectedUFragAsset is { } terrain)
+            return GetShaderSwap((0, terrain.UFrag.Material.Id)) is { } material
+                ? assetManager.BuildDetachedUFrag(terrain.UFrag, material)
+                : null;
+
         int bangle = (int)(pickId >> 16);
         int mesh = (int)(pickId & 0xFFFF);
         IMesh? source = selectedMobyAsset is { } moby ? moby.Moby.Bangles[bangle].Meshes[mesh]
-            : selectedTieAsset is { } tie ? tie.Tie.Meshes[(int)pickId] : null;
-        if (source == null || !_shaderSwaps.TryGetValue((selectedMobyAsset != null ? bangle : 0, source.Material.Id), out var replacement))
-            return null;
-        return assetManager.BuildDetachedMesh(source, replacement);
+            : selectedTieAsset is { } tie ? tie.Tie.Meshes[(int)pickId]
+            : _selectedShrub?.Meshes[(int)pickId];
+        if (source == null) return null;
+        ulong original = _selectedShrub?.MaterialTUID ?? source.Material.Id;
+        return GetShaderSwap((bangle, original)) is { } replacement
+            ? assetManager.BuildDetachedMesh(source, replacement)
+            : null;
+    }
+
+    public bool SelectShrub(ulong id)
+    {
+        if (LunaWindow.Instance.Level?.Shrubs.GetValueOrDefault(id) is not { } shrub) return false;
+        SelectedMobyAsset = null;
+        SelectedTieAsset = null;
+        SelectedUFragAsset = null;
+        ClearEffect();
+        _selectedFoliage = null;
+        _selectedShrub = shrub;
+        var (centre, radius) = shrub.GetBoundingSphere();
+        Camera.Position = centre - Vector3.UnitZ * Math.Max(radius * 3f, 0.25f);
+        Camera.Target = centre;
+        IsDirty = true;
+        return true;
+    }
+
+    private void RenderShrubDetails(Shrub shrub)
+    {
+        ImGui.TextUnformatted(shrub.Name ?? $"{shrub.Id:X16}");
+        if (LunaWindow.Instance.Reader?.FindShaderMaterial(shrub.MaterialTUID) is not { } material) return;
+        RenderShaderGrid([material], "shrub_shader_grid");
+        RenderInlineMaterialDetails();
     }
 }

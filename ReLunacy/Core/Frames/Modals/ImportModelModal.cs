@@ -50,7 +50,11 @@ public sealed class ImportModelModal : Modal
         var regions = EntityManager.Singleton.Regions.ToList();
         var window = LunaWindow.Instance;
         var region = InstancePlacer.TargetRegion() ?? regions[0];
-        LunaWindow.Instance.AddFrame(new ImportModelModal(new ModelImportSession(window.fileManager!, window.Level!, region), regions, path));
+        var session = new ModelImportSession(window.fileManager!, window.Level!, region)
+        {
+            AuthoredShaderTemplates = AuthoredMaterialRecords.ReadShaderTemplates(ProjectSession.Current, window.fileManager!.SourcePath),
+        };
+        LunaWindow.Instance.AddFrame(new ImportModelModal(session, regions, path));
     }
 
     private readonly ModelImportSession _session;
@@ -505,8 +509,7 @@ public sealed class ImportModelModal : Modal
 
     private void DrawShaderCombo(ref ulong tuid)
     {
-        var catalog = _session.Catalog;
-        var current = catalog.Find(tuid);
+        var current = _session.FindShaderCandidate(tuid);
         string preview = current?.DisplayName ?? LM.Get("GUI_ImportModel_NoShader");
         ImGui.SetNextItemWidth(290f);
         bool open = ImGui.BeginCombo("##shader", preview);
@@ -519,7 +522,7 @@ public sealed class ImportModelModal : Modal
         if (ImGui.BeginChild("##shaders", new Vector2(360f, 260f)))
         {
             bool proven = true;
-            foreach (var candidate in catalog.Candidates)
+            foreach (var candidate in _session.PendingShaderCandidates.Concat(_session.Catalog.Candidates))
             {
                 if (_filter.Length > 0 && !candidate.DisplayName.Contains(_filter, StringComparison.OrdinalIgnoreCase)
                     && !candidate.FullName.Contains(_filter, StringComparison.OrdinalIgnoreCase)

@@ -54,12 +54,15 @@ public static partial class GameplayWriter
     /// archive is written there instead and the level's own files are left alone (for checking a save before trusting it).
     /// </summary>
     public static LevelSaveResult Save(FileManager files, IReadOnlyList<EntityRegion> regions, string? outputPath = null,
-        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null, Projects.IGameFileSink? sink = null)
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null, Projects.IGameFileSink? sink = null,
+        IReadOnlyDictionary<ShaderSwapSlot, ShaderSwapEdit>? shaderSwaps = null)
     {
         sink ??= Projects.GameFileSink.Current;
         // What to do once the files are replaced (shared settings blocks brought in step in memory).
         var afterSave = new List<Action>();
-        var plan = Build(files, regions, collisions, afterSave);
+        var plan = Build(files, regions, collisions, afterSave, shaderSwaps);
+        if (plan.ScriptChangesFailed) return LevelSaveResult.Refused("the level’s Lua changes could not be saved", plan.Problems);
+        if (plan.ShaderSwapsFailed) return LevelSaveResult.Refused("shader swaps could not be saved", plan.Problems);
         var changes = plan.Changes;
         var problems = plan.Problems;
 
@@ -160,9 +163,10 @@ public static partial class GameplayWriter
 
     /// <summary>Like <see cref="Preview"/>, with how many instance handles a layer change renumbers (scripts name them).</summary>
     public static SavePreview PreviewPlan(FileManager files, IReadOnlyList<EntityRegion> regions,
-        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null)
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions = null,
+        IReadOnlyDictionary<ShaderSwapSlot, ShaderSwapEdit>? shaderSwaps = null)
     {
-        var plan = Build(files, regions, collisions, null);
+        var plan = Build(files, regions, collisions, null, shaderSwaps);
         return new SavePreview(plan.Changes, plan.Problems, plan.ShiftedHandles, plan.Structural);
     }
 
@@ -174,6 +178,8 @@ public static partial class GameplayWriter
         public readonly List<string> Problems = [];
         public int ShiftedHandles;
         public bool Structural;
+        public bool ShaderSwapsFailed;
+        public bool ScriptChangesFailed;
         /// <summary>Archive path -> entries outside the level (level.csv of global_cached), written with the level's.</summary>
         public readonly Dictionary<string, Dictionary<string, byte[]>> External = new(StringComparer.Ordinal);
     }
@@ -188,7 +194,8 @@ public static partial class GameplayWriter
     ///  4. new Ties on the output of 3 (<see cref="TieAppender"/>), which also rewrites the files it moves.
     /// </summary>
     private static SavePlan Build(FileManager files, IReadOnlyList<EntityRegion> regions,
-        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions, List<Action>? afterSave)
+        IReadOnlyDictionary<string, Assets.Collision.LevelCollision>? collisions, List<Action>? afterSave,
+        IReadOnlyDictionary<ShaderSwapSlot, ShaderSwapEdit>? shaderSwaps = null)
     {
         var plan = new SavePlan();
         void Add(string label, string name, byte[] bytes, List<string> changes, List<string> problems)
@@ -239,6 +246,7 @@ public static partial class GameplayWriter
                     try { budgeted.Add(GpPriusDocument.Parse(patched)); }
                     catch (Exception e) { plan.Problems.Add($"{region.RegionName}: the new gp_prius does not parse ({e.Message})"); }
             }
+            AddLocationVolumes(files, regions, plan, afterSave);
             if (gameplayNow != null) plan.Entries["gameplay.dat"] = gameplayNow;
             if ((budgeted.Count > 0 || gameplayNow != null) && (gameplayNow ?? files.ReadOriginal("gameplay.dat")) is { } gameplay)
             {
@@ -435,6 +443,24 @@ public static partial class GameplayWriter
 
             // Planet occlusion last, on everything above: bakes, never-culled flags, retail bits back (OcclusionBake).
             ApplyOcclusion(files, regions, plan, current, afterSave);
+        }
+        if (shaderSwaps is { Count: > 0 })
+        {
+            var changes = new List<string>();
+            try
+            {
+                if (files.isOld) throw new InvalidDataException("saving shader swaps requires a new-engine level");
+                byte[]? Read(string name) => plan.Entries.TryGetValue(name, out var bytes) ? bytes : files.ReadOriginal(name);
+                foreach (var (name, bytes) in TieAppender.ApplyShaderSwaps(Read, shaderSwaps, changes))
+                    plan.Entries[name] = bytes;
+                plan.Changes.AddRange(changes);
+                plan.Structural = true;
+            }
+            catch (Exception e) when (e is InvalidDataException or ArgumentException or OverflowException or IndexOutOfRangeException)
+            {
+                plan.ShaderSwapsFailed = true;
+                plan.Problems.Add($"Shader swaps: {e.Message}");
+            }
         }
         return plan;
     }

@@ -65,6 +65,10 @@ public static class GameText
         else TagTable(game).Set(id, name);
     }
 
+    public static IEnumerable<(int Id, string Name)> BuiltInTags(GameId? game) =>
+        game is { } id ? TagTable(id).Names().Where(t => t.Number is >= 0 and <= int.MaxValue)
+            .Select(t => ((int)t.Number, t.Name)) : [];
+
     /// <summary>The id that has a tag, or -1.</summary>
     public static int IdOfTag(GameId? game, string tag, int count)
     {

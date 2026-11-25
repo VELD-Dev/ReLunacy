@@ -28,6 +28,10 @@ public sealed class PlacedInstance<TAsset> : IPlacedInstance<TAsset> where TAsse
     /// <summary>Record +0x54: where <see cref="NewEnginePrelight"/> starts in the zone's lighting.dat slice.</summary>
     public uint NewEnginePrelightOffset { get; init; } = 0xFFFFFFFF;
     public bool NewEnginePrelightBaked { get; init; }
+    /// <summary>Shrub placements: the baked light at the placement, record +0x30 (see Loading.Objects.ShrubInstance).</summary>
+    public Vector3? ShrubLight { get; init; }
+    /// <summary>Shrub placements: record +0x1C, 0-31, read as the placement's sway phase.</summary>
+    public byte ShrubPhase { get; init; }
 
     private readonly Matrix4x4? _rawMatrix;
 

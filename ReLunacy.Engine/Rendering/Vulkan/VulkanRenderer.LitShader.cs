@@ -610,6 +610,10 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         unbakedFill = fPrelightChroma * basisLight
             + uEnvLight0Colour * fPrelightIntensity.w * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS;
     }
+    // New-engine shrub (Direction0.w = 10, VkInstanceLight.ForShrub): no lightmap and no normals, lit by the
+    // placement's own baked colour (record +0x30) as the whole fill. INFERRED; the shrub FPs are unread.
+    if (uOldEngineMode < 0.5 && instanceLight.direction0.w > 9.5 && instanceLight.direction0.w < 10.5)
+        unbakedFill = instanceLight.ambient.xyz;
     float shadowLight = uOldEngineMode > 0.5 ? 1.0 : 0.2 * sunS + 0.8;
     vec3 lighting = mix(unbakedFill, max(bakedDiffuseLight, selectedFloor), hasBaked) * shadowLight + emissive * emissiveGain;
     if (oldUFrag) lighting *= fUFragVertexScales.x;
