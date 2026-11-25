@@ -24,8 +24,9 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// hidden bit (the instance-flag filter), and its selected bits tint the faces in edit mode.
 ///
 /// Moby collision is a second layer (<see cref="SetMobyCollision"/>) drawn by the same pipeline, so the
-/// collision editor's indices into the level layer never see it. Its instances carry
-/// <see cref="CollisionGeometry.MobyInstanceBit"/> and follow their own filters (uMoby).
+/// collision editor's indices into the level layer never see it. It is shown on its own
+/// (<see cref="MobyCollisionVisible"/>); its instances carry <see cref="CollisionGeometry.MobyInstanceBit"/>,
+/// skip the categories and regions, and follow their own filters (uMoby).
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
@@ -78,7 +79,7 @@ void main()
     // Hidden: by category, region, the instance-flag filter (bit 2, set by the editor), and per face by
     // material and triangle flags (meshes) or primitive kind. A face's three corners share their
     // attributes, so collapsing each one collapses the face. Mobys have their own filters.
-    bool visible = (moby || (uFlags.x & category) != 0u) && (uFlags.z & inRegions) != 0u && (inInstance & 4u) == 0u;
+    bool visible = (moby || ((uFlags.x & category) != 0u && (uFlags.z & inRegions) != 0u)) && (inInstance & 4u) == 0u;
     uint primitiveMask = (inAttr >> 18) & 0x7Fu;
     if (moby)
     {
@@ -182,7 +183,11 @@ void main()
 
     private readonly CollisionLayer _colLevel = new(), _colMoby = new();
 
+    /// <summary>The level layer (world and Tie collision).</summary>
     public bool CollisionVisible { get; set; }
+
+    /// <summary>The Moby layer, shown independently of the level layer.</summary>
+    public bool MobyCollisionVisible { get; set; }
 
     /// <summary>0..1; at 1 the collision hides the art behind it.</summary>
     public float CollisionOpacity { get; set; } = 0.85f;
@@ -393,9 +398,8 @@ void main()
 
     private void DrawCollision()
     {
-        if (!CollisionVisible || CollisionRegionMask == 0) return;
-        bool level = _colLevel.Batches.Length > 0 && CollisionCategories != CollisionCategories.None;
-        bool mobys = _colMoby.Batches.Length > 0 && MobyCollisionParts != MobyCollisionParts.None;
+        bool level = CollisionVisible && _colLevel.Batches.Length > 0 && CollisionCategories != CollisionCategories.None && CollisionRegionMask != 0;
+        bool mobys = MobyCollisionVisible && _colMoby.Batches.Length > 0 && MobyCollisionParts != MobyCollisionParts.None;
         if (!level && !mobys) return;
 
         VkDescriptorSet s0 = _descSet;

@@ -36,6 +36,7 @@ public class EntityManager : IDisposable
     public bool renderNavmesh = false;
     /// <summary>Off by default, like the navmesh: the level's static collision, drawn as an overlay.</summary>
     public bool renderCollision = false;
+    public bool renderMobyCollision = false;
     /// <summary>What the collision overlay holds, for the Render menu's legend. Set by the View3D when
     /// it uploads a level's collision; null when the level has none.</summary>
     public Rendering.CollisionSummary? CollisionSummary;

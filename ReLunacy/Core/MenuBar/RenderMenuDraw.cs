@@ -29,6 +29,7 @@ internal static class RenderMenuDraw
         settings.HidePaths = !em.renderPaths;
         settings.RenderNavmesh = em.renderNavmesh;
         settings.RenderCollision = em.renderCollision;
+        settings.RenderMobyCollision = em.renderMobyCollision;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;
         settings.MobyDistanceCullingEnabled = em.MobyDistanceCullingEnabled;
         settings.SaveSettingsToFile();

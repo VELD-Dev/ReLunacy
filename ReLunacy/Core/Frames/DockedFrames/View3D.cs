@@ -52,6 +52,8 @@ public class View3D : DockedFrame
 
     // The toolbar's collision panel and edit mode (filters, selection, edits).
     private readonly Core.Collision.CollisionEditor _collisionEditor = new();
+    // The placed Mobys' collision: its own button, panel and renderer layer.
+    private readonly Core.Collision.MobyCollisionLayer _mobyCollision = new();
     // A left press in collision edit mode, held until release: a click, or a marquee once dragged.
     private Vector2? _marqueeStart;
     private const float MarqueeThreshold = 4f;
@@ -318,13 +320,18 @@ public class View3D : DockedFrame
             MenuBar.RenderMenuDraw.PersistRenderSettings();
         // The collision button opens its panel (visibility, filters, edit mode) rather than toggling the
         // overlay itself; the panel stays until the button is pressed again.
-        bool hasCollision = em.CollisionSummary != null || _collisionEditor.Mobys.HasCollision;
+        bool hasCollision = em.CollisionSummary != null;
         if (!hasCollision) _collisionEditor.PanelOpen = false;
         overlay.ToggleButton(Icons.DrawPolygon, ref _collisionEditor.PanelOpen,
             LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision);
         // Edit mode takes the left button over; it does not outlive the panel that shows it is on.
         if (!_collisionEditor.PanelOpen) _collisionEditor.EditMode = false;
         float collisionAnchor = overlay.LastButtonLeft;
+        bool hasMobyCollision = _mobyCollision.HasCollision;
+        if (!hasMobyCollision) _mobyCollision.PanelOpen = false;
+        overlay.ToggleButton(Icons.Shapes, ref _mobyCollision.PanelOpen,
+            LM.Get(hasMobyCollision ? "GUI_Viewport_MobyCollision" : "GUI_Viewport_NoMobyCollision"), enabled: hasMobyCollision);
+        float mobyCollisionAnchor = overlay.LastButtonLeft;
 
         if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f), clipAnchor))
         {
@@ -352,6 +359,7 @@ public class View3D : DockedFrame
         DrawTransformBar(overlay);
         var selected = SelectedEntity;
         _collisionEditor.DrawPanel(overlay, collisionAnchor, settings, ref selected);
+        _mobyCollision.DrawPanel(overlay, mobyCollisionAnchor, settings);
         if (!ReferenceEquals(selected, SelectedEntity)) SelectedEntity = selected;
     }
 
@@ -915,8 +923,8 @@ public class View3D : DockedFrame
                 vkStage.CollisionRegionMask = CollisionRegionMask();
                 _collisionEditor.RegionMask = vkStage.CollisionRegionMask;
                 _collisionEditor.Apply(vkStage, Program.Settings);
-                _collisionEditor.Mobys.UploadIfStale(vkStage, Core.LunaWindow.Instance.Level);
-                _collisionEditor.Mobys.Update(vkStage, Program.Settings);
+                _mobyCollision.UploadIfStale(vkStage, Core.LunaWindow.Instance.Level);
+                _mobyCollision.Update(vkStage, Program.Settings);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.

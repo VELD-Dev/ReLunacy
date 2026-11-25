@@ -13,10 +13,13 @@ namespace ReLunacy.Core.Collision;
 /// The 3D view's Moby collision: every placed Moby whose class carries collision (see <see cref="MobyCollision"/>),
 /// in its bind pose, as the renderer's Moby layer. It has its own filters, since a Moby's collision is not the
 /// level's: primitives carry a mask byte rather than instance flags, and materials index the class's own palette.
-/// Instances follow their Moby every frame (moved, hidden, region hidden). Nothing here is editable.
+/// Instances follow their Moby every frame (moved, hidden, region hidden). Shown and filtered from its own toolbar
+/// button and panel, apart from the level's collision. Nothing here is editable.
 /// </summary>
 public sealed class MobyCollisionLayer
 {
+    public bool PanelOpen;
+
     private object? _level;
     private VulkanRenderer? _renderer;
     private int _mobyCount = -1;
@@ -75,10 +78,11 @@ public sealed class MobyCollisionLayer
     public void Update(VulkanRenderer renderer, EditorSettings settings)
     {
         if (!ReferenceEquals(renderer, _renderer)) return;
-        Apply(renderer, settings, _triangleFlagMask);
         var em = EntityManager.Singleton;
+        renderer.MobyCollisionVisible = em.renderMobyCollision;
+        Apply(renderer, settings, _triangleFlagMask);
         // Compared against what was last pushed, so a Moby moved while the overlay was off catches up when it is shown.
-        if (!em.renderCollision) return;
+        if (!em.renderMobyCollision) return;
         for (int i = 0; i < _mobys.Length; i++)
         {
             var moby = _mobys[i];
@@ -109,12 +113,17 @@ public sealed class MobyCollisionLayer
         renderer.MobyCollisionTriangleFlagMask = triangleFlagMask;
     }
 
-    /// <summary>The collision panel's Mobys section. Returns true when a setting to persist changed.</summary>
-    public bool DrawSection(EditorSettings settings)
+    /// <summary>The panel hanging from the toolbar's Moby collision button.</summary>
+    public void DrawPanel(ViewportOverlay overlay, float anchorLeft, EditorSettings settings)
     {
-        if (Summary is not { } summary || !ImGui.CollapsingHeader(LM.Get("GUI_Collision_FilterMoby", summary.Placements))) return false;
+        if (!PanelOpen || Summary is not { } summary || !overlay.BeginPanel("mobycollision", new Vector2(320f, 0f), anchorLeft)) return;
+        var em = EntityManager.Singleton;
+        if (ImGui.Checkbox(LM.Get("GUI_Collision_Show"), ref em.renderMobyCollision))
+            MenuBar.RenderMenuDraw.PersistRenderSettings();
+        ImGui.SameLine();
         ImGui.TextDisabled(LM.Get("GUI_Label_MobyCollisionSummary", summary.Placements, summary.Classes));
-        return DrawFilters(settings, summary, ref _triangleFlagMask);
+        if (DrawFilters(settings, summary, ref _triangleFlagMask)) settings.SaveSettingsToFile();
+        overlay.EndPanel();
     }
 
     /// <summary>Colour mode, parts, primitive kinds, mask bits and (when given a mask) triangle-flag values.</summary>

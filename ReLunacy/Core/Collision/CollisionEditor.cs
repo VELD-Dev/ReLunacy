@@ -42,9 +42,6 @@ public sealed class CollisionEditor
     public uint RegionMask = uint.MaxValue;
 
     public CollisionScene? Scene { get; private set; }
-
-    /// <summary>The placed Mobys' collision, drawn beside the level's but never edited.</summary>
-    public MobyCollisionLayer Mobys { get; } = new();
     private VulkanRenderer? _renderer;
 
     // Filters. Per level, since which values exist depends on the level; reset on upload.
@@ -634,14 +631,7 @@ public sealed class CollisionEditor
         var summary = em.CollisionSummary;
         if (summary == null || Scene == null)
         {
-            if (Mobys.HasCollision)
-            {
-                if (ImGui.Checkbox(LM.Get("GUI_Collision_Show"), ref em.renderCollision))
-                    MenuBar.RenderMenuDraw.PersistRenderSettings();
-                if (Mobys.DrawSection(settings)) settings.SaveSettingsToFile();
-            }
-            else
-                ImGui.TextDisabled(LM.Get("GUI_Viewport_NoCollision"));
+            ImGui.TextDisabled(LM.Get("GUI_Viewport_NoCollision"));
             overlay.EndPanel();
             return;
         }
@@ -717,7 +707,6 @@ public sealed class CollisionEditor
                 foreach (var p in Scene.Placements)
                     WriteInstance(p);
         }
-        persist |= Mobys.DrawSection(settings);
 
         if (persist) settings.SaveSettingsToFile();
         overlay.EndPanel();

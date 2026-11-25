@@ -75,7 +75,8 @@ public partial class AssetViewer
     private void ApplyPreviewCollisionSettings()
     {
         if (_vkPreview == null) return;
-        _vkPreview.CollisionVisible = ActivePreviewCollision != null || ActivePreviewMobyCollision != null;
+        _vkPreview.CollisionVisible = ActivePreviewCollision != null;
+        _vkPreview.MobyCollisionVisible = ActivePreviewMobyCollision != null;
         _vkPreview.CollisionOpacity = HidePreviewMesh ? 0.85f : 0.5f;
         _vkPreview.CollisionColorMode = Program.Settings.AssetViewerCollisionByMaterial ? CollisionColorMode.Material : CollisionColorMode.Type;
         MobyCollisionLayer.Apply(_vkPreview, Program.Settings, _previewMobyTriangleFlags);

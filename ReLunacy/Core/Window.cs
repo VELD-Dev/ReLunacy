@@ -288,6 +288,7 @@ public class LunaWindow : IDisposable
         // before the first scene is built so it is not built once with the wrong set and rebuilt.
         Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedShaders = EditorSettings.EnableLighting && EditorSettings.GameShaders;
         em.renderCollision = EditorSettings.RenderCollision;
+        em.renderMobyCollision = EditorSettings.RenderMobyCollision;
         em.renderBoundingSpheres = EditorSettings.RenderBoundingSpheres;
         em.MobyDistanceCullingEnabled = EditorSettings.MobyDistanceCullingEnabled;
 
