@@ -189,7 +189,7 @@ class 0x100 ScriptElem_Kill : 0xF9
     size 0x44;
     label "Kill";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x101 ScriptElem_MembersInPod : 0xFA
@@ -197,7 +197,7 @@ class 0x101 ScriptElem_MembersInPod : 0xFA
     size 0x54;
     label "Members in pod";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, s32] = "";
     [0x4C, s32] = "";
     [0x50, s32] = "";
@@ -224,7 +224,7 @@ class 0x104 ScriptElem_IsDead : 0xFA
     size 0x50;
     label "Is Dead";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
     [0x4C, float] = "";
 }
@@ -247,7 +247,7 @@ class 0x107 ScriptElem_HasJustDead : 0xFA
     size 0x5C;
     label "Has Just Died";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
     [0x4C, float] = "";
     [0x50, s32, runtime] = "";
@@ -269,7 +269,7 @@ class 0x109 ScriptElem_IsDamaged : 0xFA
     size 0x50;
     label "Is Damaged";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
     [0x4C, float] = "";
 }
@@ -279,7 +279,7 @@ class 0x10A ScriptElem_InArea : 0xFA
     size 0x60;
     label "In Area";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, ScriptArea] Area kind = "";
     [0x4C, s32] Area = "Index; -1 for none.";
     [0x50, u32] = "";
@@ -316,7 +316,7 @@ class 0x10E ScriptElem_InArea_DOA : 0xFA
     size 0x60;
     label "In Area (+Dead)";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, ScriptArea] Area kind = "";
     [0x4C, s32] Area = "Index; -1 for none.";
     [0x50, s32] = "";
@@ -330,7 +330,7 @@ class 0x10F ScriptElem_IsTargeted : 0xFA
     size 0x50;
     label "Is Targeted";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
     [0x4C, u32] = "";
 }
@@ -340,7 +340,7 @@ class 0x110 ScriptElem_IsEngaged : 0xFA
     size 0x4C;
     label "Is Engaged";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, float, runtime] = "";
 }
 
@@ -349,10 +349,10 @@ class 0x111 ScriptElem_IsAttacked : 0xFA
     size 0x54;
     label "Is Attacked";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
     [0x4C, ScriptTarget] Target 2 kind = "";
-    [0x50, s32] Target 2 = "Index; -1 for none.";
+    [0x50, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x112 ScriptElem_IsStratActive : 0xFA
@@ -392,7 +392,7 @@ class 0x117 ScriptElem_IsActivated : 0xFA
     size 0x48;
     label "Is Activated";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x118 ScriptElem_IsDeactivated : 0xFA
@@ -400,7 +400,7 @@ class 0x118 ScriptElem_IsDeactivated : 0xFA
     size 0x48;
     label "Is Deactivated";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x119 ScriptElem_VarIsTrue : 0xFA
@@ -423,7 +423,7 @@ class 0x11B ScriptElem_CommandsAreDone : 0xFA
     size 0x48;
     label "If Commands Are Done";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x11C ScriptElem_SquadFinished : 0xFA
@@ -438,7 +438,7 @@ class 0x11D ScriptElem_IfPlayerOwnsMoby : 0xFA
     size 0x48;
     label "If Player Owns Moby";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x11E ScriptElem_Wait : 0xF9
@@ -492,7 +492,7 @@ class 0x124 ScriptElem_SetPathfindingSearchDistance : 0xF9
     size 0x48;
     label "Set Shadows";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
 }
 
@@ -501,7 +501,7 @@ class 0x125 ScriptElem_Activate : 0xF9
     size 0x48;
     label "Activate";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -510,7 +510,7 @@ class 0x126 ScriptElem_Deactivate : 0xF9
     size 0x48;
     label "Deactivate";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -534,7 +534,7 @@ class 0x129 ScriptElem_Vanish : 0xF9
     size 0x44;
     label "Vanish";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x12A ScriptElem_Reveal : 0xF9
@@ -542,7 +542,7 @@ class 0x12A ScriptElem_Reveal : 0xF9
     size 0x44;
     label "Reveal";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x12B ScriptElem_DeleteGroup : 0xF9
@@ -550,7 +550,7 @@ class 0x12B ScriptElem_DeleteGroup : 0xF9
     size 0x44;
     label "Delete Group";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x12C ScriptElem_DeleteInArea : 0xF9
@@ -567,7 +567,7 @@ class 0x12D ScriptElem_SetColl : 0xF9
     size 0x48;
     label "Set Coll";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
 }
 
@@ -586,7 +586,7 @@ class 0x12F ScriptElem_OccludeMobys : 0xF9
     size 0x54;
     label "Occlude Mobys";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, ScriptArea] Area 2 kind = "";
@@ -651,7 +651,7 @@ class 0x136 ScriptElem_SetTargetUpdate : 0xF9
     size 0x48;
     label "Set Target Update";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
 }
 
@@ -660,7 +660,7 @@ class 0x137 ScriptElem_SetFootLocking : 0xF9
     size 0x48;
     label "Set Foot Locking";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -669,7 +669,7 @@ class 0x138 ScriptElem_SetDrone : 0xF9
     size 0x48;
     label "Set Drone";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -678,7 +678,7 @@ class 0x139 ScriptElem_SetCanDrone : 0xF9
     size 0x48;
     label "Set Drone";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -687,7 +687,7 @@ class 0x13A ScriptElem_ResetBot : 0xF9
     size 0x44;
     label "Reset Bot";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x13B ScriptElem_SetOverrideSpeed : 0xF9
@@ -695,7 +695,7 @@ class 0x13B ScriptElem_SetOverrideSpeed : 0xF9
     size 0x48;
     label "Set Bot Override Speed";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -704,7 +704,7 @@ class 0x13C ScriptElem_GoTo : 0xF9
     size 0x50;
     label "GoTo";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -715,7 +715,7 @@ class 0x13D ScriptElem_FollowPath : 0xF9
     size 0x54;
     label "Follow Path";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, s32] = "";
@@ -726,7 +726,7 @@ class 0x13E ScriptElem_Stand : 0xF9
     size 0x4C;
     label "Stand";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
 }
@@ -736,7 +736,7 @@ class 0x13F ScriptElem_HoldFire : 0xF9
     size 0x44;
     label "Hold Fire";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x140 ScriptElem_OpenFire : 0xF9
@@ -744,9 +744,9 @@ class 0x140 ScriptElem_OpenFire : 0xF9
     size 0x4C;
     label "Open Fire";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptTarget] Target 2 kind = "";
-    [0x48, s32] Target 2 = "Index; -1 for none.";
+    [0x48, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x141 ScriptElem_FireFromArea : 0xF9
@@ -754,7 +754,7 @@ class 0x141 ScriptElem_FireFromArea : 0xF9
     size 0x4C;
     label "Fire From Area";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
 }
@@ -780,7 +780,7 @@ class 0x144 ScriptElem_SetTargetPreference : 0xF9
     size 0x50;
     label "Set Target Preference";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
     [0x48, u32] = "";
     [0x4C, float] = "";
@@ -804,7 +804,7 @@ class 0x146 ScriptElem_MoveSystemComponents : 0xF9
     size 0x4C;
     label "Move System Components";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32, runtime] = "";
 }
@@ -814,9 +814,9 @@ class 0x147 ScriptElem_ThrowGrenades : 0xF9
     size 0x4C;
     label "Throw Grenades";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptTarget] Target 2 kind = "";
-    [0x48, s32] Target 2 = "Index; -1 for none.";
+    [0x48, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x148 ScriptElem_SetWeapon : 0xF9
@@ -824,7 +824,7 @@ class 0x148 ScriptElem_SetWeapon : 0xF9
     size 0x48;
     label "Set Weapon";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -833,7 +833,7 @@ class 0x149 ScriptElem_SetWeapon2 : 0xF9
     size 0x48;
     label "Set Weapon 2";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -842,7 +842,7 @@ class 0x14A ScriptElem_SetFlashlight : 0xF9
     size 0x48;
     label "Set Flashlight";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -851,7 +851,7 @@ class 0x14B ScriptElem_FireAtArea : 0xF9
     size 0x50;
     label "Fire At Area";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, float] = "";
@@ -862,7 +862,7 @@ class 0x14C ScriptElem_SetVulnerability : 0xF9
     size 0x48;
     label "Set Vulnerability";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32, runtime] = "";
 }
 
@@ -871,7 +871,7 @@ class 0x14D ScriptElem_FleeAndFire : 0xF9
     size 0x50;
     label "Flee and Fire";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -882,7 +882,7 @@ class 0x14E ScriptElem_InitStance : 0xF9
     size 0x4C;
     label "Init Stance";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
 }
@@ -892,7 +892,7 @@ class 0x14F ScriptElem_Parachute : 0xF9
     size 0x4C;
     label "Parachute";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
 }
@@ -902,7 +902,7 @@ class 0x150 ScriptElem_Patrol : 0xF9
     size 0x50;
     label "Patrol";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
     [0x48, u32] = "";
     [0x4C, float] = "";
@@ -913,7 +913,7 @@ class 0x151 ScriptElem_HoldPosition : 0xF9
     size 0x54;
     label "Hold Position";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, u32] = "";
@@ -925,7 +925,7 @@ class 0x152 ScriptElem_JumpDown : 0xF9
     size 0x50;
     label "Jump Down";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, u32] = "";
@@ -936,7 +936,7 @@ class 0x153 ScriptElem_SetupAmbush : 0xF9
     size 0x5C;
     label "Setup Ambush";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, ScriptArea] Area 2 kind = "";
@@ -950,7 +950,7 @@ class 0x154 ScriptElem_InnateBehavior : 0xF9
     size 0x44;
     label "Innate Behavior";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x155 ScriptElem_SetAwareness : 0xF9
@@ -958,7 +958,7 @@ class 0x155 ScriptElem_SetAwareness : 0xF9
     size 0x50;
     label "Set Awareness";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, ScriptArea] Area kind = "";
     [0x4C, s32] Area = "Index; -1 for none.";
@@ -969,7 +969,7 @@ class 0x156 ScriptElem_Sentry : 0xF9
     size 0x44;
     label "Sentry";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x157 ScriptElem_MeleeAttack : 0xF9
@@ -977,9 +977,9 @@ class 0x157 ScriptElem_MeleeAttack : 0xF9
     size 0x4C;
     label "Melee Attack";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptTarget] Target 2 kind = "";
-    [0x48, s32] Target 2 = "Index; -1 for none.";
+    [0x48, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x158 ScriptElem_SetupIntroAnim : 0xF9
@@ -987,7 +987,7 @@ class 0x158 ScriptElem_SetupIntroAnim : 0xF9
     size 0x6C;
     label "Intro Anim Setup";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -1004,7 +1004,7 @@ class 0x159 ScriptElem_TriggerIntroAnim : 0xF9
     size 0x48;
     label "Intro Anim Trigger";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -1013,7 +1013,7 @@ class 0x15A ScriptElem_IsIntroAnimDone : 0xFA
     size 0x48;
     label "Is Intro Anim Done";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x15B ScriptElem_UseCover : 0xF9
@@ -1057,7 +1057,7 @@ class 0x15F ScriptElem_SetCoverUse : 0xF9
     size 0x48;
     label "Set Cover Use";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -1066,7 +1066,7 @@ class 0x160 ScriptElem_SetDamagePerc : 0xF9
     size 0x4C;
     label "Set Damage Percentage";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
     [0x48, float] = "";
 }
@@ -1076,7 +1076,7 @@ class 0x161 ScriptElem_SetHomeArea : 0xF9
     size 0x48;
     label "Set Home Area";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
 }
 
@@ -1085,7 +1085,7 @@ class 0x162 ScriptElem_SetGrenadeUse : 0xF9
     size 0x50;
     label "Set Grenade Use";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -1096,7 +1096,7 @@ class 0x163 ScriptElem_SetPlayerPosition : 0xF9
     size 0x54;
     label "Set Player Position";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, ScriptArea] Area 2 kind = "";
@@ -1108,7 +1108,7 @@ class 0x164 ScriptElem_GatherPlayers : 0xF9
     size 0x5C;
     label "Set Player Position";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, ScriptArea] Area 2 kind = "";
@@ -1129,7 +1129,7 @@ class 0x166 ScriptElem_SetPlayerPostEffectsAndFog : 0xF9
     size 0x4C;
     label "Player Set Post Effects And Fog";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
 }
@@ -1139,7 +1139,7 @@ class 0x167 ScriptElem_PlayerWeaponAdd : 0xF9
     size 0x54;
     label "Player Weapon Add";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -1151,7 +1151,7 @@ class 0x168 ScriptElem_PlayerWeaponRemoveAll : 0xF9
     size 0x44;
     label "Player Weapon Remove All";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x169 ScriptElem_PlayerSetHealthMin : 0xF9
@@ -1159,7 +1159,7 @@ class 0x169 ScriptElem_PlayerSetHealthMin : 0xF9
     size 0x48;
     label "Player Set Health Min";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
 }
 
@@ -1168,7 +1168,7 @@ class 0x16A ScriptElem_PlayerSetAmmoMin : 0xF9
     size 0x50;
     label "Player Set Ammo Min";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -1179,7 +1179,7 @@ class 0x16B ScriptElem_SetPlayerFPNIS : 0xF9
     size 0x50;
     label "Set Player FPNIS";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
 }
 
@@ -1188,7 +1188,7 @@ class 0x16C ScriptElem_EndPlayerFPNIS : 0xF9
     size 0x44;
     label "End Player FPNIS";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x16D ScriptElem_SetBotPodPosition : 0xF9
@@ -1196,7 +1196,7 @@ class 0x16D ScriptElem_SetBotPodPosition : 0xF9
     size 0x4C;
     label "Set Bot/Pod Position";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
 }
@@ -1222,7 +1222,7 @@ class 0x170 ScriptElem_KnockPlayer : 0xF9
     size 0x60;
     label "Knock Player";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, u32] = "";
@@ -1388,7 +1388,7 @@ class 0x180 ScriptElem_SquadAdd : 0xF9
     label "Squad Assign To Squad";
     [0x3C, u32] = "";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, s32] = "";
 }
 
@@ -1398,7 +1398,7 @@ class 0x181 ScriptElem_SquadRemove : 0xF9
     label "Squad Remove From Squad";
     [0x3C, u32] = "";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x182 ScriptElem_SquadMerge : 0xF9
@@ -1486,7 +1486,7 @@ class 0x18A ScriptElem_TGS_SwarmerRun : 0xF9
     size 0x4C;
     label "TGS Swarmer Run";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
 }
@@ -1932,7 +1932,7 @@ class 0x1BD ScriptElem_MenialMoveObject : 0xF9
     size 0x50;
     label "Menial Move Object";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -1943,7 +1943,7 @@ class 0x1BE ScriptElem_MenialUseConsole : 0xF9
     size 0x4C;
     label "Menial Use Console";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, s32] = "";
 }
@@ -1968,10 +1968,10 @@ class 0x1C1 ScriptElem_MenialThrowObject : 0xF9
     size 0x58;
     label "Menial Throw Object";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, ScriptTarget] Target 2 kind = "";
-    [0x4C, s32] Target 2 = "Index; -1 for none.";
+    [0x4C, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x50, s32] = "";
 }
 
@@ -2018,7 +2018,7 @@ class 0x1C6 ScriptElem_SetTint : 0xF9
     size 0x54;
     label "SetTint";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
     [0x48, float] = "";
     [0x4C, float] = "";
@@ -2143,7 +2143,7 @@ class 0x1D6 ScriptElem_PlayDialogue : 0xF9
     size 0x6C;
     label "Play Dialogue";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, float] = "";
@@ -2191,7 +2191,7 @@ class 0x1DA ScriptElem_IS_Start : 0xF9
     size 0x44;
     label "Interactive Scene - Start";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x1DB ScriptElem_IS_QueueSpeech : 0xF9
@@ -2227,7 +2227,7 @@ class 0x1DE ScriptElem_IS_End : 0xF9
     size 0x44;
     label "I.S. - End";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x1DF ScriptElem_VO : 0xF9
@@ -2292,7 +2292,7 @@ class 0x1E3 ScriptElem_SetAwarenessRangeMultiplier : 0xF9
     size 0x48;
     label "Set Awareness Range Multiplier";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
 }
 
@@ -2311,7 +2311,7 @@ class 0x1E5 ScriptElem_DamageMoby : 0xF9
     size 0x5C;
     label "Damage Moby";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
     [0x48, float] = "";
     [0x4C, float] = "";
@@ -2325,7 +2325,7 @@ class 0x1E6 ScriptElem_DamageMobyInArea : 0xF9
     size 0x64;
     label "Damage Moby In Area";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, float] = "";
@@ -2410,7 +2410,7 @@ class 0x1EE ScriptElem_PlaySound : 0xF9
     size 0x50;
     label "Play Sound";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, ScriptArea] Area kind = "";
     [0x48, s32] Area = "Index; -1 for none.";
     [0x4C, u32] = "";
@@ -2517,7 +2517,7 @@ class 0x1FC ScriptElem_DEMO_Idle : 0xF9
     size 0x44;
     label "DEMO Idle";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x1FD ScriptElem_DEMO_Stand : 0xF9
@@ -2525,7 +2525,7 @@ class 0x1FD ScriptElem_DEMO_Stand : 0xF9
     size 0x44;
     label "DEMO Stand";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x1FE ScriptElem_DEMO_Advance : 0xF9
@@ -2533,7 +2533,7 @@ class 0x1FE ScriptElem_DEMO_Advance : 0xF9
     size 0x44;
     label "DEMO Advance";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x1FF ScriptElem_DEMO_Strafe : 0xF9
@@ -2541,7 +2541,7 @@ class 0x1FF ScriptElem_DEMO_Strafe : 0xF9
     size 0x44;
     label "DEMO Strafe";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x200 ScriptElem_DEMO_Cover : 0xF9
@@ -2549,7 +2549,7 @@ class 0x200 ScriptElem_DEMO_Cover : 0xF9
     size 0x50;
     label "DEMO Cover";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -2560,7 +2560,7 @@ class 0x201 ScriptElem_DEMO_Movement : 0xF9
     size 0x50;
     label "DEMO Movement";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -2571,7 +2571,7 @@ class 0x202 ScriptElem_DEMO_Normal : 0xF9
     size 0x44;
     label "DEMO Normal";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x203 ScriptElem_DEMO_LowHP : 0xF9
@@ -2579,7 +2579,7 @@ class 0x203 ScriptElem_DEMO_LowHP : 0xF9
     size 0x44;
     label "DEMO Low HP";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x204 ScriptElem_DEMO_MayaCutscene : 0xF9
@@ -2659,7 +2659,7 @@ class 0x20B ScriptElem_ResetPhysics : 0xF9
     size 0x44;
     label "Reset Physics";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x20C ScriptElem_EruptSwarmerEgg : 0xF9
@@ -2667,7 +2667,7 @@ class 0x20C ScriptElem_EruptSwarmerEgg : 0xF9
     size 0x44;
     label "Erupt Swarmer Egg";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x20D ScriptElem_TestMove1 : 0xF9
@@ -2675,7 +2675,7 @@ class 0x20D ScriptElem_TestMove1 : 0xF9
     size 0x44;
     label "Move Test 1 (Intro/Outro)";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x20E ScriptElem_VehicleGrabPlayer : 0xF9
@@ -2701,7 +2701,7 @@ class 0x210 ScriptElem_MechSetWeaponUse : 0xF9
     size 0x4C;
     label "Mech Set Weapon Use";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
 }
@@ -2711,7 +2711,7 @@ class 0x211 ScriptElem_MechSetOptimalDist : 0xF9
     size 0x4C;
     label "Mech Set Optimal Dist";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
     [0x48, float] = "";
 }
@@ -2721,7 +2721,7 @@ class 0x212 ScriptElem_BehemothSetWeaponUse : 0xF9
     size 0x50;
     label "Behemoth Set Weapon Use";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
     [0x4C, u32] = "";
@@ -2732,7 +2732,7 @@ class 0x213 ScriptElem_BehemothSetOptimalDist : 0xF9
     size 0x4C;
     label "Behemoth Set Optimal Dist";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, u32] = "";
 }
@@ -2774,7 +2774,7 @@ class 0x217 ScriptElem_SwarmerFollowPath : 0xF9
     size 0x60;
     label "Swarmer Follow Path";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, s32] = "";
     [0x48, s32] = "";
     [0x4C, u32] = "";
@@ -3023,7 +3023,7 @@ class 0x233 ScriptElem_IfIsNotFollowingPath : 0xFA
     size 0x4C;
     label "If Is Not Following Path";
     [0x40, ScriptTarget] Target kind = "";
-    [0x44, s32] Target = "Index; -1 for none.";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x48, u32] = "";
 }
 
@@ -3953,7 +3953,7 @@ class 0x4D0 ScriptElem_IsAware : 0xFA
     label "Is Aware";
     [0x40, u32] = "";
     [0x44, ScriptTarget] Target kind = "";
-    [0x48, s32] Target = "Index; -1 for none.";
+    [0x48, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
 }
 
 class 0x4D4 Elevator_Z_SimpleBlower : 0x4D
@@ -4115,7 +4115,7 @@ class 0x50A ScriptElem_SetFacingTarget : 0xF9
     size 0x4C;
     label "Set Facing Target";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, float] = "";
 }
@@ -4144,7 +4144,7 @@ class 0x514 ScriptElem_GravySetAimDirection : 0xF9
     size 0x4C;
     label "Gravy - Set Aim Direction";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, u32] = "";
     [0x48, float] = "";
 }
@@ -4158,7 +4158,7 @@ class 0x51B ScriptElem_BlockoutDrone : 0xF9
     size 0x48;
     label "Blockout Drone";
     [0x3C, ScriptTarget] Target kind = "";
-    [0x40, s32] Target = "Index; -1 for none.";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
     [0x44, float] = "";
 }
 

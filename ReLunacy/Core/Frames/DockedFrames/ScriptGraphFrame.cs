@@ -337,9 +337,9 @@ public sealed partial class ScriptGraphFrame : DockedFrame, IDisposable
     {
         if (_script == null || ClassFields.SizeOf(Game, cls) is not { } size) return null;
         var element = ScriptElement.Create(cls, size);
-        // Instance indexes start as none.
+        // Instance indexes start as none: -1 for an area, 0 for a Moby target (its handle; see IndexOf).
         foreach (var field in ClassFields.Of(Game, cls))
-            if (field is { Kind: ClassFieldKind.Enum, TypeName: "ScriptTarget" or "ScriptArea" } && field.Offset + 8 <= size)
+            if (field is { Kind: ClassFieldKind.Enum, TypeName: "ScriptArea" } && field.Offset + 8 <= size)
                 element.SetWord(field.Offset + 4, uint.MaxValue);
         _script.Add(element);
         _positions[element] = place;

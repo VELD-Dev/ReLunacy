@@ -253,6 +253,13 @@ public sealed partial class ScriptGraphFrame
             }
         ImGui.EndCombo();
         if (value == before) return;
+        // A target's index keeps naming the same number when its kind changes, in the new kind's encoding.
+        if (field.TypeName is "ScriptTarget" or "ScriptArea" && size == 4 && offset + 8 <= element.Data.Length)
+        {
+            bool target = field.TypeName == "ScriptTarget";
+            int index = IndexOf(target, (int)before, element.Word(offset + 4));
+            element.SetWord(offset + 4, WordOf(target, (int)value, index));
+        }
         Write(element.Data.AsSpan(offset, size), value);
         Commit("GUI_ScriptGraph_UndoEdit");
     }
@@ -374,17 +381,34 @@ public sealed partial class ScriptGraphFrame
         return (name != null ? $"{kindName} {index}: {name}" : $"{kindName} {index}", entity);
     }
 
-    private string InstanceText(ScriptElement element, int kindOffset, bool target) =>
-        kindOffset + 8 > element.Data.Length ? ""
-            : Instance((int)element.Word(kindOffset), (int)element.Word(kindOffset + 4), target).Text;
+    private string InstanceText(ScriptElement element, int kindOffset, bool target)
+    {
+        if (kindOffset + 8 > element.Data.Length) return "";
+        int kind = (int)element.Word(kindOffset);
+        return Instance(kind, IndexOf(target, kind, element.Word(kindOffset + 4)), target).Text;
+    }
+
+    /// <summary>A Moby target holds the Moby's handle, (index + 1) &lt;&lt; 16 | index, which the game checks against the
+    /// live Moby's id: anything else (0 in the shipped files) names none. Pods, volumes and areas hold the index.</summary>
+    private static bool IsHandle(bool target, int kind) => target && kind == 0;
+
+    private static int IndexOf(bool target, int kind, uint word)
+    {
+        if (!IsHandle(target, kind)) return (int)word;
+        uint index = word & 0xFFFF;
+        return word >> 16 == index + 1 ? (int)index : -1;
+    }
+
+    private static uint WordOf(bool target, int kind, int index) =>
+        !IsHandle(target, kind) ? (uint)Math.Max(-1, index) : index is < 0 or >= 0xFFFF ? 0u : (uint)(index + 1) << 16 | (uint)index;
 
     private void InstanceEditor(ScriptElement element, int offset, bool target, float width, bool compact)
     {
-        int kind = (int)element.Word(offset - 4), index = (int)element.Word(offset);
+        int kind = (int)element.Word(offset - 4), index = IndexOf(target, kind, element.Word(offset));
         var (text, entity) = Instance(kind, index, target);
         float buttons = (compact ? 1f : 2f) * (ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.X);
         ImGui.SetNextItemWidth(MathF.Max(20f, width - buttons));
-        if (ImGui.InputInt("##v", ref index, 0)) element.SetWord(offset, (uint)Math.Max(-1, index));
+        if (ImGui.InputInt("##v", ref index, 0)) element.SetWord(offset, WordOf(target, kind, index));
         if (ImGui.IsItemDeactivatedAfterEdit()) Commit("GUI_ScriptGraph_UndoEdit");
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(text);
         ImGui.SameLine();
@@ -399,7 +423,7 @@ public sealed partial class ScriptGraphFrame
         if (ImGuiPlus.IconButton(Icons.CircleDot, "use_selected") && use is { } u)
         {
             element.SetWord(offset - 4, (uint)u.Kind);
-            element.SetWord(offset, (uint)u.Index);
+            element.SetWord(offset, WordOf(target, u.Kind, u.Index));
             Commit("GUI_ScriptGraph_UndoEdit");
         }
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ScriptGraph_UseSelected"));
