@@ -1097,8 +1097,8 @@ class 0x163 ScriptElem_SetPlayerPosition : 0xF9
     label "Set Player Position";
     [0x3C, ScriptTarget] Target kind = "";
     [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
-    [0x44, ScriptArea] Area kind = "";
-    [0x48, s32] Area = "Index; -1 for none.";
+    [0x44, ScriptArea] Position Area Type = "";
+    [0x48, s32] Position Area = "Index; -1 for none.";
     [0x4C, ScriptArea] Area 2 kind = "";
     [0x50, s32] Area 2 = "Index; -1 for none.";
 }
@@ -1205,9 +1205,9 @@ class 0x16E ScriptElem_SetMobyPosition : 0xF9
 {
     size 0x48;
     label "Set Moby Position";
-    [0x3C, u32] = "";
-    [0x40, s32] = "";
-    [0x44, s32] = "";
+    [0x3C, Moby] Target Moby = "";
+    [0x40, Volume] = "";
+    [0x44, Volume] Position = "Volume designating the target position";
 }
 
 class 0x16F ScriptElem_SetCurrentSetup : 0xF9
@@ -1538,17 +1538,17 @@ class 0x190 ScriptElem_AircraftSetSpeedMode : 0xF9
 {
     size 0x44;
     label "Aircraft Set Speed Mode";
-    [0x3C, u32] = "";
-    [0x40, u32] = "";
+    [0x3C, Moby] Target Moby = "";
+    [0x40, u32] SpeedMode? = "";
 }
 
 class 0x191 ScriptElem_AircraftSetSpeedRange : 0xF9
 {
     size 0x48;
     label "Aircraft Set Speed Range";
-    [0x3C, u32] = "";
-    [0x40, u32] = "";
-    [0x44, u32] = "";
+    [0x3C, Path] Target Moby = "";
+    [0x40, u32] Range Begin? = "";
+    [0x44, u32] Range End? = "";
 }
 
 class 0x192 ScriptElem_AircraftSetSpeedRange2 : 0xF9
@@ -1712,9 +1712,9 @@ class 0x1A4 ScriptElem_CtDropCargo : 0xF9
 {
     size 0x4C;
     label "CT Drop Cargo";
-    [0x3C, u32] = "";
-    [0x40, u32] = "";
-    [0x44, u32] = "";
+    [0x3C, Moby] Moby Target = "";
+    [0x40, Controller] Cargo Target = "";
+    [0x44, ref] = "";
     [0x48, u32] = "";
 }
 
