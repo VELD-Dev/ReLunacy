@@ -84,12 +84,12 @@ class 0x47 MobyBaseUpdate : 0x6
 {
     [0x10, u8] Base flag = "";
     [0x14, u32, runtime] Moby instance = "Filled in by the game.";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x20, u16, runtime] Playing sounds = "The sounds this object is playing.";
     [0x3C, s32] = "-1 in every file: a run-time slot.";
     [0x54, u32] = "0xFFFF in every file: a run-time slot.";
     [0x59, bool] Start deactivated = "The object is hidden and idle until a script activates it.";
     [0x5A, u8, runtime] Initialised = "";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x20, u16, runtime] Playing sounds = "The sounds this object is playing.";
 }
 
 class 0x4D PlatformGrappleBase : 0x47
@@ -102,6 +102,12 @@ class 0x4F PlatformGrappleCatapult : 0x4D
     [0x46C, Path] Flight path = "";
     [0x470, float] Flight tuning = "";
     [0x48C, Controller] Camera = "";
+}
+
+class 0x52 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x174, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0xCF ControllerBaseUpdate : 0x6
@@ -296,6 +302,21 @@ class 0x141 : 0x160
     [0x1148, u32] Face moby = "Used by the script functions ally_set_face_moby, ally_clear_face_moby.";
 }
 
+class 0x148 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x60, component(0xC), runtime] Moby link = "Handle of a Moby it follows.";
+    [0x80, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x98, float] Damage = "Damage it deals.";
+}
+
+class 0x14A : 0x149
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xE0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+}
+
 class 0x154 WeaponBase : 0x47
 {
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
@@ -310,6 +331,8 @@ class 0x15C SimpleAnimated : 0x47
 class 0x160 CharacterBase : 0x47
 {
     [0x70, u16] = "Used by the script functions set_anim_modifier, npc_set_speed, ally_set_speed.";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x78, u32, runtime] Class = "A class number it checks objects against.";
     [0x9C, u32, runtime] State machine = "The behaviour state machine; current state at +4, previous at +8.";
     [0xD4, u32] Inner awareness = "Used by the script function enemy_set_inner_awareness.";
     [0xD8, u32] Outer awareness = "Used by the script function enemy_set_outer_awareness.";
@@ -332,8 +355,6 @@ class 0x160 CharacterBase : 0x47
     [0x810, Path] Patrol path = "";
     [0x814, Area] Home area = "The area the character stays in.";
     [0x818, Path] Extra path = "";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x78, u32, runtime] Class = "A class number it checks objects against.";
 }
 
 class 0x171 EnemyBattlefieldController : 0xCF
@@ -437,10 +458,24 @@ class 0x187 NPCBase : 0x160
     [0xD28, bool] Visible = "Used by the script function npc_vorselon_set_visible.";
 }
 
+class 0x18E : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0xE0, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x192 clank : 0xF6
 {
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x2094, float, runtime] Factor = "A scale it moves or sizes something by.";
+}
+
+class 0x196 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xA4, float] Factor 1 = "A scale it moves or sizes something by.";
+    [0xB8, float, runtime] Factor 2 = "A scale it moves or sizes something by.";
 }
 
 class 0x198 smuggler : 0x187
@@ -454,6 +489,12 @@ class 0x19A swamp flyer / wasp : 0x181
 
 class 0x19F MonitorBase : 0x47
 {
+}
+
+class 0x1FD : 0x15C
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x88, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x201 PlatformBase : 0x47
@@ -479,6 +520,18 @@ class 0x202 SoundEnvironment : 0xCF
     [0x48, float] Reverb value A = "";
     [0x4C, float] Reverb value B = "";
     [0x50, component(0x30), runtime] Box = "";
+}
+
+class 0x20C : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x60, component(0x44), runtime] Damage info = "The damage it deals, built at run time.";
+}
+
+class 0x20E : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1680, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x210 PickupGoldBolt : 0xD8
@@ -569,9 +622,9 @@ class 0x245 ShotTargetBase : 0x47
     [0x74, Area] Area where = "";
     [0x78, Area] = "";
     [0x7C, Moby] Parent Moby = "Moby the target is attached to.";
-    [0x94, float] = "8 by default.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x80, u32] Joint = "Joint of the Moby.";
+    [0x94, float] = "8 by default.";
 }
 
 class 0x246 ShotTargetSwing : 0x245
@@ -616,6 +669,12 @@ class 0x24D Taxi : 0x24C
     [0x5C8, text] Stop Prompt 4 = "Prompt shown when the taxi is at volume 4";
 }
 
+class 0x25A : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x74, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x25B PlatformGrappleExtending : 0x4D
 {
     [0x468, Path] = "";
@@ -627,6 +686,20 @@ class 0x260 CamArgIndexedPath : 0xD1
     [0x60, Path] Index path = "The hero's progress along it drives the camera.";
     [0x64, Path] Look-at path = "";
     [0x68, Path] Camera path = "";
+}
+
+class 0x263 : 0x238
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x578, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x580, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x264 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x90, component(0x10), runtime] Vector = "A vector it works with.";
+    [0xB0, component(0x44), runtime] Damage info = "The damage it deals, built at run time.";
 }
 
 class 0x269 ArenaCrateSpawner : 0x47
@@ -645,11 +718,25 @@ class 0x26E SimpleElevator : 0x47
     [0x158, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
     [0x15C, float] = "Used by the script functions elevator_move, elevator_move_to_first_node, elevator_move_to_second_node.";
     [0x16C, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
-    [0x178, Volume] = "";
-    [0x17C, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x170, float, runtime] Timer 1 = "Counts down to zero.";
     [0x174, float, runtime] Timer 2 = "Counts down to zero.";
+    [0x178, Volume] = "";
+    [0x17C, u32] = "Used by the script functions elevator_warp_to_first_node, elevator_warp_to_second_node.";
+}
+
+class 0x273 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xB0, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x287 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x400, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x434, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x438, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
 class 0x28F Aphelion (ship hero) : 0xE5
@@ -676,6 +763,8 @@ class 0x28F Aphelion (ship hero) : 0xE5
     [0x1734, float] = "Used by the script function space_land_ship.";
     [0x1738, float] = "Used by the script function space_land_ship.";
     [0x173C, float] = "Used by the script function space_land_ship.";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1750, component(0x10), runtime] Vector = "A vector it works with.";
     [0x1760, float] = "Used by the script function space_land_ship.";
     [0x1764, float] = "Used by the script function space_land_ship.";
     [0x1768, float] = "Used by the script function space_land_ship.";
@@ -686,6 +775,7 @@ class 0x28F Aphelion (ship hero) : 0xE5
     [0x186C, float] = "Used by the script function space_land_ship.";
     [0x1938, u32] = "Used by the script function space_land_ship.";
     [0x1988, float] = "Used by the script function space_land_ship.";
+    [0x198C, float, runtime] Timer = "Counts down to zero.";
     [0x1990, float] = "Used by the script function space_land_ship.";
     [0x1994, float] = "Used by the script function space_land_ship.";
     [0x1998, float] = "Used by the script function space_land_ship.";
@@ -694,9 +784,6 @@ class 0x28F Aphelion (ship hero) : 0xE5
     [0x19FE, bool] = "Used by the script function space_land_ship.";
     [0x1A02, bool] = "Used by the script function space_land_ship.";
     [0x1A04, bool] = "Used by the script function space_land_ship.";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1750, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x198C, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x290 stationary laser : 0x47
@@ -733,6 +820,8 @@ class 0x296 ActorBase : 0x47
     [0x6C, u32] Color = "Used by the script function actor_set_color.";
     [0x70, u32] Idle face hero = "Used by the script function actor_set_idle_face_hero.";
     [0x74, u32] = "Used by the script function actor_move.";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x88, float, runtime] Timer = "Counts down to zero.";
     [0x8C, u32] Stance = "Used by the script function actor_set_stance.";
     [0x90, u32] Stance = "Used by the script function actor_set_stance.";
     [0x94, u32] Gesture = "Used by the script function actor_set_gesture.";
@@ -746,8 +835,6 @@ class 0x296 ActorBase : 0x47
     [0x474, float] = "Used by the script function actor_move.";
     [0x478, float] = "Used by the script function actor_move.";
     [0x480, u32] = "Used by the script function actor_move.";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x88, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x2B6 PadBase : 0x47
@@ -813,10 +900,36 @@ class 0x2EC machine burner : 0x47
 {
     [0x70, float] Burn Duration = "For how long does the fire last ?";
     [0x74, float] Idle Duration = "For how long does the burner remain idle between blasts ?";
-    [0x82, bool] Burn status = "Used by the script functions flame_jet_on, flame_jet_off, flame_jet_restart.";
-    [0x83, bool] Also Burner status (needs tests) = "Used by the script functions flame_jet_on, flame_jet_off, flame_jet_restart.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x7C, float, runtime] Timer = "Counts down to zero.";
+    [0x82, bool] Burn status = "Used by the script functions flame_jet_on, flame_jet_off, flame_jet_restart.";
+    [0x83, bool] Also Burner status (needs tests) = "Used by the script functions flame_jet_on, flame_jet_off, flame_jet_restart.";
+}
+
+class 0x308 : 0x2B6
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x128, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x30C : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xE0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+}
+
+class 0x30D : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x88, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x315 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xF0, float, runtime] Timer 1 = "Counts down to zero.";
+    [0xF4, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
 class 0x316 HazardFlameColumn : 0x47
@@ -824,8 +937,20 @@ class 0x316 HazardFlameColumn : 0x47
     [0x150, Path] Move Path = "Path the burner moves along";
 }
 
+class 0x318 : 0x201
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x120, u32] Joint = "Joint of the Moby.";
+}
+
 class 0x319 GrindRailElectroRing : 0x47
 {
+}
+
+class 0x31C : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x160, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x333 CamArgOpeningView : 0xD1
@@ -843,8 +968,40 @@ class 0x337 SimplePathFollower : 0x47
     [0x154, float, runtime] Timer = "Counts down to zero.";
 }
 
+class 0x33A : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xA0, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x33B : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x220, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x1260, component(0x10), runtime] Vector 2 = "A vector it works with.";
+}
+
+class 0x33D : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x30, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x40, component(0x10), runtime] Vector 2 = "A vector it works with.";
+}
+
+class 0x34E : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x64, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x358 tj_ago_arena_crowd : 0x47
 {
+}
+
+class 0x35B : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x14, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x35E CarSpawner : 0xCF
@@ -884,12 +1041,21 @@ class 0x369 SoundEmitter : 0xCF
     [0x24, s32, runtime] Sound handle = "";
 }
 
+class 0x36C : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x80, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xB0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0xC0, float, runtime] Timer = "Counts down to zero.";
+    [0xD4, float] Damage = "Damage it deals.";
+}
+
 class 0x36F PlatformGrappleTwoAxis : 0x4D
 {
-    [0x4E0, ref] = "";
-    [0x4E4, Volume] = "";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x4C0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x4E0, ref] = "";
+    [0x4E4, Volume] = "";
 }
 
 class 0x371 EnemyGroupController : 0xCF
@@ -957,20 +1123,34 @@ class 0x3B2 VendorWeapon : 0x220
 {
 }
 
+class 0x3B8 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x60, float, runtime] Timer = "Counts down to zero.";
+    [0x68, float, runtime] Factor = "A scale it moves or sizes something by.";
+}
+
 class 0x3BB DoorSlide : 0x548
 {
     [0x150, Volume] Close Door Trigger = "Volume that triggers the beginning of the closing animation";
     [0x158, float] Close Speed? = "";
 }
 
+class 0x3C0 : 0x274
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1B0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x1C4, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x3C8 DropShipBase : 0x47
 {
-    [0xF8, Path] = "";
-    [0x104, Volume] = "";
-    [0x108, Path] = "";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0xA0, component(0x10), runtime] Vector 1 = "A vector it works with.";
     [0xB0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0xF8, Path] = "";
+    [0x104, Volume] = "";
+    [0x108, Path] = "";
 }
 
 class 0x3CC swingcam : 0xD1
@@ -996,7 +1176,9 @@ class 0x3D0 FxController : 0xCF
     [0x38, float] Stop delay, minimum = "";
     [0x3C, float] Stop delay, maximum = "";
     [0x40, u32] Trigger source = "";
-    [0x54, Volume] Volume = "The volume the effect fills.";
+    [0x54, Volume] Fill Volume = "The volume the effect fills or spawns randomly in.";
+    [0x60, bool32] = "";
+    [0x64, bool32] = "";
     [0x6C, ref] = "";
     [0x70, float] Impulse amount = "";
     [0x74, float] Impulse radius = "";
@@ -1020,10 +1202,10 @@ class 0x3ED PlatformMoving : 0x201
     [0x180, Volume] End volume = "";
     [0x184, Volume] Start volume = "";
     [0x188, Path] Move Path = "Path the platform moves along.";
-    [0x198, float] Speed-like value = "";
-    [0x19C, float] Wait-like value = "";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x190, float, runtime] Timer = "Counts down to zero.";
+    [0x198, float] Speed-like value = "";
+    [0x19C, float] Wait-like value = "";
 }
 
 class 0x3EF WeatherController : 0xCF
@@ -1055,6 +1237,20 @@ class 0x404 SimpleRotated : 0x47
     [0x78, float, runtime] Run-time state = "";
 }
 
+class 0x40C : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x40, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x412 : 0x201
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1A0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x1E0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0x1F0, component(0x10), runtime] Vector 3 = "A vector it works with.";
+}
+
 class 0x425 BoltCrankBase : 0x47
 {
     [0x380, float] = "Used by the script function crank_reset.";
@@ -1062,16 +1258,55 @@ class 0x425 BoltCrankBase : 0x47
     [0x388, float] = "Used by the script function crank_reset.";
     [0x38C, float] = "Used by the script function crank_reset.";
     [0x394, u32] = "Used by the script function crank_reset.";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x3A0, float, runtime] Timer = "Counts down to zero.";
     [0x3A4, u32] = "Used by the script function crank_reset.";
     [0x3C8, bool] = "Used by the script function crank_reset.";
     [0x3C9, bool] = "Used by the script function crank_reset.";
     [0x3CA, bool] = "Used by the script function crank_reset.";
+}
+
+class 0x426 : 0x47
+{
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x3A0, float, runtime] Timer = "Counts down to zero.";
+    [0x1E0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x208, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x435 : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x28, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x437 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x70, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x88, float] Damage = "Damage it deals.";
 }
 
 class 0x43B BreakableBoltCrate : 0x291
 {
+}
+
+class 0x448 : 0x56A
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x310, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x44C : 0x44B
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x90, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x462 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x470, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x480, component(0x10), runtime] Vector 2 = "A vector it works with.";
 }
 
 class 0x46B BreakableHealthCrate : 0x291
@@ -1095,6 +1330,35 @@ class 0x472 VerticalFogController : 0xCF
 
 class 0x474 RotaterConstant : 0x185
 {
+}
+
+class 0x477 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xF0, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x490 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xB4, float, runtime] Timer = "Counts down to zero.";
+    [0xB8, float, runtime] Damage = "Damage it deals.";
+}
+
+class 0x493 : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x60, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x64, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x498 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xD0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xE0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0xF0, component(0x10), runtime] Vector 3 = "A vector it works with.";
+    [0x100, component(0x10), runtime] Vector 4 = "A vector it works with.";
 }
 
 class 0x4BC SpaceMoon : 0x11E
@@ -1199,20 +1463,48 @@ class 0x4D4 NavClue_NavNetwork : 0x11D
 
 class 0x4D6 cluesupersoakerfillup : 0x11D
 {
-    [0x18, Path] = "";
+    [0x18, Path] Mask path = "Seems to be used to define specific areas (very specific) as omnisoaker fillers";
 }
 
 class 0x4D9 ClueFirePoint : 0x11D
 {
 }
 
+class 0x4DB : 0x274
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1F4, float, runtime] Factor = "A scale it moves or sizes something by.";
+    [0x228, component(0xC), runtime] Moby link = "Handle of a Moby it follows.";
+}
+
+class 0x4E0 : 0x522
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1A0, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x4E1 Agorian warrior : 0x181
 {
     [0xCF4, float] Rush dists = "Used by the script function agorian_set_rush_dists.";
     [0xCF8, float] Rush dists = "Used by the script function agorian_set_rush_dists.";
-    [0xD0C, u32] Shots per volley = "Used by the script function agorian_set_shots_per_volley.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0xD08, float, runtime] Timer = "Counts down to zero.";
+    [0xD0C, u32] Shots per volley = "Used by the script function agorian_set_shots_per_volley.";
+}
+
+class 0x4EF : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xB4, float, runtime] Timer 1 = "Counts down to zero.";
+    [0xC0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0x168, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x51C : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x250, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x51E kb_great_clock_time_record_pad : 0x47
@@ -1230,6 +1522,12 @@ class 0x51E kb_great_clock_time_record_pad : 0x47
     [0xEC, u32] = "Used by the script function clone_pad_get_count.";
     [0xF8, u32] = "Used by the script function clone_pad_disable_sigmund.";
     [0xFC, u32] Sigmund path = "Used by the script function clone_pad_set_sigmund_path.";
+}
+
+class 0x521 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x52E PlayerBase : 0x47
@@ -1280,6 +1578,25 @@ class 0x54E battery bot : 0x181
     [0xC84, Volume] No-lock volume = "A no-lock volume.";
 }
 
+class 0x54F : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x170, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x184, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x550 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x552 : 0x201
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x13C, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x553 PlatformProcedural : 0x201
 {
     [0x11C, Volume] = "";
@@ -1294,6 +1611,8 @@ class 0x556 SpaceAsteroid : 0x67D
 
 class 0x55B ant_swarm : 0x47
 {
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x80, component(0x10), runtime] Vector = "A vector it works with.";
     [0x190, u32] = "Used by the script functions swarm_is_targeting_ratchet, swarm_is_targeting_ambrosia.";
     [0x198, u32] Override target = "Used by the script function swarm_set_override_target.";
     [0x19C, u32] Override target = "Used by the script function swarm_set_override_target.";
@@ -1308,8 +1627,6 @@ class 0x55B ant_swarm : 0x47
     [0x1C0, u16] = "Used by the script function swarm_is_retreating.";
     [0x1D7, bool] = "Used by the script functions swarm_targeted_ambrosia, swarm_took_non_ambrosia_damage.";
     [0x27C, float] = "Used by the script function swarm_force_retreat.";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x80, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x55F ConveyorJunk : 0x47
@@ -1318,6 +1635,22 @@ class 0x55F ConveyorJunk : 0x47
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0xE0, float, runtime] Timer 1 = "Counts down to zero.";
     [0xE4, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x564 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x70, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x80, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0xB4, float, runtime] Timer 1 = "Counts down to zero.";
+    [0xBC, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x566 : 0x564
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xD0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xE0, component(0x10), runtime] Vector 2 = "A vector it works with.";
 }
 
 class 0x569 Damageable : 0x47
@@ -1338,12 +1671,25 @@ class 0x56A Breakable : 0x569
     [0x234, float] Piece lifetime = "Seconds the pieces stay; negative for the default.";
 }
 
+class 0x56C : 0x564
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xE0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+}
+
 class 0x56E Destructible : 0x56A
 {
 }
 
 class 0x570 hydro plant : 0x47
 {
+}
+
+class 0x571 : 0x521
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x104, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x573 ambrosia_plant : 0x47
@@ -1364,14 +1710,22 @@ class 0x577 hoverboot ramp / kick pad : 0x2B6
     [0xF8, float] Jump duncan hack = "Used by the script function set_jump_duncan_hack.";
     [0xFC, float] Jump duncan hack = "Used by the script function set_jump_duncan_hack.";
     [0x100, u32, runtime] Run-time state = "";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x104, float, runtime] Timer = "Counts down to zero.";
     [0x108, u32] Mode = "";
     [0x10C, u32] Second mode = "";
     [0x111, bool] Use mode flags = "";
     [0x112, bool] Mode flag A = "";
     [0x113, bool] One-way = "Only this pad's end of the path is placed.";
     [0x114, bool] Mode flag B = "";
+}
+
+class 0x586 : 0x148
+{
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x104, float, runtime] Timer = "Counts down to zero.";
+    [0x590, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x594, float, runtime] Timer 2 = "Counts down to zero.";
+    [0x598, float, runtime] Timer 3 = "Counts down to zero.";
 }
 
 class 0x589 PlatformGrappleWinding
@@ -1416,6 +1770,13 @@ class 0x5A0 PlatformGrappleAutoSpring
     [0x488, float] Launch strength = "";
 }
 
+class 0x5A2 : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x190, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x1B4, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x5A3 custom_pistol : 0x154
 {
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
@@ -1424,6 +1785,13 @@ class 0x5A3 custom_pistol : 0x154
 
 class 0x5A4 custom_shotgun : 0x154
 {
+}
+
+class 0x5A5 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xF0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x12C, float, runtime] Damage = "Damage it deals.";
 }
 
 class 0x5AC battery bot socket : 0x47
@@ -1436,11 +1804,11 @@ class 0x5AF ConveyorSmasher : 0x47
     [0x60, float] Idle Time = "";
     [0x64, float] Speed = "";
     [0x68, float] Time offset = "";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x6C, float, runtime] Timer = "Counts down to zero.";
     [0x70, u32] = "Used by the script functions open_smasher, close_smasher, restart_smasher.";
     [0x74, u16] = "Used by the script functions open_smasher, close_smasher, restart_smasher.";
     [0x76, u16] = "Used by the script functions open_smasher, close_smasher, restart_smasher.";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x6C, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x5B0 junk trader : 0x187
@@ -1461,10 +1829,23 @@ class 0x5BE hydra : 0x181
     [0xF20, u32] = "Used by the script function hydra_tank_kill.";
     [0xFB8, u32] = "Used by the script function hydra_tank_kill.";
     [0x1090, u32] = "Used by the script function hydra_tank_kill.";
-    [0x1154, u32] = "Used by the script function arena_hydra_tag_out.";
-    [0x1159, bool] = "Used by the script function arena_hydra_tag_out.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x113C, float, runtime] Timer = "Counts down to zero.";
+    [0x1154, u32] = "Used by the script function arena_hydra_tag_out.";
+    [0x1159, bool] = "Used by the script function arena_hydra_tag_out.";
+}
+
+class 0x5BF : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x2480, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x5C0 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x110, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x5C6 PlatformGrappleJunkDoor
@@ -1502,6 +1883,12 @@ class 0x5D6 panel_hydroid : 0x47
     [0x6E0, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
+class 0x5D7 : 0x181
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC04, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x5DA grind_vine_seed : 0x47
 {
 }
@@ -1526,6 +1913,12 @@ class 0x5E4 dropship_a_agorian : 0x3C8
     [0x598, float, runtime] Timer = "Counts down to zero.";
 }
 
+class 0x5E5 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xE4, float] Damage = "Damage it deals.";
+}
+
 class 0x5E8 spawner_cannon : 0x47
 {
     [0x6C, Path] = "";
@@ -1535,8 +1928,21 @@ class 0x5E8 spawner_cannon : 0x47
     [0x154, u32, runtime] Joint = "Joint of the Moby.";
 }
 
+class 0x5EC : 0x18E
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x104, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x5EE zoni_vessel : 0xD8
 {
+}
+
+class 0x5F1 : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1F0, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x1F4, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
 class 0x5F5 general_ship : 0x47
@@ -1552,6 +1958,18 @@ class 0x5F5 general_ship : 0x47
     [0x660, Path] = "";
     [0x664, Path] = "";
     [0x66C, Volume] = "";
+}
+
+class 0x604 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x70, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
+class 0x607 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x930, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x60A first_t_bridge : 0x553
@@ -1570,10 +1988,28 @@ class 0x60E hangar_turret : 0x366
     [0x630, float, runtime] Timer = "Counts down to zero.";
 }
 
+class 0x611 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xE4, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x613 agorian_strafer : 0x47
 {
     [0x570, Path] = "";
     [0x574, Area] = "";
+}
+
+class 0x614 : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x170, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x615 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC4, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x616 parking_arm : 0x47
@@ -1587,6 +2023,13 @@ class 0x616 parking_arm : 0x47
 
 class 0x61C destructible junk pile : 0x56E
 {
+}
+
+class 0x61D : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x3F8, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x3FC, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
 class 0x622 DamageDistributerVolleyInfo : 0x11D
@@ -1610,6 +2053,13 @@ class 0x626 HazardSwampGasJet : 0xCF
     [0x14, float] = "";
 }
 
+class 0x627 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0xD0, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x62D CamArgPathTraveler : 0x47
 {
 }
@@ -1617,6 +2067,12 @@ class 0x62D CamArgPathTraveler : 0x47
 class 0x630 tb_gc_clanksub_tile_platform : 0x201
 {
     [0x2B0, Pod] = "";
+}
+
+class 0x631 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x90, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x63D prized junk pickup : 0xD8
@@ -1642,14 +2098,14 @@ class 0x645 ConfirmPrompt : 0x47
 
 class 0x646 qwark : 0x141
 {
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1460, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x1468, float, runtime] Timer 2 = "Counts down to zero.";
     [0x146C, float] Roam radius = "Used by the script function qwark_set_roam_radius.";
     [0x1490, float] = "Used by the script function qwark_setup_deathblows.";
     [0x1494, float] = "Used by the script function qwark_setup_deathblows.";
     [0x1498, u32] = "Used by the script function qwark_setup_deathblows.";
     [0x149C, float] = "Used by the script function qwark_setup_deathblows.";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1460, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x1468, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
 class 0x647 death_beam_asteroid : 0x56A
@@ -1662,6 +2118,25 @@ class 0x647 death_beam_asteroid : 0x56A
 class 0x648 PlatformAnimated : 0x201
 {
     [0x12C, Pod] = "";
+}
+
+class 0x64B : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x178, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x64D : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1C0, float, runtime] Timer 1 = "Counts down to zero.";
+    [0x1C4, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x653 : 0x154
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x17C, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x65B crank-driven platform : 0x47
@@ -1686,6 +2161,14 @@ class 0x65C planetgamec : 0x47
 
 class 0x665 winch crank : 0x425
 {
+}
+
+class 0x667 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xB4, float, runtime] Timer 1 = "Counts down to zero.";
+    [0xE0, float, runtime] Timer 2 = "Counts down to zero.";
+    [0xF0, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x668 blaster_game : 0x47
@@ -1716,6 +2199,9 @@ class 0x66A blob : 0x181
     [0xB8C, float] = "";
     [0xB94, float] = "";
     [0xB98, float] = "";
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC00, float, runtime] Timer 1 = "Counts down to zero.";
+    [0xC04, float, runtime] Timer 2 = "Counts down to zero.";
     [0xC10, float] = "Used by the script function blob_scripted_combine.";
     [0xC14, float] = "Used by the script function blob_scripted_combine.";
     [0xC18, float] = "Used by the script function blob_scripted_combine.";
@@ -1728,22 +2214,44 @@ class 0x66A blob : 0x181
     [0xC70, u32] = "Used by the script function blob_scripted_combine.";
     [0xC74, u32] = "Used by the script function blob_scripted_combine.";
     [0xC78, bool] = "Used by the script function blob_scripted_combine.";
+}
+
+class 0x671 : 0x66C
+{
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC00, float, runtime] Timer 1 = "Counts down to zero.";
-    [0xC04, float, runtime] Timer 2 = "Counts down to zero.";
+    [0xF0, float, runtime] Damage radius = "Radius of the damage it deals.";
+    [0xF4, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x674 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xB0, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x678 kb_great_clock_pressure_pad : 0x213
 {
 }
 
+class 0x67B : 0x66C
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xF4, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x67D space drifting object base : 0x238
 {
-    [0x4E0, u32] = "Used by the script function space_make_attacker.";
-    [0x50E, bool] Flotsam = "Ticked on space flotsam.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x4D0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x4E0, u32] = "Used by the script function space_make_attacker.";
     [0x4F0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0x50E, bool] Flotsam = "Ticked on space flotsam.";
+}
+
+class 0x681 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x224, u32] Joint = "Joint of the Moby.";
 }
 
 class 0x683 NPCStateGotoPoint : 0x47
@@ -1762,6 +2270,12 @@ class 0x683 NPCStateGotoPoint : 0x47
     [0x424, Pod] = "";
     [0x428, Area] = "";
     [0x43E, bool] Bob active = "Used by the script function vx99_set_bob_active.";
+}
+
+class 0x694 : 0x238
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x500, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x699 Nefarious swarmer : 0x181
@@ -1843,6 +2357,13 @@ class 0x6BD blob_spawner : 0x47
     [0x510, Pod] = "";
 }
 
+class 0x6C0 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x80, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x94, float] Damage = "Damage it deals.";
+}
+
 class 0x6C7 subcon_mini_qwark : 0x181
 {
 }
@@ -1873,9 +2394,9 @@ class 0x6CE fongoid_staff_panel : 0x47
 
 class 0x6D0 stellar_leviathan : 0x181
 {
-    [0xA90, Path] = "";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0xA80, component(0x10), runtime] Vector = "A vector it works with.";
+    [0xA90, Path] = "";
 }
 
 class 0x6D4 timed floating platform : 0x47
@@ -1942,11 +2463,17 @@ class 0x6E8 hbs_boss : 0x181
 
 class 0x6ED galacton_first : 0x181
 {
-    [0xD38, Area] = "";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x920, component(0x10), runtime] Vector = "A vector it works with.";
+    [0xD38, Area] = "";
     [0xD5C, float, runtime] Timer 1 = "Counts down to zero.";
     [0xD64, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x6F6 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x6FC versa bolt : 0x47
@@ -1965,6 +2492,12 @@ class 0x70D axiom_cargo : 0x47
 {
     [0x60, Moby] = "";
     [0x64, Pod] = "";
+}
+
+class 0x70F : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x120, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x713 zapper : 0xCF
@@ -1998,6 +2531,12 @@ class 0x71A rotating_magboot_laser_emitters : 0x47
 class 0x720 sr_great_clock_elevator_standard : 0x26E
 {
     [0x184, Moby] = "";
+}
+
+class 0x722 : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xA4C, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x72B poison_fog : 0xCF
@@ -2034,6 +2573,12 @@ class 0x73D water_tower_a : 0x56A
 {
 }
 
+class 0x73F : 0x74B
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1B4, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x740 ping_pong_gears_machine
 {
 }
@@ -2051,23 +2596,58 @@ class 0x745 lawrence_holo : 0x187
 {
 }
 
+class 0x746 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x110, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x120, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0x130, component(0x10), runtime] Vector 3 = "A vector it works with.";
+}
+
+class 0x747 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x970, component(0x10), runtime] Vector = "A vector it works with.";
+}
+
 class 0x749 boss_trooper : 0x181
 {
     [0xBE8, Clue] = "";
     [0xBF0, ref] = "";
 }
 
+class 0x74B : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x110, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x74C tumbler_puzzle : 0x47
 {
-    [0x430, ref] = "";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x3E0, float, runtime] Timer = "Counts down to zero.";
+    [0x430, ref] = "";
 }
 
 class 0x74D swarm_block : 0x47
 {
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x68, float] Factor = "A scale it moves or sizes something by.";
+}
+
+class 0x751 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x60, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0xA0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0x110, float] Damage = "Damage it deals.";
+}
+
+class 0x753 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x84, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x757 DerelictShip : 0x238
@@ -2099,6 +2679,12 @@ class 0x75F SpaceDefenseSatellite : 0x238
     [0x4E4, float, runtime] Timer 2 = "Counts down to zero.";
 }
 
+class 0x760 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xD8, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x762 jn_axm_planter_breakable : 0x569
 {
 }
@@ -2117,6 +2703,13 @@ class 0x76D SpaceShockwaveMine : 0x238
     [0x4E4, float, runtime] Timer 1 = "Counts down to zero.";
     [0x4E8, float, runtime] Damage radius = "Radius of the damage it deals.";
     [0x4EC, float, runtime] Timer 2 = "Counts down to zero.";
+}
+
+class 0x76E : 0x238
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x4C0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x4E4, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x773 cluehbsambientmovement : 0x11D
@@ -2189,6 +2782,13 @@ class 0x79C sigmund_squawk_box : 0x47
     [0x6C, float, runtime] Timer = "Counts down to zero.";
 }
 
+class 0x79D : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xD0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x510, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x79E dialogue_fongoid_past : 0xCF
 {
     icon Dialogue;
@@ -2212,6 +2812,13 @@ class 0x7A5 SpaceJumpingFireball : 0x47
     [0xA4, float, runtime] Timer = "Counts down to zero.";
 }
 
+class 0x7AB : 0x521
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xE0, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x108, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x7B0 kb_gc_platform_gun_hazard : 0x3ED
 {
     [0x1C0, Volume] = "";
@@ -2220,6 +2827,20 @@ class 0x7B0 kb_gc_platform_gun_hazard : 0x3ED
 class 0x7BB SpaceComet : 0x47
 {
     [0x5C, Path] Path = "The path the comet flies.";
+}
+
+class 0x7BC : 0x67D
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x510, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x7BD : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xA8, u32] Joint = "Joint of the Moby.";
+    [0xC4, float, runtime] Timer = "Counts down to zero.";
+    [0xD0, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x7BE boss_ring_seg_c : 0x47
@@ -2250,12 +2871,31 @@ class 0x7BF boss_nefarious : 0x181
 
 class 0x7C0 boss_ship_in_space : 0x47
 {
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x1A0, float, runtime] Factor = "A scale it moves or sizes something by.";
     [0x1A8, u32] = "Used by the script function lawrence_go_to_volume.";
     [0x1AC, u32] = "Used by the script function lawrence_follow_path.";
     [0x1B0, float] Speed = "Used by the script function lawrence_set_speed.";
     [0x1B4, float] Speed = "Used by the script function lawrence_set_speed.";
+}
+
+class 0x7C1 : 0x47
+{
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1A0, float, runtime] Factor = "A scale it moves or sizes something by.";
+    [0x80, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x90, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0xA0, component(0x10), runtime] Vector 3 = "A vector it works with.";
+    [0xB0, component(0x10), runtime] Vector 4 = "A vector it works with.";
+    [0xD0, component(0x10), runtime] Vector 5 = "A vector it works with.";
+    [0xE0, component(0x10), runtime] Vector 6 = "A vector it works with.";
+    [0xF0, component(0x10), runtime] Vector 7 = "A vector it works with.";
+    [0x100, component(0x10), runtime] Vector 8 = "A vector it works with.";
+}
+
+class 0x7E2 : 0x18E
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x110, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x7E3 time_portal : 0x47
@@ -2265,6 +2905,12 @@ class 0x7E3 time_portal : 0x47
     [0x8C, Volume] Target volume = "Used by the script functions time_portal_set_target_volume, time_portal_clear_target_volume.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x90, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x7E5 : 0x148
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x100, component(0x10)] Vector = "A vector it works with.";
 }
 
 class 0x7E9 bomb_emitter : 0x47
@@ -2311,8 +2957,16 @@ class 0x7F8 timeslowcontroller : 0xCF
     [0x3C, float] Tint value D = "";
 }
 
+class 0x7FC : 0x521
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0xDC, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x800 security_module : 0x47
 {
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x540, float, runtime] Timer = "Counts down to zero.";
     [0x544, u32] = "Used by the script function setup_security_module.";
     [0x548, u32] = "Used by the script function setup_security_module.";
     [0x54C, float] = "Used by the script function setup_security_module.";
@@ -2324,8 +2978,13 @@ class 0x800 security_module : 0x47
     [0x564, float] = "Used by the script function add_security_module_pattern.";
     [0x570, u32] = "Used by the script function security_module_bypass.";
     [0x574, Volume] Dropoff Volume = "Where to return the player when getting caught by security";
+}
+
+class 0x802 : 0x148
+{
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x540, float, runtime] Timer = "Counts down to zero.";
+    [0x110, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x130, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x804 orvus_staff_chamber : 0x47
@@ -2362,10 +3021,10 @@ class 0x814 red mist tank : 0x47
 
 class 0x815 death_beam_turret : 0x366
 {
-    [0x58C, Volume] = "";
-    [0x59C, u32] = "Used by the script functions turret_lock, turret_unlock.";
     # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
     [0x560, component(0x10), runtime] Vector = "A vector it works with.";
+    [0x58C, Volume] = "";
+    [0x59C, u32] = "Used by the script functions turret_lock, turret_unlock.";
 }
 
 class 0x816 blueprint : 0xD8
@@ -2392,6 +3051,12 @@ class 0x824 orvus_door : 0x54A
 class 0x829 zf_gear_hazard : 0x54D
 {
     [0x160, float] Speed = "Used by the script function gear_hazard_set_speed.";
+}
+
+class 0x830 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x374, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x834 lawrence : 0x47
@@ -2428,8 +3093,28 @@ class 0x84B test_az_monitor : 0x47
     [0x7C, float, runtime] Timer = "Counts down to zero.";
 }
 
+class 0x857 : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x4B8, float, runtime] Timer = "Counts down to zero.";
+}
+
 class 0x858 crash_fire : 0xCF
 {
+}
+
+class 0x859 : 0xCF
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x120, float, runtime] Timer = "Counts down to zero.";
+}
+
+class 0x85A : 0x238
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x4E0, component(0x10), runtime] Vector 1 = "A vector it works with.";
+    [0x4F0, component(0x10), runtime] Vector 2 = "A vector it works with.";
+    [0x510, float, runtime] Factor = "A scale it moves or sizes something by.";
 }
 
 class 0x85B cluenoledgegrab : 0x11D
@@ -2478,11 +3163,11 @@ class 0x874 cassy_npc_trap : 0x187
 
 class 0x87B nef_trooper_pingpong : 0x47
 {
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x60, component(0x10), runtime] Vector = "A vector it works with.";
     [0x74, Moby] = "";
     [0x78, Volume] = "";
     [0x7C, Volume] = "";
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x60, component(0x10), runtime] Vector = "A vector it works with.";
 }
 
 class 0x882 moon hill / crater : 0x47
@@ -2533,6 +3218,12 @@ class 0x89B SpaceValkyrieBossCarina : 0x238
     [0x4CC, Controller] Attack controller = "";
     [0x51C, bool] = "Used by the script function space_is_aware.";
     [0x530, bool] = "Used by the script function space_is_aware.";
+}
+
+class 0x89F : 0x47
+{
+    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
+    [0x84, float, runtime] Timer = "Counts down to zero.";
 }
 
 class 0x8A2 pa_speaker : 0x47
@@ -2586,693 +3277,4 @@ class 0x8B9 lightning_pillar : 0x47
 class 0x8BE space mission NPC : 0x4C4
 {
     [0x1E0, u32] = "Used by the script function space_grab_junk.";
-}
-
-class 0x52 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x174, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x148 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x60, component(0xC), runtime] Moby link = "Handle of a Moby it follows.";
-    [0x80, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x98, float] Damage = "Damage it deals.";
-}
-
-class 0x14A : 0x149
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xE0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x18E : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0xE0, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x196 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xA4, float] Factor 1 = "A scale it moves or sizes something by.";
-    [0xB8, float, runtime] Factor 2 = "A scale it moves or sizes something by.";
-}
-
-class 0x1FD : 0x15C
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x88, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x20C : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x60, component(0x44), runtime] Damage info = "The damage it deals, built at run time.";
-}
-
-class 0x20E : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1680, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x25A : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x74, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x263 : 0x238
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x578, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x580, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x264 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x90, component(0x10), runtime] Vector = "A vector it works with.";
-    [0xB0, component(0x44), runtime] Damage info = "The damage it deals, built at run time.";
-}
-
-class 0x273 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xB0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x287 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x400, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x434, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x438, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x308 : 0x2B6
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x128, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x30C : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xE0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x30D : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x88, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x315 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xF0, float, runtime] Timer 1 = "Counts down to zero.";
-    [0xF4, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x318 : 0x201
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x120, u32] Joint = "Joint of the Moby.";
-}
-
-class 0x31C : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x160, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x33A : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xA0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x33B : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x220, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x1260, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x33D : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x30, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x40, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x34E : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x64, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x35B : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x14, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x36C : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x80, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xB0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0xC0, float, runtime] Timer = "Counts down to zero.";
-    [0xD4, float] Damage = "Damage it deals.";
-}
-
-class 0x3B8 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x60, float, runtime] Timer = "Counts down to zero.";
-    [0x68, float, runtime] Factor = "A scale it moves or sizes something by.";
-}
-
-class 0x3C0 : 0x274
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1B0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x1C4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x40C : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x40, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x412 : 0x201
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1A0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x1E0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0x1F0, component(0x10), runtime] Vector 3 = "A vector it works with.";
-}
-
-class 0x426 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1E0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x208, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x435 : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x28, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x437 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x70, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x88, float] Damage = "Damage it deals.";
-}
-
-class 0x448 : 0x56A
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x310, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x44C : 0x44B
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x90, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x462 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x470, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x480, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x477 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xF0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x490 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xB4, float, runtime] Timer = "Counts down to zero.";
-    [0xB8, float, runtime] Damage = "Damage it deals.";
-}
-
-class 0x493 : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x60, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x64, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x498 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xD0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xE0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0xF0, component(0x10), runtime] Vector 3 = "A vector it works with.";
-    [0x100, component(0x10), runtime] Vector 4 = "A vector it works with.";
-}
-
-class 0x4DB : 0x274
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1F4, float, runtime] Factor = "A scale it moves or sizes something by.";
-    [0x228, component(0xC), runtime] Moby link = "Handle of a Moby it follows.";
-}
-
-class 0x4E0 : 0x522
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1A0, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x4EF : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xB4, float, runtime] Timer 1 = "Counts down to zero.";
-    [0xC0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0x168, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x51C : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x250, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x521 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x54F : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x170, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x184, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x550 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x552 : 0x201
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x13C, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x564 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x70, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x80, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0xB4, float, runtime] Timer 1 = "Counts down to zero.";
-    [0xBC, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x566 : 0x564
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xD0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xE0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x56C : 0x564
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xE0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xF0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-}
-
-class 0x571 : 0x521
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x104, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x586 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x590, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x594, float, runtime] Timer 2 = "Counts down to zero.";
-    [0x598, float, runtime] Timer 3 = "Counts down to zero.";
-}
-
-class 0x5A2 : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x190, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x1B4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x5A5 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xF0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x12C, float, runtime] Damage = "Damage it deals.";
-}
-
-class 0x5BF : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x2480, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x5C0 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x110, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x5D7 : 0x181
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC04, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x5E5 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xE4, float] Damage = "Damage it deals.";
-}
-
-class 0x5EC : 0x18E
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x104, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x5F1 : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1F0, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x1F4, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x604 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x70, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x607 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x930, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x611 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xE4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x614 : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x170, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x615 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x61D : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x3F8, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x3FC, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x627 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0xD0, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x631 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x90, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x64B : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x178, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x64D : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1C0, float, runtime] Timer 1 = "Counts down to zero.";
-    [0x1C4, float, runtime] Timer 2 = "Counts down to zero.";
-}
-
-class 0x653 : 0x154
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x17C, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x667 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xB4, float, runtime] Timer 1 = "Counts down to zero.";
-    [0xE0, float, runtime] Timer 2 = "Counts down to zero.";
-    [0xF0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x671 : 0x66C
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xF0, float, runtime] Damage radius = "Radius of the damage it deals.";
-    [0xF4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x674 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xB0, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x67B : 0x66C
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xF4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x681 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x224, u32] Joint = "Joint of the Moby.";
-}
-
-class 0x694 : 0x238
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x500, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x6C0 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x80, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x94, float] Damage = "Damage it deals.";
-}
-
-class 0x6F6 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x70F : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x120, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x722 : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xA4C, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x73F : 0x74B
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x1B4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x746 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x110, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x120, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0x130, component(0x10), runtime] Vector 3 = "A vector it works with.";
-}
-
-class 0x747 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x970, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x74B : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xC0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x110, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x751 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x60, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0xA0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0x110, float] Damage = "Damage it deals.";
-}
-
-class 0x753 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x84, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x760 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xD8, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x76E : 0x238
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x4C0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x4E4, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x79D : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xD0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x510, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x7AB : 0x521
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xE0, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x108, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x7BC : 0x67D
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x510, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x7BD : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xA8, u32] Joint = "Joint of the Moby.";
-    [0xC4, float, runtime] Timer = "Counts down to zero.";
-    [0xD0, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x7C1 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x80, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x90, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0xA0, component(0x10), runtime] Vector 3 = "A vector it works with.";
-    [0xB0, component(0x10), runtime] Vector 4 = "A vector it works with.";
-    [0xD0, component(0x10), runtime] Vector 5 = "A vector it works with.";
-    [0xE0, component(0x10), runtime] Vector 6 = "A vector it works with.";
-    [0xF0, component(0x10), runtime] Vector 7 = "A vector it works with.";
-    [0x100, component(0x10), runtime] Vector 8 = "A vector it works with.";
-}
-
-class 0x7E2 : 0x18E
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x110, component(0x10), runtime] Vector = "A vector it works with.";
-}
-
-class 0x7E5 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x100, component(0x10)] Vector = "A vector it works with.";
-}
-
-class 0x7FC : 0x521
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0xDC, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x802 : 0x148
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x110, component(0x10), runtime] Vector = "A vector it works with.";
-    [0x130, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x830 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x374, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x857 : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x4B8, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x859 : 0xCF
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x120, float, runtime] Timer = "Counts down to zero.";
-}
-
-class 0x85A : 0x238
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x4E0, component(0x10), runtime] Vector 1 = "A vector it works with.";
-    [0x4F0, component(0x10), runtime] Vector 2 = "A vector it works with.";
-    [0x510, float, runtime] Factor = "A scale it moves or sizes something by.";
-}
-
-class 0x89F : 0x47
-{
-    # Inferred from how the EBOOT uses them (helper arguments), 2026-11-25.
-    [0x84, float, runtime] Timer = "Counts down to zero.";
 }
