@@ -17,7 +17,12 @@ public enum AssetKind
     Sound,
     /// <summary>One language's text table of the game (GameText), addressed by its position in GameText.List.</summary>
     TextTable,
+    /// <summary>A Lua script of the level or the game, addressed by a hash of its archive path (<see cref="ScriptAsset"/>).</summary>
+    Script,
 }
+
+/// <summary>A Lua script for the browser: its archive path and the folder it is listed in.</summary>
+public sealed record ScriptAsset(string Path, string Folder, bool Global, bool Draft);
 
 /// <summary>Where an asset comes from.</summary>
 public enum AssetSource

@@ -16,7 +16,7 @@ namespace ReLunacy.Utility;
 /// <summary>
 /// Opens an Assets Browser entry in the frame that shows its kind: classes, UFrags, effects and foliage in the Asset
 /// Viewer, textures in a Texture Viewer each, shaders in a Shader Viewer each, sounds in Sound Banks, text tables in Text
-/// Tables. The one place that decides which viewer an asset gets.
+/// Tables, scripts in the Lua Environment. The one place that decides which viewer an asset gets.
 /// </summary>
 public static class AssetOpener
 {
@@ -66,6 +66,11 @@ public static class AssetOpener
                 frame.ShowLanguage(table.Language);
                 frame.Focus();
                 return true;
+            }
+            case AssetKind.Script:
+            {
+                if (entry.Tag is not ScriptAsset script) return false;
+                return Ensure<LuaEnvironmentFrame>(() => new LuaEnvironmentFrame()).Show(script.Path);
             }
             default:
                 return false;

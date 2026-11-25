@@ -28,6 +28,8 @@ public sealed class AssetIndexSources
     public LevelSounds? Sounds { get; init; }
 
     public IReadOnlyList<TextTableRef>? TextTables { get; init; }
+
+    public IReadOnlyList<ScriptAsset>? Scripts { get; init; }
     /// <summary>The level archive's path: the game's other level folders give cut shader names their start.</summary>
     public string? LevelPath { get; init; }
     public IReadOnlyDictionary<ulong, AuthoredTextureRecord> AuthoredTextures { get; init; } =
@@ -311,7 +313,24 @@ public sealed class AssetIndex
                     Folder = "Text", Source = AssetSource.Global, Detail = tables[i].Language, Tag = tables[i],
                 });
 
+        if (sources.Scripts is { } scripts)
+            foreach (var script in scripts)
+                entries.Add(new AssetEntry
+                {
+                    Key = new(AssetKind.Script, ScriptId(script.Path)), Name = Path.GetFileName(script.Path), FullName = script.Path,
+                    Folder = script.Folder, Source = script.Global ? AssetSource.Global : AssetSource.Level,
+                    Detail = script.Draft ? "draft" : "", Tag = script,
+                });
+
         return new AssetIndex(sources, entries);
+    }
+
+    /// <summary>A script's id: FNV-1a of its archive path, ignoring case as the archives do.</summary>
+    public static ulong ScriptId(string path)
+    {
+        ulong hash = 0xCBF29CE484222325;
+        foreach (char c in path.ToLowerInvariant()) hash = (hash ^ c) * 0x100000001B3;
+        return hash;
     }
 
     /// <summary>A UFrag's id: its zone's position among the level's zones and its index in the zone.</summary>
