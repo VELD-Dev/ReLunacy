@@ -26,6 +26,9 @@ public enum ClassFieldKind
     Sound,
     /// <summary>An effect the level can play: a Tags key its fxconduit maps to an effect (u32).</summary>
     Effect,
+    /// <summary>A file pointer to something outside the struct (four bytes, fixed up at load);
+    /// <see cref="ClassField.TypeName"/> says to what (Fall of Man scripts: Element, Variable, String, Script).</summary>
+    Pointer,
 }
 
 /// <summary>One documented field of a class's settings.</summary>
@@ -53,6 +56,7 @@ public sealed record ClassField(uint Owner, int Offset, int Length, ClassFieldKi
         ClassFieldKind.Reference => TypeName ?? "ref",
         ClassFieldKind.ReferenceList => (TypeName ?? "ref") + " list",
         ClassFieldKind.Enum => TypeName ?? "u32",
+        ClassFieldKind.Pointer => "ptr " + (TypeName ?? "any"),
         _ => $"component(0x{Length:X})",
     };
 }
@@ -212,8 +216,10 @@ public sealed class NamedNumbers
 ///
 /// A field is [offset, type] or [offset, type, runtime], a name, and a description in quotes. Types: u8 u16 u32 s32
 /// float bool bool32 text (a text id), sound (a SoundSpecs id), effect (a Tags key of the level's effects), ref (any instance) or Moby Path Volume Clue Controller Scent Area Pod,
-/// any of those followed by "list" (a pointer to a list of them: "Volume list"), component(size), or the name of an enum.
-/// "icon Name;" gives the class's controllers the editor's Assets/Icons/Name.png. A class inherits its parents' fields and icon, so the file carries each class's
+/// any of those followed by "list" (a pointer to a list of them: "Volume list"), component(size), "ptr Kind" (a file
+/// pointer: Element, Variable, String, Script), or the name of an enum.
+/// "icon Name;" gives the class's controllers the editor's Assets/Icons/Name.png. "size 0x44;" is the class's settings
+/// size, and "label "Wait";" the name the game's own tools showed for it (Fall of Man script elements). A class inherits its parents' fields and icon, so the file carries each class's
 /// parent and needs no EBOOT. Lines starting with # are comments; a comment above a class, an enum or a field stays
 /// with it when the editor rewrites the file.
 /// </summary>
@@ -227,6 +233,8 @@ public static class ClassFields
         public readonly Dictionary<uint, int> Parents = [];
         public readonly Dictionary<uint, string> Names = [];
         public readonly Dictionary<uint, string> Icons = [];
+        public readonly Dictionary<uint, int> Sizes = [];
+        public readonly Dictionary<uint, string> Labels = [];
         public readonly Dictionary<uint, SortedDictionary<(int Offset, bool Field), ClassField>> Own = [];
         public readonly Dictionary<string, ClassEnum> Enums = new(StringComparer.Ordinal);
         public readonly Dictionary<string, List<string>> Comments = new(StringComparer.Ordinal);
@@ -316,6 +324,30 @@ public static class ClassFields
         if (game is not { } id) return null;
         var table = Load(id);
         lock (Lock) return table.Names.TryGetValue(cls, out var name) && name.Length > 0 ? name : null;
+    }
+
+    /// <summary>The class's settings size from its "size" line, or null.</summary>
+    public static int? SizeOf(GameId? game, uint cls)
+    {
+        if (game is not { } id) return null;
+        var table = Load(id);
+        lock (Lock) return table.Sizes.TryGetValue(cls, out int size) ? size : null;
+    }
+
+    /// <summary>The class's display label from its "label" line, or null.</summary>
+    public static string? Label(GameId? game, uint cls)
+    {
+        if (game is not { } id) return null;
+        var table = Load(id);
+        lock (Lock) return table.Labels.TryGetValue(cls, out var label) && label.Length > 0 ? label : null;
+    }
+
+    /// <summary>Every class the table declares, by number.</summary>
+    public static IReadOnlyList<uint> Classes(GameId? game)
+    {
+        if (game is not { } id) return [];
+        var table = Load(id);
+        lock (Lock) return table.Parents.Keys.Order().ToList();
     }
 
     /// <summary>The icon of the class or its nearest ancestor that has one (a file name without .png), or null.</summary>
@@ -521,6 +553,8 @@ public static class ClassFields
             Comment($"class {cls:X}", "");
             text.Append($"class 0x{cls:X}{(name.Length > 0 ? " " + name : "")}{(parent >= 0 ? $" : 0x{parent:X}" : "")}\n{{\n");
             if (table.Icons.TryGetValue(cls, out var icon)) text.Append($"    icon {icon};\n");
+            if (table.Sizes.TryGetValue(cls, out int size)) text.Append($"    size 0x{size:X};\n");
+            if (table.Labels.TryGetValue(cls, out var label)) text.Append($"    label \"{label.Replace("\\", "\\\\").Replace("\"", "\\\"")}\";\n");
             if (table.Own.TryGetValue(cls, out var own))
                 foreach (var field in own.Values)
                 {
@@ -601,6 +635,18 @@ public static class ClassFields
                 pending.Clear();
                 continue;
             }
+            if (currentClass is { } sizeOf && line.StartsWith("size ", StringComparison.Ordinal))
+            {
+                if (TryNumber(line[5..].TrimEnd(';'), out long size)) table.Sizes[sizeOf] = (int)size;
+                pending.Clear();
+                continue;
+            }
+            if (currentClass is { } labelOf && line.StartsWith("label ", StringComparison.Ordinal))
+            {
+                table.Labels[labelOf] = Unquote(line[6..]);
+                pending.Clear();
+                continue;
+            }
             if (currentClass is { } cls && line[0] == '[')
             {
                 int close = line.IndexOf(']');
@@ -649,6 +695,8 @@ public static class ClassFields
             case "effect": return (ClassFieldKind.Effect, 4, null);
             case "ref": return (ClassFieldKind.Reference, 4, null);
         }
+        if (text.StartsWith("ptr ", StringComparison.Ordinal) && text[4..].Trim() is { Length: > 0 } pointee)
+            return (ClassFieldKind.Pointer, 4, pointee);
         if (ReferenceKinds.Contains(text)) return (ClassFieldKind.Reference, 4, text);
         if (text.EndsWith(" list", StringComparison.Ordinal) && text[..^5].Trim() is var listed && (listed == "ref" || ReferenceKinds.Contains(listed)))
             return (ClassFieldKind.ReferenceList, 4, listed == "ref" ? null : listed);

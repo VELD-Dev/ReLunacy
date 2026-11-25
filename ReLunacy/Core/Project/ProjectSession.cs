@@ -45,7 +45,8 @@ internal static class ProjectSession
     }
 
     public static bool HasPendingFiles => LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>()?.Dirty == true
-        || LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Dirty == true;
+        || LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Dirty == true
+        || LunaWindow.Instance.GetFirstFrame<ScriptGraphFrame>()?.Dirty == true;
 
     public static bool Dirty => Current != null && (HasUnsavedEdits || HasPendingFiles);
 
@@ -53,13 +54,15 @@ internal static class ProjectSession
     {
         bool text = LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Save() != false;
         bool lua = LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>()?.Save() != false;
-        return text && lua;
+        bool scripts = LunaWindow.Instance.GetFirstFrame<ScriptGraphFrame>()?.Save() != false;
+        return text && lua && scripts;
     }
 
     public static void DiscardPendingFiles()
     {
         LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>()?.Revert();
         LunaWindow.Instance.GetFirstFrame<TextTablesFrame>()?.Revert();
+        LunaWindow.Instance.GetFirstFrame<ScriptGraphFrame>()?.Revert();
     }
 
     /// <summary>

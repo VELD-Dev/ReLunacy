@@ -68,6 +68,7 @@ internal static class FileMenuDraw
         var window = LunaWindow.Instance;
         if (window.GetFirstFrame<LuaEnvironmentFrame>() is { Focused: true } lua) lua.Save();
         else if (window.GetFirstFrame<TextTablesFrame>() is { Focused: true } text) text.Save();
+        else if (window.GetFirstFrame<ScriptGraphFrame>() is { Focused: true } scripts) scripts.Save();
         else if (!io.WantTextInput && !window.IsAnyFrameOpened<SaveLevelModal>()
                  && (Program.ProvidedPath.Length > 0 || ProjectSession.HasPendingFiles)) SaveProject();
     }
