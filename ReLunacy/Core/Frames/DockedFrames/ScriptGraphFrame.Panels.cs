@@ -131,6 +131,18 @@ public sealed partial class ScriptGraphFrame
         }
         ImGui.Separator();
 
+        // Edit fields: the same documentation as instances' settings, kept in the same table.
+        ImGui.Checkbox(LM.Get("GUI_Frame_InstanceInspector_SettingsEditFields"), ref _editFields);
+        if (_editFields && Game is { } tableOf)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton(LM.Get("GUI_Frame_InstanceInspector_SettingsEnums"))) PropertyInspectorFrame.EditEnums();
+            ImGui.SameLine();
+            if (ImGui.SmallButton(LM.Get("GUI_Frame_InstanceInspector_SettingsReload"))) ClassFields.Reload();
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_FieldsFileHint", ClassFields.FilePath(tableOf)));
+        }
+        if (Game is { } game) PropertyInspectorFrame.RenderFieldEditors(game, cls, ClassFields.Chain(game, cls));
+
         var fields = ClassFields.Of(Game, cls);
         if (!ImGui.BeginTable("##fields", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
         ImGui.TableSetupColumn("name", ImGuiTableColumnFlags.WidthStretch, 0.4f);
@@ -142,6 +154,12 @@ public sealed partial class ScriptGraphFrame
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.AlignTextToFramePadding();
+            if (_editFields && Game != null)
+            {
+                if (ImGui.SmallButton(field != null ? "..." : "+")) DocumentField(element, offset, size, field);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get(field != null ? "GUI_Frame_InstanceInspector_FieldEdit" : "GUI_Frame_InstanceInspector_FieldDocument"));
+                ImGui.SameLine();
+            }
             if (field == null) ImGui.TextDisabled($"+0x{offset:X2}");
             else ImGui.TextUnformatted(field.Name.Length > 0 ? field.Name : $"+0x{offset:X2}");
             if (ImGui.IsItemHovered())
@@ -153,6 +171,22 @@ public sealed partial class ScriptGraphFrame
             ImGui.PopID();
         }
         ImGui.EndTable();
+    }
+
+    private static bool _editFields;
+
+    /// <summary>Opens the field popup on a row: its field, or a new one typed from what the bytes hold.</summary>
+    private static void DocumentField(ScriptElement element, int offset, int size, ClassField? field)
+    {
+        uint owner = Engine.Loading.Readers.ClassRegistry.Find(Game)?.Owner(element.ClassId, offset) ?? element.ClassId;
+        string type = element.Pointers.GetValueOrDefault(offset) switch
+        {
+            ScriptVariablePointer => "ptr Variable",
+            ScriptStringPointer => "ptr String",
+            ScriptElementPointer => "ptr Element",
+            _ => size == 1 ? "u8" : size == 2 ? "u16" : "u32",
+        };
+        PropertyInspectorFrame.EditField(field, owner, offset, type);
     }
 
     /// <summary>One field's editor, <paramref name="width"/> wide; <paramref name="compact"/> keeps it to one
@@ -402,43 +436,106 @@ public sealed partial class ScriptGraphFrame
     private static uint WordOf(bool target, int kind, int index) =>
         !IsHandle(target, kind) ? (uint)Math.Max(-1, index) : index is < 0 or >= 0xFFFF ? 0u : (uint)(index + 1) << 16 | (uint)index;
 
+    private static string _instanceFilter = "";
+
+    /// <summary>The instances a kind can name, as the picker lists them; null when the level has no table of them
+    /// (Pods and Areas), so the index is typed.</summary>
+    private List<(int Index, Entity Entity)>? Choices(bool target, int kind)
+    {
+        if (kind != 0 || Region() is not { } region) return null;
+        return target
+            ? [.. region.MobyInstances.Entities.OfType<EntityMoby>().Where(m => m.GameplayIndex >= 0).OrderBy(m => m.GameplayIndex).Select(m => (m.GameplayIndex, (Entity)m))]
+            : [.. region.Volumes.Entities.OfType<EntityVolume>().Where(v => v.BaseVolume.Index >= 0).OrderBy(v => v.BaseVolume.Index).Select(v => (v.BaseVolume.Index, (Entity)v))];
+    }
+
+    /// <summary>A target or area, by its kind: the instance it names (a click selects it and shows it in the 3D
+    /// view), a list of the kind's instances to pick another from, a cross to unset it, and a drop target for an
+    /// instance dragged from the hierarchy. A kind with no table takes the index.</summary>
     private void InstanceEditor(ScriptElement element, int offset, bool target, float width, bool compact)
     {
         int kind = (int)element.Word(offset - 4), index = IndexOf(target, kind, element.Word(offset));
         var (text, entity) = Instance(kind, index, target);
-        float buttons = (compact ? 1f : 2f) * (ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.X);
-        ImGui.SetNextItemWidth(MathF.Max(20f, width - buttons));
-        if (ImGui.InputInt("##v", ref index, 0)) element.SetWord(offset, WordOf(target, kind, index));
-        if (ImGui.IsItemDeactivatedAfterEdit()) Commit("GUI_ScriptGraph_UndoEdit");
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip(text);
-        ImGui.SameLine();
-        var selected = SelectionManager.Singleton.SelectedEntity;
-        (int Kind, int Index)? use = (target, selected) switch
+        var choices = Choices(target, kind);
+        float spacing = ImGui.GetStyle().ItemInnerSpacing.X, button = ImGui.GetFrameHeight();
+        float room = MathF.Max(20f, width - (choices != null ? 2f : 1f) * (button + spacing));
+        void Set(int to)
         {
-            (true, EntityMoby moby) when moby.GameplayIndex >= 0 => (0, moby.GameplayIndex),
-            (false, EntityVolume volume) when volume.BaseVolume.Index >= 0 => (0, volume.BaseVolume.Index),
-            _ => null,
-        };
-        ImGui.BeginDisabled(use == null);
-        if (ImGuiPlus.IconButton(Icons.CircleDot, "use_selected") && use is { } u)
-        {
-            element.SetWord(offset - 4, (uint)u.Kind);
-            element.SetWord(offset, WordOf(target, u.Kind, u.Index));
+            element.SetWord(offset, WordOf(target, kind, to));
             Commit("GUI_ScriptGraph_UndoEdit");
         }
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ScriptGraph_UseSelected"));
-        ImGui.EndDisabled();
-        if (compact) return;
-        ImGui.SameLine();
-        ImGui.BeginDisabled(entity == null);
-        if (ImGuiPlus.IconButton(Icons.Eye, "focus_instance") && entity != null)
+
+        if (choices == null)
         {
-            SelectionManager.Singleton.Select(entity);
-            FocusOn(entity);
+            ImGui.SetNextItemWidth(room);
+            if (ImGui.InputInt("##v", ref index, 0)) element.SetWord(offset, WordOf(target, kind, index));
+            if (ImGui.IsItemDeactivatedAfterEdit()) Commit("GUI_ScriptGraph_UndoEdit");
         }
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_ScriptGraph_Focus"));
+        else
+        {
+            string label = entity?.Name is { Length: > 0 } name ? name : index < 0 ? LM.Get("GUI_ScriptGraph_None") : $"{index} ?";
+            ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)(entity != null ? ImGuiCol.Text : ImGuiCol.TextDisabled)]);
+            if (ImGui.Selectable($"{label}##link", false, ImGuiSelectableFlags.None, new Vector2(room, button)) && entity != null)
+            {
+                SelectionManager.Singleton.Select(entity);
+                FocusOn(entity);
+            }
+            ImGui.PopStyleColor();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(entity != null ? text + "\n" + LM.Get("GUI_ScriptGraph_Focus") : text);
+        if (ImGui.BeginDragDropTarget())
+        {
+            var payload = ImGui.AcceptDragDropPayload(PropertyInspectorFrame.DragPayload);
+            unsafe
+            {
+                (int Kind, int Index)? dropped = (target, PropertyInspectorFrame.DraggedEntity) switch
+                {
+                    (true, EntityMoby moby) when moby.GameplayIndex >= 0 => (0, moby.GameplayIndex),
+                    (false, EntityVolume volume) when volume.BaseVolume.Index >= 0 => (0, volume.BaseVolume.Index),
+                    _ => null,
+                };
+                if (payload.Handle != null && dropped is { } d)
+                {
+                    element.SetWord(offset - 4, (uint)d.Kind);
+                    element.SetWord(offset, WordOf(target, d.Kind, d.Index));
+                    Commit("GUI_ScriptGraph_UndoEdit");
+                }
+            }
+            ImGui.EndDragDropTarget();
+        }
+        if (choices != null)
+        {
+            ImGui.SameLine(0f, spacing);
+            if (ImGui.ArrowButton("##pick", ImGuiDir.Down)) { _instanceFilter = ""; ImGui.OpenPopup("##instances"); }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferencePick", target ? "Moby" : "Volume"));
+        }
+        ImGui.SameLine(0f, spacing);
+        ImGui.BeginDisabled(index < 0);
+        if (ImGui.Button("x##unset", new Vector2(button, 0f))) Set(-1);
         ImGui.EndDisabled();
-        ImGui.TextDisabled(text);
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ReferenceUnset"));
+        if (!compact) ImGui.TextDisabled(text);
+        if (choices == null || !ImGui.BeginPopup("##instances")) return;
+        ImGui.SetNextItemWidth(260f);
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.InputTextWithHint("##filter", LM.Get("GUI_Frame_InstanceInspector_ReferenceFilter"), ref _instanceFilter, 64);
+        if (ImGui.BeginChild("##list", new Vector2(320f, 260f)))
+        {
+            int shown = 0;
+            foreach (var (at, instance) in choices)
+            {
+                if (_instanceFilter.Length > 0 && !instance.Name.Contains(_instanceFilter, StringComparison.OrdinalIgnoreCase)
+                    && !at.ToString().StartsWith(_instanceFilter, StringComparison.Ordinal)) continue;
+                if (++shown > 300) break;
+                if (ImGui.Selectable($"{at}  {instance.Name}##{at}", at == index))
+                {
+                    Set(at);
+                    ImGui.CloseCurrentPopup();
+                }
+            }
+            if (shown > 300) ImGui.TextDisabled(LM.Get("GUI_Frame_InstanceInspector_ReferenceMore"));
+        }
+        ImGui.EndChild();
+        ImGui.EndPopup();
     }
 
     /// <summary>Frames an instance in the 3D view, keeping the view's direction.</summary>

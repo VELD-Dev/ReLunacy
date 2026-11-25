@@ -1418,8 +1418,21 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
                 + "\n" + LM.Get("GUI_Frame_InstanceInspector_FieldTextOpen"));
     }
 
+    /// <summary>Opens "Edit fields"' field popup from another editor (the Script Graph's nodes): the documented
+    /// field, or a new one at <paramref name="offset"/> of <paramref name="owner"/> typed <paramref name="type"/>.
+    /// <see cref="RenderFieldEditors"/> draws it.</summary>
+    internal static void EditField(Engine.Assets.LevelElements.ClassField? field, uint owner, int offset, string type)
+    {
+        _fieldEdit2 = field is { } f
+            ? (f.Owner, f.Offset, f.Name, f.TypeText, f.RunTime, f.Description, true)
+            : (owner, offset, "", type, false, "", false);
+        _openFieldEdit = true;
+    }
+
+    internal static void EditEnums() => _openEnums = true;
+
     /// <summary>The two editors of "Edit fields": one field's name, type and description, and the game's enums.</summary>
-    private static void RenderFieldEditors(Engine.Games.GameId game, uint cls, List<uint> chain)
+    internal static void RenderFieldEditors(Engine.Games.GameId game, uint cls, List<uint> chain)
     {
         if (_openFieldEdit) { ImGui.OpenPopup("##fieldedit"); _openFieldEdit = false; }
         if (ImGui.BeginPopup("##fieldedit") && _fieldEdit2 is { } edit)
@@ -1442,6 +1455,13 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
                 ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_FieldTypeLists"));
                 foreach (string option in Engine.Assets.LevelElements.ClassFields.ReferenceKinds.Prepend("ref").Select(k => k + " list"))
                     if (ImGui.Selectable(option, option == type)) type = option;
+                // Fall of Man's script elements point into the script file: at a variable, a script's name or a string.
+                if (game == Engine.Games.GameId.RFallOfMan)
+                {
+                    ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_FieldTypePointers"));
+                    foreach (string option in new[] { "ptr Variable", "ptr Script", "ptr String" })
+                        if (ImGui.Selectable(option, option == type)) type = option;
+                }
                 var enums = Engine.Assets.LevelElements.ClassFields.Enums(game);
                 if (enums.Count > 0) ImGui.SeparatorText(LM.Get("GUI_Frame_InstanceInspector_SettingsEnums"));
                 foreach (var e in enums)
