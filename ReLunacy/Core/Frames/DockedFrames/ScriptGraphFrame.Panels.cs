@@ -222,7 +222,7 @@ public sealed partial class ScriptGraphFrame
             }
             case ClassFieldKind.Reference when size == 4:
             {
-                string kind = field.TypeName!;
+                string kind = field.TypeName ?? AnyKind(element, offset, ref width);
                 InstanceEditor(kind, OldClassReferences.Decode(kind, element.Word(offset)), width, compact, (to, at) =>
                 {
                     if (to != kind) return false;
@@ -422,8 +422,9 @@ public sealed partial class ScriptGraphFrame
             ClassFieldKind.S32 when field.Length == 4 => raw == 0 ? null : ((int)raw).ToString(),
             ClassFieldKind.Bool => raw == 0 ? null : "yes",
             ClassFieldKind.Enum when field.TypeName is "ScriptTarget" or "ScriptArea" => InstanceText(element, field.Offset, field.TypeName == "ScriptTarget"),
-            ClassFieldKind.Reference when field.Length == 4 && OldClassReferences.Decode(field.TypeName!, (uint)raw) is var at && at >= 0
-                => Instance(field.TypeName!, at).Text,
+            ClassFieldKind.Reference when field.Length == 4 && (field.TypeName ?? GuessKind(element, field.Offset)) is var kind
+                                          && OldClassReferences.Decode(kind, (uint)raw) is var at && at >= 0
+                => Instance(kind, at).Text,
             ClassFieldKind.Enum => raw == 0 && ClassFields.Enum(Game, field.TypeName) is { Flags: true } ? null : EnumText(ClassFields.Enum(Game, field.TypeName), raw),
             _ => raw == 0 ? null : raw.ToString(),
         };
@@ -514,6 +515,33 @@ public sealed partial class ScriptGraphFrame
     }
 
     private static string _instanceFilter = "";
+
+    // The kind each untyped reference field was last shown as: its word alone cannot tell (a Moby's handle aside).
+    private readonly Dictionary<(ScriptElement, int), string> _refKinds = [];
+
+    /// <summary>The kind an untyped reference is read as: as last chosen, else a Moby when the word is a Moby's handle
+    /// (no other kind's index looks like one), else a Volume.</summary>
+    private string GuessKind(ScriptElement element, int offset) =>
+        _refKinds.GetValueOrDefault((element, offset))
+        ?? (OldClassReferences.Decode("Moby", element.Word(offset)) >= 0 ? "Moby" : "Volume");
+
+    /// <summary>An untyped reference's kind, as a combo before its picker; takes the combo's room from <paramref name="width"/>.</summary>
+    private string AnyKind(ScriptElement element, int offset, ref float width)
+    {
+        string kind = GuessKind(element, offset);
+        float combo = MathF.Min(width * 0.4f, ImGui.CalcTextSize("Controller").X + ImGui.GetFrameHeight() + ImGui.GetStyle().FramePadding.X * 2f);
+        ImGui.SetNextItemWidth(combo);
+        if (ImGui.BeginCombo("##refkind", kind))
+        {
+            foreach (string option in ClassFields.ReferenceKinds)
+                if (ImGui.Selectable(option, option == kind)) _refKinds[(element, offset)] = kind = option;
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_ScriptGraph_RefKind"));
+        ImGui.SameLine(0f, ImGui.GetStyle().ItemInnerSpacing.X);
+        width = MathF.Max(20f, width - combo - ImGui.GetStyle().ItemInnerSpacing.X);
+        return kind;
+    }
 
     /// <summary>What a reference field takes from an instance dragged from the hierarchy: every kind it can stand for.</summary>
     private static IEnumerable<(string Kind, int Index)> ReferencesTo(Entity? entity)

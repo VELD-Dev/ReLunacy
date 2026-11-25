@@ -51,8 +51,13 @@ public sealed partial class ScriptGraphFrame
                 yield return (KindName(target, kind), IndexOf(target, kind, element.Word(field.Offset + 4)),
                     ClassFields.At(Game, element.ClassId, field.Offset + 4) ?? field);
             }
-            else if (field is { Kind: ClassFieldKind.Reference, TypeName: { } kind })
-                yield return (kind, OldClassReferences.Decode(kind, element.Word(field.Offset)), field);
+            else if (field.Kind == ClassFieldKind.Reference)
+            {
+                // An untyped one names a Moby only when it holds a Moby's handle; any other kind cannot be told.
+                string kind = field.TypeName ?? "Moby";
+                int index = OldClassReferences.Decode(kind, element.Word(field.Offset));
+                if (field.TypeName != null || index >= 0) yield return (kind, index, field);
+            }
         }
     }
 
