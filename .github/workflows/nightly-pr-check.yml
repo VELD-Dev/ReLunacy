@@ -1,0 +1,67 @@
+# Builds every pull request into `nightly` for Windows and Linux, the same way nightly.yml does.
+# The "Nightly PR build" job is the one to mark as a required status check in the `nightly`
+# branch protection rule/ruleset: it fails unless both platforms built, so a broken PR can't be
+# merged, and every new push to the PR re-runs it.
+
+name: Nightly PR Check
+
+on:
+  pull_request:
+    branches: [ "nightly" ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
+
+permissions:
+  contents: read
+
+# A new push to the PR cancels the build still running for the previous one.
+concurrency:
+  group: nightly-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.kind }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: ["WINDOWS", "LINUX"]
+        include:
+        - kind: WINDOWS
+          os: windows-latest
+          target: win-x64
+        - kind: LINUX
+          os: ubuntu-latest
+          target: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore ReLunacy.sln
+
+    - name: Build
+      run: dotnet build ReLunacy/ReLunacy.csproj -c Release -r ${{ matrix.target }} --no-self-contained
+
+  # Single check to require in branch protection, so the matrix job names don't have to be listed.
+  result:
+    name: Nightly PR build
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check both platforms built
+      run: |
+        if [ "${{ needs.build.result }}" != "success" ]; then
+          echo "Windows or Linux build failed (${{ needs.build.result }})."
+          exit 1
+        fi
