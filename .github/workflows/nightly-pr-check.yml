@@ -1,6 +1,6 @@
-# Builds every pull request into `nightly` for Windows and Linux, the same way nightly.yml does.
+# Builds every pull request into `nightly` for Windows and Linux (x64 and ARM64), the same way nightly.yml does.
 # The "Nightly PR build" job is the one to mark as a required status check in the `nightly`
-# branch protection rule/ruleset: it fails unless both platforms built, so a broken PR can't be
+# branch protection rule/ruleset: it fails unless all four built, so a broken PR can't be
 # merged, and every new push to the PR re-runs it.
 
 name: Nightly PR Check
@@ -25,14 +25,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kind: ["WINDOWS", "LINUX"]
+        kind: ["WINDOWS", "WINDOWS ARM", "LINUX", "LINUX ARM"]
         include:
         - kind: WINDOWS
           os: windows-latest
           target: win-x64
+        - kind: WINDOWS ARM
+          os: windows-11-arm
+          target: win-arm64
         - kind: LINUX
           os: ubuntu-latest
           target: linux-x64
+        - kind: LINUX ARM
+          os: ubuntu-24.04-arm
+          target: linux-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -59,9 +65,9 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-    - name: Check both platforms built
+    - name: Check all platforms built
       run: |
         if [ "${{ needs.build.result }}" != "success" ]; then
-          echo "Windows or Linux build failed (${{ needs.build.result }})."
+          echo "A platform build failed (${{ needs.build.result }})."
           exit 1
         fi
