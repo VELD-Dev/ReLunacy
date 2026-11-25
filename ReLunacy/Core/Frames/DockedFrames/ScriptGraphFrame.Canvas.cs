@@ -100,6 +100,8 @@ public sealed partial class ScriptGraphFrame
         bool hovered = ImGui.IsItemHovered();
         var mouse = ImGui.GetMousePos();
         var io = ImGui.GetIO();
+        // Before the nodes are measured, so a deleted one is not drawn this frame.
+        if (_selected != null && Focused && !io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete, false)) RemoveNode(_selected);
 
         // What each node shows, measured once a frame.
         var reachable = Reachable(script);
@@ -209,7 +211,6 @@ public sealed partial class ScriptGraphFrame
             }
             else OpenPalette(graphMouse, null);
         }
-        if (_selected != null && Focused && !io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete, false)) RemoveNode(_selected);
         if (hoverPin is { } tip)
             ImGui.SetTooltip(tip.From.Branch(tip.Offset) != null ? LM.Get("GUI_ScriptGraph_PinHint") : LM.Get("GUI_ScriptGraph_PinHintEmpty"));
 
@@ -225,6 +226,8 @@ public sealed partial class ScriptGraphFrame
             float bend = MathF.Max(40f * _zoom, MathF.Abs(b.X - a.X) * 0.5f);
             dl.AddBezierCubic(a, a + new Vector2(bend, 0f), b - new Vector2(bend, 0f), b, colour, width);
         }
+        // A node a click removed above (its menu, the inspector) has no place left.
+        nodes.RemoveAll(n => !_positions.ContainsKey(n.Element));
         foreach (var n in nodes)
             for (int i = 0; i < n.Pins.Count; i++)
             {

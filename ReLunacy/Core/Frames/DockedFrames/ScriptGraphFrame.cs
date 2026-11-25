@@ -358,6 +358,7 @@ public sealed partial class ScriptGraphFrame : DockedFrame, IDisposable
         _script.Remove(element);
         _positions.Remove(element);
         if (_selected == element) _selected = null;
+        if (_linking?.From == element) _linking = null;
         Commit("GUI_ScriptGraph_UndoRemove");
     }
 
