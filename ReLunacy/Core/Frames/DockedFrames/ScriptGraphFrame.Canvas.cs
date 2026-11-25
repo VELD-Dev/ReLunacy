@@ -217,7 +217,7 @@ public sealed partial class ScriptGraphFrame
         dl.PushClipRect(origin, max, true);
         dl.AddRectFilled(origin, max, ImGui.GetColorU32(ImGuiCol.ChildBg));
         var font = ImGui.GetFont();
-        float fontSize = Unit * _zoom, thickness = MathF.Max(0.6f, _zoom);
+        float fontSize = MathF.Max(1f, MathF.Round(Unit * _zoom)), thickness = MathF.Max(0.6f, _zoom);
         uint dim = ImGui.GetColorU32(ImGuiCol.TextDisabled), text = ImGui.GetColorU32(ImGuiCol.Text);
 
         void Edge(Vector2 a, Vector2 b, uint colour, float width)
@@ -320,7 +320,8 @@ public sealed partial class ScriptGraphFrame
         if (maxP.X < origin.X || min.X > max.X || maxP.Y < origin.Y || min.Y > max.Y) return;
         var style = ImGui.GetStyle();
         float row = FieldRow, header = Header, pinRows = MathF.Max(1, pins) * Row;
-        ImGui.PushFont(ImGui.GetFont(), Unit * _zoom);
+        // Whole pixels: each size the font is drawn at keeps its own glyphs in the atlas.
+        ImGui.PushFont(ImGui.GetFont(), MathF.Max(1f, MathF.Round(Unit * _zoom)));
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, style.FramePadding * _zoom);
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, style.ItemSpacing * _zoom);
         ImGui.PushID(RuntimeHelpers.GetHashCode(element));

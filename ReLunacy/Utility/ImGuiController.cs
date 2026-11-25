@@ -285,6 +285,9 @@ public class ImGuiController : IDisposable
                         toDestroy.Texture.Dispose();
                         _managedTextures.Remove(uniqueId);
                     }
+                    // ImGui asserts the backend let go of the texture: no id, no user data.
+                    texData.SetTexID((ImTextureID)(nint)0);
+                    texData.BackendUserData = null;
                     texData.SetStatus(ImTextureStatus.Destroyed);
                     break;
                 }
