@@ -64,11 +64,9 @@ Sorry for this message, please proceed to the rest of the readme :)
 | Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    ✅    |    ✅     |       ✅        |         ✅         |
 | Resistance 2                          |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
 | Ratchet & Clank: A Crack In Time      |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Resistance: Retribution               |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ?    |    ?     |     ?     |       ✅        |         ?          |
 | Ratchet & Clank: All 4 One            |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
 | Resistance 3                          |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ?    |    ?     |     ?     |       ✅        |         ?          |
 | Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |   ?    |    ?     |     ?     |        ?        |         ?          |
 | Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
 
 Notes:
