@@ -300,6 +300,35 @@ public sealed class LunaProject : IGameFileOverlay
         }
     }
 
+    // ----- Script graph layout -----
+
+    /// <summary>Where the script graph placed a Fall of Man level's nodes (editor data "scriptGraph", by level, then
+    /// "setup/script": x, y per element in list order), or null.</summary>
+    public JsonObject? ScriptGraphLayout(string level)
+    {
+        lock (_lock)
+            return Manifest.Editor["scriptGraph"] is JsonObject levels && levels[level] is JsonObject layout
+                ? (JsonObject)layout.DeepClone() : null;
+    }
+
+    public void SetScriptGraphLayout(string level, JsonObject layout)
+    {
+        lock (_lock)
+        {
+            var previous = Manifest.Editor["scriptGraph"];
+            var levels = previous?.DeepClone() as JsonObject ?? new JsonObject();
+            levels[level] = layout.DeepClone();
+            Manifest.Editor["scriptGraph"] = levels;
+            try { Save(); }
+            catch
+            {
+                Manifest.Editor["scriptGraph"] = previous;
+                throw;
+            }
+            Revision++;
+        }
+    }
+
     // ----- Lua drafts -----
 
     public bool HasLuaDrafts

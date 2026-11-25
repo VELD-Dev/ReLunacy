@@ -1,5 +1,5 @@
-using System.Numerics;
 using ReLunacy.Core.Project;
+using ReLunacy.Engine.Assets.Browser;
 using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Projects;
 using ReLunacy.Engine.Scripting;
@@ -8,9 +8,15 @@ using ReLunacy.Utility.Localization;
 
 namespace ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 
-/// <summary>Looks up project scripts by their original archive and entry path.</summary>
-public sealed class LuaScriptBrowser(bool includeProjectLevels = true) : IDisposable
+/// <summary>The Lua scripts of the loaded level, the game and the project's other levels, by their original archive and
+/// entry path. <see cref="Shared"/> feeds the Assets Browser and the Lua Environment.</summary>
+public sealed class LuaScriptCatalog(bool includeProjectLevels = true) : IDisposable
 {
+    public static LuaScriptCatalog Shared { get; } = new();
+
+    /// <summary>Goes up each time the lists are read again.</summary>
+    public int Version { get; private set; }
+
     private readonly List<OverlaidArchive> _archives = [];
     private readonly Dictionary<string, OverlaidArchive> _owners = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _levelScripts = [];
@@ -23,10 +29,9 @@ public sealed class LuaScriptBrowser(bool includeProjectLevels = true) : IDispos
     private string? _globalArchive;
     private string? _levelArchive;
     private string? _error;
-    private string? _status;
-    private string _filter = "";
-    private string _newScript = "";
-    private bool _newGameScript;
+
+    /// <summary>Why an archive or script could not be read, when one could not.</summary>
+    public string? Error => _error;
 
     private LuaScriptIndex? _shared;
     private string? _sharedLevel;
@@ -66,6 +71,7 @@ public sealed class LuaScriptBrowser(bool includeProjectLevels = true) : IDispos
         }
         foreach (var group in new[] { _levelScripts, _gameScripts, _configs, _otherScripts })
             group.Sort(StringComparer.OrdinalIgnoreCase);
+        Version++;
         return true;
     }
 
@@ -100,7 +106,7 @@ public sealed class LuaScriptBrowser(bool includeProjectLevels = true) : IDispos
             owner.Contains(compiled) ? owner.Read(compiled) : null, draft != null);
     }
 
-    private string? Draft(string path) => ProjectSession.Current?.LuaDraft(_owners[path].Path, path);
+    public string? Draft(string path) => ProjectSession.Current?.LuaDraft(_owners[path].Path, path);
 
     public LuaScriptIndex SharedScripts(string path)
     {
@@ -147,98 +153,55 @@ public sealed class LuaScriptBrowser(bool includeProjectLevels = true) : IDispos
             useLua51: game is { } id ? !GameDefinitions.All.First(g => g.Id == id).IsOldEngine : null);
     }
 
-    public void Render(string selected, bool dirty, Func<string, bool> open, Func<bool> save)
+    /// <summary>Makes an empty script in the level's (or, for <paramref name="game"/>, the game's) scripts folder;
+    /// its archive path, or null with the reason in <paramref name="error"/>.</summary>
+    public string? Create(string name, bool game, out string? error)
     {
-        if (_error is { } error) ImGui.TextWrapped(error);
-        if (_archives.Count == 0)
+        Refresh();
+        error = null;
+        bool gameScope = game || _levelName.Length == 0;
+        string? archive = gameScope ? _globalArchive : _levelArchive ?? _globalArchive;
+        if (!IsScriptName(name)) { error = LM.Get("GUI_LuaEnv_NewScriptBadName", name); return null; }
+        if (archive == null) { error = LM.Get("GUI_LuaEnv_ScriptsNoLevel"); return null; }
+        string path = (gameScope ? "/scripts/" : $"/levels/{_levelName}/scripts/") + name + ".lua";
+        if (Contains(path)) { error = LM.Get("GUI_LuaEnv_NewScriptExists", path); return null; }
+        var result = Save(archive, path, $"-- {name}.lua\n", ProjectSession.Current);
+        if (!result.Succeeded) { error = string.Join("\n", new[] { result.Summary }.Concat(result.Problems)); return null; }
+        Refresh();
+        return path;
+    }
+
+    public static bool IsScriptName(string name) => name.Length > 0 && (char.IsAsciiLetter(name[0]) || name[0] == '_')
+        && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+
+    /// <summary>Every script for the Assets Browser: the level's under Scripts/Level, the game's under Scripts/Game,
+    /// configs under Scripts/Configs and other project levels under Scripts/Other levels, each keeping its own subfolders.</summary>
+    public List<ScriptAsset> Assets()
+    {
+        Refresh();
+        var assets = new List<ScriptAsset>();
+        foreach (string path in _levelScripts) assets.Add(Asset(path, "Scripts/Level", LevelRelative(path), false));
+        foreach (string path in _gameScripts) assets.Add(Asset(path, "Scripts/Game", path["/scripts/".Length..], true));
+        foreach (string path in _configs) assets.Add(Asset(path, "Scripts/Configs", path["/data/configs/".Length..], true));
+        foreach (string path in _otherScripts)
+            assets.Add(Asset(path, $"Scripts/Other levels/{LevelOf(path)}", LevelRelative(path), false));
+        return assets;
+
+        ScriptAsset Asset(string path, string folder, string relative, bool global)
         {
-            ImGui.TextDisabled(LM.Get("GUI_LuaEnv_ScriptsNoLevel"));
-            return;
-        }
-
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputTextWithHint("##script_filter", LM.Get("GUI_LuaEnv_ScriptsFilter"), ref _filter, 128);
-        NewScriptRow(open, save);
-        ImGui.Separator();
-
-        if (ImGui.BeginChild("script_list", new Vector2(0f, 0f)))
-        {
-            Group("level", string.Format(LM.Get("GUI_LuaEnv_ScriptsLevel"), _levelName, _levelScripts.Count), _levelScripts, true);
-            Group("game", string.Format(LM.Get("GUI_LuaEnv_ScriptsGame"), _gameScripts.Count), _gameScripts, true);
-            Group("configs", string.Format(LM.Get("GUI_LuaEnv_ScriptsConfigs"), _configs.Count), _configs, false);
-            if (_otherScripts.Any(Matches)
-                && ImGui.TreeNodeEx($"{LM.Get("GUI_LuaEnv_ScriptsOther", _otherScripts.Count)}###other_levels",
-                    _filter.Length > 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None))
-            {
-                foreach (var level in _otherScripts.GroupBy(LevelOf))
-                    Group($"other:{level.Key}", LM.Get("GUI_LuaEnv_ScriptsLevel", level.Key ?? "", level.Count()),
-                        level.ToList(), false);
-                ImGui.TreePop();
-            }
-        }
-        ImGui.EndChild();
-
-        bool Matches(string path) => path.Contains(_filter, StringComparison.OrdinalIgnoreCase);
-
-        void Group(string id, string label, List<string> paths, bool defaultOpen)
-        {
-            var matches = paths.Where(Matches).ToList();
-            if (matches.Count == 0) return;
-            if (!ImGui.TreeNodeEx($"{ImGuiPlus.Label(Icons.Folder, label)}###{id}",
-                    defaultOpen || _filter.Length > 0 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) return;
-
-            foreach (string path in matches)
-            {
-                bool active = path.Equals(selected, StringComparison.OrdinalIgnoreCase);
-                string name = Path.GetFileName(path);
-                if (Draft(path) != null) name += " " + LM.Get("GUI_LuaEnv_DraftName");
-                if (ImGui.Selectable($"{(active && dirty ? "· " : "")}{name}###{path}", active)) open(path);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(path);
-            }
-            ImGui.TreePop();
+            string? sub = System.IO.Path.GetDirectoryName(relative)?.Replace('\\', '/').Trim('/');
+            return new ScriptAsset(path, string.IsNullOrEmpty(sub) ? folder : $"{folder}/{sub}", global, Draft(path) != null);
         }
     }
 
-    private void NewScriptRow(Func<string, bool> open, Func<bool> save)
+    /// <summary>The path below the level's folder, without its scripts/ step: instances.lua of region "default" is
+    /// "default/instances.lua", /levels/x/scripts/gameplay/a.lua is "gameplay/a.lua".</summary>
+    private static string LevelRelative(string path)
     {
-        var project = ProjectSession.Current;
-        bool gameScope = _newGameScript || _levelName.Length == 0;
-        string? archive = gameScope ? _globalArchive : _levelArchive ?? _globalArchive;
-        ImGui.BeginDisabled(project == null);
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGui.BeginCombo("##script_scope", LM.Get(gameScope ? "GUI_LuaEnv_NewGameScript" : "GUI_LuaEnv_NewLevelScript")))
-        {
-            if (_levelName.Length > 0 && ImGui.Selectable(LM.Get("GUI_LuaEnv_NewLevelScript"), !gameScope)) _newGameScript = false;
-            if (ImGui.Selectable(LM.Get("GUI_LuaEnv_NewGameScript"), gameScope)) _newGameScript = true;
-            ImGui.EndCombo();
-        }
-        float buttonWidth = ImGui.CalcTextSize(Icons.Plus).X + ImGui.GetStyle().FramePadding.X * 2f;
-        ImGui.SetNextItemWidth(-buttonWidth - ImGui.GetStyle().ItemSpacing.X);
-        ImGui.InputTextWithHint("##new_script", LM.Get("GUI_LuaEnv_NewScriptHint"), ref _newScript, 64);
-        ImGui.SameLine();
-        bool usable = _newScript.Length > 0 && (char.IsAsciiLetter(_newScript[0]) || _newScript[0] == '_')
-            && _newScript.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
-        ImGui.BeginDisabled(!usable || archive == null);
-        if (ImGuiPlus.IconButton(Icons.Plus, "new_lua_script") && archive != null && save())
-        {
-            string path = (gameScope ? "/scripts/" : $"/levels/{_levelName}/scripts/") + _newScript + ".lua";
-            if (Contains(path)) _status = string.Format(LM.Get("GUI_LuaEnv_NewScriptExists"), path);
-            else
-            {
-                var result = Save(archive, path, $"-- {_newScript}.lua\n", project);
-                _status = result.Succeeded ? null : string.Join("\n", new[] { result.Summary }.Concat(result.Problems));
-                if (result.Succeeded)
-                {
-                    _newScript = "";
-                    Refresh();
-                    open(path);
-                }
-            }
-        }
-        ImGui.EndDisabled();
-        ImGui.EndDisabled();
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_NewScript"));
-        if (_status != null) ImGui.TextWrapped(_status);
+        var parts = path.TrimStart('/').Split('/');
+        int skip = parts[0].Equals("built", StringComparison.OrdinalIgnoreCase) ? 3 : 2;
+        if (parts.Length > skip + 1 && parts[skip].Equals("scripts", StringComparison.OrdinalIgnoreCase)) skip++;
+        return string.Join('/', parts.Skip(skip));
     }
 
     public void Dispose()

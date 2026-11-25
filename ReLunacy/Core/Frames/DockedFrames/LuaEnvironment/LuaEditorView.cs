@@ -31,7 +31,6 @@ public sealed class LuaEditorView
     private string _path = "";
     private string? _status;
     private string _savedText = "";
-    private string _fileToOpen = "";
     private IReadOnlyList<string> _saveProblems = [];
     private LuaScriptIndex? _lastShared;
 
@@ -390,7 +389,7 @@ public sealed class LuaEditorView
             string source = Document.GetText();
             if (Archive is { } archive)
             {
-                var result = LuaScriptBrowser.Save(archive, _path, source, Project);
+                var result = LuaScriptCatalog.Save(archive, _path, source, Project);
                 _status = result.Summary;
                 _saveProblems = result.Problems;
                 if (!result.Succeeded && (!result.CompileFailed || Project == null)) return false;
@@ -468,19 +467,6 @@ public sealed class LuaEditorView
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(_path);
         }
         else ImGui.TextDisabled(LM.Get("GUI_LuaEnv_SelectScript"));
-
-        if (ImGui.TreeNode(LM.Get("GUI_LuaEnv_OpenLocal")))
-        {
-            ImGui.SetNextItemWidth(-110f);
-            ImGui.InputText(LM.Get("GUI_LuaEnv_Path"), ref _fileToOpen, 1024);
-            ImGui.SameLine();
-            if (ImGui.Button(LM.Get("GUI_LuaEnv_Open")) && save())
-            {
-                try { Load(LuaText.ReadFile(_fileToOpen), System.IO.Path.GetFullPath(_fileToOpen)); }
-                catch (Exception e) { _status = e.Message; }
-            }
-            ImGui.TreePop();
-        }
 
         _editor.ReadOnly = _path.Length == 0 || (Archive != null && Project == null);
         if (Archive != null && Project == null) ImGui.TextDisabled(LM.Get("GUI_Install_NoProject"));

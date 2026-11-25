@@ -996,6 +996,7 @@ if (IsSpaceSector) ToolsMenuDraw.MoonSpace();
             ViewMenuDraw.ShowLuaEnvironment();
             ViewMenuDraw.ShowConfigTables();
             ViewMenuDraw.ShowTextTables();
+            ViewMenuDraw.ShowScriptGraph();
             ImGui.Separator();
             ViewMenuDraw.LayoutPresets();
             ImGui.EndMenu();

@@ -2,6 +2,49 @@
 # Same syntax as ACrackInTime.fields (see its header). Offsets are into the class data, which starts with the class number;
 # parents come from the game's own class table. Fields some level sets are listed; unnamed ones are not yet traced.
 
+enum CompareTest : u32
+{
+    Greater = 0;
+    Less = 1;
+    Near = 2;
+}
+
+enum NuggetOp : u32
+{
+    And = 0;
+    AndNot = 1;
+    Or = 2;
+    OrNot = 3;
+    Xor = 4;
+    Xnor = 5;
+}
+
+enum ScriptArea : u32
+{
+    Volume = 0;
+    Area = 1;
+}
+
+flags ScriptForce : u32
+{
+    True = 0x1;
+    False = 0x2;
+}
+
+enum ScriptTarget : u32
+{
+    Moby = 0;
+    Pod = 1;
+}
+
+enum ScriptWatch : u32
+{
+    Off = 0;
+    TurnsTrue = 1;
+    TurnsFalse = 2;
+    Either = 3;
+}
+
 class 0x1 IGG_GameObjectUpdate
 {
 }
@@ -55,6 +98,20 @@ class 0xE0 SoundController : 0x53
 {
 }
 
+class 0xE9 ScriptBaseElem
+{
+    size 0x3C;
+    [0x4, ptr Element] Next = "The element that runs next; for a condition, the one taken when it is true.";
+    [0x8, ptr Element] Else = "For a condition, the element taken when it is false.";
+    [0xC, u32, runtime] Came from = "";
+    [0x10, u32, runtime] Branch taken = "";
+    [0x14, u32, runtime] Label = "";
+    [0x18, u32, runtime] Field list = "";
+    [0x30, u32, runtime] Class = "";
+    [0x34, u32, runtime] Field count = "";
+    [0x38, ScriptForce] Force = "Debug override: always take this branch.";
+}
+
 class 0xF1 Vehicle_Base : 0x4D
 {
     [0xA4, s32] = "";
@@ -81,6 +138,2900 @@ class 0xF7 Vehicle_Mech : 0xF1
     [0xC60, float] = "";
     [0xC68, float] = "";
     [0xC70, float] = "";
+}
+
+class 0xF9 ScriptCommandElem : 0xE9
+{
+    size 0x3C;
+    label "Unknown";
+}
+
+class 0xFA ScriptConditionElem : 0xE9
+{
+    size 0x40;
+    [0x3C, ScriptWatch] Watch = "Keeps checking after branching and switches branch when the result changes.";
+}
+
+class 0xFB ScriptElem_Start : 0xF9
+{
+    size 0x3C;
+    label "Start";
+}
+
+class 0xFC ScriptElem_End : 0xF9
+{
+    size 0x3C;
+    label "End";
+}
+
+class 0xFD ScriptElem_SuspendAfterThisFrame : 0xF9
+{
+    size 0x3C;
+    label "Suspend After This Frame";
+}
+
+class 0xFE ScriptElem_BeginLoop : 0xF9
+{
+    size 0x44;
+    label "BeginLoop";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0xFF ScriptElem_EndLoop : 0xF9
+{
+    size 0x3C;
+    label "End Loop";
+}
+
+class 0x100 ScriptElem_Kill : 0xF9
+{
+    size 0x44;
+    label "Kill";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x101 ScriptElem_MembersInPod : 0xFA
+{
+    size 0x54;
+    label "Members in pod";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, s32] = "";
+    [0x4C, s32] = "";
+    [0x50, s32] = "";
+}
+
+class 0x102 ScriptElem_DifficultyLevel : 0xFA
+{
+    size 0x48;
+    label "Difficulty level";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x103 ScriptElem_ACTLevel : 0xFA
+{
+    size 0x48;
+    label "ACT level";
+    [0x40, s32] = "";
+    [0x44, s32] = "";
+}
+
+class 0x104 ScriptElem_IsDead : 0xFA
+{
+    size 0x50;
+    label "Is Dead";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+    [0x4C, float] = "";
+}
+
+class 0x105 ScriptElem_IsNISActive : 0xFA
+{
+    size 0x44;
+    label "Is N.I.S. Active";
+    [0x40, s32] = "";
+}
+
+class 0x106 ScriptElem_IsIntroSceneInactive : 0xFA
+{
+    size 0x40;
+    label "Is Intro Inactive";
+}
+
+class 0x107 ScriptElem_HasJustDead : 0xFA
+{
+    size 0x5C;
+    label "Has Just Died";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+    [0x4C, float] = "";
+    [0x50, s32, runtime] = "";
+    [0x54, s32, runtime] = "";
+    [0x58, s32, runtime] = "";
+}
+
+class 0x108 ScriptElem_HasPlayerKilledMoreThanX : 0xFA
+{
+    size 0x4C;
+    label "Has Player Killed More Than X of Squad";
+    [0x40, u32] = "";
+    [0x44, s32] = "";
+    [0x48, float] = "";
+}
+
+class 0x109 ScriptElem_IsDamaged : 0xFA
+{
+    size 0x50;
+    label "Is Damaged";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+    [0x4C, float] = "";
+}
+
+class 0x10A ScriptElem_InArea : 0xFA
+{
+    size 0x60;
+    label "In Area";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, ScriptArea] Area kind = "";
+    [0x4C, s32] Area = "Index; -1 for none.";
+    [0x50, u32] = "";
+    [0x54, float] = "";
+    [0x58, float] = "";
+    [0x5C, float, runtime] = "";
+}
+
+class 0x10B ScriptElem_IfPlayerIsInside : 0xFA
+{
+    size 0x48;
+    label "If Player Is Inside";
+    [0x40, ScriptArea] Area kind = "";
+    [0x44, s32] Area = "Index; -1 for none.";
+}
+
+class 0x10C ScriptElem_IfPlayerIsInVehicle : 0xFA
+{
+    size 0x40;
+    label "If Player Is In Vehicle";
+}
+
+class 0x10D ScriptElem_IsInView : 0xFA
+{
+    size 0x4C;
+    label "Is In View";
+    [0x40, ScriptArea] Area kind = "";
+    [0x44, s32] Area = "Index; -1 for none.";
+    [0x48, u32] = "";
+}
+
+class 0x10E ScriptElem_InArea_DOA : 0xFA
+{
+    size 0x60;
+    label "In Area (+Dead)";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, ScriptArea] Area kind = "";
+    [0x4C, s32] Area = "Index; -1 for none.";
+    [0x50, s32] = "";
+    [0x54, float] = "";
+    [0x58, float] = "";
+    [0x5C, float] = "";
+}
+
+class 0x10F ScriptElem_IsTargeted : 0xFA
+{
+    size 0x50;
+    label "Is Targeted";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x110 ScriptElem_IsEngaged : 0xFA
+{
+    size 0x4C;
+    label "Is Engaged";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, float, runtime] = "";
+}
+
+class 0x111 ScriptElem_IsAttacked : 0xFA
+{
+    size 0x54;
+    label "Is Attacked";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+    [0x4C, ScriptTarget] Target 2 kind = "";
+    [0x50, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x112 ScriptElem_IsStratActive : 0xFA
+{
+    size 0x44;
+    label "Is Strat Active";
+    [0x40, s32] = "";
+}
+
+class 0x113 ScriptElem_IsAttractModeIsActive : 0xFA
+{
+    size 0x40;
+    label "Is Attract Mode Is Active";
+}
+
+class 0x114 ScriptElem_IsPlaythrough : 0xFA
+{
+    size 0x40;
+    label "Is Game In Playthrough Mode";
+}
+
+class 0x115 ScriptElem_IsDebug : 0xFA
+{
+    size 0x40;
+    label "Is Game In Debug Mode";
+}
+
+class 0x116 ScriptElem_IsSetupActive : 0xFA
+{
+    size 0x44;
+    label "Is Setup Selected";
+    [0x40, u32] Sub-setup = "Index in the setup's sub-setup list.";
+}
+
+class 0x117 ScriptElem_IsActivated : 0xFA
+{
+    size 0x48;
+    label "Is Activated";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x118 ScriptElem_IsDeactivated : 0xFA
+{
+    size 0x48;
+    label "Is Deactivated";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x119 ScriptElem_VarIsTrue : 0xFA
+{
+    size 0x44;
+    label "Is Var True";
+    [0x40, ptr Variable] Variable = "";
+}
+
+class 0x11A ScriptElem_VarIsValue : 0xFA
+{
+    size 0x48;
+    label "Var Is Value";
+    [0x40, ptr Variable] Variable = "";
+    [0x44, float] = "";
+}
+
+class 0x11B ScriptElem_CommandsAreDone : 0xFA
+{
+    size 0x48;
+    label "If Commands Are Done";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x11C ScriptElem_SquadFinished : 0xFA
+{
+    size 0x44;
+    label "If Squad Is Finished";
+    [0x40, u32] = "";
+}
+
+class 0x11D ScriptElem_IfPlayerOwnsMoby : 0xFA
+{
+    size 0x48;
+    label "If Player Owns Moby";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x11E ScriptElem_Wait : 0xF9
+{
+    size 0x44;
+    label "Wait";
+    [0x3C, float] Duration = "Seconds to wait.";
+    [0x40, float, runtime] Elapsed = "";
+}
+
+class 0x11F ScriptElem_WaitVariable : 0xF9
+{
+    size 0x44;
+    label "Wait Variable";
+    [0x3C, ptr Variable] Variable = "";
+    [0x40, float] = "";
+}
+
+class 0x120 ScriptElem_WaitFrames : 0xF9
+{
+    size 0x44;
+    label "Wait Variable";
+    [0x3C, s32] = "";
+    [0x40, s32] = "";
+}
+
+class 0x121 ScriptElem_AdjustLights : 0xF9
+{
+    size 0x40;
+    label "Adjust Lights";
+    [0x3C, u32] = "";
+}
+
+class 0x122 ScriptElem_SetHudStyle : 0xF9
+{
+    size 0x40;
+    label "Set Hud Style";
+    [0x3C, s32] = "";
+}
+
+class 0x123 ScriptElem_SetShadows : 0xF9
+{
+    size 0x44;
+    label "Set Shadows";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+}
+
+class 0x124 ScriptElem_SetPathfindingSearchDistance : 0xF9
+{
+    size 0x48;
+    label "Set Shadows";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+}
+
+class 0x125 ScriptElem_Activate : 0xF9
+{
+    size 0x48;
+    label "Activate";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x126 ScriptElem_Deactivate : 0xF9
+{
+    size 0x48;
+    label "Deactivate";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x127 ScriptElem_RunAtLoad : 0xF9
+{
+    size 0x3C;
+    label "RunAtLoad";
+}
+
+class 0x128 ScriptElem_RunAtLoad_VanishOutsideOfArea : 0x127
+{
+    size 0x48;
+    label "RunAtLoad_VanishOutsideOfArea";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+    [0x44, s32] = "";
+}
+
+class 0x129 ScriptElem_Vanish : 0xF9
+{
+    size 0x44;
+    label "Vanish";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x12A ScriptElem_Reveal : 0xF9
+{
+    size 0x44;
+    label "Reveal";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x12B ScriptElem_DeleteGroup : 0xF9
+{
+    size 0x44;
+    label "Delete Group";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x12C ScriptElem_DeleteInArea : 0xF9
+{
+    size 0x48;
+    label "Delete In Area";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x12D ScriptElem_SetColl : 0xF9
+{
+    size 0x48;
+    label "Set Coll";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+}
+
+class 0x12E ScriptElem_AttachToWorld : 0xF9
+{
+    size 0x4C;
+    label "Attach To World";
+    [0x3C, u32] = "";
+    [0x40, ScriptArea] Area kind = "";
+    [0x44, s32] Area = "Index; -1 for none.";
+    [0x48, u32] = "";
+}
+
+class 0x12F ScriptElem_OccludeMobys : 0xF9
+{
+    size 0x54;
+    label "Occlude Mobys";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, ScriptArea] Area 2 kind = "";
+    [0x50, s32] Area 2 = "Index; -1 for none.";
+}
+
+class 0x130 ScriptElem_BlockNavmesh : 0xF9
+{
+    size 0x40;
+    label "Block Navmesh";
+    [0x3C, s32] = "";
+}
+
+class 0x131 ScriptElem_CreateNavEffectors : 0xF9
+{
+    size 0x44;
+    label "Create Nav Effectors";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+}
+
+class 0x132 ScriptElem_MergePods : 0xF9
+{
+    size 0x4C;
+    label "Merge Pods";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, s32] = "";
+}
+
+class 0x133 ScriptElem_PodFillByArea : 0xF9
+{
+    size 0x4C;
+    label "Pod - Fill By Area";
+    [0x3C, s32] = "";
+    [0x40, u32] = "";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
+class 0x134 ScriptElem_SetKillZone : 0xF9
+{
+    size 0x4C;
+    label "Set Kill Zone";
+    [0x48, u32] = "";
+}
+
+class 0x135 ScriptElem_SetTargetability : 0xF9
+{
+    size 0x44;
+    label "Set Targetability";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+}
+
+class 0x136 ScriptElem_SetTargetUpdate : 0xF9
+{
+    size 0x48;
+    label "Set Target Update";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+}
+
+class 0x137 ScriptElem_SetFootLocking : 0xF9
+{
+    size 0x48;
+    label "Set Foot Locking";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x138 ScriptElem_SetDrone : 0xF9
+{
+    size 0x48;
+    label "Set Drone";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x139 ScriptElem_SetCanDrone : 0xF9
+{
+    size 0x48;
+    label "Set Drone";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x13A ScriptElem_ResetBot : 0xF9
+{
+    size 0x44;
+    label "Reset Bot";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x13B ScriptElem_SetOverrideSpeed : 0xF9
+{
+    size 0x48;
+    label "Set Bot Override Speed";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x13C ScriptElem_GoTo : 0xF9
+{
+    size 0x50;
+    label "GoTo";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x13D ScriptElem_FollowPath : 0xF9
+{
+    size 0x54;
+    label "Follow Path";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, s32] = "";
+}
+
+class 0x13E ScriptElem_Stand : 0xF9
+{
+    size 0x4C;
+    label "Stand";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
+class 0x13F ScriptElem_HoldFire : 0xF9
+{
+    size 0x44;
+    label "Hold Fire";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x140 ScriptElem_OpenFire : 0xF9
+{
+    size 0x4C;
+    label "Open Fire";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptTarget] Target 2 kind = "";
+    [0x48, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x141 ScriptElem_FireFromArea : 0xF9
+{
+    size 0x4C;
+    label "Fire From Area";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
+class 0x142 ScriptElem_AddOcclusionLine : 0xF9
+{
+    size 0x48;
+    label "Add Occlusion Line";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x143 ScriptElem_RemoveOcclusionLine : 0xF9
+{
+    size 0x40;
+    label "Remove Occlusion Line";
+    [0x3C, u32] = "";
+}
+
+class 0x144 ScriptElem_SetTargetPreference : 0xF9
+{
+    size 0x50;
+    label "Set Target Preference";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+    [0x48, u32] = "";
+    [0x4C, float] = "";
+}
+
+class 0x145 ScriptElem_PlayActionAnim : 0xF9
+{
+    size 0x58;
+    label "Play Action Anim";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, u32] = "";
+}
+
+class 0x146 ScriptElem_MoveSystemComponents : 0xF9
+{
+    size 0x4C;
+    label "Move System Components";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32, runtime] = "";
+}
+
+class 0x147 ScriptElem_ThrowGrenades : 0xF9
+{
+    size 0x4C;
+    label "Throw Grenades";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptTarget] Target 2 kind = "";
+    [0x48, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x148 ScriptElem_SetWeapon : 0xF9
+{
+    size 0x48;
+    label "Set Weapon";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x149 ScriptElem_SetWeapon2 : 0xF9
+{
+    size 0x48;
+    label "Set Weapon 2";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x14A ScriptElem_SetFlashlight : 0xF9
+{
+    size 0x48;
+    label "Set Flashlight";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x14B ScriptElem_FireAtArea : 0xF9
+{
+    size 0x50;
+    label "Fire At Area";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, float] = "";
+}
+
+class 0x14C ScriptElem_SetVulnerability : 0xF9
+{
+    size 0x48;
+    label "Set Vulnerability";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32, runtime] = "";
+}
+
+class 0x14D ScriptElem_FleeAndFire : 0xF9
+{
+    size 0x50;
+    label "Flee and Fire";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x14E ScriptElem_InitStance : 0xF9
+{
+    size 0x4C;
+    label "Init Stance";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
+class 0x14F ScriptElem_Parachute : 0xF9
+{
+    size 0x4C;
+    label "Parachute";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x150 ScriptElem_Patrol : 0xF9
+{
+    size 0x50;
+    label "Patrol";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+    [0x48, u32] = "";
+    [0x4C, float] = "";
+}
+
+class 0x151 ScriptElem_HoldPosition : 0xF9
+{
+    size 0x54;
+    label "Hold Position";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+}
+
+class 0x152 ScriptElem_JumpDown : 0xF9
+{
+    size 0x50;
+    label "Jump Down";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, u32] = "";
+}
+
+class 0x153 ScriptElem_SetupAmbush : 0xF9
+{
+    size 0x5C;
+    label "Setup Ambush";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, ScriptArea] Area 2 kind = "";
+    [0x50, s32] Area 2 = "Index; -1 for none.";
+    [0x54, ScriptArea] Area 3 kind = "";
+    [0x58, s32] Area 3 = "Index; -1 for none.";
+}
+
+class 0x154 ScriptElem_InnateBehavior : 0xF9
+{
+    size 0x44;
+    label "Innate Behavior";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x155 ScriptElem_SetAwareness : 0xF9
+{
+    size 0x50;
+    label "Set Awareness";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, ScriptArea] Area kind = "";
+    [0x4C, s32] Area = "Index; -1 for none.";
+}
+
+class 0x156 ScriptElem_Sentry : 0xF9
+{
+    size 0x44;
+    label "Sentry";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x157 ScriptElem_MeleeAttack : 0xF9
+{
+    size 0x4C;
+    label "Melee Attack";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptTarget] Target 2 kind = "";
+    [0x48, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x158 ScriptElem_SetupIntroAnim : 0xF9
+{
+    size 0x6C;
+    label "Intro Anim Setup";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, u32] = "";
+    [0x58, u32] = "";
+    [0x5C, u32] = "";
+    [0x60, u32] = "";
+    [0x68, float] = "";
+}
+
+class 0x159 ScriptElem_TriggerIntroAnim : 0xF9
+{
+    size 0x48;
+    label "Intro Anim Trigger";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x15A ScriptElem_IsIntroAnimDone : 0xFA
+{
+    size 0x48;
+    label "Is Intro Anim Done";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x15B ScriptElem_UseCover : 0xF9
+{
+    size 0x4C;
+    label "Use Cover";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, u32] = "";
+}
+
+class 0x15C ScriptElem_UseTurret : 0xF9
+{
+    size 0x4C;
+    label "Use Turret";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, u32] = "";
+}
+
+class 0x15D ScriptElem_ReleaseTurret : 0xF9
+{
+    size 0x44;
+    label "Release Turret";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+}
+
+class 0x15E ScriptElem_SetMortarTurretMode : 0xF9
+{
+    size 0x44;
+    label "Set Mortar Turret Mode";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x15F ScriptElem_SetCoverUse : 0xF9
+{
+    size 0x48;
+    label "Set Cover Use";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x160 ScriptElem_SetDamagePerc : 0xF9
+{
+    size 0x4C;
+    label "Set Damage Percentage";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x161 ScriptElem_SetHomeArea : 0xF9
+{
+    size 0x48;
+    label "Set Home Area";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+}
+
+class 0x162 ScriptElem_SetGrenadeUse : 0xF9
+{
+    size 0x50;
+    label "Set Grenade Use";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x163 ScriptElem_SetPlayerPosition : 0xF9
+{
+    size 0x54;
+    label "Set Player Position";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Position Area Type = "";
+    [0x48, s32] Position Area = "Index; -1 for none.";
+    [0x4C, ScriptArea] Area 2 kind = "";
+    [0x50, s32] Area 2 = "Index; -1 for none.";
+}
+
+class 0x164 ScriptElem_GatherPlayers : 0xF9
+{
+    size 0x5C;
+    label "Set Player Position";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, ScriptArea] Area 2 kind = "";
+    [0x50, s32] Area 2 = "Index; -1 for none.";
+    [0x54, ScriptArea] Area 3 kind = "";
+    [0x58, s32] Area 3 = "Index; -1 for none.";
+}
+
+class 0x165 ScriptElem_SetPlayerHealthRegen : 0xF9
+{
+    size 0x40;
+    label "Set Player Health Regen";
+    [0x3C, s32, runtime] = "";
+}
+
+class 0x166 ScriptElem_SetPlayerPostEffectsAndFog : 0xF9
+{
+    size 0x4C;
+    label "Player Set Post Effects And Fog";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x167 ScriptElem_PlayerWeaponAdd : 0xF9
+{
+    size 0x54;
+    label "Player Weapon Add";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+}
+
+class 0x168 ScriptElem_PlayerWeaponRemoveAll : 0xF9
+{
+    size 0x44;
+    label "Player Weapon Remove All";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x169 ScriptElem_PlayerSetHealthMin : 0xF9
+{
+    size 0x48;
+    label "Player Set Health Min";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+}
+
+class 0x16A ScriptElem_PlayerSetAmmoMin : 0xF9
+{
+    size 0x50;
+    label "Player Set Ammo Min";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x16B ScriptElem_SetPlayerFPNIS : 0xF9
+{
+    size 0x50;
+    label "Set Player FPNIS";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+}
+
+class 0x16C ScriptElem_EndPlayerFPNIS : 0xF9
+{
+    size 0x44;
+    label "End Player FPNIS";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x16D ScriptElem_SetBotPodPosition : 0xF9
+{
+    size 0x4C;
+    label "Set Bot/Pod Position";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
+class 0x16E ScriptElem_SetMobyPosition : 0xF9
+{
+    size 0x48;
+    label "Set Moby Position";
+    [0x3C, Moby] Target Moby = "";
+    [0x40, Volume] = "";
+    [0x44, Volume] Position = "Volume designating the target position";
+}
+
+class 0x16F ScriptElem_SetCurrentSetup : 0xF9
+{
+    size 0x40;
+    label "Set Current Setup";
+    [0x3C, u32] Sub-setup = "Index in the setup's sub-setup list.";
+}
+
+class 0x170 ScriptElem_KnockPlayer : 0xF9
+{
+    size 0x60;
+    label "Knock Player";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, u32] = "";
+    [0x50, ScriptArea] Area 2 kind = "";
+    [0x54, s32] Area 2 = "Index; -1 for none.";
+    [0x58, u32] = "";
+    [0x5C, u32] = "";
+}
+
+class 0x171 ScriptElem_SquadRunMinimalUpdate : 0xF9
+{
+    size 0x44;
+    label "Squad Run Minimal Updates";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x172 ScriptElem_SquadGiveSignal : 0xF9
+{
+    size 0x44;
+    label "Squad Give Signal";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x173 ScriptElem_SquadCreate : 0xF9
+{
+    size 0x40;
+    label "Squad Create";
+    [0x3C, s32] = "";
+}
+
+class 0x174 ScriptElem_SquadMessage : 0xF9
+{
+    size 0x44;
+    label "Squad Message";
+    [0x3C, s32] = "";
+    [0x40, ptr String] Message = "";
+}
+
+class 0x175 ScriptElem_SquadFollow : 0xF9
+{
+    size 0x60;
+    label "Squad Follow";
+    [0x3C, s32] = "";
+    [0x40, u32] = "";
+    [0x44, s32] = "";
+    [0x48, float] = "";
+    [0x4C, u32] = "";
+    [0x50, float] = "";
+    [0x54, float] = "";
+    [0x58, float] = "";
+    [0x5C, float] = "";
+}
+
+class 0x176 ScriptElem_PodPissed : 0xF9
+{
+    size 0x48;
+    label "Pod Pissed";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+}
+
+class 0x177 ScriptElem_SquadBFSetData : 0xF9
+{
+    size 0x54;
+    label "Squad Battlefield Set Data";
+    [0x3C, s32] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, s32] = "";
+}
+
+class 0x178 ScriptElem_SquadSetRespawnNumber : 0xF9
+{
+    size 0x44;
+    label "Squad Set Respawn Number";
+    [0x3C, s32] = "";
+    [0x40, s32] = "";
+}
+
+class 0x179 ScriptElem_SquadSetRespawnData : 0xF9
+{
+    size 0x4C;
+    label "Squad Set Respawn Data";
+    [0x3C, s32] = "";
+    [0x40, s32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x17A ScriptElem_SquadSetVTOLRespawnData : 0xF9
+{
+    size 0x54;
+    label "Squad Set VTOL Respawn Data";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+}
+
+class 0x17B ScriptElem_SquadBFDefendArea : 0xF9
+{
+    size 0x5C;
+    label "Squad Defend Area";
+    [0x3C, s32] = "";
+    [0x40, s32] = "";
+    [0x44, s32] = "";
+    [0x48, s32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, s32] = "";
+    [0x58, u32] = "";
+}
+
+class 0x17C ScriptElem_SquadBFFightLargeEnemy : 0xF9
+{
+    size 0x50;
+    label "Squad Fight Large Enemy";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+}
+
+class 0x17D ScriptElem_SquadBFChargeArea : 0xF9
+{
+    size 0x48;
+    label "Squad Charge Area";
+    [0x3C, s32] = "";
+    [0x40, s32] = "";
+    [0x44, float] = "";
+}
+
+class 0x17E ScriptElem_SquadTakeFormation : 0xF9
+{
+    size 0x4C;
+    label "Squad Take Formation";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x17F ScriptElem_SquadRush : 0xF9
+{
+    size 0x48;
+    label "Squad Rush";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x180 ScriptElem_SquadAdd : 0xF9
+{
+    size 0x4C;
+    label "Squad Assign To Squad";
+    [0x3C, u32] = "";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, s32] = "";
+}
+
+class 0x181 ScriptElem_SquadRemove : 0xF9
+{
+    size 0x48;
+    label "Squad Remove From Squad";
+    [0x3C, u32] = "";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x182 ScriptElem_SquadMerge : 0xF9
+{
+    size 0x44;
+    label "Squad Merge";
+    [0x3C, u32] = "";
+    [0x40, s32] = "";
+}
+
+class 0x183 ScriptElem_SquadSplit : 0xF9
+{
+    size 0x50;
+    label "Squad Split";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, s32] = "";
+    [0x4C, s32] = "";
+}
+
+class 0x184 ScriptElem_SquadSteal : 0xF9
+{
+    size 0x54;
+    label "Squad Steal";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, ScriptArea] Area kind = "";
+    [0x4C, s32] Area = "Index; -1 for none.";
+    [0x50, u32] = "";
+}
+
+class 0x185 ScriptElem_SquadDistribute : 0xF9
+{
+    size 0x4C;
+    label "Squad Distribute";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x186 ScriptElem_SquadClearEnemies : 0xF9
+{
+    size 0x48;
+    label "Squad Clear Enemies";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x187 ScriptElem_SquadClearArea : 0xF9
+{
+    size 0x48;
+    label "Squad Clear Area";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x188 ScriptElem_SquadDoorway : 0xF9
+{
+    size 0x50;
+    label "Squad Doorway";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, u32] = "";
+}
+
+class 0x189 ScriptElem_SquadSetCasualtyRates : 0xF9
+{
+    size 0x4C;
+    label "Squad Set Casualty Rates";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, float] = "";
+}
+
+class 0x18A ScriptElem_TGS_SwarmerRun : 0xF9
+{
+    size 0x4C;
+    label "TGS Swarmer Run";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x18B ScriptElem_TGS_HumanStandAndFire : 0xF9
+{
+    size 0x4C;
+    label "TGS Human Stand And Fire";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x18C ScriptElem_TGS_HybridSimpleRun : 0xF9
+{
+    size 0x44;
+    label "TGS Hybrid Simple Run";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x18D ScriptElem_AircraftFollowPath : 0xF9
+{
+    size 0x44;
+    label "Aircraft Follow Path";
+    [0x3C, Moby] Target Aircraft = "";
+    [0x40, Path] Path to follow = "";
+}
+
+class 0x18E ScriptElem_AircraftFollowPath2 : 0xF9
+{
+    size 0x4C;
+    label "Aircraft Follow Path 2";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x18F ScriptElem_AircraftResumePath : 0xF9
+{
+    size 0x40;
+    label "Aircraft Resume Path";
+    [0x3C, u32] = "";
+}
+
+class 0x190 ScriptElem_AircraftSetSpeedMode : 0xF9
+{
+    size 0x44;
+    label "Aircraft Set Speed Mode";
+    [0x3C, Moby] Target Moby = "";
+    [0x40, u32] SpeedMode? = "";
+}
+
+class 0x191 ScriptElem_AircraftSetSpeedRange : 0xF9
+{
+    size 0x48;
+    label "Aircraft Set Speed Range";
+    [0x3C, Moby] Target Moby = "";
+    [0x40, u32] Range Begin? = "";
+    [0x44, u32] Range End? = "";
+}
+
+class 0x192 ScriptElem_AircraftSetSpeedRange2 : 0xF9
+{
+    size 0x48;
+    label "Aircraft Set Speed Range 2";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+}
+
+class 0x193 ScriptElem_AircraftSetFacing : 0xF9
+{
+    size 0x44;
+    label "Aircraft Set facing";
+    [0x3C, u32] = "";
+}
+
+class 0x194 ScriptElem_AircraftFacePos : 0xF9
+{
+    size 0x44;
+    label "Aircraft Face Pos";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x195 ScriptElem_AircraftFaceMoby : 0xF9
+{
+    size 0x44;
+    label "Aircraft Face Moby";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x196 ScriptElem_AircraftSetTime : 0xF9
+{
+    size 0x44;
+    label "Aircraft Set Time";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x197 ScriptElem_AircraftWaitTilPoint : 0xF9
+{
+    size 0x44;
+    label "Aircraft Wait Til Point";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x198 ScriptElem_AircraftHoverAtPosition : 0xF9
+{
+    size 0x48;
+    label "Aircraft Hover At Position";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, s32, runtime] = "";
+}
+
+class 0x199 ScriptElem_AircraftGunTargetPos : 0xF9
+{
+    size 0x44;
+    label "Aircraft Gun Target Pos";
+    [0x40, u32] = "";
+}
+
+class 0x19A ScriptElem_AircraftGunTargetMoby : 0xF9
+{
+    size 0x44;
+    label "Aircraft Gun Target Moby";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x19B ScriptElem_AircraftGunTargetOff : 0xF9
+{
+    size 0x40;
+    label "Aircraft Gun Target Off";
+}
+
+class 0x19C ScriptElem_AircraftCrash : 0xF9
+{
+    size 0x4C;
+    label "Aircraft Crash";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x19D ScriptElem_VTOLTransform : 0xF9
+{
+    size 0x44;
+    label "VTOL Transform";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x19E ScriptElem_VTOLTriggerDoors : 0xF9
+{
+    size 0x48;
+    label "VTOL Trigger Doors";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x19F ScriptElem_VTOLBomb : 0xF9
+{
+    size 0x4C;
+    label "VTOL Bomb";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1A0 ScriptElem_VTOLRocket : 0xF9
+{
+    size 0x4C;
+    label "VTOL Rocket";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1A1 ScriptElem_VTOLDropTroops : 0xF9
+{
+    size 0x48;
+    label "VTOL Drop Troops";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1A2 ScriptElem_VTOLDropTroopsParam : 0xF9
+{
+    size 0x58;
+    label "VTOL Drop Troops (Param)";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+    [0x54, float] = "";
+}
+
+class 0x1A3 ScriptElem_VTOLTakeOffOrLand : 0xF9
+{
+    size 0x4C;
+    label "VTOL Take Off Or Land";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32, runtime] = "";
+    [0x48, s32, runtime] = "";
+}
+
+class 0x1A4 ScriptElem_CtDropCargo : 0xF9
+{
+    size 0x4C;
+    label "CT Drop Cargo";
+    [0x3C, Moby] Moby Target = "";
+    [0x40, Controller] Cargo Target = "";
+    [0x44, ref] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1A5 ScriptElem_BurrowerDropPod : 0xF9
+{
+    size 0x4C;
+    label "Burrower Drop Pod";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, s32, runtime] = "";
+}
+
+class 0x1A6 ScriptElem_VehicleReleaseScriptControl : 0xF9
+{
+    size 0x40;
+    label "Vehicle Release Script Control";
+    [0x3C, u32] = "";
+}
+
+class 0x1A7 ScriptElem_VehicleFollowPath : 0xF9
+{
+    size 0x4C;
+    label "Vehicle Follow Path";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1A8 ScriptElem_VehicleResumePath : 0xF9
+{
+    size 0x40;
+    label "Vehicle Resume Path";
+    [0x3C, u32] = "";
+}
+
+class 0x1A9 ScriptElem_VehicleSetSpeedRange : 0xF9
+{
+    size 0x48;
+    label "Vehicle Set Speed Range";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+}
+
+class 0x1AA ScriptElem_VehicleWaitTilPoint : 0xF9
+{
+    size 0x44;
+    label "Vehicle Wait Til Point";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1AB ScriptElem_VehicleStopAtPoint : 0xF9
+{
+    size 0x44;
+    label "Vehicle Stop At Point";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1AC ScriptElem_VehicleStopAtPosition : 0xF9
+{
+    size 0x48;
+    label "Vehicle Stop At Position";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, s32] = "";
+}
+
+class 0x1AD ScriptElem_BuggyLockSeat : 0xF9
+{
+    size 0x48;
+    label "Buggy Lock Seat";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1AE ScriptElem_BuggyIsMobyInSeat : 0xFA
+{
+    size 0x4C;
+    label "Buggy Is Moby In Seat";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1AF ScriptElem_BuggyEnter : 0xF9
+{
+    size 0x48;
+    label "Buggy Enter";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1B0 ScriptElem_BuggyEnter2 : 0xF9
+{
+    size 0x4C;
+    label "Buggy Enter 2";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1B1 ScriptElem_BuggyExit : 0xF9
+{
+    size 0x44;
+    label "Buggy Exit";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1B2 ScriptElem_TankLockSeat : 0xF9
+{
+    size 0x48;
+    label "Tank Lock Seat";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1B3 ScriptElem_TankIsMobyInSeat : 0xFA
+{
+    size 0x4C;
+    label "Tank Is Moby In Seat";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1B4 ScriptElem_TankEnter : 0xF9
+{
+    size 0x48;
+    label "Tank Enter";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1B5 ScriptElem_TankEnter2 : 0xF9
+{
+    size 0x4C;
+    label "Tank Enter 2";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1B6 ScriptElem_TankExit : 0xF9
+{
+    size 0x44;
+    label "Tank Exit";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1B7 ScriptElem_MechLockSeat : 0xF9
+{
+    size 0x48;
+    label "Mech Lock Seat";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1B8 ScriptElem_MechIsMobyInSeat : 0xFA
+{
+    size 0x4C;
+    label "Mech Is Moby In Seat";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1B9 ScriptElem_MechEnter : 0xF9
+{
+    size 0x48;
+    label "Mech Enter";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1BA ScriptElem_MechEnter2 : 0xF9
+{
+    size 0x4C;
+    label "Mech Enter 2";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1BB ScriptElem_MechExit : 0xF9
+{
+    size 0x44;
+    label "Mech Exit";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1BC ScriptElem_LightOn : 0xF9
+{
+    size 0x44;
+    label "Light On";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1BD ScriptElem_MenialMoveObject : 0xF9
+{
+    size 0x50;
+    label "Menial Move Object";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x1BE ScriptElem_MenialUseConsole : 0xF9
+{
+    size 0x4C;
+    label "Menial Use Console";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, s32] = "";
+}
+
+class 0x1BF ScriptElem_MenialSetWorkArea : 0xF9
+{
+    size 0x44;
+    label "Menial Set Work Area";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1C0 ScriptElem_MenialIsConnectionOccupied : 0xF9
+{
+    size 0x40;
+    label "Menial Is Connection Occupied";
+    [0x3C, u32] = "";
+}
+
+class 0x1C1 ScriptElem_MenialThrowObject : 0xF9
+{
+    size 0x58;
+    label "Menial Throw Object";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, ScriptTarget] Target 2 kind = "";
+    [0x4C, s32] Target 2 = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x50, s32] = "";
+}
+
+class 0x1C2 ScriptElem_CritterPanicRadius : 0xF9
+{
+    size 0x44;
+    label "Critter Panic Radius";
+    [0x3C, s32] = "";
+    [0x40, float] = "";
+}
+
+class 0x1C3 ScriptElem_ScreenFade : 0xF9
+{
+    size 0x4C;
+    label "Screen Fade";
+    [0x3C, s32, runtime] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x1C4 ScriptElem_ScreenBookend : 0xF9
+{
+    size 0x4C;
+    label "Screen Bookend";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x48, ptr String] Text = "";
+}
+
+class 0x1C5 ScriptElem_ScreenShake : 0xF9
+{
+    size 0x4C;
+    label "Screen Shake";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
+class 0x1C6 ScriptElem_SetTint : 0xF9
+{
+    size 0x54;
+    label "SetTint";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+}
+
+class 0x1C7 ScriptElem_EnterSegment : 0xF9
+{
+    size 0x4C;
+    label "Enter Segment";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x1C8 ScriptElem_CheckpointAdvance : 0xF9
+{
+    size 0x40;
+    label "Checkpoint Advance";
+    [0x3C, u32] = "";
+}
+
+class 0x1C9 ScriptElem_CheckpointIfComplete : 0xFA
+{
+    size 0x44;
+    label "Checkpoint If Complete";
+    [0x40, u32] = "";
+}
+
+class 0x1CA ScriptElem_CheckpointIfNotComplete : 0xFA
+{
+    size 0x44;
+    label "Checkpoint If Not Complete";
+    [0x40, u32] = "";
+}
+
+class 0x1CB ScriptElem_CheckpointLoaded : 0xF9
+{
+    size 0x40;
+    label "Checkpoint Loaded";
+    [0x3C, u32] = "";
+}
+
+class 0x1CC ScriptElem_CheckpointLoadedOrFurther : 0xF9
+{
+    size 0x40;
+    label "Checkpoint Loaded Or Further";
+    [0x3C, u32] = "";
+}
+
+class 0x1CD ScriptElem_CheckpointSetSaveFlag : 0xF9
+{
+    size 0x44;
+    label "Checkpoint Set Save Flag";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1CE ScriptElem_CheckpointIfSaveFlagSet : 0xFA
+{
+    size 0x48;
+    label "Checkpoint If Save Flag Set";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x1CF ScriptElem_CheckpointBeginScript : 0xF9
+{
+    size 0x40;
+    [0x3C, u32] = "";
+}
+
+class 0x1D0 ScriptElem_CheckPointRestart : 0xF9
+{
+    size 0x40;
+    [0x3C, u32] = "";
+}
+
+class 0x1D1 ScriptElem_CheckpointReached : 0xF9
+{
+    size 0x40;
+    [0x3C, u32] = "";
+}
+
+class 0x1D2 ScriptElem_IfCheckpointReached : 0xFA
+{
+    size 0x44;
+    [0x40, u32] = "";
+}
+
+class 0x1D3 ScriptElem_IfCheckpointNotReached : 0xFA
+{
+    size 0x44;
+    [0x40, u32] = "";
+}
+
+class 0x1D4 ScriptElem_SESetSpec : 0xF9
+{
+    size 0x4C;
+    label "Set Sound Environment Spec";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x1D5 ScriptElem_AddMusicCueToTrack : 0xF9
+{
+    size 0x54;
+    label "Add Music Cue To Track";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+}
+
+class 0x1D6 ScriptElem_PlayDialogue : 0xF9
+{
+    size 0x6C;
+    label "Play Dialogue";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, float] = "";
+    [0x50, u32] = "";
+    [0x54, s32, runtime] = "";
+    [0x58, u32] = "";
+    [0x5C, s32, runtime] = "";
+    [0x60, u32] = "";
+    [0x64, u32] = "";
+    [0x68, float] = "";
+}
+
+class 0x1D7 ScriptElem_PlayMovie : 0xF9
+{
+    size 0x54;
+    label "Play Movie";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, s32] = "";
+    [0x50, s32] = "";
+}
+
+class 0x1D8 ScriptElem_NIS_RegisterActor : 0xF9
+{
+    size 0x4C;
+    label "Non-Interactive Scene - Register Actor";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, s32] = "";
+    [0x48, s32] = "";
+}
+
+class 0x1D9 ScriptElem_NIS_Start : 0xF9
+{
+    size 0x44;
+    label "Non-Interactive Scene - Start";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1DA ScriptElem_IS_Start : 0xF9
+{
+    size 0x44;
+    label "Interactive Scene - Start";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x1DB ScriptElem_IS_QueueSpeech : 0xF9
+{
+    size 0x44;
+    label "I.S. - Queue Speech";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1DC ScriptElem_IS_QueueMovement : 0xF9
+{
+    size 0x54;
+    label "I.S. - Queue Movement";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+}
+
+class 0x1DD ScriptElem_IS_QueueGesture : 0xF9
+{
+    size 0x44;
+    label "I.S. - Queue Gesture";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1DE ScriptElem_IS_End : 0xF9
+{
+    size 0x44;
+    label "I.S. - End";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x1DF ScriptElem_VO : 0xF9
+{
+    size 0x5C;
+    label "VO";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, u32] = "";
+    [0x58, u32] = "";
+}
+
+class 0x1E0 ScriptElem_VOMulti : 0xF9
+{
+    size 0x78;
+    label "VO Multi";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, u32] = "";
+    [0x58, u32] = "";
+    [0x5C, u32] = "";
+    [0x60, u32] = "";
+    [0x64, u32] = "";
+    [0x68, u32] = "";
+    [0x6C, u32] = "";
+    [0x70, u32] = "";
+    [0x74, u32] = "";
+}
+
+class 0x1E1 ScriptElem_VOByState : 0xF9
+{
+    size 0x60;
+    label "VO By State";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, u32] = "";
+    [0x58, u32] = "";
+    [0x5C, u32] = "";
+}
+
+class 0x1E2 ScriptElem_VOSetChatter : 0xF9
+{
+    size 0x40;
+    label "VO Set Chatter";
+    [0x3C, u32] = "";
+}
+
+class 0x1E3 ScriptElem_SetAwarenessRangeMultiplier : 0xF9
+{
+    size 0x48;
+    label "Set Awareness Range Multiplier";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+}
+
+class 0x1E4 ScriptElem_DamageSphere : 0xF9
+{
+    size 0x4C;
+    label "Damage Sphere";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x1E5 ScriptElem_DamageMoby : 0xF9
+{
+    size 0x5C;
+    label "Damage Moby";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, ScriptArea] Area kind = "";
+    [0x54, s32] Area = "Index; -1 for none.";
+    [0x58, u32] = "";
+}
+
+class 0x1E6 ScriptElem_DamageMobyInArea : 0xF9
+{
+    size 0x64;
+    label "Damage Moby In Area";
+    [0x3C, ScriptTarget] Affected Kind = "";
+    [0x40, s32] Affected = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Damage Area Kind = "";
+    [0x48, s32] Damage Area = "Index; -1 for none.";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+    [0x54, float] Damage Amount = "";
+    [0x58, ScriptArea] Area 2 kind = "";
+    [0x5C, s32] Area 2 = "Index; -1 for none.";
+    [0x60, u32] = "";
+}
+
+class 0x1E7 ScriptElem_SimpleMotion : 0xF9
+{
+    size 0x48;
+    label "Simple Motion";
+    [0x3C, u32] = "";
+    [0x40, s32] = "";
+    [0x44, float] = "";
+}
+
+class 0x1E8 ScriptElem_SpawnRagdoll : 0xF9
+{
+    size 0x54;
+    label "Spawn Ragdoll";
+    [0x3C, u32] = "";
+    [0x40, ScriptArea] Area kind = "";
+    [0x44, s32] Area = "Index; -1 for none.";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+}
+
+class 0x1E9 ScriptElem_EffectInstant : 0xF9
+{
+    size 0x50;
+    label "Effect Instant";
+    [0x3C, s32] = "";
+    [0x40, s32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x1EA ScriptElem_EffectInstant2 : 0xF9
+{
+    size 0x50;
+    label "Effect Instant 2";
+    [0x3C, s32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+}
+
+class 0x1EB ScriptElem_FxControllerSetActive : 0xF9
+{
+    size 0x44;
+    label "FxController Set Active";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1EC ScriptElem_PlayFxp : 0xF9
+{
+    size 0x44;
+    label "Play FxPackage";
+    [0x3C, s32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1ED ScriptElem_SpawnChunk : 0xF9
+{
+    size 0x4C;
+    label "Spawn Chunk";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x1EE ScriptElem_PlaySound : 0xF9
+{
+    size 0x50;
+    label "Play Sound";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+    [0x4C, u32] = "";
+}
+
+class 0x1EF ScriptElem_SetSoundCrowdLayer : 0xF9
+{
+    size 0x44;
+    label "Set Sound Crowd Layer";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x1F0 ScriptElem_SetObjPos : 0xF9
+{
+    size 0x44;
+    label "Set Objective Pos";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+}
+
+class 0x1F1 ScriptElem_SetObjText : 0xF9
+{
+    size 0x40;
+    label "Set Objective Text";
+    [0x3C, ptr String] Text = "";
+}
+
+class 0x1F2 ScriptElem_MakeTrue : 0xF9
+{
+    size 0x40;
+    label "Make True";
+    [0x3C, ptr Variable] Variable = "";
+}
+
+class 0x1F3 ScriptElem_MakeFalse : 0xF9
+{
+    size 0x40;
+    label "Make False";
+    [0x3C, ptr Variable] Variable = "";
+}
+
+class 0x1F4 ScriptElem_IncrementVar : 0xF9
+{
+    size 0x40;
+    label "Increment Var";
+    [0x3C, ptr Variable] Variable = "";
+}
+
+class 0x1F5 ScriptElem_DecrementVar : 0xF9
+{
+    size 0x40;
+    label "Decrement Var";
+    [0x3C, ptr Variable] Variable = "";
+}
+
+class 0x1F6 ScriptElem_SetValue : 0xF9
+{
+    size 0x44;
+    label "Set Value";
+    [0x3C, ptr Variable] Variable = "";
+    [0x40, float] = "";
+}
+
+class 0x1F7 ScriptElem_ComputeValue : 0xF9
+{
+    size 0x4C;
+    label "Compute Value";
+    [0x3C, ptr Variable] Variable = "";
+    [0x40, ptr Variable] Variable 2 = "";
+    [0x44, ptr Variable] Variable 3 = "";
+    [0x48, s32] = "";
+}
+
+class 0x1F8 ScriptElem_WindSetClue : 0xF9
+{
+    size 0x40;
+    label "Wind - Set Clue";
+    [0x3C, u32] = "";
+}
+
+class 0x1F9 ScriptElem_Branch_Level : 0xF9
+{
+    size 0x40;
+    label "Branch - Level";
+    [0x3C, u32] = "";
+}
+
+class 0x1FA ScriptElem_SetAttractModeCamera : 0xF9
+{
+    size 0x40;
+    label "Set Attract Mode Camera";
+    [0x3C, u32] = "";
+}
+
+class 0x1FB ScriptElem_E3_EndDemo : 0xF9
+{
+    size 0x3C;
+    label "E3 End Demo";
+}
+
+class 0x1FC ScriptElem_DEMO_Idle : 0xF9
+{
+    size 0x44;
+    label "DEMO Idle";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x1FD ScriptElem_DEMO_Stand : 0xF9
+{
+    size 0x44;
+    label "DEMO Stand";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x1FE ScriptElem_DEMO_Advance : 0xF9
+{
+    size 0x44;
+    label "DEMO Advance";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x1FF ScriptElem_DEMO_Strafe : 0xF9
+{
+    size 0x44;
+    label "DEMO Strafe";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x200 ScriptElem_DEMO_Cover : 0xF9
+{
+    size 0x50;
+    label "DEMO Cover";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x201 ScriptElem_DEMO_Movement : 0xF9
+{
+    size 0x50;
+    label "DEMO Movement";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x202 ScriptElem_DEMO_Normal : 0xF9
+{
+    size 0x44;
+    label "DEMO Normal";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x203 ScriptElem_DEMO_LowHP : 0xF9
+{
+    size 0x44;
+    label "DEMO Low HP";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x204 ScriptElem_DEMO_MayaCutscene : 0xF9
+{
+    size 0x40;
+    label "DEMO Maya Cutscene";
+    [0x3C, ptr String] Text = "";
+}
+
+class 0x205 ScriptElem_DEMO_SonyEnemyFlanking : 0xF9
+{
+    size 0x48;
+    label "DEMO Sony Enemy Flanking";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x206 ScriptElem_DEBUG_MoveAndFace : 0xF9
+{
+    size 0x60;
+    label "DEBUG Move and Face";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, u32] = "";
+    [0x58, s32] = "";
+    [0x5C, s32] = "";
+}
+
+class 0x207 ScriptElem_DEBUG_TakeCover : 0xF9
+{
+    size 0x50;
+    label "DEBUG Take Cover";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, s32] = "";
+    [0x4C, s32] = "";
+}
+
+class 0x208 ScriptElem_DEBUG_Strafing : 0xF9
+{
+    size 0x50;
+    label "DEBUG Strafing";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, s32] = "";
+    [0x4C, s32] = "";
+}
+
+class 0x209 ScriptElem_DEBUG_HeroMoment : 0xF9
+{
+    size 0x4C;
+    label "DEBUG HERO::Hero Moment";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x20A ScriptElem_Execute_HeroMoment : 0xF9
+{
+    size 0x48;
+    label "Execute Hero Moment";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x20B ScriptElem_ResetPhysics : 0xF9
+{
+    size 0x44;
+    label "Reset Physics";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x20C ScriptElem_EruptSwarmerEgg : 0xF9
+{
+    size 0x44;
+    label "Erupt Swarmer Egg";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x20D ScriptElem_TestMove1 : 0xF9
+{
+    size 0x44;
+    label "Move Test 1 (Intro/Outro)";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
+class 0x20E ScriptElem_VehicleGrabPlayer : 0xF9
+{
+    size 0x4C;
+    label "Vehicle Grab Player";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x20F ScriptElem_VehicleDumpPlayer : 0xF9
+{
+    size 0x44;
+    label "Vehicle Dump Player";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x210 ScriptElem_MechSetWeaponUse : 0xF9
+{
+    size 0x4C;
+    label "Mech Set Weapon Use";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x211 ScriptElem_MechSetOptimalDist : 0xF9
+{
+    size 0x4C;
+    label "Mech Set Optimal Dist";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x212 ScriptElem_BehemothSetWeaponUse : 0xF9
+{
+    size 0x50;
+    label "Behemoth Set Weapon Use";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+}
+
+class 0x213 ScriptElem_BehemothSetOptimalDist : 0xF9
+{
+    size 0x4C;
+    label "Behemoth Set Optimal Dist";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x214 ScriptElem_TempAssignElevatorVars : 0xF9
+{
+    size 0x54;
+    label "Test Change PVar";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+}
+
+class 0x215 ScriptElem_TriggerEffectEvent : 0xF9
+{
+    size 0x4C;
+    label "Trigger Effect Event";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, u32] = "";
+}
+
+class 0x216 ScriptElem_SwarmerSetParams : 0xF9
+{
+    size 0x4C;
+    label "Swarmer Set Parameters";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x217 ScriptElem_SwarmerFollowPath : 0xF9
+{
+    size 0x60;
+    label "Swarmer Follow Path";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, s32] = "";
+    [0x48, s32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+    [0x54, s32] = "";
+    [0x58, s32] = "";
+    [0x5C, u32] = "";
+}
+
+class 0x218 ScriptElem_SwarmerVentSpawn : 0xF9
+{
+    size 0x54;
+    label "Swarmer Vent Spawn";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, u32] = "";
+    [0x50, u32] = "";
+}
+
+class 0x219 ScriptElem_SwarmerEatCorpse : 0xF9
+{
+    size 0x4C;
+    label "Swarmer EatCropse Spawn";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+}
+
+class 0x21A ScriptElem_FastHybridSetupIntro : 0xF9
+{
+    size 0x48;
+    label "Fast Hybrid Setup Intro";
+    [0x3C, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x21B ScriptElem_FastHybridTriggerIntro : 0xF9
+{
+    size 0x40;
+    label "Fast Hybrid Trigger Intro";
+    [0x3C, u32] = "";
+}
+
+class 0x21C ScriptElem_IsRandomChance : 0xFA
+{
+    size 0x44;
+    label "Is Random Chance";
+    [0x40, float] = "";
+}
+
+class 0x21D ScriptElem_SetRandomValue : 0xF9
+{
+    size 0x48;
+    label "Set Value";
+    [0x3C, ptr Variable] Variable = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+}
+
+class 0x21E ScriptElem_MarkLabel : 0xF9
+{
+    size 0x40;
+    label "Mark Label";
+    [0x3C, ptr String] Text = "";
+}
+
+class 0x21F ScriptElem_GotoLabel : 0xF9
+{
+    size 0x40;
+    label "Goto Label";
+    [0x3C, ptr String] Text = "";
+}
+
+class 0x220 ScriptElem_TN_If : 0xF9
+{
+    size 0x5C;
+    label "Truth-Nugget If";
+    [0x3C, u32] Wait until true = "Non-zero: waits here until the nuggets are true.";
+    [0x40, u32] = "";
+    [0x44, u32, runtime] = "";
+    [0x48, u32, runtime] = "";
+    [0x4C, u32, runtime] = "";
+    [0x50, u32, runtime] = "";
+    [0x54, u32, runtime] = "";
+    [0x58, u32, runtime] = "";
+}
+
+class 0x221 ScriptElem_TN_Then : 0xF9
+{
+    size 0x40;
+    label "Truth-Nugget Then";
+    [0x3C, u32, runtime] If = "";
+}
+
+class 0x222 ScriptElem_TN_Else : 0xF9
+{
+    size 0x44;
+    label "Truth-Nugget Else";
+    [0x3C, u32, runtime] If = "";
+    [0x40, u32, runtime] End-If = "";
+}
+
+class 0x223 ScriptElem_TN_EndIf : 0xF9
+{
+    size 0x40;
+    label "Truth-Nugget End-If";
+    [0x3C, u32, runtime] If = "";
+}
+
+class 0x224 ScriptElem_TN_BaseNugget : 0xF9
+{
+    size 0x3C;
+    [0x3C, NuggetOp] Combine = "How this result joins the ones before it.";
+}
+
+class 0x225 ScriptElem_TN_CompareVals : 0x224
+{
+    size 0x58;
+    label "Truth-Nugget Compare Values";
+    [0x40, float] A = "1337 reads A variable instead.";
+    [0x44, ptr Variable] A variable = "";
+    [0x48, CompareTest] Test = "Greater: A > B + tolerance. Less: A < B + tolerance. Near: |A - B| < tolerance.";
+    [0x4C, float] Tolerance = "";
+    [0x50, float] B = "1337 reads B variable instead.";
+    [0x54, ptr Variable] B variable = "";
+}
+
+class 0x226 ScriptElem_TN_MobyPropQuery : 0x224
+{
+    size 0x5C;
+    label "Truth-Nugget Moby Property Query";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+    [0x48, u32] = "";
+    [0x4C, s32] = "";
+    [0x50, s32] = "";
+    [0x54, u32] = "";
+    [0x58, float] = "";
+}
+
+class 0x227 TN_MobyPropValueCompare : 0x226
+{
+    size 0x60;
+    [0x5C, ptr Variable] Variable = "";
+}
+
+class 0x228 ScriptElem_TN_While : 0xF9
+{
+    size 0x58;
+    label "Truth-Nugget While";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, s32, runtime] = "";
+    [0x48, s32, runtime] = "";
+    [0x4C, s32, runtime] = "";
+    [0x50, s32, runtime] = "";
+    [0x54, s32, runtime] = "";
+}
+
+class 0x229 ScriptElem_TN_Do : 0xF9
+{
+    size 0x40;
+    label "Truth Nugget Do";
+    [0x3C, u32, runtime] = "";
+}
+
+class 0x22A ScriptElem_TN_EndWhile : 0xF9
+{
+    size 0x44;
+    label "Truth Nugget End-While";
+    [0x3C, u32, runtime] = "";
+    [0x40, s32, runtime] = "";
+}
+
+class 0x22B ScriptElem_SE_GoTo : 0xF9
+{
+    size 0x44;
+    label "Simple Elevator Go To";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+}
+
+class 0x22C ScriptElem_SE_SetReponseMode : 0xF9
+{
+    size 0x44;
+    label "Simple Elevator Set Player Responsive";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x22D ScriptElem_SE_RelinkVolumes : 0xF9
+{
+    size 0x48;
+    label "Simple Elevator Relink Endpoints";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x22E ScriptElem_SE_SetMoveParameters : 0xF9
+{
+    size 0x4C;
+    label "Simple Elevator Set Move Parameters";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x48, float, runtime] = "";
+}
+
+class 0x22F ScriptElem_EndOnVar : 0x224
+{
+    size 0x40;
+    label "Terminate Script If False";
+}
+
+class 0x230 ScriptElem_WaitOnScriptEnd : 0x224
+{
+    size 0x48;
+    label "Wait For Script To Finish";
+    [0x40, ptr Script] Script = "Waits until this script has finished.";
+    [0x44, s32, runtime] = "";
+}
+
+class 0x231 ScriptElem_GoToClue : 0xF9
+{
+    size 0x48;
+    label "Go to Clue";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, u32] = "";
+}
+
+class 0x232 ScriptElem_IsAtClue : 0xFA
+{
+    size 0x48;
+    label "IsAtClue";
+    [0x40, u32] = "";
+    [0x44, s32] = "";
+}
+
+class 0x233 ScriptElem_IfIsNotFollowingPath : 0xFA
+{
+    size 0x4C;
+    label "If Is Not Following Path";
+    [0x40, ScriptTarget] Target kind = "";
+    [0x44, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x48, u32] = "";
+}
+
+class 0x234 ScriptElem_PodFillByDead : 0xF9
+{
+    size 0x4C;
+    label "Pod - Fill With Dead";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, s32, runtime] = "";
+    [0x48, u32] = "";
 }
 
 class 0x237 AircraftCt : 0x5D
@@ -157,7 +3108,7 @@ class 0x2B3 CoverBase : 0x50
 
 class 0x2B5 PowerupPad : 0x4D
 {
-    [0x34, u32] Pickup = "The Moby class it spawns.";
+    [0x34, mobyclass] Pickup = "The Moby class it spawns.";
     [0x38, u32] = "";
     [0x70, u32] = "";
 }
@@ -851,8 +3802,59 @@ class 0x493 SimpleBird : 0x24D
     [0x150, float] = "";
 }
 
+class 0x49D ScriptElem_Coop : 0xFA
+{
+    size 0x40;
+    label "Coop";
+}
+
+class 0x49E ScriptElem_GoreLevel : 0xFA
+{
+    size 0x48;
+    label "Gore level";
+    [0x40, s32] = "";
+    [0x44, s32] = "";
+}
+
+class 0x4A3 ScriptElem_SquadClearCommands : 0xF9
+{
+    size 0x40;
+    label "Squad Clear Commands";
+    [0x3C, u32] = "";
+}
+
+class 0x4A4 ScriptElem_VTOLDropTank : 0xF9
+{
+    size 0x40;
+    label "VTOL Tank Dropoff";
+    [0x3C, u32] = "";
+}
+
+class 0x4A7 ScriptElem_VTOLPickupTank : 0xF9
+{
+    size 0x44;
+    label "VTOL Tank Pickup";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
 class 0x4A9 Door_Animated : 0x4D
 {
+}
+
+class 0x4AC ScriptElem_DisplayMessage : 0xF9
+{
+    size 0x44;
+    label "Display Message";
+    [0x3C, u32] Message = "Help message id.";
+}
+
+class 0x4AD ScriptElem_ButtonLock : 0xF9
+{
+    size 0x44;
+    label "Button Lock";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
 }
 
 class 0x4AE DeleteOnDamage : 0x4D
@@ -863,8 +3865,63 @@ class 0x4AF ActivateAnim : 0x4E
 {
 }
 
+class 0x4B1 ScriptElem_NexusSetHeight : 0xF9
+{
+    size 0x44;
+    label "Nexus Reactor Door Set Height";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+}
+
+class 0x4B4 ScriptElem_SetGlobalDronePlanningData : 0xF9
+{
+    size 0x50;
+    label "Set Global Drone Planning Data";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+}
+
+class 0x4B5 ScriptElem_SquadSetDronePlanningData : 0xF9
+{
+    size 0x4C;
+    label "Squad Set Drone Planning Data";
+    [0x3C, u32] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
+class 0x4B8 ScriptElem_HidePlayerWeapon : 0xF9
+{
+    size 0x3C;
+    label "Hide Player Weapons";
+}
+
+class 0x4B9 ScriptElem_ShowPlayerWeapon : 0xF9
+{
+    size 0x3C;
+    label "Show Player Weapons";
+}
+
 class 0x4BA Lvl80_Gate : 0x4D
 {
+}
+
+class 0x4BB ScriptElem_SetPlayerFallDamageHeights : 0xF9
+{
+    size 0x44;
+    label "Set Player Fall Damage Heights";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x4C0 ScriptElem_TehWin : 0xF9
+{
+    size 0x3C;
+    label "Teh Win - 4TW!";
 }
 
 class 0x4C2 Prop_Drill : 0x4D
@@ -879,6 +3936,23 @@ class 0x4C4 Prop_Base : 0x50
 {
 }
 
+class 0x4CC ScriptElem_HelpdeskSetArea : 0xF9
+{
+    size 0x44;
+    label "Helpdesk Specify Area";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x4D0 ScriptElem_IsAware : 0xFA
+{
+    size 0x4C;
+    label "Is Aware";
+    [0x40, u32] = "";
+    [0x44, ScriptTarget] Target kind = "";
+    [0x48, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+}
+
 class 0x4D4 Elevator_Z_SimpleBlower : 0x4D
 {
     [0x34, float] = "";
@@ -886,8 +3960,69 @@ class 0x4D4 Elevator_Z_SimpleBlower : 0x4D
     [0x40, u32] = "";
 }
 
+class 0x4D5 ScriptElem_Event_PsychicVision : 0xF9
+{
+    size 0x44;
+    label "Event - Psychic Vision";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+}
+
+class 0x4D6 ScriptElem_Event_BurrowerDriveBy : 0xF9
+{
+    size 0x4C;
+    label "Event - Burrower Drive By";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+    [0x44, ScriptArea] Area kind = "";
+    [0x48, s32] Area = "Index; -1 for none.";
+}
+
 class 0x4D9 Prop_FallingBridge : 0x3C7
 {
+}
+
+class 0x4DC ScriptElem_FinishGlassPanes : 0xF9
+{
+    size 0x44;
+    label "Finish Glass Panes";
+    [0x3C, ScriptArea] Area kind = "";
+    [0x40, s32] Area = "Index; -1 for none.";
+}
+
+class 0x4DE ScriptElem_ForceSingleScreen : 0xF9
+{
+    size 0x40;
+    label "Force Single Screen";
+    [0x3C, u32] = "";
+}
+
+class 0x4DF ScriptElem_DisplayIntel : 0xF9
+{
+    size 0x40;
+    label "Display Intel";
+    [0x3C, u32] = "";
+}
+
+class 0x4E5 ScriptElem_BeatGameAtLeastOnce : 0xFA
+{
+    size 0x40;
+    label "BeatGameAtLeastOnce";
+}
+
+class 0x4E8 ScriptElem_SuspendDialogue : 0xF9
+{
+    size 0x44;
+    [0x3C, float] = "";
+    [0x40, u32] = "";
+}
+
+class 0x4E9 ScriptElem_StopSound : 0xF9
+{
+    size 0x48;
+    [0x3C, s32, runtime] = "";
+    [0x40, s32] = "";
+    [0x44, u32] = "";
 }
 
 class 0x4ED WeatherController : 0x53
@@ -925,6 +4060,44 @@ class 0x4ED WeatherController : 0x53
     [0xCC, float] = "";
 }
 
+class 0x4F4 ScriptElem_SpiderStabMoby : 0xF9
+{
+    size 0x44;
+    label "Spider Stabs A Specific Moby";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+}
+
+class 0x4F5 ScriptElem_GiveIntel : 0xF9
+{
+    size 0x44;
+    label "Give Intel";
+    [0x3C, sound] Intel = "";
+    [0x40, s32, runtime] = "";
+}
+
+class 0x4F6 ScriptElem_SetCameraShakerAttributes : 0xF9
+{
+    size 0x54;
+    label "Set Camera Shaker Attributes";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+}
+
+class 0x4F7 ScriptElem_SetJunkDispenserAttributes : 0xF9
+{
+    size 0x4C;
+    label "Set Junk Dispenser Attributes";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
+    [0x44, float] = "";
+    [0x48, float] = "";
+}
+
 class 0x4F8 RandomCameraShaker : 0x53
 {
 }
@@ -934,6 +4107,62 @@ class 0x4F9 ChimeranJunkDispenser : 0x53
     [0x10, bool32] = "";
 }
 
+class 0x50A ScriptElem_SetFacingTarget : 0xF9
+{
+    size 0x4C;
+    label "Set Facing Target";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, float] = "";
+}
+
+class 0x510 ScriptElem_SetCreditsMusic : 0xF9
+{
+    size 0x40;
+    [0x3C, u32] = "";
+}
+
+class 0x512 ScriptElem_PackBeastBounds : 0xF9
+{
+    size 0x58;
+    label "Pack Beast Bounds";
+    [0x3C, u32] = "";
+    [0x40, ScriptArea] Area kind = "";
+    [0x44, s32] Area = "Index; -1 for none.";
+    [0x48, ScriptArea] Area 2 kind = "";
+    [0x4C, s32] Area 2 = "Index; -1 for none.";
+    [0x50, ScriptArea] Area 3 kind = "";
+    [0x54, s32] Area 3 = "Index; -1 for none.";
+}
+
+class 0x514 ScriptElem_GravySetAimDirection : 0xF9
+{
+    size 0x4C;
+    label "Gravy - Set Aim Direction";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, u32] = "";
+    [0x48, float] = "";
+}
+
 class 0x515 AntiAircraftFire : 0x53
 {
+}
+
+class 0x51B ScriptElem_BlockoutDrone : 0xF9
+{
+    size 0x48;
+    label "Blockout Drone";
+    [0x3C, ScriptTarget] Target kind = "";
+    [0x40, s32] Target = "Moby: handle (index + 1) << 16 | index, 0 for none. Pod: index, -1 for none.";
+    [0x44, float] = "";
+}
+
+class 0x51D ScriptElem_FlagNavPolyEdges : 0xF9
+{
+    size 0x44;
+    label "Flag Nav Poly Edges";
+    [0x3C, u32] = "";
+    [0x40, u32] = "";
 }

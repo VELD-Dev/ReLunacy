@@ -250,6 +250,20 @@ internal static class ViewMenuDraw
             LunaWindow.Instance.AddFrame(new TextTablesFrame());
     }
 
+    /// <summary>A Fall of Man level's scripts (ps3script.dat) as node graphs, edited and saved into the project.</summary>
+    internal static void ShowScriptGraph()
+    {
+        bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<ScriptGraphFrame>();
+        bool fallOfMan = LunaWindow.Instance.Level?.GameDefinition?.Id == Engine.Games.GameId.RFallOfMan;
+        if (!ImGui.MenuItem(LM.Get("GUI_Frame_ScriptGraph"), "", frameAlreadyOpen, frameAlreadyOpen || fallOfMan))
+            return;
+
+        if (frameAlreadyOpen)
+            LunaWindow.Instance.TryCloseFirstFrame<ScriptGraphFrame>();
+        else
+            LunaWindow.Instance.AddFrame(new ScriptGraphFrame());
+    }
+
     internal static void ShowPSArcExplorer()
     {
         bool frameAlreadyOpen = LunaWindow.Instance.IsAnyFrameOpened<PSArcExplorer>();

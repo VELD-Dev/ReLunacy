@@ -1,14 +1,23 @@
 # Mirrors VELD-Dev/Riftripper's nightly workflow: every push to `nightly` builds Windows + Linux
 # artifacts and publishes/updates them under a single rolling "Nightly Builds" GitHub release
-# (tag `nightly`), accumulating every nightly build's artifacts there rather than replacing them
-# (replacesArtifacts: false below) - the running app's UpdateChecker (Nightly channel) picks the
-# newest artifact per platform out of that list by filename.
+# (tag `nightly`, moved to the built commit on every run). Each run adds its artifacts next to the
+# previous ones and the oldest are pruned, keeping the last KEEP_BUILDS per platform so a broken
+# nightly can be rolled back - the running app's UpdateChecker (Nightly channel) picks the newest
+# artifact for its platform out of that list.
 
 name: Nightly Releases
 
 on:
   push:
     branches: [ "nightly" ]
+
+# Runs never overlap, so one run's prune can't delete what another is still uploading.
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+env:
+  KEEP_BUILDS: 10
 
 jobs:
   # Creates the rolling `nightly` release once, before the builds start, so the parallel builds
@@ -27,6 +36,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    # The release action only sets the tag's commit when it creates it, so without this the tag
+    # (and the release's "Source code" downloads) would stay on the very first nightly's commit.
+    - name: Move nightly tag to this commit
+      run: |
+        git tag -f nightly "$GITHUB_SHA"
+        git push -f origin refs/tags/nightly
 
     - name: Create or update release
       uses: ncipollo/release-action@v1.12.0
@@ -135,3 +151,32 @@ jobs:
         prerelease: true
         replacesArtifacts: false
         skipIfReleaseExists: false
+
+  prune:
+    name: Prune Old Nightly Builds
+    needs: build
+    # Also after a failed platform, so the others' uploads are still pruned.
+    if: ${{ !cancelled() }}
+
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Keep the last ${{ env.KEEP_BUILDS }} builds per platform
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # Asset names are ReLunacy-nightly-{date}.{commit}.{rid}.{ext}; group by rid and keep the
+        # newest by upload time (the name only orders by date, then by commit hash).
+        gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '
+          .assets
+          | map(select(.name | test("\\.(win|linux)-(x64|arm64)\\.")))
+          | group_by(.name | capture("\\.(?<rid>(win|linux)-(x64|arm64))\\.").rid)
+          | map(sort_by(.created_at) | reverse | .['"$KEEP_BUILDS"':])
+          | flatten | .[] | "\(.id) \(.name)"' |
+        while read -r id name; do
+          echo "Deleting $name"
+          gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id"
+        done

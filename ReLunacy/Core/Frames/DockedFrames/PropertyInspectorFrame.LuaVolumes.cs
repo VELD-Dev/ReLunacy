@@ -15,9 +15,9 @@ namespace ReLunacy.Core.Frames.DockedFrames;
 
 public partial class PropertyInspectorFrame
 {
-    private readonly LuaScriptBrowser _volumeScripts = new(includeProjectLevels: false);
+    private readonly LuaScriptCatalog _volumeScripts = new(includeProjectLevels: false);
     private (IReadOnlyList<LuaScriptSource> Sources, LuaEnvironmentFrame? Editor,
-        (string Path, int Version)? Live)? _volumeScriptsStamp;
+        int? Live)? _volumeScriptsStamp;
     private readonly Dictionary<string, (string Text, LuaVolumeHandler[] Handlers)> _fileHandlers = [];
     private ILookup<string, LuaVolumeHandler>? _entryHandlers;
     private EntityVolume? _chooseLocationFor;
@@ -54,7 +54,7 @@ public partial class PropertyInspectorFrame
         if (window.GetFirstFrame<PropertyInspectorFrame>() is { } inspector)
             return !inspector.EntryHandlers(lua)[volume.Name].Any(handler => handler.ShowsLocation);
 
-        using var scripts = new LuaScriptBrowser(includeProjectLevels: false);
+        using var scripts = new LuaScriptCatalog(includeProjectLevels: false);
         return !HandlerSources(scripts.SharedSources(""), lua).SelectMany(LuaVolumeHandlers.Find)
             .Any(handler => handler.Volume == volume.Name && handler.ShowsLocation);
     }

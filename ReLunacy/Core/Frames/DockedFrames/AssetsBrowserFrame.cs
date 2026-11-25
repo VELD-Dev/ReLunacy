@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 using ReLunacy.Core.Frames.Modals;
 using ReLunacy.Core.Placement;
 using ReLunacy.Core.Project;
@@ -35,11 +36,21 @@ public sealed class AssetsBrowserFrame : DockedFrame
     private static readonly Vector4 Gold = new(1f, 0.8f, 0.2f, 1f);
 
     private static AssetKey? _reveal;
+    private static string? _revealFolder;
 
     /// <summary>Opens the browser on an asset and selects it (after a model import, the new class).</summary>
     public static void Reveal(AssetKey key)
     {
         _reveal = key;
+        var window = LunaWindow.Instance;
+        if (window.GetFirstFrame<AssetsBrowserFrame>() is { } frame) frame.Focus();
+        else window.AddFrame(new AssetsBrowserFrame());
+    }
+
+    /// <summary>Opens the browser on a folder (the Lua Environment's Scripts button).</summary>
+    public static void RevealFolder(string path)
+    {
+        _revealFolder = path;
         var window = LunaWindow.Instance;
         if (window.GetFirstFrame<AssetsBrowserFrame>() is { } frame) frame.Focus();
         else window.AddFrame(new AssetsBrowserFrame());
@@ -69,6 +80,10 @@ public sealed class AssetsBrowserFrame : DockedFrame
 
     private AssetEntry? _referencesOf;
     private bool _openReferences;
+
+    private string _newScript = "";
+    private bool _newGameScript;
+    private string? _newScriptError;
 
     public AssetsBrowserFrame()
     {
@@ -142,8 +157,10 @@ public sealed class AssetsBrowserFrame : DockedFrame
             if (scan.IsCompletedSuccessfully) tables = scan.Result;
         }
 
+        var scripts = LuaScriptCatalog.Shared;
+        scripts.Refresh();
         var key = (level, EntityManager.StructureVersion, level.Mobys.Count, level.Ties.Count, assets.Mobys.Count, assets.Ties.Count,
-            effects, effectNames, sounds, tables);
+            effects, effectNames, sounds, tables, scripts.Version);
         if (Equals(_builtFor, key)) return _index;
         _builtFor = key;
         _index = AssetIndex.Build(new AssetIndexSources
@@ -157,12 +174,19 @@ public sealed class AssetsBrowserFrame : DockedFrame
             EffectNames = effectNames,
             Sounds = sounds,
             TextTables = tables,
+            Scripts = scripts.Assets(),
         });
         return _index;
     }
 
     private void HandleReveal(AssetIndex index)
     {
+        if (_revealFolder is { } folder)
+        {
+            _revealFolder = null;
+            _search = "";
+            Navigate(index.Folder(folder) != null ? folder : "");
+        }
         if (_reveal is not { } key || index.Get(key) is not { } entry) return;
         _reveal = null;
         _search = "";
@@ -269,10 +293,21 @@ public sealed class AssetsBrowserFrame : DockedFrame
         if (ImGui.Button(_listView ? Icons.Grid : Icons.List)) _listView = !_listView;
         Tip(LM.Get(_listView ? "GUI_AssetsBrowser_GridView" : "GUI_AssetsBrowser_ListView"));
         ImGui.SameLine();
-        ImGui.BeginDisabled(!ImportModelModal.Available);
-        if (ImGui.Button(Icons.Plus)) ImportModelModal.Choose();
-        ImGui.EndDisabled();
-        Tip(LM.Get(ImportModelModal.Available ? "GUI_AssetsBrowser_ImportModel" : "GUI_ImportModel_ACiTOnly"));
+        if (InScripts)
+        {
+            ImGui.BeginDisabled(ProjectSession.Current == null);
+            if (ImGui.Button(Icons.Plus)) OpenNewScript();
+            ImGui.EndDisabled();
+            Tip(LM.Get(ProjectSession.Current == null ? "GUI_Install_NoProject" : "GUI_LuaEnv_NewScript"));
+        }
+        else
+        {
+            ImGui.BeginDisabled(!ImportModelModal.Available);
+            if (ImGui.Button(Icons.Plus)) ImportModelModal.Choose();
+            ImGui.EndDisabled();
+            Tip(LM.Get(ImportModelModal.Available ? "GUI_AssetsBrowser_ImportModel" : "GUI_ImportModel_ACiTOnly"));
+        }
+        DrawNewScriptPopup();
 
         DrawBreadcrumb();
     }
@@ -591,6 +626,50 @@ public sealed class AssetsBrowserFrame : DockedFrame
         EntityManager.StructureVersion++;
     }
 
+    // --- Scripts -------------------------------------------------------------------------------------
+
+    private bool InScripts => _path.Equals("Scripts", StringComparison.OrdinalIgnoreCase)
+        || _path.StartsWith("Scripts/", StringComparison.OrdinalIgnoreCase);
+
+    private void OpenNewScript()
+    {
+        _newScript = "";
+        _newScriptError = null;
+        _newGameScript = _path.StartsWith("Scripts/Game", StringComparison.OrdinalIgnoreCase)
+            || _path.StartsWith("Scripts/Configs", StringComparison.OrdinalIgnoreCase);
+        ImGui.OpenPopup("##new_script");
+    }
+
+    private void DrawNewScriptPopup()
+    {
+        if (!ImGui.BeginPopup("##new_script")) return;
+        if (ImGui.RadioButton(LM.Get("GUI_LuaEnv_NewLevelScript"), !_newGameScript)) _newGameScript = false;
+        ImGui.SameLine();
+        if (ImGui.RadioButton(LM.Get("GUI_LuaEnv_NewGameScript"), _newGameScript)) _newGameScript = true;
+        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        ImGui.SetNextItemWidth(240f);
+        bool enter = ImGui.InputTextWithHint("##new_script_name", LM.Get("GUI_LuaEnv_NewScriptHint"), ref _newScript, 64,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!LuaScriptCatalog.IsScriptName(_newScript));
+        if (ImGui.Button(LM.Get("GUI_AssetsBrowser_Create")) || (enter && LuaScriptCatalog.IsScriptName(_newScript)))
+        {
+            if (LuaScriptCatalog.Shared.Create(_newScript, _newGameScript, out _newScriptError) is { } path)
+            {
+                ImGui.CloseCurrentPopup();
+                _reveal = new AssetKey(AssetKind.Script, AssetIndex.ScriptId(path));
+                AssetOpener.Open(new AssetEntry
+                {
+                    Key = _reveal.Value, Name = Path.GetFileName(path), Folder = "",
+                    Tag = new ScriptAsset(path, "", _newGameScript, false),
+                });
+            }
+        }
+        ImGui.EndDisabled();
+        if (_newScriptError is { } error) ImGui.TextWrapped(error);
+        ImGui.EndPopup();
+    }
+
     // --- References ----------------------------------------------------------------------------------
 
     private void ShowReferences(AssetEntry entry)
@@ -735,6 +814,7 @@ public sealed class AssetsBrowserFrame : DockedFrame
         AssetKind.Shader => Icons.Palette,
         AssetKind.Sound => Icons.VolumeHigh,
         AssetKind.TextTable => Icons.Font,
+        AssetKind.Script => Icons.Code,
         _ => Icons.File,
     };
 
@@ -751,6 +831,7 @@ public sealed class AssetsBrowserFrame : DockedFrame
         AssetKind.Shader => new(0.35f, 0.8f, 0.45f, 1f),
         AssetKind.Sound => new(0.65f, 0.45f, 0.95f, 1f),
         AssetKind.TextTable => new(0.75f, 0.75f, 0.75f, 1f),
+        AssetKind.Script => new(0.95f, 0.85f, 0.35f, 1f),
         _ => Vector4.One,
     };
 

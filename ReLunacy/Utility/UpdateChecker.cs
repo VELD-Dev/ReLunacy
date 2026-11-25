@@ -118,13 +118,13 @@ public static class UpdateChecker
         var assets = data["assets"] as JArray;
         if (url == null || assets == null || assets.Count == 0) return;
 
-        // Filenames are "ReLunacy-nightly-{yyyy-MM-dd}.{shortCommit}.{platformRid}.{ext}"; sorting
-        // lexicographically also sorts chronologically thanks to the leading yyyy-MM-dd.
+        // Filenames are "ReLunacy-nightly-{yyyy-MM-dd}.{shortCommit}.{platformRid}.{ext}". Newest is
+        // by upload time: the name only orders by date, then by commit hash within a day.
         string platformRid = (OperatingSystem.IsWindows() ? "win-" : "linux-")
             + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64");
         var latestForPlatform = assets
             .Where(a => ((string?)a["name"])?.Contains(platformRid) == true)
-            .OrderByDescending(a => (string?)a["name"], StringComparer.Ordinal)
+            .OrderByDescending(a => (string?)a["created_at"], StringComparer.Ordinal)
             .FirstOrDefault();
         if (latestForPlatform == null)
         {

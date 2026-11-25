@@ -8,10 +8,10 @@ using ReLunacy.Utility.Localization;
 namespace ReLunacy.Core.Frames.DockedFrames;
 
 /// <summary>
-/// The whole Lua development environment in one window: the source editor and the bytecode
-/// disassembly, as tabs or side by side.
+/// The whole Lua development environment in one window: a tab per open script, each with its source editor and bytecode
+/// disassembly, as tabs or side by side. Scripts are listed and opened from the Assets Browser (Scripts folder).
 ///
-/// They are views inside one frame rather than two dockable windows on purpose. The layout system
+/// They are views inside one frame rather than dockable windows on purpose. The layout system
 /// docks every open frame by name into the MAIN dockspace and persists that in saved layouts
 /// (see DockspaceLayoutManager.TryLoadLayout), so windows docked into a nested dockspace would be
 /// pulled back out the next time a layout was applied. Hosting them here gives the single-window
@@ -24,56 +24,67 @@ public class LuaEnvironmentFrame : DockedFrame, IDisposable
     protected override Vector2 DefaultPosition { get; set; } = ImGui.GetWorkCenter(ImGui.GetMainViewport());
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
-    private readonly LuaEditorView _editor = new();
-    private readonly LuaDisassemblyView _disassembly = new();
-    private readonly LuaThemeEditorView _themeEditor = new();
-    private readonly LuaScriptBrowser _scripts = new();
-    private bool _split;
-    private bool _showScripts = true;
+    /// <summary>One open script: its editor and the disassembly of its compiled chunk.</summary>
+    private sealed class OpenFile
+    {
+        public readonly LuaEditorView Editor = new();
+        public readonly LuaDisassemblyView Disassembly = new();
+        public bool FromArchive => Editor.Archive != null;
+    }
 
-    /// <summary>The script list's width, and the editor's share of a split. Both are dragged by
-    /// their own border rather than fixed, since how much of each is wanted depends entirely on
-    /// what is being read.</summary>
-    private readonly ResizablePane _scriptsPane = new(260f);
+    private readonly List<OpenFile> _files = [];
+    private readonly LuaThemeEditorView _themeEditor = new();
+    private static LuaScriptCatalog Scripts => LuaScriptCatalog.Shared;
+    private OpenFile? _active;
+    private OpenFile? _select;
+    private bool _split;
+    private bool _showEditor;
+    private string _fileToOpen = "";
+    private string? _status;
+
+    /// <summary>The editor's share of a split, dragged by its border.</summary>
     private readonly ResizablePane _editorPane = new(0f, minimum: 200f);
 
     public LuaEnvironmentFrame()
     {
         FrameName = LM.Get("GUI_Frame_LuaEnvironment");
-        _editor.SharedScripts = () => _scripts.SharedScripts(_editor.Path);
-        _editor.SiblingSources = () => _scripts.SharedSources(_editor.Path);
-        _editor.OpenScript = OpenScript;
-        _editor.ScriptNames = kind => _scripts.ScriptNames(_editor.Path, kind);
-        _editor.TextTags = () => ProjectTextTags.List().Select(tag => new LuaCompletionItem(
-            tag.Name, tag.LuaValue, LuaCompletionKind.Variable, $"text ID {tag.Id}", null));
     }
 
     public bool Focused { get; private set; }
-    public bool Dirty => _editor.Dirty;
-    private bool _showEditor;
+    public bool Dirty => _files.Any(f => f.Editor.Dirty);
 
+    /// <summary>Saves every changed script; false when one could not be saved.</summary>
     public bool Save()
     {
-        bool changed = _editor.Dirty;
-        if (!_editor.Save()) return false;
-        if (changed && _editor.Archive != null)
+        bool saved = true;
+        foreach (var file in _files) saved &= Save(file);
+        return saved;
+    }
+
+    private bool Save(OpenFile file)
+    {
+        bool changed = file.Editor.Dirty;
+        if (!file.Editor.Save()) return false;
+        if (changed && file.FromArchive)
         {
-            _scripts.Refresh();
+            Scripts.Refresh();
             try
             {
-                if (_scripts.Contains(_editor.Path)) LoadDisassembly(_editor.Path, _scripts.Read(_editor.Path).Chunk);
+                if (Scripts.Contains(file.Editor.Path)) LoadDisassembly(file, Scripts.Read(file.Editor.Path).Chunk);
             }
-            catch (Exception e) { _editor.ShowStatus(e.Message); }
+            catch (Exception e) { file.Editor.ShowStatus(e.Message); }
         }
         return true;
     }
 
-    public void Revert() => _editor.Revert();
+    public void Revert()
+    {
+        foreach (var file in _files) file.Editor.Revert();
+    }
 
     public void Dispose()
     {
-        if (!Save()) { isOpen = true; return; }
-        _scripts.Dispose();
+        if (!Save()) isOpen = true;
     }
 
     public override void RenderAsWindow(double deltaTime)
@@ -82,115 +93,207 @@ public class LuaEnvironmentFrame : DockedFrame, IDisposable
         base.RenderAsWindow(deltaTime);
     }
 
-    public void LoadSource(string text, string label)
+    private static void LoadDisassembly(OpenFile file, byte[]? chunk) =>
+        file.Disassembly.Load(chunk, LuaScriptPackWriter.CompiledPathFor(file.Editor.Path));
+
+    private OpenFile? Find(string path) => _files.FirstOrDefault(f => f.FromArchive
+        && ReferenceEquals(f.Editor.Project, ProjectSession.Current)
+        && path.Equals(f.Editor.Path, StringComparison.OrdinalIgnoreCase));
+
+    private OpenFile NewFile()
     {
-        if (Save()) _editor.Load(text, label);
+        var file = new OpenFile();
+        var editor = file.Editor;
+        editor.SharedScripts = () => Scripts.SharedScripts(editor.Path);
+        editor.SiblingSources = () => Scripts.SharedSources(editor.Path);
+        editor.OpenScript = Show;
+        editor.ScriptNames = kind => Scripts.ScriptNames(editor.Path, kind);
+        editor.TextTags = () => ProjectTextTags.List().Select(tag => new LuaCompletionItem(
+            tag.Name, tag.LuaValue, LuaCompletionKind.Variable, $"text ID {tag.Id}", null));
+        _files.Add(file);
+        return file;
     }
 
-    public void LoadChunk(byte[] bytes, string label) => _disassembly.Load(bytes, label);
-
-    private void LoadDisassembly(string path, byte[]? chunk) =>
-        _disassembly.Load(chunk, LuaScriptPackWriter.CompiledPathFor(path));
-
-    private bool OpenScript(string path)
+    private void Activate(OpenFile file)
     {
-        if (_editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
-            && path.Equals(_editor.Path, StringComparison.OrdinalIgnoreCase))
-        {
-            _showEditor = true;
-            return true;
-        }
-        if (!Save()) return false;
-        _scripts.Refresh();
-        if (!_scripts.Contains(path)) return false;
+        _select = file;
+        _showEditor = true;
+        Focus();
+    }
+
+    /// <summary>Opens a script of the archives in its own tab, or brings its tab forward when it is open.</summary>
+    public bool Show(string path)
+    {
+        if (Find(path) is { } open) { Activate(open); return true; }
+        Scripts.Refresh();
+        if (!Scripts.Contains(path)) return false;
         try
         {
-            var script = _scripts.Read(path);
-            _editor.Load(script.Source, path, script.Archive, ProjectSession.Current, script.Draft);
-            LoadDisassembly(path, script.Chunk);
-            _showEditor = true;
+            var script = Scripts.Read(path);
+            var file = NewFile();
+            file.Editor.Load(script.Source, path, script.Archive, ProjectSession.Current, script.Draft);
+            LoadDisassembly(file, script.Chunk);
+            Activate(file);
             return true;
         }
-        catch (Exception e) { _editor.ShowStatus(e.Message); return false; }
+        catch (Exception e) { _status = e.Message; return false; }
     }
 
-    internal (string Path, int Version)? LiveScriptVersion =>
-        _editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
-            ? (_editor.Path, _editor.Document.Version) : null;
+    private void OpenLocal(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (_files.FirstOrDefault(f => !f.FromArchive && f.Editor.Path == full) is { } open) { Activate(open); return; }
+        try
+        {
+            string text = LuaText.ReadFile(full);
+            var file = NewFile();
+            file.Editor.Load(text, full);
+            Activate(file);
+        }
+        catch (Exception e) { _status = e.Message; }
+    }
+
+    private void Close(OpenFile file)
+    {
+        if (!Save(file)) { _select = file; return; }
+        int at = _files.IndexOf(file);
+        _files.RemoveAt(at);
+        if (_active == file && _files.Count > 0) _select = _files[Math.Min(at, _files.Count - 1)];
+    }
+
+    /// <summary>A stamp of the open scripts' text, for views that read it through <see cref="WithLiveSource"/>.</summary>
+    internal int LiveScriptVersion
+    {
+        get
+        {
+            var hash = new HashCode();
+            foreach (var file in _files)
+                if (file.FromArchive && ReferenceEquals(file.Editor.Project, ProjectSession.Current))
+                {
+                    hash.Add(file.Editor.Path, StringComparer.OrdinalIgnoreCase);
+                    hash.Add(file.Editor.Document.Version);
+                }
+            return hash.ToHashCode();
+        }
+    }
 
     internal LuaScriptSource WithLiveSource(LuaScriptSource source) =>
-        _editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
-        && source.Path.Equals(_editor.Path, StringComparison.OrdinalIgnoreCase)
-            ? source with { Text = _editor.Document.GetText() } : source;
+        Find(source.Path) is { } file ? source with { Text = file.Editor.Document.GetText() } : source;
 
     public void RevealScript(string path, LuaPosition at)
     {
-        bool alreadyOpen = _editor.Archive != null && ReferenceEquals(_editor.Project, ProjectSession.Current)
-            && path.Equals(_editor.Path, StringComparison.OrdinalIgnoreCase);
-        if (alreadyOpen || OpenScript(path))
-        {
-            _showEditor = true;
-            _editor.Reveal(at);
-        }
-        Focus();
+        if (!Show(path)) { Focus(); return; }
+        Find(path)?.Editor.Reveal(at);
     }
 
     protected override void Render(double deltaTime)
     {
         Focused = ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows);
-        bool refreshed = _scripts.Refresh();
-        if (_editor.Archive != null && !_editor.Dirty)
-        {
-            if (!ReferenceEquals(_editor.Project, ProjectSession.Current) || !_scripts.Contains(_editor.Path))
-            {
-                _editor.Load("", "");
-                _disassembly.Load(null, "");
-            }
-            else if (refreshed)
-            {
-                try
-                {
-                    var script = _scripts.Read(_editor.Path);
-                    if (script.Source != _editor.Document.GetText() || script.Draft != _editor.IsDraft)
-                    {
-                        _editor.Load(script.Source, _editor.Path, script.Archive, ProjectSession.Current, script.Draft);
-                        LoadDisassembly(_editor.Path, script.Chunk);
-                    }
-                }
-                catch (Exception e) { _editor.ShowStatus(e.Message); }
-            }
-        }
+        SyncWithArchives();
+        if (Focused) CycleTabs();
 
-        if (ImGuiPlus.IconButton(Icons.FolderOpen, "toggle_lua_scripts")) _showScripts = !_showScripts;
+        ImGui.Checkbox(LM.Get("GUI_LuaEnv_Split"), ref _split);
+        ImGui.SameLine();
+        if (ImGuiPlus.IconButton(Icons.FolderOpen, "lua_scripts_browser")) AssetsBrowserFrame.RevealFolder("Scripts");
         if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_Scripts"));
         ImGui.SameLine();
-        ImGui.Checkbox(LM.Get("GUI_LuaEnv_Split"), ref _split);
-        ImGui.Separator();
-
-        if (_showScripts)
+        if (ImGuiPlus.IconButton(Icons.File, "lua_open_local")) ImGui.OpenPopup("lua_open_local_popup");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_LuaEnv_OpenLocal"));
+        if (ImGui.BeginPopup("lua_open_local_popup"))
         {
-            if (_scriptsPane.Begin("lua_env_scripts")) _scripts.Render(_editor.Path, Dirty, OpenScript, Save);
-            ResizablePane.End();
+            ImGui.SetNextItemWidth(360f);
+            bool enter = ImGui.InputText(LM.Get("GUI_LuaEnv_Path"), ref _fileToOpen, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
             ImGui.SameLine();
+            if ((ImGui.Button(LM.Get("GUI_LuaEnv_Open")) || enter) && _fileToOpen.Length > 0)
+            {
+                OpenLocal(_fileToOpen);
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndPopup();
+        }
+        if (_status is { } status) ImGui.TextWrapped(status);
+
+        if (_files.Count == 0)
+        {
+            ImGui.Separator();
+            ImGui.TextDisabled(LM.Get("GUI_LuaEnv_NoScripts"));
+            RenderTheme(deltaTime);
+            return;
         }
 
-        // The remaining width holds the editor and disassembly, as tabs or side by side.
-        if (!ImGui.BeginChild("lua_env_main", new Vector2(0f, 0f))) { ImGui.EndChild(); return; }
-        RenderMain(deltaTime);
-        ImGui.EndChild();
+        if (!ImGui.BeginTabBar("lua_env_files", ImGuiTabBarFlags.Reorderable | ImGuiTabBarFlags.FittingPolicyScroll
+                | ImGuiTabBarFlags.ListPopupButton)) return;
+        OpenFile? closed = null;
+        foreach (var file in _files.ToList())
+        {
+            var flags = file.Editor.Dirty ? ImGuiTabItemFlags.UnsavedDocument : ImGuiTabItemFlags.None;
+            if (_select == file) flags |= ImGuiTabItemFlags.SetSelected;
+            bool open = true;
+            string name = file.Editor.Path.Length > 0 ? Path.GetFileName(file.Editor.Path) : LM.Get("GUI_LuaEnv_Untitled");
+            if (file.Editor.IsDraft) name += " " + LM.Get("GUI_LuaEnv_DraftName");
+            bool visible = ImGui.BeginTabItem($"{name}###{file.GetHashCode()}", ref open, flags);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(file.Editor.Path);
+            if (visible)
+            {
+                _active = file;
+                RenderFile(file, deltaTime);
+                ImGui.EndTabItem();
+            }
+            if (!open) closed = file;
+        }
+        _select = null;
+        ImGui.EndTabBar();
+        if (closed != null) Close(closed);
     }
 
-    private void RenderMain(double deltaTime)
+    /// <summary>Follows the archives under each unchanged script: closed when the project or the script went away,
+    /// reloaded when a save elsewhere changed it.</summary>
+    private void SyncWithArchives()
+    {
+        bool refreshed = Scripts.Refresh();
+        foreach (var file in _files.ToList())
+        {
+            if (!file.FromArchive || file.Editor.Dirty) continue;
+            if (!ReferenceEquals(file.Editor.Project, ProjectSession.Current) || !Scripts.Contains(file.Editor.Path))
+            {
+                _files.Remove(file);
+                continue;
+            }
+            if (!refreshed) continue;
+            try
+            {
+                var script = Scripts.Read(file.Editor.Path);
+                if (script.Source != file.Editor.Document.GetText() || script.Draft != file.Editor.IsDraft)
+                {
+                    file.Editor.Load(script.Source, file.Editor.Path, script.Archive, ProjectSession.Current, script.Draft);
+                    LoadDisassembly(file, script.Chunk);
+                }
+            }
+            catch (Exception e) { file.Editor.ShowStatus(e.Message); }
+        }
+    }
+
+    /// <summary>Ctrl+PageDown / Ctrl+PageUp step through the open scripts.</summary>
+    private void CycleTabs()
+    {
+        if (_active == null || _files.Count < 2 || !ImGui.GetIO().KeyCtrl) return;
+        int step = ImGui.IsKeyPressed(ImGuiKey.PageDown) ? 1 : ImGui.IsKeyPressed(ImGuiKey.PageUp) ? -1 : 0;
+        if (step == 0) return;
+        int at = _files.IndexOf(_active);
+        _select = _files[(at + step + _files.Count) % _files.Count];
+    }
+
+    private void RenderFile(OpenFile file, double deltaTime)
     {
         if (_split)
         {
             // Half and half to begin with, then wherever it is dragged to: reading a source
             // against its compiled output rarely wants the two the same width.
-            if (_editorPane.Begin("lua_env_left")) _editor.Render(deltaTime, Save);
+            if (_editorPane.Begin("lua_env_left")) file.Editor.Render(deltaTime, () => Save(file));
             ResizablePane.End();
             ImGui.SameLine();
             if (ImGui.BeginChild("lua_env_right", new Vector2(0f, 0f)))
-                _disassembly.Render(deltaTime);
+                file.Disassembly.Render(deltaTime);
             ImGui.EndChild();
             return;
         }
@@ -200,12 +303,12 @@ public class LuaEnvironmentFrame : DockedFrame, IDisposable
         _showEditor = false;
         if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabEditor"), editorFlags))
         {
-            _editor.Render(deltaTime, Save);
+            file.Editor.Render(deltaTime, () => Save(file));
             ImGui.EndTabItem();
         }
         if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabDisassembly")))
         {
-            _disassembly.Render(deltaTime);
+            file.Disassembly.Render(deltaTime);
             ImGui.EndTabItem();
         }
         if (ImGui.BeginTabItem(LM.Get("GUI_LuaEnv_TabTheme")))
@@ -214,5 +317,11 @@ public class LuaEnvironmentFrame : DockedFrame, IDisposable
             ImGui.EndTabItem();
         }
         ImGui.EndTabBar();
+    }
+
+    private void RenderTheme(double deltaTime)
+    {
+        if (!ImGui.CollapsingHeader(LM.Get("GUI_LuaEnv_TabTheme"))) return;
+        _themeEditor.Draw(deltaTime);
     }
 }
