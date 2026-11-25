@@ -1,27 +1,939 @@
-class 0x384 CuboidSource
+# Fall of Man: settings fields of each placed class, found from the retail levels and game.elf.
+# Same syntax as ACrackInTime.fields (see its header). Offsets are into the class data, which starts with the class number;
+# parents come from the game's own class table. Fields some level sets are listed; unnamed ones are not yet traced.
+
+class 0x1 IGG_GameObjectUpdate
 {
-    icon SoundEmitter;
 }
 
-class 0x39E SoundEnvironment
+class 0x4D MobyBaseUpdate : 0x1
+{
+    [0xC, bool32] = "";
+    [0x10, bool32] = "";
+    [0x1C, bool32] = "";
+    [0x20, float] = "";
+    [0x28, u32] = "";
+}
+
+class 0x4E AnimOnlyUpdate : 0x4D
+{
+}
+
+class 0x50 ObjectBase : 0x4D
+{
+    [0x20C, bool] = "";
+    [0x20D, bool] = "";
+    [0x20E, bool] = "";
+}
+
+class 0x51 Prop_BarrelContainer : 0x50
+{
+}
+
+class 0x53 ControllerBaseUpdate : 0x1
+{
+    [0xC, float] Range = "How far away the controller is active.";
+}
+
+class 0x5D AircraftBase : 0x4D
+{
+    [0x224, u8] = "";
+    [0x22B, bool] = "";
+    [0x22C, u8] = "";
+}
+
+class 0xDB Projectile_Base : 0x4D
+{
+}
+
+class 0xDD Wpn_Base : 0x50
+{
+    [0x3DC, bool] = "";
+}
+
+class 0xE0 SoundController : 0x53
+{
+}
+
+class 0xF1 Vehicle_Base : 0x4D
+{
+    [0xA4, s32] = "";
+    [0xD8, float] = "";
+}
+
+class 0xF2 Vehicle_Buggy : 0xF1
+{
+    [0xDC, float] = "";
+}
+
+class 0xF3 Vehicle_Tank : 0xF1
+{
+    [0x4F8, float] = "";
+}
+
+class 0xF7 Vehicle_Mech : 0xF1
+{
+    [0xB90, float] = "";
+    [0xB94, float] = "";
+    [0xB98, float] = "";
+    [0xBA4, float] = "";
+    [0xC58, float] = "";
+    [0xC60, float] = "";
+    [0xC68, float] = "";
+    [0xC70, float] = "";
+}
+
+class 0x237 AircraftCt : 0x5D
+{
+}
+
+class 0x238 Bomb_Rack : 0x50
+{
+    [0x230, s32] = "";
+}
+
+class 0x24D NpcBase : 0x4E
+{
+}
+
+class 0x259 Bot_Base : 0x24D
+{
+}
+
+class 0x25A Bot_Chimera : 0x259
+{
+    [0x878, float] = "";
+    [0x87C, float] = "";
+}
+
+class 0x26E Bot_FastHybrid : 0x25A
+{
+    [0x4B0, float] = "";
+    [0x770, u32] = "";
+    [0xA38, float] = "";
+    [0xA3C, float] = "";
+    [0xA40, float] = "";
+    [0xA44, bool32] = "";
+    [0xA48, u32] = "";
+}
+
+class 0x26F GenericController : 0x53
+{
+}
+
+class 0x2AC Grenade_Base : 0xDB
+{
+}
+
+class 0x2AD Object_Windable : 0x50
+{
+}
+
+class 0x2AE Hanging_Sign : 0x2AD
+{
+}
+
+class 0x2AF Moby556 : 0x50
+{
+}
+
+class 0x2B0 Door_Base : 0x50
+{
+    [0x214, s32] = "";
+    [0x218, float] = "";
+    [0x26D, bool] = "";
+}
+
+class 0x2B2 Elevator_Base : 0x4D
+{
+    [0x60, float] = "";
+    [0x64, float] = "";
+    [0x68, float] = "";
+}
+
+class 0x2B3 CoverBase : 0x50
+{
+}
+
+class 0x2B5 PowerupPad : 0x4D
+{
+    [0x34, u32] Pickup = "The Moby class it spawns.";
+    [0x38, u32] = "";
+    [0x70, u32] = "";
+}
+
+class 0x2DC BouncingBetty : 0x4D
+{
+    [0x34, float] = "";
+    [0x38, float] = "";
+    [0x40, float] = "";
+    [0x48, bool32] = "";
+    [0x98, float] = "";
+    [0x9C, u32] = "";
+    [0xB0, s32] = "";
+    [0xB4, float] = "";
+    [0xBC, float] = "";
+    [0xC0, float] = "";
+    [0xC8, float] = "";
+    [0xCC, u32] = "";
+    [0xD4, u32] = "";
+}
+
+class 0x2EE ObjectTriggerable : 0x50
+{
+}
+
+class 0x2FA Wpn_Reaper : 0xDD
+{
+}
+
+class 0x2FB Bot_Swarmer : 0x25A
+{
+    [0x4AC, u32] = "";
+    [0x770, u32] = "";
+    [0xA44, float] = "";
+    [0xA4C, bool32] = "";
+    [0xA50, bool32] = "";
+}
+
+class 0x2FC Crate_Bomb : 0x50
+{
+    [0x250, bool] = "";
+}
+
+class 0x2FE PowerupBase : 0x4D
+{
+}
+
+class 0x2FF PowerupAmmo : 0x2FE
+{
+}
+
+class 0x300 Bot_Human : 0x259
+{
+}
+
+class 0x301 Bot_HumanSoldier : 0x300
+{
+    [0x4AC, u32] = "";
+    [0x4B0, float] = "";
+    [0x770, u32] = "";
+    [0xAD4, bool] = "";
+    [0xAD5, bool] = "";
+    [0xAD6, u8] = "";
+    [0xAD7, u8] = "";
+    [0xAD8, bool] = "";
+}
+
+class 0x303 CTF_Flag : 0x4D
+{
+    [0x34, u32] = "";
+    [0x38, s32] = "";
+}
+
+class 0x304 Wpn_ShotGun : 0xDD
+{
+    [0x39C, s32] = "";
+}
+
+class 0x305 Wpn_Splitter : 0xDD
+{
+}
+
+class 0x30C Vehicle_Turret : 0xF1
+{
+    [0x1D8, float] = "";
+    [0x1E8, float] = "";
+    [0x270, float] = "";
+}
+
+class 0x30D Stationary_Turret : 0x30C
+{
+}
+
+class 0x30E Alien_Turret : 0x30D
+{
+    [0x1DC, float] = "";
+    [0x204, float] = "";
+    [0x208, float] = "";
+    [0x20C, float] = "";
+    [0x210, float] = "";
+    [0x214, float] = "";
+    [0x21C, float] = "";
+    [0x220, float] = "";
+    [0x224, float] = "";
+    [0x228, float] = "";
+    [0x28C, u32] = "";
+    [0x290, bool32] = "";
+    [0x2B0, float] = "";
+    [0x2C4, float] = "";
+    [0x2C8, float] = "";
+    [0x2D8, float] = "";
+    [0x2DC, float] = "";
+    [0x318, float] = "";
+    [0x31C, float] = "";
+    [0x324, float] = "";
+}
+
+class 0x312 PlayerSoldier : 0x300
+{
+}
+
+class 0x316 BurrowerWall : 0x4E
+{
+    [0x34, u32] = "";
+}
+
+class 0x317 Menial_Connection : 0x4D
+{
+    [0x134, bool] = "";
+    [0x135, bool] = "";
+    [0x136, bool] = "";
+}
+
+class 0x318 Menial_Generator : 0x317
+{
+}
+
+class 0x32E Node : 0x4D
+{
+    [0x34, u32] = "";
+    [0x38, float] = "";
+    [0x4C, u32] = "";
+    [0x54, u32] = "";
+    [0x58, u32] = "";
+    [0x5C, u32] = "";
+    [0x60, u32] = "";
+    [0x64, u32] = "";
+}
+
+class 0x330 NodeBase : 0x32E
+{
+    [0x34, u32] = "";
+    [0x4C, u32] = "";
+    [0x58, u32] = "";
+    [0x5C, u32] = "";
+    [0x60, u32] = "";
+    [0x64, u32] = "";
+    [0x1E4, s32] = "";
+}
+
+class 0x331 Prop_CollapsingShelf : 0x4C4
+{
+    [0x228, bool32] = "";
+}
+
+class 0x333 Swarmer_Egg : 0x50
+{
+    [0x218, u32] = "";
+    [0x21C, float] = "";
+    [0x228, float] = "";
+    [0x230, float] = "";
+    [0x234, float] = "";
+    [0x240, float] = "";
+}
+
+class 0x335 LightProgrammatic : 0x50
+{
+    [0x210, u32] = "";
+    [0x214, u32] = "";
+    [0x21C, float] = "";
+    [0x220, float] = "";
+    [0x224, float] = "";
+    [0x23C, float] = "";
+    [0x240, float] = "";
+    [0x244, float] = "";
+    [0x25C, float] = "";
+    [0x260, float] = "";
+    [0x27C, float] = "";
+    [0x280, float] = "";
+    [0x284, float] = "";
+    [0x288, float] = "";
+    [0x290, s32] = "";
+    [0x294, float] = "";
+    [0x298, float] = "";
+    [0x2A0, float] = "";
+    [0x2A8, bool] = "";
+    [0x2A9, bool] = "";
+    [0x314, s32] = "";
+}
+
+class 0x336 HangingPupae : 0x4E
+{
+}
+
+class 0x338 Bot_MediumAlien : 0x25A
+{
+    [0x43C, bool32] = "";
+    [0x4A8, bool32] = "";
+    [0x4AC, u32] = "";
+    [0x4B0, float] = "";
+    [0x770, u32] = "";
+    [0x925, bool] = "";
+    [0x926, u8] = "";
+}
+
+class 0x33B Bot_AdvSwarmer : 0x2FB
+{
+    [0x4AC, u32] = "";
+}
+
+class 0x34E Wpn_Rifle : 0xDD
+{
+}
+
+class 0x34F ObjectReactorRod : 0x50
+{
+    [0x214, float] = "";
+    [0x218, float] = "";
+    [0x220, float] = "";
+}
+
+class 0x351 Bot_PackBeast : 0x25A
+{
+    [0x770, u32] = "";
+    [0x950, s32] = "";
+}
+
+class 0x35D Vehicle_Behemoth : 0xF1
+{
+    [0x624, float] = "";
+    [0x62C, float] = "";
+}
+
+class 0x35E LightBreakable : 0x50
+{
+    [0x228, bool32] = "";
+    [0x22C, float] = "";
+    [0x230, float] = "";
+    [0x234, u32] = "";
+}
+
+class 0x35F TankBreakableStreetlamp : 0x35E
+{
+}
+
+class 0x360 Bot_MeleeHybrid : 0x25A
+{
+    [0x770, u32] = "";
+    [0x7D4, float] = "";
+    [0xACC, u8] = "";
+    [0xACD, u8] = "";
+    [0xACE, u8] = "";
+    [0xACF, u8] = "";
+}
+
+class 0x363 CoverDestructable : 0x2B3
+{
+}
+
+class 0x36C Bot_AdvHybrid : 0x338
+{
+    [0x4AC, u32] = "";
+    [0x4B0, float] = "";
+    [0x770, u32] = "";
+    [0x7D0, u32] = "";
+}
+
+class 0x373 AngelNavGrid : 0x53
+{
+    [0x18, u32] = "";
+    [0x1C, s32] = "";
+    [0x20, s32] = "";
+    [0x24, s32] = "";
+}
+
+class 0x375 Menial_CoolingUnit : 0x317
+{
+    [0x138, float] = "";
+}
+
+class 0x381 Wpn_StickyBalls : 0xDD
+{
+}
+
+class 0x384 CuboidSource : 0xE0
+{
+    icon SoundEmitter;
+    [0x10, u32] = "";
+    [0x14, float] = "";
+    [0x18, float] = "";
+}
+
+class 0x387 DudeTubeController : 0x26F
+{
+    [0x10, u32] = "";
+    [0x14, u32] = "";
+    [0x18, u32] = "";
+}
+
+class 0x389 AngelAmmoRack : 0x4D
+{
+}
+
+class 0x38A Hanging_Frame : 0x2EE
+{
+}
+
+class 0x38B Moby1205 : 0x38A
+{
+}
+
+class 0x38F Alien_Mortar : 0x30C
+{
+    [0x20C, float] = "";
+    [0x210, float] = "";
+    [0x214, float] = "";
+    [0x220, float] = "";
+    [0x224, float] = "";
+    [0x228, float] = "";
+    [0x298, float] = "";
+    [0x2AC, float] = "";
+    [0x2B0, u32] = "";
+    [0x2B4, float] = "";
+    [0x2B8, float] = "";
+    [0x2C0, float] = "";
+    [0x2C4, u32] = "";
+    [0x2C8, float] = "";
+    [0x2CC, float] = "";
+    [0x2D4, float] = "";
+    [0x2D8, u32] = "";
+}
+
+class 0x39E SoundEnvironment : 0xE0
 {
     icon SoundEnvironment;
     [0x10, sound] Audio = "";
+    [0x14, float] Fade in = "Seconds.";
+    [0x18, float] Fade out = "Seconds.";
+    [0x1C, s32, runtime] Playing sound = "";
+    [0x20, u32, runtime] Volumes = "The volumes it plays in; inside any of them makes it active.";
+    [0x24, u32, runtime] Linked environments = "Other sound environments it fades out while it is active.";
+    [0x44, bool32] Reverb = "Builds a reverb zone from its volumes.";
+    [0x48, u8] Reverb preset = "";
+    [0x4C, float] Reverb mix = "Percent.";
+    [0x50, float] Reverb depth = "Percent.";
+    [0x54, float] = "";
+    [0x58, float] = "";
 }
 
-class 0x3A6 SoundCrowd
+class 0x3A1 Grenade_Human : 0x2AC
+{
+}
+
+class 0x3A4 Button_Base : 0x4D
+{
+}
+
+class 0x3A6 SoundCrowd : 0x53
 {
     icon SoundEnvironment;
+    [0x40, u32] = "";
 }
 
-class 0x43E EffectController
+class 0x3A9 Moby1200 : 0x38A
+{
+}
+
+class 0x3AB Door_Standard : 0x2B0
+{
+    [0x214, s32] = "";
+    [0x218, float] = "";
+}
+
+class 0x3BE Wpn_AlienMediumRifle : 0x34E
+{
+    [0x39C, u32] = "";
+}
+
+class 0x3C5 Burrower : 0x4D
+{
+    [0x44, u32] = "";
+}
+
+class 0x3C6 Moby557 : 0x50
+{
+}
+
+class 0x3C7 CheapChunk : 0x4D
+{
+}
+
+class 0x3CB VehicleDestructable : 0x50
+{
+    [0x31C, bool32] = "";
+}
+
+class 0x3CD GlassController : 0x53
+{
+    [0xE0, u32] = "";
+    [0xE4, u32] = "";
+}
+
+class 0x3CE Prop_BarrelCart : 0x4C4
+{
+    [0x218, s32] = "";
+}
+
+class 0x3D4 AircraftVtol : 0x5D
+{
+    [0x640, bool] = "";
+    [0x642, bool] = "";
+    [0x644, bool] = "";
+}
+
+class 0x3D6 Moby1206 : 0x38A
+{
+}
+
+class 0x3DA Bot_Angel : 0x25A
+{
+    [0x770, u32] = "";
+    [0x880, u32] = "";
+    [0x884, float] = "";
+}
+
+class 0x3DB Button_Standard : 0x3A4
+{
+    [0x38, u32] = "";
+    [0x40, bool32] = "";
+    [0x44, s32] = "";
+    [0x48, bool32] = "";
+    [0x50, bool32] = "";
+}
+
+class 0x3DF Bot_LargeTrooper : 0x25A
+{
+    [0x464, s32] = "";
+    [0x4B0, float] = "";
+    [0x770, u32] = "";
+    [0xA14, u32] = "";
+    [0xA1C, bool32] = "";
+}
+
+class 0x3E2 Moby220 : 0x4D
+{
+}
+
+class 0x3E6 Wpn_AdvHybridRifle : 0x304
+{
+}
+
+class 0x3EB ExplodeController : 0x26F
+{
+    [0x28, u32] = "";
+    [0x30, u32] = "";
+    [0x34, s32] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x4C, bool] = "";
+    [0x4D, bool] = "";
+    [0x58, float] = "";
+}
+
+class 0x3EE Wpn_RocketLauncher : 0xDD
+{
+    [0x3A0, s32] = "";
+}
+
+class 0x3F2 Wpn_Flamethrower : 0xDD
+{
+    [0x3A0, s32] = "";
+}
+
+class 0x3F3 Elevator_SnowBlower : 0x4D
+{
+    [0x34, float] = "";
+    [0x38, float] = "";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+    [0x44, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+    [0x54, float] = "";
+    [0x5C, float] = "";
+    [0x60, float] = "";
+    [0x64, float] = "";
+}
+
+class 0x3F6 Wpn_ArcCharger : 0xDD
+{
+    [0x3A0, s32] = "";
+}
+
+class 0x3F9 NexusReactorDoor : 0x4D
+{
+    [0x80, float] = "";
+    [0x84, float] = "";
+    [0x88, float] = "";
+}
+
+class 0x3FB Bot_Menial : 0x25A
+{
+    [0x4AC, u32] = "";
+    [0x4B0, float] = "";
+    [0x770, u32] = "";
+    [0x9A0, s32] = "";
+    [0x9A4, u32] = "";
+    [0x9A8, s32] = "";
+    [0x9B0, bool32] = "";
+}
+
+class 0x413 Moby1557 : 0x50
+{
+    [0x238, float] = "";
+}
+
+class 0x417 PowerupHealth : 0x2FE
+{
+}
+
+class 0x41C Wpn_SniperRifle : 0xDD
+{
+}
+
+class 0x42E Elevator_Simple : 0x4D
+{
+    [0x90, float] = "";
+    [0x94, float] = "";
+    [0x98, float] = "";
+    [0x9C, bool32] = "";
+    [0xB8, s32] = "Volume index, -1 for none.";
+    [0xBC, s32] = "Volume index, -1 for none.";
+    [0xC0, s32] = "";
+    [0xC4, s32] = "";
+    [0xC8, s32] = "";
+    [0xCC, s32] = "";
+    [0xD0, u32] = "";
+}
+
+class 0x43E FxController : 0x53
 {
     icon EffectController;
-    [0x10, effect] = "";
+    [0x10, effect] Effect = "";
+    [0x18, bool32] Start active = "";
+    [0x1C, float] Retrigger delay, minimum = "";
+    [0x20, float] Retrigger delay, maximum = "Above 0, the effect plays again after a random delay.";
+    [0x24, float] Retrigger chance = "From 0 to 1.";
+    [0x28, float] = "";
+    [0x2C, float] = "";
+    [0x30, float] = "";
+    [0x34, float] = "";
+    [0x38, bool32] = "";
+    [0x48, u32] = "";
+    [0x4C, s32] Volume = "-1 for none.";
+    [0x50, float] Player radius = "";
+    [0x54, float] = "";
+    [0x58, bool32] = "";
+    [0x5C, bool32] = "";
+    [0x64, float] = "";
+    [0x68, float] = "";
+    [0x70, bool32] = "";
+    [0x7C, u32] = "";
+    [0x80, float] = "";
+    [0x90, float] = "";
+    [0x94, float] = "";
+    [0x98, float] = "";
+    [0x9C, float] = "";
+    [0xE4, u32, runtime] Playing effect = "";
+    [0xEC, float, runtime] Next retrigger = "";
 }
 
-class 0x46F SoundEmitter
+class 0x449 Grenade_Trap : 0x2AC
+{
+}
+
+class 0x459 Bot_Spider : 0x25A
+{
+    [0x770, u32] = "";
+}
+
+class 0x45B Prop_FallingCrate : 0x50
+{
+}
+
+class 0x469 Wpn_DualPistols : 0xDD
+{
+}
+
+class 0x46B SphereCore_Vendor : 0x317
+{
+    [0x1BC, bool32] = "";
+}
+
+class 0x46D Moby1199 : 0x38A
+{
+}
+
+class 0x46E Moby1202 : 0x38A
+{
+}
+
+class 0x46F SoundEmitter : 0xE0
 {
     icon SoundEmitter;
     [0x10, sound] Audio = "";
+    [0x14, u32, runtime] Environments = "Plays while one of these sound environments is active; always when empty.";
+}
+
+class 0x472 Button_Human : 0x3DB
+{
+    [0x40, bool32] = "";
+    [0x44, s32] = "";
+    [0x48, bool32] = "";
+}
+
+class 0x475 Prop_SpinningFan : 0x50
+{
+    [0x214, float] = "";
+}
+
+class 0x478 Bot_Carrier : 0x25A
+{
+    [0x880, float] = "";
+    [0x884, float] = "";
+    [0x888, float] = "";
+    [0x88C, float] = "";
+    [0x890, float] = "";
+}
+
+class 0x47A IntelObject : 0x4D
+{
+    [0x34, u32] = "";
+}
+
+class 0x47F ObjectFilteredDamage : 0x50
+{
+    [0x214, bool32] = "";
+    [0x218, bool32] = "";
+}
+
+class 0x481 Moby1201 : 0x38A
+{
+}
+
+class 0x482 Cryotube : 0x4D
+{
+    [0xA4, u32] = "";
+    [0xA8, s32] = "";
+    [0xAC, float] = "";
+    [0xB0, bool32] = "";
+}
+
+class 0x484 Lvl51_SubwayDoor : 0x4D
+{
+}
+
+class 0x493 SimpleBird : 0x24D
+{
+    [0x34, s32] = "";
+    [0x38, float] = "";
+    [0x3C, float] = "";
+    [0x40, float] = "";
+    [0x44, s32] = "";
+    [0x48, float] = "";
+    [0x4C, float] = "";
+    [0x50, float] = "";
+    [0x54, s32] = "";
+    [0x64, s32] = "";
+    [0x74, s32] = "";
+    [0x84, s32] = "";
+    [0x94, s32] = "";
+    [0xA4, s32] = "";
+    [0x124, bool32] = "";
+    [0x128, bool32] = "";
+    [0x138, u8] = "";
+    [0x139, u8] = "";
+    [0x13A, u8] = "";
+    [0x13B, u8] = "";
+    [0x13C, float] = "";
+    [0x140, float] = "";
+    [0x150, float] = "";
+}
+
+class 0x4A9 Door_Animated : 0x4D
+{
+}
+
+class 0x4AE DeleteOnDamage : 0x4D
+{
+}
+
+class 0x4AF ActivateAnim : 0x4E
+{
+}
+
+class 0x4BA Lvl80_Gate : 0x4D
+{
+}
+
+class 0x4C2 Prop_Drill : 0x4D
+{
+}
+
+class 0x4C3 ActivateAnimController : 0x53
+{
+}
+
+class 0x4C4 Prop_Base : 0x50
+{
+}
+
+class 0x4D4 Elevator_Z_SimpleBlower : 0x4D
+{
+    [0x34, float] = "";
+    [0x3C, float] = "";
+    [0x40, u32] = "";
+}
+
+class 0x4D9 Prop_FallingBridge : 0x3C7
+{
+}
+
+class 0x4ED WeatherController : 0x53
+{
+    [0x10, u32] = "";
+    [0x14, s32] = "";
+    [0x18, u32] = "";
+    [0x1C, u32] = "";
+    [0x20, u32] = "";
+    [0x24, u32] = "";
+    [0x28, u32] = "";
+    [0x2C, u32] = "";
+    [0x30, u32] = "";
+    [0x60, bool32] = "";
+    [0x7C, float] = "";
+    [0x80, float] = "";
+    [0x84, float] = "";
+    [0x88, float] = "";
+    [0x8C, float] = "";
+    [0x90, float] = "";
+    [0x94, float] = "";
+    [0x98, float] = "";
+    [0x9C, float] = "";
+    [0xA0, float] = "";
+    [0xA4, float] = "";
+    [0xA8, float] = "";
+    [0xAC, bool32] = "";
+    [0xB0, float] = "";
+    [0xB4, float] = "";
+    [0xB8, float] = "";
+    [0xBC, float] = "";
+    [0xC0, float] = "";
+    [0xC4, float] = "";
+    [0xC8, float] = "";
+    [0xCC, float] = "";
+}
+
+class 0x4F8 RandomCameraShaker : 0x53
+{
+}
+
+class 0x4F9 ChimeranJunkDispenser : 0x53
+{
+    [0x10, bool32] = "";
+}
+
+class 0x515 AntiAircraftFire : 0x53
+{
 }
