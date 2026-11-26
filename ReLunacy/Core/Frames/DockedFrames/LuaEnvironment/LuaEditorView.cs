@@ -66,6 +66,9 @@ public sealed class LuaEditorView
     public Func<LuaScriptNameKind, IEnumerable<string>>? ScriptNames { get; set; }
 
     public Func<IEnumerable<LuaCompletionItem>>? TextTags { get; set; }
+
+    /// <summary>Keys of a global table the game fills at run time (DialogueSpecs.), by its name.</summary>
+    public Func<string, IEnumerable<LuaCompletionItem>?>? TableKeys { get; set; }
     public string? Archive { get; private set; }
     public LunaProject? Project { get; private set; }
     public bool IsDraft { get; private set; }
@@ -511,9 +514,9 @@ public sealed class LuaEditorView
         bool requested = _editor.HasFocus && ImGui.GetIO().KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.Space);
         if (_editor.TextChanged)
         {
-            _completion.Refresh(_editor, Api(), false, Scripts(), ScriptNames, TextTags);
+            _completion.Refresh(_editor, Api(), false, Scripts(), ScriptNames, TextTags, TableKeys);
         }
-        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts(), ScriptNames, TextTags);
+        else if (requested) _completion.Refresh(_editor, Api(), true, Scripts(), ScriptNames, TextTags, TableKeys);
         _completion.Draw(_editor, Theme(), Api());
         HoverTooltip();
         if (_references.HasResults)
@@ -551,7 +554,7 @@ public sealed class LuaEditorView
         {
             _hover = LuaHoverEngine.At(_editor.Document.GetText(),
                                        new LuaPosition(hover.Position.Line, hover.Position.Column),
-                                       Api(), Scripts());
+                                       Api(), Scripts(), TableKeys);
             _hoveredFor = key;
         }
         if (_hover is not { } documented) return;

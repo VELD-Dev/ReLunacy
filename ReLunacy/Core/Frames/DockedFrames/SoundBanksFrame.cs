@@ -26,6 +26,7 @@ public sealed class SoundBanksFrame : DockedFrame
     protected override ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
 
     private enum GroupMode { Bank, Group, Prefix }
+    private enum BankKind { Sounds, Dialogue, GlobalDialogue }
 
     // A looping sound's take is drawn this many seconds at a time; that much is rendered before it plays.
     private const double WindowSeconds = 10.0;
@@ -37,6 +38,9 @@ public sealed class SoundBanksFrame : DockedFrame
     private Task<IReadOnlyList<SoundReader.LevelBankArchive>>? _bankDiscovery;
     private SoundReader.LevelBankArchive? _alternateBank;
     private Task<LevelSounds?>? _alternateSounds;
+    private Task<LevelDialogue?>? _alternateDialogue;
+    private bool _hasDialogue;
+    private BankKind _kind = BankKind.Sounds;
     private GroupMode _mode = GroupMode.Bank;
     private string _filter = "";
     private BankSound? _selected;
@@ -101,6 +105,7 @@ public sealed class SoundBanksFrame : DockedFrame
     {
         if (CurrentSounds() is not { } sounds || sounds.Find(id) is not { } sound) return;
         SelectBank(null);
+        _kind = BankKind.Sounds;
         _sounds = sounds;
         _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == sound.NameIndex);
         _filter = "";
@@ -112,6 +117,7 @@ public sealed class SoundBanksFrame : DockedFrame
     {
         if (CurrentSounds() is not { } sounds) return;
         SelectBank(null);
+        _kind = BankKind.Sounds;
         _sounds = sounds;
         _selected = sounds.BankSounds.FirstOrDefault(b => b.NameIndex == nameIndex);
         _filter = "";
@@ -133,16 +139,33 @@ public sealed class SoundBanksFrame : DockedFrame
                 or GameId.QuestForBooty or GameId.ACrackInTime
                 ? SoundReader.BankFolderFor(files) : null;
             _bankDiscovery = _gameFolder is { } gameFolder ? Task.Run(() => SoundReader.ListLevelBanks(gameFolder)) : null;
+            _hasDialogue = _gameFolder != null && window.Level?.GameDefinition?.Id == GameId.ACrackInTime;
+            if (!_hasDialogue) _kind = BankKind.Sounds;
         }
 
         DrawBankSelector();
-        var sounds = _alternateSounds is { } alternate
-            ? (alternate.IsCompletedSuccessfully ? alternate.Result : null)
-            : files != null ? SoundReader.For(files) : null;
+        DrawKindSelector();
+        LevelSounds? sounds;
+        bool pending;
+        if (_kind == BankKind.Sounds)
+        {
+            sounds = _alternateSounds is { } alternate
+                ? (alternate.IsCompletedSuccessfully ? alternate.Result : null)
+                : files != null ? SoundReader.For(files) : null;
+            pending = _alternateSounds is { } load ? !load.IsCompleted : files != null && SoundReader.Pending(files);
+        }
+        else
+        {
+            var dialogue = _alternateDialogue is { } alternate
+                ? (alternate.IsCompletedSuccessfully ? alternate.Result : null)
+                : files != null ? SoundReader.DialogueFor(files) : null;
+            sounds = _kind == BankKind.Dialogue ? dialogue?.Level : dialogue?.Global;
+            pending = _alternateDialogue is { } load ? !load.IsCompleted : files != null && SoundReader.DialoguePending(files);
+        }
+        string none = _kind == BankKind.Sounds ? "GUI_SoundBanks_None" : "GUI_SoundBanks_NoDialogue";
         if (sounds == null)
         {
-            bool pending = _alternateSounds is { } load ? !load.IsCompleted : files != null && SoundReader.Pending(files);
-            ImGui.TextDisabled(LM.Get(pending ? "GUI_SoundBanks_Loading" : "GUI_SoundBanks_None"));
+            ImGui.TextDisabled(LM.Get(pending ? "GUI_SoundBanks_Loading" : none));
             return;
         }
         if (!ReferenceEquals(sounds, _sounds))
@@ -153,7 +176,7 @@ public sealed class SoundBanksFrame : DockedFrame
         }
         if (sounds.BankSounds.Count == 0)
         {
-            ImGui.TextDisabled(LM.Get("GUI_SoundBanks_None"));
+            ImGui.TextDisabled(LM.Get(none));
             return;
         }
 
@@ -191,12 +214,30 @@ public sealed class SoundBanksFrame : DockedFrame
         ImGui.EndCombo();
     }
 
+    private void DrawKindSelector()
+    {
+        if (!_hasDialogue) return;
+        string[] kinds = [LM.Get("GUI_SoundBanks_KindSounds"), LM.Get("GUI_SoundBanks_KindDialogue"), LM.Get("GUI_SoundBanks_KindGlobalDialogue")];
+        int kind = (int)_kind;
+        if (ImGui.Combo(LM.Get("GUI_SoundBanks_Kind") + "##bank_kind", ref kind, kinds, kinds.Length) && kind != (int)_kind)
+        {
+            _kind = (BankKind)kind;
+            ClearTake();
+            _selected = null;
+            _detailsOf = null;
+        }
+        ImGui.SameLine();
+        ImGuiPlus.HelpMarker(LM.Get("GUI_SoundBanks_KindHelp"));
+    }
+
     private void SelectBank(SoundReader.LevelBankArchive? bank)
     {
         if (_alternateBank == bank) return;
         _alternateBank = bank;
         _alternateSounds = bank != null && _gameFolder is { } gameFolder
             ? Task.Run(() => SoundReader.ReadLevelBank(bank, gameFolder)) : null;
+        _alternateDialogue = bank != null && _hasDialogue && _gameFolder is { } folder
+            ? Task.Run(() => SoundReader.ReadLevelDialogue(bank, folder)) : null;
 
         ClearTake();
         _selected = null;
@@ -255,7 +296,11 @@ public sealed class SoundBanksFrame : DockedFrame
                     if (!reached) ImGui.PopStyleColor();
                     if (selected && _reveal) { ImGui.SetScrollHereY(0.5f); _reveal = false; }
                     if (ImGui.IsItemHovered())
-                        ImGui.SetTooltip(reached ? string.Join("\n", ids.Select(i => $"{i.Id}  {i.SpecName}")) : LM.Get("GUI_SoundBanks_NoIds"));
+                    {
+                        string tip = reached ? string.Join("\n", ids.Select(i => $"{i.Id}  {i.SpecName}")) : LM.Get("GUI_SoundBanks_NoIds");
+                        if (sounds.Subtitles.TryGetValue(sound.NameIndex, out var subtitle)) tip = subtitle + "\n\n" + tip;
+                        ImGui.SetTooltip(tip);
+                    }
                 }
                 ImGui.TreePop();
             }
@@ -279,7 +324,8 @@ public sealed class SoundBanksFrame : DockedFrame
         {
             if (_filter.Length == 0 || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)
                 || BankLabel(s.Bank).Contains(_filter, StringComparison.OrdinalIgnoreCase)
-                || GroupName(sounds, s.Group).Contains(_filter, StringComparison.OrdinalIgnoreCase))
+                || GroupName(sounds, s.Group).Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || sounds.Subtitles.TryGetValue(s.NameIndex, out var subtitle) && subtitle.Contains(_filter, StringComparison.OrdinalIgnoreCase))
                 return true;
             foreach (var id in sounds.IdsOf(s))
                 if (id.SpecName.Contains(_filter, StringComparison.OrdinalIgnoreCase) || id.Id.ToString().StartsWith(_filter, StringComparison.Ordinal))
@@ -327,7 +373,8 @@ public sealed class SoundBanksFrame : DockedFrame
         // Recounted each second, so edits show.
         if (ImGui.GetTime() - _usedByTime > 1.0)
         {
-            _usedBy = _alternateBank == null ? UsersOf(ids.Select(i => i.Id).ToHashSet()) : [];
+            // Sound fields hold SoundSpecs ids; a dialogue bank's are DialogueSpecs ids.
+            _usedBy = _alternateBank == null && !sounds.IsDialogue ? UsersOf(ids.Select(i => i.Id).ToHashSet()) : [];
             _usedByTime = ImGui.GetTime();
         }
 
@@ -347,10 +394,18 @@ public sealed class SoundBanksFrame : DockedFrame
                 ImGui.TableNextColumn();
             }
 
+            if (sounds.Subtitles.TryGetValue(sound.NameIndex, out var subtitle))
+            {
+                Row("GUI_SoundBanks_Subtitle");
+                ImGui.TextWrapped(subtitle);
+            }
             Row("GUI_SoundBanks_Bank");
             ImGui.TextUnformatted(LM.Get(sound.Bank == SoundBank.Resident ? "GUI_SoundBanks_BankResident" : "GUI_SoundBanks_BankStreamed", sound.BankIndex));
-            Row("GUI_SoundBanks_Group");
-            ImGui.TextUnformatted(GroupName(sounds, sound.Group));
+            if (!sounds.IsDialogue)
+            {
+                Row("GUI_SoundBanks_Group");
+                ImGui.TextUnformatted(GroupName(sounds, sound.Group));
+            }
 
             Row("GUI_SoundBanks_Ids");
             if (ids.Count == 0) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_NoIds"));
@@ -409,8 +464,8 @@ public sealed class SoundBanksFrame : DockedFrame
                 }
             }
 
-            Row("GUI_SoundBanks_UsedBy");
-            if (_usedBy.Count == 0) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_UsedByNone"));
+            if (!sounds.IsDialogue) Row("GUI_SoundBanks_UsedBy");
+            if (_usedBy.Count == 0 && !sounds.IsDialogue) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_UsedByNone"));
             bool several = _usedBy.Select(u => u.Region).Distinct().Count() > 1;
             for (int i = 0; i < _usedBy.Count; i++)
             {

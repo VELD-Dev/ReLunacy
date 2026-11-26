@@ -25,7 +25,8 @@ public sealed record LuaHover(string Label, string Kind, string? Detail, string?
 public static class LuaHoverEngine
 {
     public static LuaHover? At(string source, LuaPosition position, LuaApiDatabase api,
-                               LuaScriptIndex? scripts = null)
+                               LuaScriptIndex? scripts = null,
+                               Func<string, IEnumerable<LuaCompletionItem>?>? tableKeys = null)
     {
         if (NameAt(source, position) is not { } name) return null;
 
@@ -41,7 +42,7 @@ public static class LuaHoverEngine
 
         // The caret goes at the name's END so the prefix is the whole word, which is what makes an
         // exact label match meaningful rather than a word that merely starts the same.
-        var items = LuaCompletionEngine.Complete(source, name.End, api, out _, scripts);
+        var items = LuaCompletionEngine.Complete(source, name.End, api, out _, scripts, tableKeys: tableKeys);
         var match = items.FirstOrDefault(i => i.Label == name.Text);
         return match is null ? null : new LuaHover(match.Label, KindOf(match.Kind),
                                                    match.Detail, match.Description);

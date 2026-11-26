@@ -30,7 +30,8 @@ public sealed record LuaCompletionContext(
     LuaCompletionTrigger Trigger, string Prefix, LuaPosition ReplaceFrom, LuaPosition ReplaceTo,
     string? ReceiverType, LuaTableShape? ReceiverShape = null,
     LuaScriptNameKind ScriptNames = LuaScriptNameKind.None, string? Function = null,
-    LuaAnnotationSuggestion Annotation = LuaAnnotationSuggestion.None, string? Tag = null);
+    LuaAnnotationSuggestion Annotation = LuaAnnotationSuggestion.None, string? Tag = null,
+    string? Table = null);
 
 /// <summary>
 /// Turns a caret position into a list of suggestions, from the locals in scope and the documented
@@ -55,11 +56,16 @@ public static class LuaCompletionEngine
     /// host knows what the archive holds - the engine would have to open it to find out, and it has
     /// no business doing that from a completion call.
     /// </param>
+    /// <param name="tableKeys">
+    /// Keys of a global table the game fills at run time (DialogueSpecs, SoundSpecs), by its name;
+    /// null for any other. A hook because the keys live in the game's archives.
+    /// </param>
     public static List<LuaCompletionItem> Complete(
         string source, LuaPosition caret, LuaApiDatabase api, out LuaCompletionContext context,
         LuaScriptIndex? scripts = null,
         Func<LuaScriptNameKind, IEnumerable<string>>? scriptNames = null,
-        Func<IEnumerable<LuaCompletionItem>>? textTags = null)
+        Func<IEnumerable<LuaCompletionItem>>? textTags = null,
+        Func<string, IEnumerable<LuaCompletionItem>?>? tableKeys = null)
     {
         var tokens = LuaLexer.Tokenize(source);
         var block = LuaParser.Parse(source, out _);
@@ -68,7 +74,7 @@ public static class LuaCompletionEngine
         var casts = LuaCasts.Find(source, scopes);
         var inference = new LuaTypeInference(api, scopes, scripts, shapes, casts);
 
-        var analyzed = Analyze(source, tokens, caret, block, inference, shapes);
+        var analyzed = Analyze(source, tokens, caret, block, inference, shapes, scopes);
         context = analyzed;
         var items = new List<LuaCompletionItem>();
 
@@ -108,6 +114,8 @@ public static class LuaCompletionEngine
                                                         method.Signature, method.Description));
                 }
                 AddShapeMembers(items, analyzed.ReceiverShape, inference, methodsOnly: false);
+                if (analyzed.Table is { } table && tableKeys?.Invoke(table) is { } keys)
+                    items.AddRange(keys);
                 break;
 
             case LuaCompletionTrigger.Identifier:
@@ -376,7 +384,7 @@ public static class LuaCompletionEngine
     /// </summary>
     private static LuaCompletionContext Analyze(
         string source, List<LuaToken> tokens, LuaPosition caret, LuaBlock block,
-        LuaTypeInference inference, LuaTableShapes shapes)
+        LuaTypeInference inference, LuaTableShapes shapes, LuaScopeAnalysis scopes)
     {
         // Tokens strictly before the caret, comments excluded.
         var before = tokens
@@ -410,7 +418,9 @@ public static class LuaCompletionEngine
             var receiverShape = chain.Count > 0
                 ? shapes.For(chain[0].Text, chain[0].Start, [.. chain.Skip(1).Select(t => t.Text)])
                 : null;
-            return new LuaCompletionContext(trigger, prefix, replaceFrom, caret, receiverType, receiverShape);
+            return new LuaCompletionContext(trigger, prefix, replaceFrom, caret, receiverType, receiverShape,
+                // Only the global itself: a local of the same name is some other table.
+                Table: chain.Count == 1 && scopes.FindAt(chain[0].Start) is null or { IsGlobal: true } ? chain[0].Text : null);
         }
 
         return new LuaCompletionContext(LuaCompletionTrigger.Identifier, prefix, replaceFrom, caret, null);

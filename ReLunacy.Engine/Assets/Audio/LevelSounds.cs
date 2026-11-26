@@ -89,6 +89,12 @@ public sealed class LevelSounds
     /// <summary>The SoundGroups enum of /scripts/soundgroups.lua: id -> name.</summary>
     public IReadOnlyDictionary<int, string> GroupNames { get; }
 
+    /// <summary>A dialogue bank's subtitles, by name table entry; empty for a sound bank.</summary>
+    public IReadOnlyDictionary<int, string> Subtitles { get; init; } = new Dictionary<int, string>();
+
+    /// <summary>True for a dialogue bank: its ids are DialogueSpecs ids.</summary>
+    public bool IsDialogue { get; init; }
+
     public string GroupLabel(int group, string noGroup = "No group")
     {
         if (group < 0) return noGroup;
