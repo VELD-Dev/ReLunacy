@@ -1,4 +1,5 @@
 using System.Numerics;
+using ReLunacy.Core.Frames.DockedFrames.LuaEnvironment;
 using NativeFileDialogSharp;
 using NAudio.SoundFile;
 using ReLunacy.Engine.Assets.Audio;
@@ -8,6 +9,7 @@ using ReLunacy.Engine.Games;
 using ReLunacy.Engine.Loading.IO;
 using ReLunacy.Engine.Loading.Readers;
 using ReLunacy.Engine.Scene;
+using ReLunacy.Engine.Scripting;
 using ReLunacy.Utility;
 using ReLunacy.Utility.Localization;
 
@@ -61,6 +63,8 @@ public sealed class SoundBanksFrame : DockedFrame
     private (int SampleRate, int Channels, double Seconds)? _format;
     private ScreamBank.SoundSummary? _summary;
     private List<(EntityRegion Region, string Kind, string Name, int Index, string Field, int Id)> _usedBy = [];
+    private List<LuaSpecReference> _scriptUsers = [];
+    private (IReadOnlyList<LuaScriptSource> Sources, int? Live, ILookup<string, LuaSpecReference> Keys)? _dialogueScripts;
     private double _usedByTime = -10.0;
 
     private SoundTake? _take;
@@ -252,6 +256,22 @@ public sealed class SoundBanksFrame : DockedFrame
         ImGuiPlus.HelpMarker(LM.Get("GUI_SoundBanks_KindHelp"));
     }
 
+    /// <summary>The level's and game's scripts naming the line's DialogueSpecs keys: those of its ids, and the key
+    /// spelt like the line's name (gc3_fcomp_gcvo_flav_mes01_pa.us: GC3_FCOMP_GCVO_FLAV_MES01_PA).</summary>
+    private List<LuaSpecReference> ScriptUsersOf(BankSound sound, List<LevelSound> ids)
+    {
+        var lua = LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>();
+        var sources = LuaScriptCatalog.Shared.SharedSources("");
+        if (_dialogueScripts is not { } index || !ReferenceEquals(index.Sources, sources) || index.Live != lua?.LiveScriptVersion)
+            _dialogueScripts = index = (sources, lua?.LiveScriptVersion, sources
+                .Select(source => lua?.WithLiveSource(source) ?? source)
+                .SelectMany(source => LuaSpecReferences.Find(source, "DialogueSpecs"))
+                .ToLookup(reference => reference.Key, StringComparer.OrdinalIgnoreCase));
+        var keys = ids.Select(i => i.SpecName).Where(k => k.Length > 0).Append(sound.Name.Split('.')[0])
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        return keys.SelectMany(key => index.Keys[key]).Distinct().ToList();
+    }
+
     private void DrawLanguageSelector()
     {
         if (_kind == BankKind.Sounds || _languages.Count == 0) return;
@@ -416,6 +436,7 @@ public sealed class SoundBanksFrame : DockedFrame
         {
             // Sound fields hold SoundSpecs ids; a dialogue bank's are DialogueSpecs ids.
             _usedBy = _alternateBank == null && !sounds.IsDialogue ? UsersOf(ids.Select(i => i.Id).ToHashSet()) : [];
+            _scriptUsers = _alternateBank == null && sounds.IsDialogue ? ScriptUsersOf(sound, ids) : [];
             _usedByTime = ImGui.GetTime();
         }
 
@@ -505,8 +526,27 @@ public sealed class SoundBanksFrame : DockedFrame
                 }
             }
 
-            if (!sounds.IsDialogue) Row("GUI_SoundBanks_UsedBy");
-            if (_usedBy.Count == 0 && !sounds.IsDialogue) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_UsedByNone"));
+            if (!sounds.IsDialogue || _alternateBank == null) Row("GUI_SoundBanks_UsedBy");
+            if (_usedBy.Count == 0 && _scriptUsers.Count == 0 && _alternateBank == null) ImGui.TextDisabled(LM.Get("GUI_SoundBanks_UsedByNone"));
+            for (int i = 0; i < _scriptUsers.Count; i++)
+            {
+                var user = _scriptUsers[i];
+                ImGui.PushID("script" + i);
+                if (ImGui.Selectable($"{Path.GetFileName(user.Path)}:{user.Position.Line + 1}##source", false, ImGuiSelectableFlags.None,
+                        ImGui.CalcTextSize($"{Path.GetFileName(user.Path)}:{user.Position.Line + 1}")))
+                {
+                    var lua = LunaWindow.Instance.GetFirstFrame<LuaEnvironmentFrame>();
+                    if (lua == null) LunaWindow.Instance.AddFrame(lua = new LuaEnvironmentFrame());
+                    lua.RevealScript(user.Path, user.Position);
+                }
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(user.Path);
+                if (user.Context != null)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled(user.Context);
+                }
+                ImGui.PopID();
+            }
             bool several = _usedBy.Select(u => u.Region).Distinct().Count() > 1;
             for (int i = 0; i < _usedBy.Count; i++)
             {
