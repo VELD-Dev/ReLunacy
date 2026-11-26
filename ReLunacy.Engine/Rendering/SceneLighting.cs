@@ -128,7 +128,8 @@ public sealed class SceneLighting
             FogScale = fog?.LinearScale ?? 0f,
             FogBias = fog?.LinearBias ?? 0f,
             FogAmount = fogEnabled ? MathF.Max(fog!.Amount, 0f) : 0f,
-            FogEnabled = fogEnabled ? 1f : 0f,
+            // 2 = over camera distance (LevelFog.Radial); the shaders weigh by min(enabled, 1).
+            FogEnabled = fogEnabled ? (fog!.Radial ? 2f : 1f) : 0f,
             FogDebugView = 0f,
         };
     }

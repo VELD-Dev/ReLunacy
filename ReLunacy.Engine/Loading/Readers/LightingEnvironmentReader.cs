@@ -173,11 +173,13 @@ public sealed class LightingEnvironmentReader
     /// amount - Tools of Destruction's main.dat 0x7100 fog (+0x40, +0x4C..+0x54), moved, in the record that
     /// also carries its bloom at the same +0x70 as ToD's. The colour is PROVEN: ACiT's world shaders in the
     /// RPCS3 cache end in colour + (C - colour) x saturate(TEX1.w) with C = zolar_forest's +0x30
-    /// (0.08865559, 0.5583405, 0.5332765) to the last digit. The amount comes from the vertex program
-    /// (TEX1.w), which the cache does not translate and whose EBOOT is not decrypted, so the linear ramp
-    /// over view depth, capped at the amount, is ToD's (LevelFog), taken on the record's resemblance:
-    /// near 50 / far 500 / 0.3 on krell_canyon, 90 / 500 / 0.6 zolar_forest, 10 / 624 / 0.8 axiom_city.
-    /// +0x5C (3500, 2500, 1800) is not known. Null when the amount is 0 or the range invalid.
+    /// (0.08865559, 0.5583405, 0.5332765) to the last digit. The ramp is PROVEN (EBOOT): the region loader
+    /// 0x57DEC8 hands +0x50/+0x54/+0x58 to the view as near/far/amount, 0x5D3124 caps far at 14000 and near
+    /// at far, and 0x5E2BFC (near pulled under far by 0.01) builds scale = amount / (far - near), bias =
+    /// -near x scale. The opaque world is fogged by a full-screen pass (0x5C8D54, FP 0xD486F0): fog =
+    /// saturate(min(distance x scale + bias, amount)) over the camera distance - view ray length x view
+    /// depth - skipping the cleared sky (depth >= 0.99999994), hence Radial. +0x5C (3500, 2500, 1800) is
+    /// not known. Null when the amount is 0 or the range invalid.
     /// </summary>
     private static Assets.Lighting.LevelFog? ReadCrackInTimeFog(IGFile region)
     {
@@ -187,8 +189,12 @@ public sealed class LightingEnvironmentReader
         region.sh.Seek(section.offset + 0x50);
         float near = region.sh.ReadSingle(), far = region.sh.ReadSingle(), amount = region.sh.ReadSingle();
         if (!float.IsFinite(colour.X) || !float.IsFinite(colour.Y) || !float.IsFinite(colour.Z) ||
-            !float.IsFinite(near) || !float.IsFinite(far) || !float.IsFinite(amount) || far <= near || amount <= 0f)
+            !float.IsFinite(near) || !float.IsFinite(far) || !float.IsFinite(amount) || amount <= 0f)
             return null;
+        far = MathF.Min(far, 14000f);
+        near = MathF.Min(near, far);
+        if (far <= near) near = far - 0.01f;
+        if (far <= 0f) return null;
         float scale = amount / (far - near);
         return new Assets.Lighting.LevelFog
         {
@@ -198,6 +204,7 @@ public sealed class LightingEnvironmentReader
             Amount = amount,
             LinearScale = scale,
             LinearBias = -near * scale,
+            Radial = true,
             SourceOffset = section.offset,
         };
     }

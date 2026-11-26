@@ -450,9 +450,10 @@ void main() {
     float testAlpha = uMat1.y > 0.5 ? (uMat1.w > 0.5 ? texel.a * fColor.a : fColor.a) : texel.a;
     if (uMat0.w > 0.0 && testAlpha < uMat0.w) discard;
     vec3 color = texel.rgb * fColor.rgb;
-    // Same retail fog producer as LitFragCommon: clip-space w, min against amount, then saturate.
-    float fogCoordinate = 1.0 / gl_FragCoord.w;
-    float fogFactor = clamp(min(fogCoordinate * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
+    // Same retail fog producer as LitFragCommon: clip-space w (camera distance when uFogEnabled is 2),
+    // min against amount, then saturate.
+    float fogCoordinate = uFogEnabled > 1.5 ? distance(fWorldPos, uCameraPosition) : 1.0 / gl_FragCoord.w;
+    float fogFactor = clamp(min(fogCoordinate * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0);
     color = uFogDebugView > 0.5 ? vec3(fogFactor) : mix(color, uFogColour, fogFactor);
     outColor = vec4(color, 1.0);
 }";

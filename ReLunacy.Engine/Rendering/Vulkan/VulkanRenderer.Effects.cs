@@ -49,7 +49,7 @@ void main() {
     vec4 c = texture(uSprite, fUv) * fColor;
     // Old engine: the particle programs end with mix(c, fog, fog amount) (0x2EA..0x2EF), the fog the lit
     // shader uses (clip w x scale + bias, capped). Sprites that add light only fade by it.
-    float fog = clamp(min(uFogScale / gl_FragCoord.w + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled * uOldEngineMode;
+    float fog = clamp(min(uFogScale / gl_FragCoord.w + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0) * uOldEngineMode;
 #ifdef FX_ADDITIVE
     c.rgb *= 1.0 - fog;
 #else

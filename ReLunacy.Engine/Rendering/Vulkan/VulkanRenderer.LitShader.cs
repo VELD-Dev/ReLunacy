@@ -775,9 +775,10 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     }
     // PROVEN (retail Tie and Moby VPs): fog = min(HPOS.w * c5.x + c5.y, c5.w), saturated in the FP.
     // The coordinate is clip-space w (linear view depth), not radial eye distance. In Vulkan
-    // gl_FragCoord.w is 1/clip.w, so the retail coordinate is recovered exactly per pixel.
-    float fogCoordinate = 1.0 / gl_FragCoord.w;
-    float fogFactor = clamp(min(fogCoordinate * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
+    // gl_FragCoord.w is 1/clip.w, so the retail coordinate is recovered exactly per pixel. A Crack in
+    // Time (uFogEnabled 2) fogs in a full-screen pass over the camera distance instead (FP 0xD486F0).
+    float fogCoordinate = uFogEnabled > 1.5 ? distance(fWorldPos, uCameraPosition) : 1.0 / gl_FragCoord.w;
+    float fogFactor = clamp(min(fogCoordinate * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0);
     litColor = uFogDebugView > 0.5 ? vec3(fogFactor) : mix(litColor, uFogColour, fogFactor);
     if (gBeforeAtmosphere) { if (newEngineAtmosphereOn()) litColor = newEngineAtmosphere(litColor, distance(fWorldPos, uCameraPosition), fWorldPos - uCameraPosition); }
     else if (uNewEngineFog.y > 0.5) { vec4 k = newEngineFog(); litColor = mix(litColor, k.rgb, k.w); }

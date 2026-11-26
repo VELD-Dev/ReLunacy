@@ -883,7 +883,7 @@ void rsxSetup() {
 #if RSX_ROUTE == 9
     // The blended ACIT programs receive fog weight in TEX1.w and fog colour in group 0.rgb.
     TEX1.w = uNewEngineFog.y > 0.5 ? newEngineFog().w :
-        clamp(min(viewDepth * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
+        clamp(min(viewDepth * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0);
 #endif
 #elif RSX_ROUTE == 4
     // EBOOT standard shaders, prelit Tie: VPs 52 + k. C = the unit-luminance chroma x c[1].rgb, I = the
@@ -945,7 +945,7 @@ void rsxSetup() {
     float todFade = fOldTieFade;
     vec4 todDetail = vec4(fUV * uMat6.x, 1.0 - clamp(clipW * 0.125, 0.0, 1.0), 0.0);
     float todF = il.direction1.w > 0.0 ? il.direction1.w : 1.0;
-    float todFog = clamp(min(clipW * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
+    float todFog = clamp(min(clipW * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0);
     vec3 vts = vec3(dot(v, t), dot(v, b), dot(v, n));
     TEX1 = vec4(0.0); TEX2 = vec4(0.0); TEX3 = vec4(0.0); TEX4 = vec4(0.0); TEX5 = vec4(0.0); TEX6 = vec4(0.0);
 #if RSX_ROUTE == 6
@@ -1017,7 +1017,7 @@ void rsxSetup() {
 
     // Patch groups (Docs/reverse/NEW_ENGINE_SHADER_SECTIONS_EBOOT_2026-09-27.md section 4; values checked
     // against the RPCS3 cache, 07-10-2026).
-    float fog = clamp(min((1.0 / gl_FragCoord.w) * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
+    float fog = clamp(min((1.0 / gl_FragCoord.w) * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0);
     G0 = uNewEngineFog.y > 0.5 ? newEngineFog() : vec4(uFogColour, fog);
     float floorB = uReflOcclusionFullLuminance > 0.0 ? uReflOcclusionFloor : 0.01;
     float fullA = uReflOcclusionFullLuminance > 0.0 ? uReflOcclusionFullLuminance : 0.6;
@@ -1103,11 +1103,13 @@ void shadeRetail(out vec3 litColor, out float litAlpha) {
     // fog with the group-0 colour and amount the blended ones use, and take coverage - the cut-out
     // test, the soft-edge pass - from the albedo, as the generic shader does (the game cuts in its
     // depth pre-pass: none of these shaders discards). In the opaque pass the atmosphere does it below,
-    // when the level has one: A Crack in Time's regions carry no 0x34000 tables, only the linear fog.
+    // when the level has one: A Crack in Time's regions carry no 0x34000 tables, only the linear fog,
+    // which retail lays over the opaque world in a full-screen pass by camera distance (FP 0xD486F0).
     if (!gBeforeAtmosphere || !newEngineAtmosphereOn()) {
 #if RSX_ACIT
+        float fogCoordinate = uFogEnabled > 1.5 ? distance(fWorldPos, uCameraPosition) : 1.0 / gl_FragCoord.w;
         vec4 fog = uNewEngineFog.y > 0.5 ? newEngineFog() :
-            vec4(uFogColour, clamp(min(uFogScale / gl_FragCoord.w + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled);
+            vec4(uFogColour, clamp(min(uFogScale * fogCoordinate + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0));
         litColor = mix(litColor, fog.rgb, fog.w);
 #else
         litColor = mix(litColor, G0.rgb, G0.w);
