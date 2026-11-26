@@ -305,6 +305,7 @@
         "GUI_Frame_InstanceInspector_FieldsFileHint": "Reload after editing the file by hand: {0}",
         "GUI_Frame_InstanceInspector_SettingsReload": "Reload",
         "GUI_Frame_InstanceInspector_ClassName": "Class name",
+        "GUI_Frame_InstanceInspector_ClassNameFromGame": "Named by the game.",
         "GUI_Frame_InstanceInspector_EnumNew": "+ New enum",
         "GUI_Frame_InstanceInspector_EnumPick": "Pick an enum, or create one.",
         "GUI_Frame_InstanceInspector_EnumFlags": "Flags (values combine)",

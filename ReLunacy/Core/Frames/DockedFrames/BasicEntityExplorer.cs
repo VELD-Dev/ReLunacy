@@ -196,15 +196,21 @@ internal class BasicEntityExplorer : DockedFrame, ILevelListener
         if (registry != null && registry.Sizes.TryGetValue(cls, out int size))
             ImGui.TextDisabled(LM.Get("GUI_Frame_EntityExplorer_ClassInfoSize", $"0x{size:X}"));
         ImGui.Spacing();
-        if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+        // A name from the game itself is not the user's to replace.
+        bool gameName = Engine.Assets.LevelElements.ClassFields.HasGameName(game, cls);
+        if (ImGui.IsWindowAppearing() && !gameName) ImGui.SetKeyboardFocusHere();
         ImGui.SetNextItemWidth(-1f);
-        bool enter = ImGui.InputTextWithHint("##class_name", LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _classInfoName, 64, ImGuiInputTextFlags.EnterReturnsTrue);
-        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")) || enter)
+        bool enter = ImGui.InputTextWithHint("##class_name", LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _classInfoName, 64,
+            ImGuiInputTextFlags.EnterReturnsTrue | (gameName ? ImGuiInputTextFlags.ReadOnly : ImGuiInputTextFlags.None));
+        if (gameName && ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ClassNameFromGame"));
+        ImGui.BeginDisabled(gameName);
+        if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")) || (enter && !gameName))
         {
             RenameClass(game, cls, _classInfoName.Trim(), parent);
             _classInfo = null;
             ImGui.CloseCurrentPopup();
         }
+        ImGui.EndDisabled();
         ImGui.SameLine();
         if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldCancel")) || ImGui.IsKeyPressed(ImGuiKey.Escape))
         {
