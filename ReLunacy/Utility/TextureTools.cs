@@ -1,4 +1,5 @@
 using ReLunacy.Engine.Assets.Interfaces;
+using ReLunacy.Engine.Assets.Textures;
 using ReLunacy.Engine.Rendering;
 using ReLunacy.Engine.Rendering.Resources;
 
@@ -32,11 +33,15 @@ public static class TextureTools
         return true;
     }
 
+    /// <summary>Mip levels the texture's data really holds, which can be fewer than it declares.</summary>
+    public static int StoredMipCount(ITexture texture) =>
+        texture is Texture stored ? stored.StoredMipmapCount : Math.Max(1, texture.MipmapCount);
+
     /// <summary>Bytes of every authored mip level.</summary>
     public static long MemorySize(ITexture texture)
     {
         long total = 0;
-        for (int mip = 0; mip < Math.Max(1, texture.MipmapCount); mip++)
+        for (int mip = 0; mip < StoredMipCount(texture); mip++)
             total += mip == 0 ? texture.GetPixelData().Length : texture.GetMipmapData(mip).Length;
         return total;
     }

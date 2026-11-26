@@ -11,6 +11,7 @@ public sealed class Texture : ITexture
     private TextureFormat _format;
     private int _mipmapCount;
     private bool _hasAuthoredMipChain;
+    private int _storedMipmapCount;
 
     public ulong Id { get; init; }
     public string? Name { get; set; }
@@ -55,6 +56,31 @@ public sealed class Texture : ITexture
     {
         get => _hasAuthoredMipChain;
         private init => _hasAuthoredMipChain = value;
+    }
+
+    /// <summary>Mip levels the backing buffer actually holds; at most <see cref="MipmapCount"/>, never below 1.</summary>
+    public int StoredMipmapCount
+    {
+        get
+        {
+            if (_storedMipmapCount > 0)
+                return _storedMipmapCount;
+            int length = GetBackingData().Length;
+            long offset = 0;
+            int mipWidth = checked((int)Width);
+            int mipHeight = checked((int)Height);
+            int count = 0;
+            while (count < MipmapCount)
+            {
+                offset += CalculateMipmapSize(mipWidth, mipHeight, Format);
+                if (offset > length)
+                    break;
+                count++;
+                mipWidth = Math.Max(1, mipWidth / 2);
+                mipHeight = Math.Max(1, mipHeight / 2);
+            }
+            return _storedMipmapCount = Math.Max(1, count);
+        }
     }
 
     private readonly Func<byte[]>? _dataLoader;

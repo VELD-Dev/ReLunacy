@@ -165,7 +165,7 @@ public sealed class TextureViewerFrame : DockedFrame, ILevelListener
 
     // --- Image -----------------------------------------------------------------------------------------
 
-    private int MipCount => Math.Max(1, _texture!.MipmapCount);
+    private int MipCount => TextureTools.StoredMipCount(_texture!);
 
     private (int W, int H) MipSize(int mip) =>
         (Math.Max(1, (int)_texture!.Width >> mip), Math.Max(1, (int)_texture.Height >> mip));
