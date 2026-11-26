@@ -9,7 +9,13 @@ namespace ReLunacy.Engine.Loading.Readers;
 
 /// <summary>A level's dialogue in one language: the lines in the level's own banks and those it plays from the
 /// game-wide banks (sound/global/), each a <see cref="LevelSounds"/> whose ids are DialogueSpecs ids.</summary>
-public sealed record LevelDialogue(LevelSounds Level, LevelSounds? Global, string Language);
+/// <param name="Language">The language asked for.</param>
+/// <param name="TextLanguage">Where the subtitles came from: <paramref name="Language"/>, or English when the level has
+/// no table in it.</param>
+/// <param name="LevelAudio">The language of the level's lines (gb ships no audio of its own and plays us).</param>
+/// <param name="GlobalAudio">The language of the game-wide lines.</param>
+public sealed record LevelDialogue(LevelSounds Level, LevelSounds? Global, string Language,
+    string TextLanguage, string LevelAudio, string? GlobalAudio);
 
 /// <summary>
 /// A Crack in Time's dialogue. A DialogueSpecs id reaches a dialogue effect of fxconduit_packed.dat (the root's fourth
@@ -22,27 +28,41 @@ public static partial class SoundReader
 {
     private const uint DialogueTable = 0x26000;
 
-    /// <summary>The languages tried, in order: the first one with a level table and streams is read.</summary>
-    private static readonly string[] Languages = ["us", "gb", "fr", "de", "es", "it", "nl", "pt", "dk", "fi", "no", "se", "jp"];
+    /// <summary>Every language the game ships dialogue in, in the order offered.</summary>
+    public static readonly string[] DialogueLanguageCodes = ["us", "gb", "fr", "de", "es", "it", "nl", "pt", "dk", "fi", "no", "se", "jp"];
 
-    private static readonly ConditionalWeakTable<FileManager, Task<LevelDialogue?>> DialogueLoads = new();
+    /// <summary>What a language falls back to for a file it lacks: gb shares us's banks, the rest use us.</summary>
+    private static IEnumerable<string> Fallbacks(string language) =>
+        language == "us" ? ["us"] : language == "gb" ? ["gb", "us"] : [language, "gb", "us"];
+
+    private static readonly ConditionalWeakTable<FileManager, Dictionary<string, Task<LevelDialogue?>>> DialogueLoads = new();
     private static readonly Dictionary<string, Dictionary<int, string>> SpecEnums = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The level's dialogue, or null while it is read (the first call starts it) and for a level without
-    /// any (other games).</summary>
-    public static LevelDialogue? DialogueFor(FileManager fileManager)
+    /// <summary>The level's dialogue in a language (us by default), or null while it is read (the first call starts
+    /// it) and for a level without any (other games).</summary>
+    public static LevelDialogue? DialogueFor(FileManager fileManager, string language = "us")
     {
-        var task = DialogueLoads.GetValue(fileManager, fm =>
-        {
-            string source = fm.SourcePath;
-            return Task.Run(() => ReadDialogueSafely(() => ReadDialogue(fm, Config.GameConfigs.GameFolderFor(source))));
-        });
+        var task = DialogueTask(fileManager, language);
         return task.IsCompletedSuccessfully ? task.Result : null;
     }
 
     /// <summary>True while <see cref="DialogueFor"/> is still reading.</summary>
-    public static bool DialoguePending(FileManager fileManager) =>
-        DialogueLoads.TryGetValue(fileManager, out var task) ? !task.IsCompleted : DialogueFor(fileManager) == null;
+    public static bool DialoguePending(FileManager fileManager, string language = "us") => !DialogueTask(fileManager, language).IsCompleted;
+
+    private static Task<LevelDialogue?> DialogueTask(FileManager fileManager, string language)
+    {
+        var loads = DialogueLoads.GetValue(fileManager, _ => []);
+        lock (loads)
+        {
+            if (!loads.TryGetValue(language, out var task))
+            {
+                string source = fileManager.SourcePath;
+                loads[language] = task = Task.Run(() =>
+                    ReadDialogueSafely(() => ReadDialogue(fileManager, Config.GameConfigs.GameFolderFor(source), language)));
+            }
+            return task;
+        }
+    }
 
     /// <summary>The DialogueSpecs enum of global_cached (/scripts/dialoguespecs.lua): id -> name. Read once per game.</summary>
     public static IReadOnlyDictionary<int, string> DialogueSpecs(string gameFolder) =>
@@ -63,7 +83,7 @@ public static partial class SoundReader
     }
 
     /// <summary>Opens the dialogue of another level without loading its scene.</summary>
-    public static LevelDialogue? ReadLevelDialogue(LevelBankArchive bank, string gameFolder) => ReadDialogueSafely(() =>
+    public static LevelDialogue? ReadLevelDialogue(LevelBankArchive bank, string gameFolder, string language = "us") => ReadDialogueSafely(() =>
     {
         string archive = bank.ArchivePath;
         if (Path.GetFileName(archive) == FallOfManFiles.Archive) return null;
@@ -72,7 +92,7 @@ public static partial class SoundReader
         (string, string)? Entry(string name) =>
             HasArchiveEntry(archive, prefix + name) ? (archive, prefix + name)
             : prefix.Length == 0 && HasArchiveEntry(uncached, name) ? (uncached, name) : null;
-        return ReadDialogue(Entry, gameFolder);
+        return ReadDialogue(Entry, gameFolder, language);
     });
 
     private static LevelDialogue? ReadDialogueSafely(Func<LevelDialogue?> read)
@@ -85,35 +105,43 @@ public static partial class SoundReader
         }
     }
 
-    private static LevelDialogue? ReadDialogue(FileManager fileManager, string? gameFolder) =>
-        fileManager.IsFallOfMan || gameFolder == null ? null : ReadDialogue(fileManager.Locate, gameFolder);
+    private static LevelDialogue? ReadDialogue(FileManager fileManager, string? gameFolder, string language) =>
+        fileManager.IsFallOfMan || gameFolder == null ? null : ReadDialogue(fileManager.Locate, gameFolder, language);
 
-    private static LevelDialogue? ReadDialogue(Func<string, (string ArchivePath, string EntryPath)?> locate, string gameFolder)
+    /// <summary>The languages the level has a subtitle table in, and those the game-wide banks have audio in.</summary>
+    public static IReadOnlyList<string> DialogueLanguages(FileManager fileManager)
+    {
+        if (fileManager.IsFallOfMan || Config.GameConfigs.GameFolderFor(fileManager.SourcePath) is not { } gameFolder) return [];
+        return DialogueLanguageCodes.Where(l => fileManager.Locate($"dialogue.{l}.pkg") != null ||
+            GlobalDialogue(gameFolder, "global_cached.psarc", $"sound/global/resident_dialogue.{l}.dat") != null).ToList();
+    }
+
+    private static LevelDialogue? ReadDialogue(Func<string, (string ArchivePath, string EntryPath)?> locate, string gameFolder, string language)
     {
         if (locate("fxconduit_packed.dat") is not { } conduitFile || ReadWhole(conduitFile) is not { } conduit ||
             ReadDialogueConduit(conduit) is not { } effects)
             return null;
 
-        foreach (string language in Languages)
-        {
-            if (locate($"dialogue.{language}.pkg") is not { } table || locate($"resident_dialogue.{language}.dat") is not { } resident ||
-                locate($"streaming_dialogue.{language}.dat") is not { } streaming)
-                continue;
-            if (ReadWhole(table) is not { } pkg || ReadLines(pkg) is not { } lines) return null;
+        // Each file in the language when it ships one. Every language's name tables are laid out alike, so a table
+        // of one indexes the banks of another.
+        string? textLanguage = Fallbacks(language).FirstOrDefault(l => locate($"dialogue.{l}.pkg") != null);
+        string? levelAudio = Fallbacks(language).FirstOrDefault(l =>
+            locate($"resident_dialogue.{l}.dat") != null && locate($"streaming_dialogue.{l}.dat") != null);
+        if (textLanguage == null || levelAudio == null ||
+            ReadWhole(locate($"dialogue.{textLanguage}.pkg")!.Value) is not { } pkg || ReadLines(pkg) is not { } lines ||
+            Read(null, locate($"resident_dialogue.{levelAudio}.dat")!.Value, locate($"streaming_dialogue.{levelAudio}.dat"), null)
+                is not { } level)
+            return null;
 
-            var specNames = DialogueSpecs(gameFolder);
-            if (Bank(resident, streaming) is not { } level) return null;
-            var global = Bank(GlobalDialogue(gameFolder, "global_cached.psarc", $"sound/global/resident_dialogue.{language}.dat"),
-                GlobalDialogue(gameFolder, "global_uncached.psarc", $"sound/global/streaming_dialogue.{language}.dat"));
-            return new LevelDialogue(
-                WithLines(level, effects, lines, specNames, globalBank: false),
-                global == null ? null : WithLines(global, effects, lines, specNames, globalBank: true),
-                language);
-        }
-        return null;
-
-        static LevelSounds? Bank((string, string)? residentFile, (string, string)? streamingFile) =>
-            residentFile is { } file ? Read(null, file, streamingFile, null) : null;
+        var specNames = DialogueSpecs(gameFolder);
+        (string, string)? GlobalResident(string l) => GlobalDialogue(gameFolder, "global_cached.psarc", $"sound/global/resident_dialogue.{l}.dat");
+        (string, string)? GlobalStreaming(string l) => GlobalDialogue(gameFolder, "global_uncached.psarc", $"sound/global/streaming_dialogue.{l}.dat");
+        string? globalAudio = Fallbacks(language).FirstOrDefault(l => GlobalResident(l) != null && GlobalStreaming(l) != null);
+        var global = globalAudio != null ? Read(null, GlobalResident(globalAudio)!.Value, GlobalStreaming(globalAudio), null) : null;
+        return new LevelDialogue(
+            WithLines(level, effects, lines, specNames, globalBank: false),
+            global == null ? null : WithLines(global, effects, lines, specNames, globalBank: true),
+            language, textLanguage, levelAudio, global == null ? null : globalAudio);
     }
 
     private static (string, string)? GlobalDialogue(string gameFolder, string archive, string entry)

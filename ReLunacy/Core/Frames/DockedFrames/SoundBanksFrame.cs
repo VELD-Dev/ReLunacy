@@ -39,7 +39,13 @@ public sealed class SoundBanksFrame : DockedFrame
     private SoundReader.LevelBankArchive? _alternateBank;
     private Task<LevelSounds?>? _alternateSounds;
     private Task<LevelDialogue?>? _alternateDialogue;
+    private string _alternateLanguage = "us";
+    private (BankKind, SoundReader.LevelBankArchive?, FileManager?) _soundsView;
     private bool _hasDialogue;
+    private IReadOnlyList<string> _languages = [];
+
+    /// <summary>The dialogue language picked here; Lua completion shows subtitles in it.</summary>
+    public static string DialogueLanguage { get; private set; } = "us";
     private BankKind _kind = BankKind.Sounds;
     private GroupMode _mode = GroupMode.Bank;
     private string _filter = "";
@@ -141,10 +147,13 @@ public sealed class SoundBanksFrame : DockedFrame
             _bankDiscovery = _gameFolder is { } gameFolder ? Task.Run(() => SoundReader.ListLevelBanks(gameFolder)) : null;
             _hasDialogue = _gameFolder != null && window.Level?.GameDefinition?.Id == GameId.ACrackInTime;
             if (!_hasDialogue) _kind = BankKind.Sounds;
+            _languages = _hasDialogue && files != null ? SoundReader.DialogueLanguages(files) : [];
+            if (_languages.Count > 0 && !_languages.Contains(DialogueLanguage)) DialogueLanguage = _languages[0];
         }
 
         DrawBankSelector();
         DrawKindSelector();
+        DrawLanguageSelector();
         LevelSounds? sounds;
         bool pending;
         if (_kind == BankKind.Sounds)
@@ -156,11 +165,19 @@ public sealed class SoundBanksFrame : DockedFrame
         }
         else
         {
+            if (_alternateBank is { } bank && _alternateLanguage != DialogueLanguage) LoadAlternateDialogue(bank);
             var dialogue = _alternateDialogue is { } alternate
                 ? (alternate.IsCompletedSuccessfully ? alternate.Result : null)
-                : files != null ? SoundReader.DialogueFor(files) : null;
+                : files != null ? SoundReader.DialogueFor(files, DialogueLanguage) : null;
             sounds = _kind == BankKind.Dialogue ? dialogue?.Level : dialogue?.Global;
-            pending = _alternateDialogue is { } load ? !load.IsCompleted : files != null && SoundReader.DialoguePending(files);
+            pending = _alternateDialogue is { } load ? !load.IsCompleted : files != null && SoundReader.DialoguePending(files, DialogueLanguage);
+            if (dialogue != null && sounds != null)
+            {
+                // A language without its own file plays or shows another's.
+                string audio = (_kind == BankKind.Dialogue ? dialogue.LevelAudio : dialogue.GlobalAudio) ?? dialogue.Language;
+                if (dialogue.TextLanguage != dialogue.Language || audio != dialogue.Language)
+                    ImGui.TextDisabled(LM.Get("GUI_SoundBanks_LanguageFrom", LanguageName(dialogue.TextLanguage), LanguageName(audio)));
+            }
         }
         string none = _kind == BankKind.Sounds ? "GUI_SoundBanks_None" : "GUI_SoundBanks_NoDialogue";
         if (sounds == null)
@@ -170,8 +187,13 @@ public sealed class SoundBanksFrame : DockedFrame
         }
         if (!ReferenceEquals(sounds, _sounds))
         {
+            // Another language of the same bank keeps the line picked: name tables line up across languages.
+            var view = (_kind, _alternateBank, files);
+            bool sameBank = _soundsView.Equals(view) && _sounds is { IsDialogue: true } && _sounds.BankSounds.Count == sounds.BankSounds.Count;
+            _soundsView = view;
             _sounds = sounds;
-            _selected = null;
+            _selected = sameBank && _selected is { } kept ? sounds.BankSounds[kept.NameIndex] : null;
+            _detailsOf = null;
             ClearTake();
         }
         if (sounds.BankSounds.Count == 0)
@@ -230,14 +252,33 @@ public sealed class SoundBanksFrame : DockedFrame
         ImGuiPlus.HelpMarker(LM.Get("GUI_SoundBanks_KindHelp"));
     }
 
+    private void DrawLanguageSelector()
+    {
+        if (_kind == BankKind.Sounds || _languages.Count == 0) return;
+        if (!ImGui.BeginCombo(LM.Get("GUI_SoundBanks_Language") + "##dialogue_language", LanguageName(DialogueLanguage))) return;
+        foreach (string language in _languages)
+            if (ImGui.Selectable(LanguageName(language), language == DialogueLanguage))
+                DialogueLanguage = language;
+        ImGui.EndCombo();
+    }
+
+    private static string LanguageName(string code) => LM.Get("GUI_SoundBanks_Language_" + code);
+
+    private void LoadAlternateDialogue(SoundReader.LevelBankArchive bank)
+    {
+        string language = _alternateLanguage = DialogueLanguage;
+        _alternateDialogue = _hasDialogue && _gameFolder is { } folder
+            ? Task.Run(() => SoundReader.ReadLevelDialogue(bank, folder, language)) : null;
+    }
+
     private void SelectBank(SoundReader.LevelBankArchive? bank)
     {
         if (_alternateBank == bank) return;
         _alternateBank = bank;
         _alternateSounds = bank != null && _gameFolder is { } gameFolder
             ? Task.Run(() => SoundReader.ReadLevelBank(bank, gameFolder)) : null;
-        _alternateDialogue = bank != null && _hasDialogue && _gameFolder is { } folder
-            ? Task.Run(() => SoundReader.ReadLevelDialogue(bank, folder)) : null;
+        _alternateDialogue = null;
+        if (bank != null) LoadAlternateDialogue(bank);
 
         ClearTake();
         _selected = null;
