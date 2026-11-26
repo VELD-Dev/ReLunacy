@@ -72,7 +72,7 @@ public static class SoundExporter
                 Artist = l.Game.Id switch
                 {
                     GameId.ToolsOfDestruction or GameId.QuestForBooty or GameId.RFallOfMan => "David Bergeaud",
-                    GameId.ACrackInTime => "Boris Salchow",
+                    GameId.ACrackInTime or GameId.Resistance2 => "Boris Salchow",
                     GameId.All4One or GameId.IntoTheNexus or GameId.FullFrontalAssault => "Michael Bross",
                     _ => "Unknown"
                 },

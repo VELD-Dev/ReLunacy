@@ -260,5 +260,48 @@ public record struct ShaderMetadataNew : ILunaSerializable
 
     public static ShaderMetadataNew Read(StreamHelper sh) => FileUtils.ReadStructure<ShaderMetadataNew>(sh);
 
+    /// <summary>
+    /// Resistance 2's 0x5000, told apart by its 0x30-byte 0x5D00 (<see cref="ShaderReference.FourSlotSize"/>):
+    /// the same record without the two auxiliary slots and the reserved pair. Four local indices at
+    /// +0x00..+0x0C, then the bytes this layout keeps at +0x20..+0x23 at +0x10..+0x13. Measured on
+    /// the 1,180 chicago records: +0x13 bit 0x20 is set on exactly the 7 with a non-zero class, as on
+    /// QForce; parallax (bit 0x01) always comes with the normal map (0x08), its scale and bias at
+    /// +0x60/+0x64; +0x68 varies with the detail bit (4 by default); +0x50 is the reflection tint and
+    /// albedo mix (0.4). +0x20 is the RGB tint. +0x30 is not the QForce strength pair (0 on 943 records,
+    /// with the gloss exponent 32/16 at +0x38, like Tools of Destruction's group 1), so the strengths stay
+    /// neutral; the reflection vector and cube index have no known place and stay zero.
+    /// </summary>
+    public static ShaderMetadataNew ReadFourSlot(StreamHelper sh)
+    {
+        uint b = (uint)sh.Offset;
+        float F(uint offset) => BitConverter.UInt32BitsToSingle(sh.ReadUInt32(b + offset));
+        return new ShaderMetadataNew
+        {
+            albedo = sh.ReadInt32(b + 0x00),
+            normal = sh.ReadInt32(b + 0x04),
+            expensive = sh.ReadInt32(b + 0x08),
+            detailMap = sh.ReadInt32(b + 0x0C),
+            auxiliaryA = -1,
+            auxiliaryB = -1,
+            Reserved18 = new byte[8],
+            featureFlags = sh.ReadByte(b + 0x10),
+            renderingMode = sh.ReadByte(b + 0x11),
+            shaderClass = sh.ReadByte(b + 0x12),
+            shaderFlags = sh.ReadByte(b + 0x13),
+            tintR = F(0x20),
+            tintG = F(0x24),
+            tintB = F(0x28),
+            parameter30 = 1f,
+            parameter34 = 1f,
+            reflectionTintR = F(0x50),
+            reflectionTintG = F(0x54),
+            reflectionTintB = F(0x58),
+            reflectionTintAlbedoMix = F(0x5C),
+            parallaxScale = F(0x60),
+            parallaxBias = F(0x64),
+            detailTiling = F(0x68),
+        };
+    }
+
     public byte[] ToBytes(bool isOld, params object[]? additionalParams) => throw new NotImplementedException();
 }

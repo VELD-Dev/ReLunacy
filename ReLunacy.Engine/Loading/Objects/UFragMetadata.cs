@@ -54,7 +54,7 @@ public struct UFragMetadata : ILunaSerializable
     /// one value per lightmap atlas. Null on the old engine, which uses +0x7C and +0x7E.
     /// </summary>
     public readonly Vector4? NewEngineBakedLight =>
-        Unk3 is { Length: >= 0x1A }
+        !Resistance2Layout && Unk3 is { Length: >= 0x1A }
             ? NewEngineBakedLighting.VertexConstant(
                 BinaryPrimitives.ReadUInt16BigEndian(Unk3.AsSpan(0x16, 2)),
                 BinaryPrimitives.ReadUInt16BigEndian(Unk3.AsSpan(0x18, 2)),
@@ -64,6 +64,15 @@ public struct UFragMetadata : ILunaSerializable
     // New engine only
     public Vector3 newEnginePos;
     public byte[] Unk3b;
+
+    /// <summary>
+    /// Resistance 2: the anchor is at +0x60 (x256, as on the old engine - it lands on the +0x30 bounding
+    /// centre on every chicago record) and +0x70..+0x7B holds the Tie primitives' fade pair (-1/d, 2.5)
+    /// and a third float, kept raw in <see cref="Resistance2Tail70"/>. +0x60..+0x6B are not the fade
+    /// distances and baked-light scales the other new-engine games keep there, so those read as absent.
+    /// </summary>
+    public bool Resistance2Layout;
+    public byte[]? Resistance2Tail70;
 
     /// <summary>
     /// New engine: record +0x54, the mask the zone loader ANDs with the material's +0x20 feature bits
@@ -78,7 +87,7 @@ public struct UFragMetadata : ILunaSerializable
     /// (30, 90, 8) on 3,343 of the 3,566 QForce records. Null when the record is too short.
     /// </summary>
     public readonly Vector3? NewEngineFadeDistances =>
-        Unk3 is { Length: >= 0x14 }
+        !Resistance2Layout && Unk3 is { Length: >= 0x14 }
             ? new Vector3(
                 BinaryPrimitives.ReadInt16BigEndian(Unk3.AsSpan(0x0E, 2)),
                 BinaryPrimitives.ReadInt16BigEndian(Unk3.AsSpan(0x10, 2)),
@@ -86,7 +95,7 @@ public struct UFragMetadata : ILunaSerializable
             : null;
     public byte[] Unk4;
 
-    public UFragMetadata(StreamHelper sh, bool oldEngine, int index = 0)
+    public UFragMetadata(StreamHelper sh, bool oldEngine, int index = 0, bool resistance2 = false)
     {
         // Literal offsets below are relative to this record's own start, not the file's -
         // StreamHelper's ReadXxx(offset)/Seek(offset) overloads seek absolutely from the stream
@@ -129,8 +138,10 @@ public struct UFragMetadata : ILunaSerializable
             // combined runtime lighting pool when constructing NewUFrag; never write that runtime
             // index back into this metadata record.
             lightmapIndex = sh.ReadUInt16(recordBase + 0x4E);
-            sh.Seek(recordBase + 0x70);
+            Resistance2Layout = resistance2;
+            sh.Seek(recordBase + (resistance2 ? 0x60u : 0x70u));
             newEnginePos = new Vector3(sh.ReadSingle(), sh.ReadSingle(), sh.ReadSingle());
+            Resistance2Tail70 = resistance2 ? sh.ReadFromOffset(0x0C, recordBase + 0x70) : null;
             Unk3b = sh.ReadFromOffset(0x04, recordBase + 0x7C);
             Unk4 = [];
         }
@@ -182,6 +193,7 @@ public struct UFragMetadata : ILunaSerializable
 
             Unk1.CopyTo(span[0x00..0x30]);
             position.ToBytes(span[0x30..0x3C]);
+            BinaryPrimitives.WriteSingleBigEndian(span[0x3C..], boundingSphere.W);
             BinaryPrimitives.WriteUInt32BigEndian(span[0x40..], indexOffset);
             BinaryPrimitives.WriteUInt32BigEndian(span[0x44..], vertexOffset);
             BinaryPrimitives.WriteUInt16BigEndian(span[0x48..], indexCount);
@@ -192,7 +204,14 @@ public struct UFragMetadata : ILunaSerializable
             BinaryPrimitives.WriteUInt16BigEndian(span[0x4E..], lightmapIndex);
             BinaryPrimitives.WriteUInt16BigEndian(span[0x50..], shaderIndex);
             Unk3.CopyTo(span[0x52..0x70]);
-            newEnginePos.ToBytes(span[0x70..0x7C]);
+            if (Resistance2Layout)
+            {
+                RequireLength(Resistance2Tail70, 0x0C, nameof(Resistance2Tail70));
+                newEnginePos.ToBytes(span[0x60..0x6C]);
+                Resistance2Tail70!.CopyTo(span[0x70..0x7C]);
+            }
+            else
+                newEnginePos.ToBytes(span[0x70..0x7C]);
             Unk3b.CopyTo(span[0x7C..0x80]);
         }
 

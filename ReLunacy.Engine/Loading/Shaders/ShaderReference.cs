@@ -9,6 +9,8 @@ public record struct ShaderReference : ILunaObject, ILunaSerializable
 {
     public const uint ID = 0x5D00;
     public const uint Size = 0x40;
+    /// <summary>Resistance 2: ids of slots 0..3 at +0x10, their name pointers at +0x20 (see ReadFourSlot).</summary>
+    public const uint FourSlotSize = 0x30;
 
     public ulong TUID { get => _tuid; init => _tuid = value; }
     [FileOffset(0x00)] private ulong _tuid;
@@ -52,6 +54,27 @@ public record struct ShaderReference : ILunaObject, ILunaSerializable
     public readonly uint TextureCount => 6;
 
     public static ShaderReference Read(StreamHelper sh) => FileUtils.ReadStructure<ShaderReference>(sh);
+
+    /// <summary>Resistance 2's four-slot 0x5D00: the same head, ids of slots 0..3 at +0x10..+0x1C and their
+    /// name pointers at +0x20..+0x2C (all inside 0x11300 on the chicago shaders). Slots 4 and 5 read empty.</summary>
+    public static ShaderReference ReadFourSlot(StreamHelper sh)
+    {
+        uint b = (uint)sh.Offset;
+        return new ShaderReference
+        {
+            _tuid = sh.ReadUInt64(),
+            namePointer = sh.ReadUInt32(b + 0x08),
+            Unk1 = sh.ReadUInt32(b + 0x0C),
+            albedoID = sh.ReadUInt32(b + 0x10),
+            normalID = sh.ReadUInt32(b + 0x14),
+            expensiveID = sh.ReadUInt32(b + 0x18),
+            detailID = sh.ReadUInt32(b + 0x1C),
+            albedoNamePointer = sh.ReadUInt32(b + 0x20),
+            normalNamePointer = sh.ReadUInt32(b + 0x24),
+            expensiveNamePointer = sh.ReadUInt32(b + 0x28),
+            detailNamePointer = sh.ReadUInt32(b + 0x2C),
+        };
+    }
 
     public byte[] ToBytes(bool isOld, params object[]? additionalParams) => throw new NotImplementedException();
 }

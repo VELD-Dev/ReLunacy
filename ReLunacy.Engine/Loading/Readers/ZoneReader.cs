@@ -44,6 +44,8 @@ public sealed class ZoneReader
     /// (INFERRED: ACiT's own shaders are in its encrypted EBOOT).
     /// </summary>
     public bool CrackInTimeLayout { get; init; }
+    /// <summary>Resistance 2: UFrag anchors at record +0x60 (see UFragMetadata.Resistance2Layout).</summary>
+    public bool Resistance2Layout { get; init; }
 
     /// <param name="ties">The level's Tie classes; the ones the zones being read place are read from it.</param>
     public ZoneReader(FileManager fileManager, MaterialReader materialReader, AssetLibrary<Assets.Ties.Tie> ties, DebugReader debugReader)
@@ -418,7 +420,7 @@ public sealed class ZoneReader
         {
             // Seek absolutely to each record's start - UFragMetadata's reads are non-monotonic.
             legacyZone.zoneStream.Seek(ufragSection.offset + (long)i * UFragMetadata.Size);
-            legacyZone.ufrags[i] = new UFrag(legacyZone.zoneStream, legacyZone.isOld, geometryStream);
+            legacyZone.ufrags[i] = new UFrag(legacyZone.zoneStream, legacyZone.isOld, geometryStream, Resistance2Layout);
         }
 
         for (int i = 0; i < ufragSection.count; i++)

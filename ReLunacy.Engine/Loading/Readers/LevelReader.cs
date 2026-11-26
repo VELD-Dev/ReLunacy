@@ -181,13 +181,14 @@ public sealed class LevelReader
         }
 
         bool crackInTime = _gameDefinition?.Id == Games.GameId.ACrackInTime;
+        bool resistance2 = _gameDefinition?.Id == Games.GameId.Resistance2;
         // New engine: only the tables - each class is read when a region places it. Old engine: all
         // of them, the only way its index- and offset-keyed instances can be resolved.
         progress?.Begin(LoadPhase.Mobys);
         _mobys = new MobyReader(_fileManager, _materialReader, _debugReader, animationReader) { ReadCollision = crackInTime }
             .CreateLibrary(_fileLock, progress);
         progress?.Begin(LoadPhase.Ties);
-        _ties = new TieReader(_fileManager, _materialReader, _debugReader) { CrackInTimeLayout = crackInTime }
+        _ties = new TieReader(_fileManager, _materialReader, _debugReader) { CrackInTimeLayout = crackInTime, Resistance2Layout = resistance2 }
             .CreateLibrary(_fileLock, progress);
         progress?.Begin(LoadPhase.Shrubs);
         _shrubs = new ShrubReader(_fileManager, _materialReader).CreateLibrary(_fileLock);
@@ -195,6 +196,7 @@ public sealed class LevelReader
         _zoneReader = new ZoneReader(_fileManager, _materialReader, _ties, _debugReader)
         {
             CrackInTimeLayout = crackInTime,
+            Resistance2Layout = resistance2,
             Shrubs = _shrubs,
             // Names come off the regions, which are read after the zones, so the tables are
             // read here rather than waiting for RegionReader - a zone is constructed once.
