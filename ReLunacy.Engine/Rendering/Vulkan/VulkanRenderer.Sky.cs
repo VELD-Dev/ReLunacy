@@ -47,7 +47,7 @@ public sealed unsafe partial class VulkanRenderer
     private VkShaderModule _skyBloomFs;
     private VkPipelineLayout _skyLayout;
     private VkPipeline _pipelineSky;
-    // With the old engine's bloom on (DestinationAlphaGlow) the Sky writes the retail destination alpha,
+    // With the bloom on (SkyGlow) the Sky writes the retail destination alpha,
     // the bloom's glow mask: Color shells and the Dome through these variants, Bloom shells (passes 16/19)
     // only then.
     private VkPipeline _pipelineSkyGlow, _pipelineSkyBloom, _pipelineSkyDomeGlow;
@@ -183,7 +183,7 @@ layout(location = 2) in vec3 fViewDir;
 layout(location = 3) in vec3 fWorldDir;
 layout(location = 0) out vec4 outColor;
 void main() {
-    // RGBA mix (Dome FP 59): its alpha is the destination alpha the old engine's bloom reads; the
+    // RGBA mix (Dome FP 59): its alpha is the destination alpha the bloom reads; the
     // pipeline writes it only then (_pipelineSkyDomeGlow).
     vec4 colour = mix(fColor, uC0, fBlend);
     outColor = vec4(skyAtmosphere(colour.rgb, fViewDir, fWorldDir), clamp(colour.a, 0.0, 1.0));
@@ -483,8 +483,8 @@ void main() {
                 srcAlphaBlendFactor = VkBlendFactor.One,
                 dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcAlpha,
                 alphaBlendOp = VkBlendOp.Add,
-                // RGB only: the retail sky leaves alpha - the bloom source - at 0, and with the bloom
-                // off the cleared 1 keeps the viewport opaque.
+                // RGB only: with the bloom off the cleared 1 keeps the viewport opaque; with it on the
+                // glow variants below write the retail alpha.
                 colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B,
             };
             var blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = &blendAttach };
@@ -625,7 +625,7 @@ void main() {
             _skyDomeVertexBuffer.Handle != 0 &&
             _skyDomeIndexBuffer.Handle != 0)
         {
-            _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, DestinationAlphaGlow ? _pipelineSkyDomeGlow : _pipelineSkyDome);
+            _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, SkyGlow ? _pipelineSkyDomeGlow : _pipelineSkyDome);
             _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _skyDomeLayout, 0, 1, &sceneSet, 0, null);
             VkBuffer vb = _skyDomeVertexBuffer;
             ulong offset = 0;
@@ -649,10 +649,10 @@ void main() {
         int submitted = 0;
 
         // Draws are sorted by retail pass. Insert pass 17 exactly between pre-shell pass 15/16 and
-        // post-shell pass 18/19. Bloom records only write the old engine's glow mask, so they are drawn
-        // only with its bloom on; they still preserve the ordering boundary so Clouds are never
+        // post-shell pass 18/19. Bloom records only write the glow mask, so they are drawn
+        // only with the bloom on; they still preserve the ordering boundary so Clouds are never
         // accidentally moved after post-shell imagery.
-        bool glow = DestinationAlphaGlow && _pipelineSkyGlow.Handle != 0;
+        bool glow = SkyGlow && _pipelineSkyGlow.Handle != 0;
         foreach (var draw in scene.Draws)
         {
             if (!cloudsSubmitted && draw.RetailPassId > SkyData.CloudsPassId)

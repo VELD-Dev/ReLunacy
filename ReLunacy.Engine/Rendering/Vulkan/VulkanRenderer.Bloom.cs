@@ -54,8 +54,10 @@ public sealed unsafe partial class VulkanRenderer
     private bool BloomWanted =>
         BloomAllowed && _lit && _bloomTargetsReady && _oldLightingEnvironment?.Bloom is { Intensity: > 0f, ExtractScale: > 0f };
 
-    /// <summary>Use the old engine's destination-alpha blend states for the sky passes.</summary>
-    private bool DestinationAlphaGlow => _bloomActive && _oldLightingEnvironment?.Bloom is { DestinationAlpha: true };
+    /// <summary>Use the retail destination-alpha blend states for the sky passes. Both engines write
+    /// them: ACiT's Color shell / Clouds handlers 0x5EB2F4 / 0x5EB60C and Bloom shell handler 0x5EAF44
+    /// emit ToD's blend words, and its Dome 0x5EAB50 uploads SkyDefs +0x50 as its alpha.</summary>
+    private bool SkyGlow => _bloomActive;
 
     private const string FullscreenVertexGlsl = @"#version 450
 void main() {

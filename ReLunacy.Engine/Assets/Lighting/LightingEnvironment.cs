@@ -163,10 +163,7 @@ public readonly record struct NewEngineAtmosphere(
 /// Tools of Destruction runs the same chain (EBOOT 0x004F2E14, the ancestor of QForce's 0x006BD8C0) from
 /// main.dat 0x7100 (<see cref="LevelFog.Bloom"/>). <see cref="ColourExtract"/> false is its alpha-only
 /// extract (FP 95 of the post table 0x100C3660: the glow mask alone, white), picked by 0x7100 +0x8C = 0.
-/// <see cref="DestinationAlpha"/>: the glow mask is the old engine's destination alpha, which the Sky
-/// alone writes (Dome, Color shells, Clouds, Bloom shells; the clear and the opaque world leave 0) -
-/// rather than the new engine's per-shader glow output.
 /// </summary>
 public readonly record struct BloomParameters(
     float ExtractScale, float ExtractExponent, float MipWeight, float HistoryBlend, float Intensity,
-    bool ColourExtract = true, bool DestinationAlpha = false);
+    bool ColourExtract = true);

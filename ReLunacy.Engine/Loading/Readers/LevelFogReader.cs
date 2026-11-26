@@ -108,7 +108,7 @@ public sealed class LevelFogReader
         if (!float.IsFinite(mip) || !float.IsFinite(history) || !float.IsFinite(scale) || !float.IsFinite(exponent) || !float.IsFinite(intensity))
             return null;
         return new BloomParameters(scale, exponent, mip, history, intensity,
-            ColourExtract: U(raw, 0x8C) != 0, DestinationAlpha: true);
+            ColourExtract: U(raw, 0x8C) != 0);
     }
 
     private static float ReadFloat(IGFile file, uint offset)
