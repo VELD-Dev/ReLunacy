@@ -83,7 +83,10 @@ public sealed class NewEngineStandardShaders
     /// read once per file; null when there is none (the renderer keeps its generic shading).</summary>
     public static NewEngineStandardShaders? Find(Games.GameId? game = null)
     {
-        var shaders = FindFor(game, strict: true) ?? FindFor(game, strict: false);
+        // Resistance 2's materials keep Tools of Destruction's constants, which no sibling's table reads:
+        // borrowing one drew every surface wrong. Only its own decrypted EBOOT.
+        var shaders = FindFor(game, strict: true) ??
+                      (game == Games.GameId.Resistance2 ? null : FindFor(game, strict: false));
         LastResolution = new Resolution(shaders?.SourcePath, shaders != null && IsOwnInstall(shaders.SourcePath));
         return shaders;
     }

@@ -595,6 +595,20 @@ public sealed class ZoneReader
         return new System.Numerics.Vector4(bake.Y, bake.Y, z, z / 3f);
     }
 
+    /// <summary>
+    /// c[4] of a Resistance 2 Tie placement. Its +0x54..+0x73 is Tools of Destruction's: prelight offset,
+    /// lightmap +0x5A, then the equal float pair +0x60/+0x64 (7,700 / 7,700 prelit and 7,586 / 7,586
+    /// lightmapped chicago placements; 2.0 by default, as on ToD). Read as the new engine's u16s, that
+    /// float's high half made the scale ~60 and every Tie white. The pair stands in for all three scales
+    /// (INFERRED: ToD's c[4].z is it; ~1.0 on lightmapped placements, the range ACiT's decode gives).
+    /// +0x68 (1.0 on 14,161, a few 0.15-0.9) and +0x6C are left unread.
+    /// </summary>
+    private static System.Numerics.Vector4? Resistance2TieBake(TieInstance instance)
+    {
+        if (instance.OldBakedLightScale is not { } f || !float.IsFinite(f) || f < 0f) return null;
+        return new System.Numerics.Vector4(f, f, f, f / 3f);
+    }
+
     private List<IPlacedInstance<ITie>> ReadTieInstances(
         Objects.Zone legacyZone,
         uint sourceFileBaseOffset,
@@ -678,9 +692,12 @@ public sealed class ZoneReader
                 // with a scale (+0x68 = c[4].z) use them - retail's 523 unbaked placements at 0xFFFFFFFF
                 // have none - and a baked placement only for its primitives that are not baked.
                 bool prelightBaked = legacyInstance.LightmapIndex != TieInstance.NoLightmap;
+                System.Numerics.Vector4? bakedLight = legacyZone.isOld ? null
+                    : Resistance2Layout ? Resistance2TieBake(legacyInstance)
+                    : CrackInTimeTieBake(legacyInstance);
                 byte[]? prelight = null;
                 if (!legacyZone.isOld && lightingReader != null &&
-                    legacyInstance.NewEngineBakedLight is { Z: > 0f } &&
+                    bakedLight is { Z: > 0f } &&
                     legacyInstance.NewEnginePrelightOffset != TieInstance.NoPrelight)
                 {
                     int words = NewEnginePrelightWordCount(tie, prelightBaked);
@@ -702,7 +719,7 @@ public sealed class ZoneReader
                     NewEnginePrelightBaked = prelightBaked,
                     LightmapIndex = lightmapIndex,
                     OldBakedLightScale = legacyZone.isOld ? legacyInstance.OldBakedLightScale : null,
-                    NewEngineBakedLight = legacyZone.isOld ? null : CrackInTimeTieBake(legacyInstance),
+                    NewEngineBakedLight = bakedLight,
                     // Record +0x5D = Unk[9] (Unk starts at +0x54).
                     NewEngineCubeTuid = PaletteCube(cubes, legacyInstance.Unk, 0x5D - 0x54),
                 };
