@@ -25,10 +25,11 @@ public readonly record struct VerticalFogDraw(Matrix4x4 Box, Vector3 Colour);
 ///
 /// Vertical fog (A Crack in Time VerticalFogController 0x472): the game's Init (0x00349D14) keeps the four corners
 /// of its volume's +Y face, the fog density 0.0413 / |Y axis| (+0x1C) and the colour bytes as floats (+0x70);
-/// each frame it draws that face as one quad with the colour and (0, 0, 1, density) as constants (0x003499B4).
-/// The quad here does the same. The program behind it was not found, so the falloff is the editor's: the fog
-/// thickens linearly from the face down, and a ray's fog is 1 - exp(-0.0413 x its length in the box x its mean
-/// depth below the face in half heights).
+/// each frame it draws that face as one quad (0x003499B4, through 0x005BB5A8: VP 0xDB05F0, FP 0xD904C0 = entry
+/// 0x2C5 of the 0xDE2340 table, scene depth on unit 1, alpha blended, depth tested). Per pixel its alpha is
+/// density x the scene point's height below the face x the view-depth gap between face and scene, saturated.
+/// The quad here does the same. Its unit 0 texture (vfx_system texture 13, sampled at world XZ) only tints the
+/// colour and is left out.
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
@@ -281,29 +282,17 @@ layout(push_constant) uniform PC { vec4 uTop; vec4 uX; vec4 uY; vec4 uZ; vec4 uC
 layout(location = 0) in vec3 fWorld;
 layout(location = 1) flat in mat4 fInverse;
 layout(location = 0) out vec4 o;
-// World point -> the box's frame, +-1 on each axis (the axes are not assumed orthogonal to each other's length).
-vec3 local(vec3 w) {
-    vec3 d = w - (uTop.xyz - uY.xyz);
-    return vec3(dot(d, uX.xyz) / dot(uX.xyz, uX.xyz), dot(d, uY.xyz) / dot(uY.xyz, uY.xyz), dot(d, uZ.xyz) / dot(uZ.xyz, uZ.xyz));
-}
 void main() {
     vec2 size = vec2(textureSize(uSceneDepth, 0));
     float z = texelFetch(uSceneDepth, ivec2(gl_FragCoord.xy), 0).r;
     vec2 ndc = vec2(gl_FragCoord.x / size.x * 2.0 - 1.0, 1.0 - gl_FragCoord.y / size.y * 2.0);
     vec4 sw = fInverse * vec4(ndc, z, 1.0);
     vec3 scene = sw.xyz / sw.w;
-    // The ray from the face to what the scene shows behind it, clipped to the box.
-    vec3 a = local(fWorld), b = local(scene), d = b - a;
-    float t0 = 0.0, t1 = 1.0;
-    for (int i = 0; i < 3; i++) {
-        if (abs(d[i]) < 1e-6) { if (abs(a[i]) > 1.0) discard; continue; }
-        float lo = (-1.0 - a[i]) / d[i], hi = (1.0 - a[i]) / d[i];
-        t0 = max(t0, min(lo, hi)); t1 = min(t1, max(lo, hi));
-    }
-    if (t1 <= t0) discard;
-    float span = distance(fWorld, scene) * (t1 - t0);
-    float meanDepth = 1.0 - (a.y + d.y * 0.5 * (t0 + t1));
-    float fog = 1.0 - exp(-uColour.w * span * max(meanDepth, 0.0));
+    // ACIT FP 0xD904C0: density x (face height - scene height) x (scene view depth - face view depth),
+    // linear and not clipped to the box, so the fog runs on past the volume's sides and floor.
+    float below = fWorld.y - scene.y;
+    float span = 1.0 / sw.w - 1.0 / gl_FragCoord.w;
+    float fog = clamp(uColour.w * below * span, 0.0, 1.0);
     if (fog <= 0.002) discard;
     o = vec4(uColour.rgb * fog, fog);
 }";
@@ -375,7 +364,8 @@ void main() {
 
     private float WaterTime => SceneTimeOverride ?? (float)_skyClock.Elapsed.TotalSeconds;
 
-    /// <summary>The game's fog constant: density x half height (VerticalFogController Init, 0x00349FB8).</summary>
+    /// <summary>The game's fog constant: density x half height (VerticalFogController Init, 0x00349FB8).
+    /// Density is per metre below the face, per metre of view depth.</summary>
     private const float VerticalFogDensityScale = 0.0413f;
 
     private VkShaderModule _waterVs, _waterFs, _fogVs, _fogFs;
@@ -667,13 +657,15 @@ void main() {
                 var z = new Vector3(m.M31, m.M32, m.M33);
                 var centre = m.Translation;
                 if (y.LengthSquared() < 1e-8f) continue;
-                // Colour bytes as the game feeds them (x 1/255), into the scene's linear light.
-                var colour = new Vector3(MathF.Pow(fog.Colour.X, 2.2f), MathF.Pow(fog.Colour.Y, 2.2f), MathF.Pow(fog.Colour.Z, 2.2f));
+                // The game's vertex colour (the bytes) times its constant colour (the same bytes / 255), so the
+                // colour is squared; then into the scene's linear light.
+                var c2 = fog.Colour * fog.Colour;
+                var colour = new Vector3(MathF.Pow(c2.X, 2.2f), MathF.Pow(c2.Y, 2.2f), MathF.Pow(c2.Z, 2.2f));
                 pc[0] = new Vector4(centre + y, 0f);
                 pc[1] = new Vector4(x, 0f);
                 pc[2] = new Vector4(y, 0f);
                 pc[3] = new Vector4(z, 0f);
-                pc[4] = new Vector4(colour, VerticalFogDensityScale);
+                pc[4] = new Vector4(colour, VerticalFogDensityScale / y.Length());
                 pc[5] = new Vector4(_cameraPosition, 0f);
                 _api.vkCmdPushConstants(_cmd, _waterLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, 96, pc);
                 _api.vkCmdDraw(_cmd, 6, 1, 0, 0);
