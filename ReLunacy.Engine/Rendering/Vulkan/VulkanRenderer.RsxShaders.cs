@@ -1102,8 +1102,9 @@ void shadeRetail(out vec3 litColor, out float litAlpha) {
     // The EBOOT's opaque shaders leave fog out and write the glow mask (the bloom source) to alpha:
     // fog with the group-0 colour and amount the blended ones use, and take coverage - the cut-out
     // test, the soft-edge pass - from the albedo, as the generic shader does (the game cuts in its
-    // depth pre-pass: none of these shaders discards). In the opaque pass the atmosphere does it below.
-    if (!gBeforeAtmosphere) {
+    // depth pre-pass: none of these shaders discards). In the opaque pass the atmosphere does it below,
+    // when the level has one: A Crack in Time's regions carry no 0x34000 tables, only the linear fog.
+    if (!gBeforeAtmosphere || !newEngineAtmosphereOn()) {
 #if RSX_ACIT
         vec4 fog = uNewEngineFog.y > 0.5 ? newEngineFog() :
             vec4(uFogColour, clamp(min(uFogScale / gl_FragCoord.w + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled);

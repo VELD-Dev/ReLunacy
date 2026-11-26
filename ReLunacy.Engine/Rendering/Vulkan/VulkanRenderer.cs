@@ -2040,7 +2040,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         BindLitState();
         DrawVisible(_pipelineOpaque, _visibleOpaqueLate, _visOpaqueLateCount);
         DrawVisible(_pipelineAdditive, _visibleAdditive, _visAddCount);
-        // Water and vertical fog read the depth copied above (VulkanRenderer.Water.cs).
+        // Water reads the depth copied above (VulkanRenderer.Water.cs); the vertical fog does too, after the translucents.
         DrawWater();
         using (Diagnostics.FrameProfiler.Sample("Vk Volumes")) DrawVolumes();
         // After the volumes so the overlays blend over the finished scene, and in the load pass so they
@@ -2055,6 +2055,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 area, _bloomActive ? _rpResolveKeep : _rpResolve);
         else
             RecordTranslucent(_visibleTranslucent, _visTransCount, _visibleSoftEdge, _visSoftCount, area, _bloomActive ? _rpResolveKeep : _rpResolve);
+        DrawVerticalFog();
         if (_bloomActive)
         {
             // The game's post runs on the world before the editor's overlays draw.

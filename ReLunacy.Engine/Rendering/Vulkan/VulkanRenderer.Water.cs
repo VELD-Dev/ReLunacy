@@ -644,9 +644,17 @@ void main() {
                 _api.vkCmdDrawIndexed(_cmd, (uint)(n * n * 6), 1, 0, 0, 0);
             }
         }
-        if (VerticalFogs.Count > 0)
+    }
+
+    /// <summary>The vertical fogs, over the resolved translucents: retail queues them in bucket 0x46
+    /// (VerticalFogController_Update 0x00349C04 -> 0x005BCC3C), after water (0x3D) and the world's blended
+    /// buckets. Runs in the resolve pass, which is compatible with the pass the pipeline was made for.</summary>
+    private void DrawVerticalFog()
+    {
+        if (VerticalFogs.Count == 0 || !WaterWanted || !_sceneDepthFresh) return;
+        VkDescriptorSet* sets = stackalloc VkDescriptorSet[2] { _descSet, _waterSets[_slot] };
+        Vector4* pc = stackalloc Vector4[8];
         {
-            sets[0] = _descSet;
             _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _fogPipeline);
             _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _waterLayout, 0, 2, sets, 0, null);
             foreach (var fog in VerticalFogs)
