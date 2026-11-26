@@ -717,6 +717,7 @@ public sealed class ZoneReader
                     OldEnginePrelight = oldPrelight,
                     NewEnginePrelightOffset = prelight != null ? legacyInstance.NewEnginePrelightOffset : 0xFFFFFFFF,
                     NewEnginePrelightBaked = prelightBaked,
+                    NewEnginePrelightOldEncoding = Resistance2Layout,
                     LightmapIndex = lightmapIndex,
                     OldBakedLightScale = legacyZone.isOld ? legacyInstance.OldBakedLightScale : null,
                     NewEngineBakedLight = bakedLight,

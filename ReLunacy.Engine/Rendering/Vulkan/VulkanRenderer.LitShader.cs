@@ -594,7 +594,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // ToD unbaked Tie with its placement's prelight (Direction0.w = 6, FPs 86591e25cdd7 flat /
     // 952806cc549c normal-mapped): chroma x max(N.TEX3, 0), N the tangent normal (z without a normal map),
     // + props.b (the emissive term below); the albedo already carries TEX0.z (the vertex light scale).
-    if (uOldEngineMode > 0.5 && instanceLight.direction0.w > 5.5 && instanceLight.direction0.w < 6.5)
+    // Also Resistance 2's prelit Ties, which keep these words on the new engine.
+    if (instanceLight.direction0.w > 5.5 && instanceLight.direction0.w < 6.5)
         unbakedFill = fPrelightChroma * max(dot(normalize(vec3(derivativeSum, 1.0)), fPrelightIntensity.xyz), 0.0);
     if (uOldEngineMode < 0.5 && instanceLight.direction0.w > 4.5 && instanceLight.direction0.w < 5.5) {
         vec3 intensities = fPrelightIntensity.xyz;

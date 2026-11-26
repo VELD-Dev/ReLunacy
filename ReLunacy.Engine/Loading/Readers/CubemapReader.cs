@@ -252,7 +252,8 @@ public sealed class CubemapReader
 
         // ACIT's active references are later in 0x8100. The scene cube is the default for
         // 0x71C0 palettes. The separate water default must also be available to water draws.
-        if (_fileManager.GameDefinition?.Id == Games.GameId.ACrackInTime)
+        // Resistance 2's 0x8100 holds them in the same place (chicago: +0xE8 scene, +0xF0 water).
+        if (_fileManager.GameDefinition?.Id is Games.GameId.ACrackInTime or Games.GameId.Resistance2)
         {
             var (scene, water) = ReadAcitDefaultCubes(region);
             return [.. declaredInOrder.Prepend(water).Prepend(scene).Where(available.Contains).Distinct()];

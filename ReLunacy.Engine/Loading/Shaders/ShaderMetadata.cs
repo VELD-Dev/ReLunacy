@@ -269,7 +269,7 @@ public record struct ShaderMetadataNew : ILunaSerializable
     /// +0x60/+0x64; +0x68 varies with the detail bit (4 by default); +0x50 is the reflection tint and
     /// albedo mix (0.4). +0x20 is the RGB tint. +0x30 is not the QForce strength pair (0 on 943 records,
     /// with the gloss exponent 32/16 at +0x38, like Tools of Destruction's group 1), so the strengths stay
-    /// neutral; the reflection vector and cube index have no known place and stay zero.
+    /// neutral; the reflection vector has no known place and takes ACiT's stand-in, the cube index stays zero.
     /// </summary>
     public static ShaderMetadataNew ReadFourSlot(StreamHelper sh)
     {
@@ -297,6 +297,10 @@ public record struct ShaderMetadataNew : ILunaSerializable
             reflectionTintG = F(0x54),
             reflectionTintB = F(0x58),
             reflectionTintAlbedoMix = F(0x5C),
+            // No known place: ACiT's stand-in (rim gain 2, Fresnel exponent 3, no cube-alpha bias). A zero
+            // vector switches the reflection off, which left every R2 surface without one.
+            reflectionParamX = 2f,
+            reflectionParamY = 3f,
             parallaxScale = F(0x60),
             parallaxBias = F(0x64),
             detailTiling = F(0x68),
