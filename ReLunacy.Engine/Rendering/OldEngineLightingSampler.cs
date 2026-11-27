@@ -39,11 +39,13 @@ public static class OldEngineLightingSampler
 
         DirectionalLight? l0 = environment.Lights.Count > 0 ? environment.Lights[0] : null;
         DirectionalLight? l1 = environment.Lights.Count > 1 ? environment.Lights[1] : null;
+        Vector2 scale = environment.UploadScale ?? new Vector2(0.5f, 1f);
+        float lightScale = 2f * scale.X;
         return new Sample(
             true,
-            environment.Ambient,
-            l0?.Colour ?? Vector3.Zero,
-            l1?.Colour ?? Vector3.Zero,
+            environment.Ambient * lightScale * scale.Y,
+            (l0?.Colour ?? Vector3.Zero) * lightScale,
+            (l1?.Colour ?? Vector3.Zero) * lightScale,
             l0?.Direction ?? Vector3.UnitY,
             l1?.Direction ?? Vector3.UnitY,
             -1,

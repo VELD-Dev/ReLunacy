@@ -112,6 +112,13 @@ public sealed class LightingEnvironment
     public Vector2? ReflectionOcclusion { get; init; }
 
     /// <summary>
+    /// Resistance 2: region.dat 0x8B00 +0x10 (s) and +0x90 (a), which the game applies when it uploads the
+    /// root (EBOOT 0x6015B4 into the vertex constants c[83..85] 0x6020F8 sends): lights x 2s, ambient x 2sa.
+    /// The stored colours stay raw. Null where the colours are used as stored.
+    /// </summary>
+    public Vector2? UploadScale { get; init; }
+
+    /// <summary>
     /// New engine: the game camera's near and far clip planes, region.dat 0x8100 +0x08 / +0x04 (QForce
     /// 0.06 / 1800 on 12 of 17 regions). The renderer converts the game's D24 polygon offset into world
     /// terms with them. Null when the level carries none.

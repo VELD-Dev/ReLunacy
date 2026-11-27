@@ -60,7 +60,7 @@ public sealed unsafe partial class VulkanRenderer
     vec3 uEnvDirection1; float uOldEngineMode;
     vec3 uEnvAmbient; float _oldEngineReserved0;
     vec3 uEnvLight0Colour; float _oldEngineReserved1;
-    vec3 uEnvLight1Colour; float _oldEngineReserved2;
+    vec3 uEnvLight1Colour; float uResistance2Mobys;
     vec3 uFogColour; float uFogScale;
     float uFogBias; float uFogAmount; float uFogEnabled; float uFogDebugView;
     float uNewEngineLodScale; float uReflOcclusionFloor; float uReflOcclusionFullLuminance; float uSceneTime;
@@ -415,7 +415,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         albedo *= uMat7.rgb;
     // PROVEN (retail Tie VP 64fed2abefb9 paired with the analytic-light FP 5a90cc1a17e6): unbaked Ties
     // on the analytic route use the same hemispheric ambient as Mobys, Amb * (1 + 0.5 * n.y).
-    vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 ? 1.0 + 0.5 * worldNormal.y : 1.0)
+    // Resistance 2's Moby key 0 program has the same Amb * (1 + 0.5 * n.y).
+    bool r2Moby = uResistance2Mobys > 0.5 && abs(instanceLight.direction0.w - 3.0) < 0.5;
+    vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 || r2Moby ? 1.0 + 0.5 * worldNormal.y : 1.0)
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
     // Direction0.w: 1 = old-engine Moby draw, 2 = old Tie with a retail baked scale,
@@ -576,7 +578,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     //
     // Old engine keeps 1: the recovered ToD Tie permutation Full[0x28] is LM1.rgb * factor +
     // properties.b, with no multiplier, and no ToD shader has been read that says otherwise.
-    float emissiveGain = uOldEngineMode > 0.5 ? 1.0 : 4.0;
+    // Resistance 2's Moby programs add props.b * G6.w, and the game forces G6.w to 1 (EBOOT 0x655920).
+    float emissiveGain = uOldEngineMode > 0.5 || r2Moby ? 1.0 : 4.0;
     // New-engine unbaked Tie with its placement's prelight (Direction0.w = 5), as the retail shaders
     // light it (FP 210bbe6e06dc flat, af2e853165e2 RNM): prelight + key light * N.L * the baked sun
     // visibility bit, with no environment fill. The normal-map permutations weight the three basis
@@ -725,6 +728,14 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         * dot(lighting, vec3(0.2126, 0.7152, 0.0722)) / occlusionFull, 0.0, 1.0);
     // PROVEN: the reflection mask also takes material +0x34 (c[21].y, faded into TEX2.w).
     vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
+    // Resistance 2's Moby programs sample no cube. Key 4 adds pow(sat(R.L), material +0x38) * light colour
+    // for both lights, times mix(+0x50 tint, albedo, +0x5C) and props.r.
+    if (r2Moby) {
+        float r2Gloss = max(uMat4.w, 1.0);
+        vec3 r2Highlight = uEnvLight0Colour * pow(clamp(dot(newReflDir, uEnvDirection0), 0.0, 1.0), r2Gloss) * sunS
+            + uEnvLight1Colour * pow(clamp(dot(newReflDir, uEnvDirection1), 0.0, 1.0), r2Gloss);
+        newReflection = r2Highlight * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * (allowSpecular ? 1.0 : 0.0);
+    }
     // Old-engine Ties and new-engine reflective materials sample the environment cube here.
     vec3 envFill = uOldEngineMode > 0.5
         ? oldReflection * uEnvironmentIntensity * ((oldUFrag || fallOfManSurface) ? 1.0 : oldTieDraw)

@@ -25,6 +25,7 @@ public sealed class SceneLighting
     public Vector3 EnvAmbient;
     public Vector3 EnvLight0Colour;
     public Vector3 EnvLight1Colour;
+    public bool Resistance2Mobys;
 
     // Non-old/editor controls retained for the generic renderer path. Old-engine fidelity does not
     // use these as feature switches: environment, per-Moby spatial light and emissive are automatic,
@@ -61,6 +62,7 @@ public sealed class SceneLighting
         EnvLight1Colour = sample.Light1Colour;
         EnvDirection0 = sample.HasLighting ? sample.Direction0 : Vector3.UnitY;
         EnvDirection1 = sample.HasLighting ? sample.Direction1 : Vector3.UnitY;
+        Resistance2Mobys = environment?.UploadScale != null;
     }
 
     public LightData BuildLightData(Vector3 cameraPosition)
@@ -118,8 +120,9 @@ public sealed class SceneLighting
             // proven. The shader may still use a clearly-labelled presentation fallback for LM1/LM2.
             BakedLightingEnabled = old ? 0f : (BakedLightingEnabled ? 1f : 0f),
             EnvLight1Colour = EnvLight1Colour,
-            // Material emissive is source-driven fidelity, not a graphics option.
-            MaterialEmissiveEnabled = 1f,
+            // Resistance 2's Moby programs (EBOOT table 0xF0B83C block 2): hemispheric ambient, emissive x 1,
+            // and no cube - specular is a Phong highlight of the two lights.
+            Resistance2Mobys = Resistance2Mobys ? 1f : 0f,
 
             // PROVEN: colour, LinearScale, LinearBias, Amount come from 0x7100 / 0x572774.
             // PROVEN since 2026-09-16: coordinate = clip-space w (retail Tie/Moby VPs). The shaders use it

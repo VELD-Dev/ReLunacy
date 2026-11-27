@@ -301,6 +301,8 @@ public record struct ShaderMetadataNew : ILunaSerializable
             // vector switches the reflection off, which left every R2 surface without one.
             reflectionParamX = 2f,
             reflectionParamY = 3f,
+            // The gloss exponent, which only Resistance 2's Moby highlight reads (uMat4.w).
+            reflectionParamW = F(0x38),
             parallaxScale = F(0x60),
             parallaxBias = F(0x64),
             detailTiling = F(0x68),

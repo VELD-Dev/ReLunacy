@@ -72,7 +72,8 @@ public sealed class LightingEnvironmentReader
         // (5.56, 2.9, 1.41)) and levels without their own lighting carry identical defaults (ambient
         // 0.18, sun 1.33, fill 0.67). That is a decoded source, not the presentation fallback.
         if (section.length == 0xA0)
-            return ReadNewEngineShiftedRoot(region, section.offset, key);
+            return ReadNewEngineShiftedRoot(region, section.offset, key,
+                fileManager.GameDefinition?.Id == Games.GameId.Resistance2);
 
         Vector3 towardSun = ReadVec3(region, section.offset + 0x50);
         if (!float.IsFinite(towardSun.X) || towardSun.LengthSquared() < 0.5f || towardSun.LengthSquared() > 1.5f)
@@ -315,8 +316,18 @@ public sealed class LightingEnvironmentReader
         return new Vector2(near, far);
     }
 
-    private static Assets.Lighting.LightingEnvironment? ReadNewEngineShiftedRoot(IGFile region, uint b, string key)
+    private static Assets.Lighting.LightingEnvironment? ReadNewEngineShiftedRoot(IGFile region, uint b, string key,
+        bool resistance2 = false)
     {
+        Vector2? uploadScale = null;
+        if (resistance2)
+        {
+            // Resistance 2's loader 0x655920 copies +0x10 and +0x90 beside the colours, and 0x6015B4 scales
+            // them on upload (LightingEnvironment.UploadScale). chicago: s = 1, a = 0.16.
+            float s = ReadVec4(region, b + 0x10).X, a = ReadVec4(region, b + 0x90).X;
+            if (float.IsFinite(s) && float.IsFinite(a) && s >= 0f && a >= 0f)
+                uploadScale = new Vector2(s, a);
+        }
         var env = new Assets.Lighting.LightingEnvironment
         {
             Version = 0,
@@ -329,6 +340,7 @@ public sealed class LightingEnvironmentReader
             // the borrowed shaders' mask off; without it the (0.01, 0.6) default blacked out the
             // reflection on every dark lightmapped surface.
             ReflectionOcclusion = new Vector2(1f, 1f),
+            UploadScale = uploadScale,
         };
         for (int i = 0; i < MaxLights; i++)
         {
