@@ -602,6 +602,101 @@ public sealed class LightingEnvironmentReader
         ValidateVoxelPacking(voxelStart, voxelEnd, occupiedVoxelRanges);
     }
 
+    private const uint NewEngineVolumeStride = 0x100;
+
+    /// <summary>
+    /// A new-engine zone's light volumes (0x8C00, 0x100 each) and their u8 grids (0x8D00), appended to
+    /// <paramref name="volumes"/> with indices continuing theirs. Resistance 2 keeps ToD's 0x80 record in the first
+    /// half (byte colours, s at +0x10); A Crack in Time keeps floats: ambient / light colours +0x00/+0x10/+0x20, directions
+    /// +0x30/+0x40, axes and half-extents +0x50..+0x7F, centre +0x80, s +0xA0, exponents +0xA4, grid +0xA8, k +0xAC.
+    /// Grid pointers are zone-file relative. Both games' loaders (R2 0x6155D4) replace a k outside (0, 1] by 1.
+    /// </summary>
+    public static void ReadNewEngineZoneVolumes(IGFile zone, bool crackInTime, List<Assets.Lighting.SpatialLightingVolume> volumes)
+    {
+        var section = zone.QuerySection(SpatialVolumesID);
+        if (section.id != SpatialVolumesID || section.count == 0) return;
+        if (section.length != NewEngineVolumeStride)
+        {
+            Console.WriteLine($"Zone light volumes: unsupported stride 0x{section.length:X}; skipped.");
+            return;
+        }
+        var voxelSection = zone.QuerySection(SpatialVoxelDataID);
+        long voxelStart = voxelSection.id == SpatialVoxelDataID ? voxelSection.offset : 0;
+        long voxelEnd = voxelSection.id == SpatialVoxelDataID ? (long)voxelSection.offset + voxelSection.length : 0;
+
+        for (uint i = 0; i < section.count; i++)
+        {
+            uint r = checked(section.offset + i * NewEngineVolumeStride);
+            uint b = crackInTime ? 0x50u : 0x40u;
+            Vector4 axisX = ReadVec4(zone, r + b), axisY = ReadVec4(zone, r + b + 0x10), axisZ = ReadVec4(zone, r + b + 0x20);
+            Vector4 centre = ReadVec4(zone, r + b + 0x30);
+            uint grid = crackInTime ? 0xA0u : 0x10u;
+            zone.sh.Seek(r + grid);
+            float voxelScale = zone.sh.ReadSingle();
+            byte expX = zone.sh.ReadByte(), expY = zone.sh.ReadByte(), expZ = zone.sh.ReadByte(), gridFlags = zone.sh.ReadByte();
+            uint voxelPointer = zone.sh.ReadUInt32();
+            float k = zone.sh.ReadSingle();
+            if (!(k > 0f && k <= 1f)) k = 1f;
+
+            byte[] voxels = [];
+            if (voxelPointer != 0 && expX < 16 && expY < 16 && expZ < 16)
+            {
+                int count = (1 << expX) * (1 << expY) * (1 << expZ);
+                if (voxelPointer >= voxelStart && voxelPointer + (long)count <= voxelEnd)
+                    voxels = zone.sh.ReadFromOffset(count, voxelPointer);
+                else
+                    Console.WriteLine($"Zone light volume {i}: grid [0x{voxelPointer:X}, +0x{count:X}) outside 0x8D00; read without it.");
+            }
+
+            uint c0 = 0, c1 = 0, c2 = 0;
+            Vector3 colour0, colour1, colour2, direction0, direction1;
+            if (crackInTime)
+            {
+                colour0 = ReadVec3(zone, r);
+                colour1 = ReadVec3(zone, r + 0x10);
+                colour2 = ReadVec3(zone, r + 0x20);
+                direction0 = ReadVec3(zone, r + 0x30);
+                direction1 = ReadVec3(zone, r + 0x40);
+            }
+            else
+            {
+                c0 = zone.sh.ReadUInt32(r + 0x04); c1 = zone.sh.ReadUInt32(r + 0x08); c2 = zone.sh.ReadUInt32(r + 0x0C);
+                colour0 = DecodeNativeLightingRgb8(c0);
+                colour1 = DecodeNativeLightingRgb8(c1);
+                colour2 = DecodeNativeLightingRgb8(c2);
+                direction0 = ReadVec3(zone, r + 0x20);
+                direction1 = ReadVec3(zone, r + 0x30);
+            }
+
+            volumes.Add(new Assets.Lighting.SpatialLightingVolume
+            {
+                Index = volumes.Count,
+                Colour0Bits = c0,
+                Colour1Bits = c1,
+                Colour2Bits = c2,
+                Colour0 = colour0,
+                Colour1 = colour1,
+                Colour2 = colour2,
+                GridExponentX = expX,
+                GridExponentY = expY,
+                GridExponentZ = expZ,
+                GridFlags = gridFlags,
+                VoxelPointer = voxels.Length != 0 ? voxelPointer : 0,
+                Field1C = k,
+                VoxelScale = float.IsFinite(voxelScale) ? voxelScale : 1f,
+                Direction0 = direction0,
+                Direction1 = direction1,
+                AxisX = new Vector3(axisX.X, axisX.Y, axisX.Z),
+                AxisY = new Vector3(axisY.X, axisY.Y, axisY.Z),
+                AxisZ = new Vector3(axisZ.X, axisZ.Y, axisZ.Z),
+                AxisScale = new Vector3(axisX.W, axisY.W, axisZ.W),
+                Center = new Vector3(centre.X, centre.Y, centre.Z),
+                CenterW = centre.W,
+                Voxels = voxels,
+            });
+        }
+    }
+
     private static int GridCellCount(uint index, byte expX, byte expY, byte expZ)
     {
         if (expX >= 31 || expY >= 31 || expZ >= 31)

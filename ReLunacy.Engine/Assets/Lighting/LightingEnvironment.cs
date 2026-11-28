@@ -56,6 +56,10 @@ public sealed class SpatialLightingVolume
     /// 1 before evaluating the voxel weight. The original float is kept exactly.</summary>
     public float Field1C { get; init; }
 
+    /// <summary>The voxel scale s in the new-engine weight (s / 255) * v * k + 1 - k: Resistance 2 +0x10, A Crack in
+    /// Time +0xA0 (EBOOTs 0x654A40 / 0x5D20AC). Tools of Destruction has none (1).</summary>
+    public float VoxelScale { get; init; } = 1f;
+
     public Vector3 Direction0 { get; init; }
     public Vector3 Direction1 { get; init; }
 

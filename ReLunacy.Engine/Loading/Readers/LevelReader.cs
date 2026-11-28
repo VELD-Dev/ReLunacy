@@ -337,6 +337,8 @@ public sealed class LevelReader
             lighting.FogTable = LightingEnvironmentReader.ReadNewEngineFogTable(_fileManager, name);
             lighting.InscatterTable = LightingEnvironmentReader.ReadNewEngineInscatterTable(_fileManager, name);
             lighting.Atmosphere = LightingEnvironmentReader.ReadNewEngineAtmosphere(_fileManager, name);
+            if (!_fileManager.isOld && !lighting.IsPresentationFallback)
+                lighting.SpatialVolumes.AddRange(_zoneReader.NewLightVolumes);
             if (name != null) lightingByRegion[name] = lighting;
         }
         progress?.Advance();

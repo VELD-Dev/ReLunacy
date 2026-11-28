@@ -18,14 +18,12 @@ public static class OldEngineRenderOptions
     // Legacy compatibility fields. Do not use these to gate old-engine fidelity.
     public static bool BakedLightingEnabled;
     /// <summary>
-    /// Per-Moby sampling of the 0x8C00/0x8D00 volumes. Default OFF: a runtime probe of the retail volume
-    /// selector (0x005510AC, the entry every spatial evaluator calls) saw ~4 queries/frame in a live level,
-    /// all from a lattice scan, a once-per-frame hero query and FX particles - never one per Moby - and the
-    /// only evaluator that takes a normal (0x00551390) has no live caller. Retail Mobys therefore appear to use
-    /// the global 0x8B00 rig. See Tools/Reverse/evidence/TOD_Spatial_Lighting_Queries_2026-09-18.md. The A/B
-    /// toggle stays in the Render menu.
+    /// Per-Moby sampling of the 0x8C00/0x8D00 light volumes. Every object samples them: ToD's tracker 0x551540
+    /// keeps the box holding the object (0x5510AC only runs when it leaves it), called per object by 0x49B988
+    /// (position +0x70, state +0x150), and the Moby draw 0x555AF0 builds its rig from that state. Resistance 2
+    /// (0x654E18) and A Crack in Time do the same with their zones' volumes.
     /// </summary>
-    public static bool MobySpatialLightingEnabled;
+    public static bool MobySpatialLightingEnabled = true;
     public static bool EnvironmentLightingEnabled = true;
     public static bool MaterialEmissiveEnabled = true;
 

@@ -736,8 +736,13 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // for both lights, times mix(+0x50 tint, albedo, +0x5C) and props.r, with no shadow on it.
     if (r2Moby) {
         float r2Gloss = max(uMat4.w, 1.0);
-        vec3 r2Highlight = uEnvLight0Colour * pow(clamp(dot(newReflDir, uEnvDirection0), 0.0, 1.0), r2Gloss)
-            + uEnvLight1Colour * pow(clamp(dot(newReflDir, uEnvDirection1), 0.0, 1.0), r2Gloss);
+        // The lights are the Moby's own rig (its light volume's, or the level's outside every volume).
+        vec3 r2Dir0 = mix(uEnvDirection0, instanceLight.direction0.xyz, useInstanceLighting);
+        vec3 r2Dir1 = mix(uEnvDirection1, instanceLight.direction1.xyz, useInstanceLighting);
+        vec3 r2Colour0 = mix(uEnvLight0Colour, instanceLight.light0Colour.xyz, useInstanceLighting);
+        vec3 r2Colour1 = mix(uEnvLight1Colour, instanceLight.light1Colour.xyz, useInstanceLighting);
+        vec3 r2Highlight = r2Colour0 * pow(clamp(dot(newReflDir, r2Dir0), 0.0, 1.0), r2Gloss)
+            + r2Colour1 * pow(clamp(dot(newReflDir, r2Dir1), 0.0, 1.0), r2Gloss);
         newReflection = r2Highlight * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * (allowSpecular ? 1.0 : 0.0);
     }
     // Old-engine Ties and new-engine reflective materials sample the environment cube here.

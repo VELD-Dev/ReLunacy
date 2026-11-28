@@ -29,6 +29,12 @@ public sealed class ZoneReader
     private readonly HashSet<ulong> _newZoneLightingTextureIds = [];
     internal Dictionary<ulong, List<Assets.Foliage.FoliagePlacement>> NewFoliagePlacements { get; } = [];
 
+    private readonly List<Assets.Lighting.SpatialLightingVolume> _newLightVolumes = [];
+
+    /// <summary>New engine: the light volumes of the zones last read (0x8C00/0x8D00), which light Mobys by position.
+    /// Empty on All 4 One and Into the Nexus, whose volumes carry no colours.</summary>
+    public IReadOnlyList<Assets.Lighting.SpatialLightingVolume> NewLightVolumes => _newLightVolumes;
+
     public IReadOnlyList<ITexture> NewZoneLightmaps => _newZoneLightmaps;
     public IReadOnlyList<ITexture> NewZoneDirectionals => _newZoneDirectionals;
 
@@ -122,6 +128,7 @@ public sealed class ZoneReader
         _newZoneLightmaps.Clear();
         _newZoneDirectionals.Clear();
         _newZoneLightingTextureIds.Clear();
+        _newLightVolumes.Clear();
         NewFoliagePlacements.Clear();
 
         AssetPointer[] zonePtrs = NewEngineAssetLookup.ReadPointers(
@@ -145,6 +152,8 @@ public sealed class ZoneReader
 
             var legacyZone = new Objects.Zone(streamHelper, old: false);
             FoliageReader.CollectNewPlacements(legacyZone.zoneIGFile, zonePtrs[i].TUID, NewFoliagePlacements);
+            if (CrackInTimeLayout || Resistance2Layout)
+                LightingEnvironmentReader.ReadNewEngineZoneVolumes(legacyZone.zoneIGFile, CrackInTimeLayout, _newLightVolumes);
             IReadOnlyList<ZoneLightingPair> lightingPairs = lightingReader.ReadZone(
                 legacyZone.zoneIGFile,
                 zonePtrs[i].TUID,
