@@ -96,15 +96,14 @@ public static class OldEngineLightingSampler
         if (best == null)
             return Global(environment);
 
-        // The volume colours take the same upload scale as the global rig (Resistance 2's 0x6015B4; x1 elsewhere).
+        // The volume colours are NOT given Resistance 2's upload scale: its builder 0x6550BC copies them x w alone,
+        // 0x6015B4 scales only the level's rig, and w already reaches (s / 255) * 255 * k + 1 - k = 2.4 on chicago.
         float weight = SampleVoxelWeight(best, worldPosition);
-        Vector2 scale = environment.UploadScale ?? new Vector2(0.5f, 1f);
-        float lightScale = 2f * scale.X * weight;
         return new Sample(
             true,
-            best.Colour0 * lightScale * scale.Y,
-            best.Colour1 * lightScale,
-            best.Colour2 * lightScale,
+            best.Colour0 * weight,
+            best.Colour1 * weight,
+            best.Colour2 * weight,
             best.Direction0,
             best.Direction1,
             best.Index,
