@@ -93,8 +93,15 @@ public sealed class SkyReader
         string regionKey = $"{_newEngineRegion}/region.dat";
         if (!_fileManager.igfiles.TryGetValue(regionKey, out IGFile? region) || region is null) return [];
 
+        string payloadKey = $"{_newEngineRegion}/sky.dat";
         var pointer = region.QuerySection(0x81B0);
-        if (pointer.id != 0x81B0 || pointer.count == 0) return [];
+        if (pointer.id != 0x81B0 || pointer.count == 0)
+        {
+            // Resistance 2 keeps its one sky in region.dat itself: SkyDefs 0x8150, the families, the
+            // 0x8180/0x8190 shell and the 0x5200/0x5A00 textures (payload at sky.dat +0).
+            if (region.QuerySection(SkyDefs.SectionId).id != SkyDefs.SectionId) return [];
+            return [ReadNewSky(region, OpenPayload(payloadKey), payloadKey, 0, 1, 0, 0, [])];
+        }
         if (pointer.length < 0x14)
         {
             Console.WriteLine($"Sky (new engine): {regionKey} 0x81B0 stride is 0x{pointer.length:X}, expected 0x20; no sky.");
@@ -110,9 +117,7 @@ public sealed class SkyReader
             for (int i = 0; i < slots.Length; i++) slots[i] = unchecked((int)region.sh.ReadUInt32());
         }
 
-        string payloadKey = $"{_newEngineRegion}/sky.dat";
-        if (!_fileManager.rawfiles.TryGetValue(payloadKey, out Stream? payload))
-            payload = _fileManager.LoadFile(payloadKey, true) as Stream;
+        Stream? payload = OpenPayload(payloadKey);
 
         var skies = new List<LevelSky>();
         for (int k = 0; k < pointer.count; k++)
@@ -132,25 +137,32 @@ public sealed class SkyReader
 
             byte[] skyBytes = region.sh.ReadFromOffset(checked((int)skyLength), skyOffset);
             var sky = new IGFile(new MemoryStream(skyBytes, false));
-
-            var textures = ReadNewTextures(sky, payload, payloadKey, texelBase, k);
-            ITexture? Resolve(uint index) => index < textures.Count ? textures[(int)index] : null;
-
-            SkyDefs? defs = ReadDefinitions(sky);
-            var family8160 = ReadFamily(sky, SkyData.Family8160SectionId, Resolve);
-            var family8170 = ReadFamily(sky, SkyData.Family8170SectionId, Resolve);
-            var definitionTextures = ResolveDefinitionTextures(defs, Resolve);
-            var shellMesh = ReadNativeShellMesh(defs, family8160, family8170, sky, 0x8180, 0x8190, "sky 0x8180/0x8190");
-
             int[] mine = [.. Enumerable.Range(0, slots.Length).Where(slot => slots[slot] == k)];
-            Console.WriteLine(
-                $"Sky (new engine, {_newEngineRegion}) {k}/{pointer.count} {tuid:X16}: SkyDefs={(defs != null ? "yes" : "no")}, " +
-                $"0x8160={family8160.Count}, 0x8170={family8170.Count}, textures={textures.Count(t => t != null)}/{textures.Count} from sky.dat +0x{texelBase:X}, " +
-                $"shell={(shellMesh != null ? $"{shellMesh.Vertices.Count}v/{shellMesh.Indices.Count}i" : "absent")}, " +
-                $"set_sky slots [{string.Join(", ", mine)}].");
-            skies.Add(new LevelSky(k, tuid, mine, new SkyData(defs, family8160, family8170, definitionTextures, shellMesh)));
+            skies.Add(ReadNewSky(sky, payload, payloadKey, k, (int)pointer.count, tuid, texelBase, mine));
         }
         return skies;
+    }
+
+    private Stream? OpenPayload(string payloadKey) =>
+        _fileManager.rawfiles.TryGetValue(payloadKey, out Stream? payload) ? payload : _fileManager.LoadFile(payloadKey, true) as Stream;
+
+    private LevelSky ReadNewSky(IGFile sky, Stream? payload, string payloadKey, int k, int count, ulong tuid, uint texelBase, int[] mine)
+    {
+        var textures = ReadNewTextures(sky, payload, payloadKey, texelBase, k);
+        ITexture? Resolve(uint index) => index < textures.Count ? textures[(int)index] : null;
+
+        SkyDefs? defs = ReadDefinitions(sky);
+        var family8160 = ReadFamily(sky, SkyData.Family8160SectionId, Resolve);
+        var family8170 = ReadFamily(sky, SkyData.Family8170SectionId, Resolve);
+        var definitionTextures = ResolveDefinitionTextures(defs, Resolve);
+        var shellMesh = ReadNativeShellMesh(defs, family8160, family8170, sky, 0x8180, 0x8190, "sky 0x8180/0x8190");
+
+        Console.WriteLine(
+            $"Sky (new engine, {_newEngineRegion}) {k}/{count} {tuid:X16}: SkyDefs={(defs != null ? "yes" : "no")}, " +
+            $"0x8160={family8160.Count}, 0x8170={family8170.Count}, textures={textures.Count(t => t != null)}/{textures.Count} from sky.dat +0x{texelBase:X}, " +
+            $"shell={(shellMesh != null ? $"{shellMesh.Vertices.Count}v/{shellMesh.Indices.Count}i" : "absent")}, " +
+            $"set_sky slots [{string.Join(", ", mine)}].");
+        return new LevelSky(k, tuid, mine, new SkyData(defs, family8160, family8170, definitionTextures, shellMesh));
     }
 
     /// <summary>An embedded IGHW 1.1's byte length, from its header: relocation table start + 4 x count.</summary>

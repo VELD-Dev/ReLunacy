@@ -321,8 +321,14 @@ public static class ClassFields
         return null;
     }
 
+    /// <summary>The class's name: the game's own (<see cref="GameClassNames"/>) when it has one, else the table's, or null.</summary>
+    public static string? ClassName(GameId? game, uint cls) => GameClassNames.Name(game, cls) ?? FieldsClassName(game, cls);
+
+    /// <summary>Whether the class's name comes from the game itself, so the table's cannot replace it.</summary>
+    public static bool HasGameName(GameId? game, uint cls) => GameClassNames.Name(game, cls) != null;
+
     /// <summary>The class's name in the table, or null.</summary>
-    public static string? ClassName(GameId? game, uint cls)
+    private static string? FieldsClassName(GameId? game, uint cls)
     {
         if (game is not { } id) return null;
         var table = Load(id);

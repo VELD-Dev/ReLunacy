@@ -53,7 +53,8 @@ public sealed class LuaCompletionPopup
     public void Refresh(CodeEditorControl editor, LuaApiDatabase api, bool force,
                         LuaScriptIndex? scripts = null,
                         Func<LuaScriptNameKind, IEnumerable<string>>? scriptNames = null,
-                        Func<IEnumerable<LuaCompletionItem>>? textTags = null)
+                        Func<IEnumerable<LuaCompletionItem>>? textTags = null,
+                        Func<string, IEnumerable<LuaCompletionItem>?>? tableKeys = null)
     {
         var caret = editor.Caret;
         if (!force && _lastVersion == editor.Document.Version && _lastCaret == caret) return;
@@ -62,7 +63,7 @@ public sealed class LuaCompletionPopup
         _lastCaret = caret;
 
         _items = LuaCompletionEngine.Complete(editor.Document.GetText(),
-            new LuaPosition(caret.Line, caret.Column), api, out var context, scripts, scriptNames, textTags);
+            new LuaPosition(caret.Line, caret.Column), api, out var context, scripts, scriptNames, textTags, tableKeys);
         _context = context;
 
         // Opening on a bare identifier with nothing typed would cover the text with the entire API

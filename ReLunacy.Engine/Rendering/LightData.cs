@@ -51,7 +51,8 @@ public struct LightData
     public Vector3 EnvLight0Colour;
     public float BakedLightingEnabled;
     public Vector3 EnvLight1Colour;
-    public float MaterialEmissiveEnabled;
+    // 1 on Resistance 2, whose Moby shaders differ from the other new-engine games' (SceneLighting).
+    public float Resistance2Mobys;
 
     // Fog. Colour and scale/bias/amount come from the proven 0x7100 record / 0x572774 CPU
     // precomputation. The coordinate is now closed as well: the retail Tie and Moby VPs compute

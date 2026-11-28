@@ -75,6 +75,7 @@ public class EntityTie : Entity
         NewEngineBakedLight = tieInstance.NewEngineBakedLight;
         NewEngineCubeTuid = tieInstance.NewEngineCubeTuid;
         NewEnginePrelight = tieInstance.NewEnginePrelight;
+        NewEnginePrelightOldEncoding = tieInstance.NewEnginePrelightOldEncoding;
         OldEnginePrelight = tieInstance.OldEnginePrelight;
         FallOfManBake = (tieInstance as PlacedInstance<ITie>)?.FallOfManBake;
         FallOfManTiePrelight = (tieInstance as PlacedInstance<ITie>)?.FallOfManTiePrelight;
@@ -122,6 +123,9 @@ public class EntityTie : Entity
 
     /// <summary>New engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
     public byte[]? NewEnginePrelight { get; }
+
+    /// <summary>Whether <see cref="NewEnginePrelight"/> holds Tools of Destruction's word encoding (Resistance 2).</summary>
+    public bool NewEnginePrelightOldEncoding { get; }
 
     /// <summary>Old engine: this placement's prelight words, or null (see IPlacedInstance).</summary>
     public byte[]? OldEnginePrelight { get; }

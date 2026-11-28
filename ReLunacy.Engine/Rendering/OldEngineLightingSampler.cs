@@ -39,19 +39,21 @@ public static class OldEngineLightingSampler
 
         DirectionalLight? l0 = environment.Lights.Count > 0 ? environment.Lights[0] : null;
         DirectionalLight? l1 = environment.Lights.Count > 1 ? environment.Lights[1] : null;
+        Vector2 scale = environment.UploadScale ?? new Vector2(0.5f, 1f);
+        float lightScale = 2f * scale.X;
         return new Sample(
             true,
-            environment.Ambient,
-            l0?.Colour ?? Vector3.Zero,
-            l1?.Colour ?? Vector3.Zero,
+            environment.Ambient * lightScale * scale.Y,
+            (l0?.Colour ?? Vector3.Zero) * lightScale,
+            (l1?.Colour ?? Vector3.Zero) * lightScale,
             l0?.Direction ?? Vector3.UnitY,
             l1?.Direction ?? Vector3.UnitY,
             -1,
             1f);
     }
 
-    /// <summary>Samples the spatial-lighting rig at one world-space point. Fall of Man always
-    /// queries its lighting boxes. The Tools of Destruction A/B switch controls its 0x8C00 lookup.</summary>
+    /// <summary>Samples the spatial-lighting rig at one world-space point: the deepest box holding it, else the
+    /// global rig. Fall of Man always queries its lighting boxes; MobySpatialLightingEnabled gates the others.</summary>
     public static Sample SampleAt(LightingEnvironment? environment, Vector3 worldPosition)
     {
         if (environment == null)
@@ -94,6 +96,8 @@ public static class OldEngineLightingSampler
         if (best == null)
             return Global(environment);
 
+        // The volume colours are NOT given Resistance 2's upload scale: its builder 0x6550BC copies them x w alone,
+        // 0x6015B4 scales only the level's rig, and w already reaches (s / 255) * 255 * k + 1 - k = 2.4 on chicago.
         float weight = SampleVoxelWeight(best, worldPosition);
         return new Sample(
             true,
@@ -125,9 +129,9 @@ public static class OldEngineLightingSampler
         float localY = Vector3.Dot(delta, volume.AxisY) / volume.AxisScale.Y;
         float localZ = Vector3.Dot(delta, volume.AxisZ) / volume.AxisScale.Z;
 
-        float gx = Math.Clamp(sizeX * (localX * 0.5f + 0.5f) - 0.5f, 0f, sizeX - 1f);
-        float gy = Math.Clamp(sizeY * (localY * 0.5f + 0.5f) - 0.5f, 0f, sizeY - 1f);
-        float gz = Math.Clamp(sizeZ * (localZ * 0.5f + 0.5f) - 0.5f, 0f, sizeZ - 1f);
+        float gx = Math.Clamp(sizeX * (localX * 0.5f + 0.5f) - 0.5f, 0f, sizeX - 1.0001f);
+        float gy = Math.Clamp(sizeY * (localY * 0.5f + 0.5f) - 0.5f, 0f, sizeY - 1.0001f);
+        float gz = Math.Clamp(sizeZ * (localZ * 0.5f + 0.5f) - 0.5f, 0f, sizeZ - 1.0001f);
 
         int x0 = (int)MathF.Floor(gx); int x1 = Math.Min(x0 + 1, sizeX - 1); float tx = gx - x0;
         int y0 = (int)MathF.Floor(gy); int y1 = Math.Min(y0 + 1, sizeY - 1); float ty = gy - y0;
@@ -149,8 +153,9 @@ public static class OldEngineLightingSampler
         float c1 = Lerp(c01, c11, ty);
         float voxel01 = Lerp(c0, c1, tz) / 255f;
 
-        // Wrapper path used by the retail position sampler caps Field1C at 1 before this blend.
+        // Wrapper path used by the retail position sampler caps Field1C at 1 before this blend. The new engine
+        // scales the voxel by s first (VoxelScale, 1 on ToD): (s / 255) * v * k + 1 - k.
         float field = MathF.Min(volume.Field1C, 1f);
-        return 1f - field * (1f - voxel01);
+        return volume.VoxelScale * voxel01 * field + 1f - field;
     }
 }

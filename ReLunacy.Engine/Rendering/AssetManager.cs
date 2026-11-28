@@ -643,8 +643,10 @@ public sealed class AssetManager : IDisposable
                 cubes.Add(list[Math.Min(i, list.Count - 1)]);
         }
 
+        // The whole chain the files carry (Resistance 2: six, which its descriptors let the RSX sample).
+        int levels = Math.Min(cubes.Max(c => HalfMipCount(c.HalfFloatFaces![0], c.FaceSize)), BitOperations.Log2((uint)size) + 1);
         var tex = factory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(
-            (uint)size, (uint)size, 1, (uint)cubes.Count, NeoVeldrid.PixelFormat.R16_G16_B16_A16_Float,
+            (uint)size, (uint)size, (uint)levels, (uint)cubes.Count, NeoVeldrid.PixelFormat.R16_G16_B16_A16_Float,
             NeoVeldrid.TextureUsage.Sampled | NeoVeldrid.TextureUsage.Cubemap));
         // The storage transform is measured, the orientation is not (CubemapArrangement): direction f
         // takes the stored face the arrangement names, with the per-face rotation that the chosen cube
@@ -652,9 +654,13 @@ public sealed class AssetManager : IDisposable
         var arrangement = Assets.Cubemaps.CubemapArrangement.NewEngine;
         for (int c = 0; c < cubes.Count; c++)
             for (int f = 0; f < 6; f++)
-                _gd.UpdateTexture(tex,
-                    arrangement.Orient(f, HalfFace(cubes[c].HalfFloatFaces![arrangement.Source(f)], cubes[c].FaceSize, size), size, 8),
-                    0, 0, 0, (uint)size, (uint)size, 1, 0, (uint)(6 * c + f));
+                for (int m = 0; m < levels; m++)
+                {
+                    int w = Math.Max(1, size >> m);
+                    var (mip, from) = HalfMip(cubes[c].HalfFloatFaces![arrangement.Source(f)], cubes[c].FaceSize, w);
+                    _gd.UpdateTexture(tex, arrangement.Orient(f, HalfFace(mip, from, w), w, 8),
+                        0, 0, 0, (uint)w, (uint)w, 1, (uint)m, (uint)(6 * c + f));
+                }
         _environmentCubemapRevision = arrangement.Revision;
 
         Console.WriteLine(
@@ -666,7 +672,31 @@ public sealed class AssetManager : IDisposable
         return true;
     }
 
-    /// <summary>Mip 0 of one half-float face at <paramref name="size"/>: as is, or bilinearly upscaled.</summary>
+    /// <summary>The number of mips a half-float face chain of a <paramref name="size"/> cube holds.</summary>
+    private static int HalfMipCount(byte[] face, int size)
+    {
+        int count = 0;
+        for (int at = 0, w = size; at + w * w * 8 <= face.Length; at += w * w * 8, w = Math.Max(1, w / 2))
+        {
+            count++;
+            if (w == 1) break;
+        }
+        return Math.Max(count, 1);
+    }
+
+    /// <summary>The smallest mip of a face chain still at least <paramref name="width"/> wide (else the last), and its width.</summary>
+    private static (byte[] Mip, int Width) HalfMip(byte[] face, int size, int width)
+    {
+        int at = 0, w = size, count = HalfMipCount(face, size);
+        for (int k = 1; k < count && Math.Max(1, w / 2) >= width; k++)
+        {
+            at += w * w * 8;
+            w = Math.Max(1, w / 2);
+        }
+        return (face.AsSpan(at, w * w * 8).ToArray(), w);
+    }
+
+    /// <summary>One half-float face at <paramref name="size"/>: as is, or bilinearly resampled.</summary>
     private static byte[] HalfFace(byte[] face, int from, int size)
     {
         if (from == size)

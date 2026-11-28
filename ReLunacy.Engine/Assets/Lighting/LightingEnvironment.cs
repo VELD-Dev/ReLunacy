@@ -56,6 +56,10 @@ public sealed class SpatialLightingVolume
     /// 1 before evaluating the voxel weight. The original float is kept exactly.</summary>
     public float Field1C { get; init; }
 
+    /// <summary>The voxel scale s in the new-engine weight (s / 255) * v * k + 1 - k: Resistance 2 +0x10, A Crack in
+    /// Time +0xA0 (EBOOTs 0x654A40 / 0x5D20AC). Tools of Destruction has none (1).</summary>
+    public float VoxelScale { get; init; } = 1f;
+
     public Vector3 Direction0 { get; init; }
     public Vector3 Direction1 { get; init; }
 
@@ -112,6 +116,13 @@ public sealed class LightingEnvironment
     public Vector2? ReflectionOcclusion { get; init; }
 
     /// <summary>
+    /// Resistance 2: region.dat 0x8B00 +0x10 (s) and +0x90 (a), which the game applies when it uploads the
+    /// root (EBOOT 0x6015B4 into the vertex constants c[83..85] 0x6020F8 sends): lights x 2s, ambient x 2sa.
+    /// The stored colours stay raw. Null where the colours are used as stored.
+    /// </summary>
+    public Vector2? UploadScale { get; init; }
+
+    /// <summary>
     /// New engine: the game camera's near and far clip planes, region.dat 0x8100 +0x08 / +0x04 (QForce
     /// 0.06 / 1800 on 12 of 17 regions). The renderer converts the game's D24 polygon offset into world
     /// terms with them. Null when the level carries none.
@@ -163,10 +174,7 @@ public readonly record struct NewEngineAtmosphere(
 /// Tools of Destruction runs the same chain (EBOOT 0x004F2E14, the ancestor of QForce's 0x006BD8C0) from
 /// main.dat 0x7100 (<see cref="LevelFog.Bloom"/>). <see cref="ColourExtract"/> false is its alpha-only
 /// extract (FP 95 of the post table 0x100C3660: the glow mask alone, white), picked by 0x7100 +0x8C = 0.
-/// <see cref="DestinationAlpha"/>: the glow mask is the old engine's destination alpha, which the Sky
-/// alone writes (Dome, Color shells, Clouds, Bloom shells; the clear and the opaque world leave 0) -
-/// rather than the new engine's per-shader glow output.
 /// </summary>
 public readonly record struct BloomParameters(
     float ExtractScale, float ExtractExponent, float MipWeight, float HistoryBlend, float Intensity,
-    bool ColourExtract = true, bool DestinationAlpha = false);
+    bool ColourExtract = true);

@@ -13,14 +13,18 @@ Because the European date format is better, please keep date format like this: `
 - New Moby collision in the 3D view and the Asset Viewer, with its own toolbar button, panel, filters and colour modes.
 - New scripts in the Assets Browser (Scripts > Level, Game, Configs, Other levels), with New script. The Lua Environment opens each script in its own tab (Ctrl+PageUp/PageDown to switch).
 - New water bodies, vertical fog, weather and wind controllers, and custom shaders and materials.
+- New dialogue in Sound Banks for A Crack in Time: the level's lines and the game-wide ones, with subtitles, in all 13 languages.
+  - Each line lists the scripts that play it.
 - Added Lua API documentation for every native of A Crack in Time (993) and Tools of Destruction (685 + 24 methods).
 - Added the names of all 1,272 Resistance: Fall of Man classes, and typed settings fields for the classes placed in levels.
 - Added more named fields for A Crack in Time's classes.
 - Added renaming Clue and Controller classes from the hierarchy.
+- Added `DialogueSpecs` and `SoundSpecs` completion in the Lua Environment, with subtitles.
 - Added controller icons for Resistance: Fall of Man (Fx, sound environment, emitter, crowd, cuboid).
 - Improved the Project system and backup management.
 - Changed: the nightly update checker takes the newest nightly and the build for your own architecture (Windows and Linux, x64 and ARM64).
 - Fixed blended UFrags under water not being refracted.
+- Fixed A Crack in Time's distance fog not matching the game.
 - Fixed Moby collision looking rotated or flipped.
 - Fixed visual effect transformations and animations being read wrong.
 - Fixed Tools of Destruction's `wait` not yielding the script.

@@ -110,6 +110,7 @@ public class LuaEnvironmentFrame : DockedFrame, IDisposable
         editor.ScriptNames = kind => Scripts.ScriptNames(editor.Path, kind);
         editor.TextTags = () => ProjectTextTags.List().Select(tag => new LuaCompletionItem(
             tag.Name, tag.LuaValue, LuaCompletionKind.Variable, $"text ID {tag.Id}", null));
+        editor.TableKeys = LuaSpecKeys.For;
         _files.Add(file);
         return file;
     }

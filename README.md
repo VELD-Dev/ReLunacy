@@ -57,19 +57,17 @@ Sorry for this message, please proceed to the rest of the readme :)
 
 <h2 id="compatibility">✅ Compatibility</h2>
 
-| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs | Foliages | Particles | Volumes & Paths | Instance variables |
-|---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:------:|:--------:|:---------:|:---------------:|:------------------:|
-| Resistance: Fall Of Man               |      Old+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    🚧    |    🚧     |       ✅        |         ✅         |
-| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Resistance 2                          |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Ratchet & Clank: A Crack In Time      |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Resistance: Retribution               |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ?    |    ?     |     ?     |       ✅        |         ?          |
-| Ratchet & Clank: All 4 One            |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Resistance 3                          |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ?    |    ?     |     ?     |       ✅        |         ?          |
-| Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
-| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |   ?    |    ?     |     ?     |        ?        |         ?          |
-| Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |
+| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs | Foliages | Particles | Volumes & Paths | Instance variables | Script editing |
+|---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:------:|:--------:|:---------:|:---------------:|:------------------:|----------------|
+| Resistance: Fall Of Man               |      Old+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    🚧    |    🚧     |       ✅        |         ✅         |       ✅       |
+| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
+| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
+| Resistance 2                          |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
+| Ratchet & Clank: A Crack In Time      |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
+| Ratchet & Clank: All 4 One            |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
+| Resistance 3                          |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ?    |    ?     |     ?     |       ✅        |         ?          |       ✅       |
+| Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
+| Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ✅   |    ✅    |    ✅     |       ✅        |         ✅         |       ✅       |
 
 Notes:
 - For Resistance: Fall of Man, open the game's `USRDIR` in Game Browser. It can discover levels in the digital release's `game.psarc` and in extracted `packed/levels` folders.

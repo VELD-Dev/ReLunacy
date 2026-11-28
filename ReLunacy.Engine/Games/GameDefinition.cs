@@ -9,12 +9,13 @@ public enum GameId
     FullFrontalAssault,
     All4One,
     IntoTheNexus,
+    Resistance2,
 }
 
 public sealed record GameDefinition(GameId Id, string DisplayName, bool IsOldEngine, IReadOnlyList<string> KnownLevels);
 
 // TODO: Add all Ratchet & Clank level names
-// TODO: Add later Resistance games and their levels
+// TODO: Add Resistance 3 and its levels
 public static class GameDefinitions
 {
     /// <summary>The game whose <see cref="GameDefinition.KnownLevels"/> lists the level at
@@ -27,7 +28,7 @@ public static class GameDefinitions
         string name = GameLibraryScanner.GetLevelNameFromPath(levelPath);
         var owners = All.Where(game => game.KnownLevels.Contains(name, StringComparer.OrdinalIgnoreCase)).ToList();
         if (owners.Count <= 1) return owners.FirstOrDefault();
-        // Two names are shared: "lobby" by Full Frontal Assault, All 4 One and Into the Nexus, and
+        // Two names are shared: "lobby" by Full Frontal Assault, All 4 One, Into the Nexus and Resistance 2, and
         // "level_transitions" by Tools of Destruction and Quest for Booty. Taking the first listed
         // owner identified every A4O and ITN lobby as FFA - silently, and not only here: this is what
         // picks a level's EBOOT shader table and the ACiT data layout. The folder the level sits in
@@ -77,6 +78,14 @@ public static class GameDefinitions
             "level80", "level81", "level82", "level90", "level91", "level100", "level101", "level110", "level111",
             "level112", "level120", "level121", "level200", "level210", "level220", "level230", "level240",
             "level250", "level260", "level270", "level280", "level290", "level299",
+        ]),
+        new(GameId.Resistance2, "Resistance 2", IsOldEngine: false, KnownLevels:
+        [
+            "axbridge_coop", "badlands", "bay area", "bay_area_multiplayer", "bayou", "bayou_multiplayer",
+            "bracknell_coop", "bryce_canyon_coop", "bryce_canyon_multiplayer", "chicago", "chicago_coop",
+            "chicago_multiplayer", "chicxulub", "chicxulub_multiplayer", "downtown_chicago", "iceland", "iceland2",
+            "iceland_2_coop", "iceland_2_multiplayer", "iceland_invasion", "lobby", "scotia", "scotia_coop",
+            "scotia_multiplayer", "scotia ship", "southern_scotia_multiplayer", "twin falls",
         ]),
     ];
 

@@ -1202,14 +1202,19 @@ public partial class PropertyInspectorFrame : DockedFrame, IDisposable
             if (_editFields && game is { } renameIn && ImGui.BeginPopupContextItem($"##rename{owner}"))
             {
                 if (ImGui.IsWindowAppearing()) _className = Engine.Assets.LevelElements.ClassFields.ClassName(game, owner) ?? "";
+                bool gameName = Engine.Assets.LevelElements.ClassFields.HasGameName(renameIn, owner);
                 ImGui.SetNextItemWidth(240f);
-                ImGui.InputText(LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _className, 64);
+                ImGui.InputText(LM.Get("GUI_Frame_InstanceInspector_ClassName"), ref _className, 64,
+                    gameName ? ImGuiInputTextFlags.ReadOnly : ImGuiInputTextFlags.None);
+                if (gameName && ImGui.IsItemHovered()) ImGui.SetTooltip(LM.Get("GUI_Frame_InstanceInspector_ClassNameFromGame"));
+                ImGui.BeginDisabled(gameName);
                 if (ImGui.Button(LM.Get("GUI_Frame_InstanceInspector_FieldSave")))
                 {
                     int? parent = chain.IndexOf(owner) is var at && at >= 0 && at + 1 < chain.Count ? (int)chain[at + 1] : null;
                     Engine.Assets.LevelElements.ClassFields.SetClassName(renameIn, owner, _className, parent);
                     ImGui.CloseCurrentPopup();
                 }
+                ImGui.EndDisabled();
                 ImGui.EndPopup();
             }
             if (!open) continue;

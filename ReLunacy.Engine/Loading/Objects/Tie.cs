@@ -32,7 +32,7 @@ public class Tie : IDisposable
     /// here is real UV data; decide PER MESH before use, as TieReader does.</summary>
     public float[]? LightmapUVs { get; private set; }
 
-    public Tie(IGFile file, FileManager fm, bool old = false, uint index = 0, bool crackInTime = false)
+    public Tie(IGFile file, FileManager fm, bool old = false, uint index = 0, bool crackInTime = false, bool resistance2 = false)
     {
         _crackInTime = crackInTime;
         tieStream = file.sh;
@@ -121,7 +121,8 @@ public class Tie : IDisposable
             }
 
             Name = tieStream.ReadString(metadataNew!.Value.nameOffset);
-            ResolveNewShaderIndices((int)shaderTuidSections.count);
+            if (resistance2) UseOldPrimitiveFields();
+            else ResolveNewShaderIndices((int)shaderTuidSections.count);
             ReadTwoLayer(igFile);
             ReadUvAnimations(igFile);
         }
@@ -243,6 +244,24 @@ public class Tie : IDisposable
     /// all of its parts - the "wrong textures on Ties". The +0x26 layout is chosen only when it is
     /// unambiguous for this tie: +0x2A all zero, +0x26 not all zero, and every +0x26 in range.
     /// </summary>
+    /// <summary>
+    /// Resistance 2 keeps the old-engine primitive fields in its new-engine Ties: the 0x5600 index at
+    /// +0x28 (0, 1, 2 on za_chi_dept_center_upper_pillar3's three primitives, +0x2A is 0xFF on all of
+    /// them), the 0x1D feature mask at +0x2C (+0x20 is 0) and the two fade floats (-1/d, 2.5) at +0x30,
+    /// which read as s16 distances would be noise. The fades are left off.
+    /// </summary>
+    private void UseOldPrimitiveFields()
+    {
+        TieMesh[] meshes = Meshes;
+        for (int i = 0; i < meshes.Length; i++)
+        {
+            ref TieMesh m = ref meshes[i];
+            m.newShaderIndex = (byte)m.oldShaderIndex;
+            m.newEngineFeatureMask = m.oldAuthoredShaderUseMask;
+            m.fadeNormalDistance = m.fadeReflectionDistance = m.fadeDetailDistance = 0;
+        }
+    }
+
     private void ResolveNewShaderIndices(int shaderCount)
     {
         TieMesh[] meshes = Meshes;

@@ -29,9 +29,9 @@ public class UFrag : IDisposable, IMesh
     public uint[] boneWeight { get; set; } = [];
     public uint[] vertToBonemap { get; set; } = [];
 
-    public UFrag(StreamHelper sh, bool old, StreamHelper? geometryStream = null)
+    public UFrag(StreamHelper sh, bool old, StreamHelper? geometryStream = null, bool resistance2 = false)
     {
-        metadata = new UFragMetadata(sh, old);
+        metadata = new UFragMetadata(sh, old, resistance2: resistance2);
         isOld = old;
         zoneStream = sh;
         this.geometryStream = geometryStream ?? sh;

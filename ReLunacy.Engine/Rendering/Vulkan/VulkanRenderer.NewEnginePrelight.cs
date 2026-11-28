@@ -198,7 +198,12 @@ public sealed unsafe partial class VulkanRenderer
                     words.Add(bytes[b] | ((uint)bytes[b + 1] << 8) | ((uint)bytes[b + 2] << 16) | ((uint)bytes[b + 3] << 24));
             }
 
-            lights[i] = VkInstanceLight.ForNewEnginePrelight(c4, wordBase + first - drawVertexOffset[i]);
+            // Resistance 2 keeps Tools of Destruction's words: linear chroma, Rec.601 weights, a light
+            // vector instead of three basis intensities. The new decode squares the chroma and boosts
+            // the blue it rebuilds by 13.85, which tinted every prelit Tie blue/purple.
+            lights[i] = tie.NewEnginePrelightOldEncoding
+                ? VkInstanceLight.ForOldPrelit(c4.Z, wordBase + first - drawVertexOffset[i])
+                : VkInstanceLight.ForNewEnginePrelight(c4, wordBase + first - drawVertexOffset[i]);
         }
 
         if (fallOfManDraws + fallOfManPrelit > 0)

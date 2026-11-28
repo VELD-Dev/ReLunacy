@@ -83,7 +83,10 @@ public sealed class NewEngineStandardShaders
     /// read once per file; null when there is none (the renderer keeps its generic shading).</summary>
     public static NewEngineStandardShaders? Find(Games.GameId? game = null)
     {
-        var shaders = FindFor(game, strict: true) ?? FindFor(game, strict: false);
+        // Resistance 2's materials keep Tools of Destruction's constants, which no sibling's table reads:
+        // borrowing one drew every surface wrong. Only its own decrypted EBOOT.
+        var shaders = FindFor(game, strict: true) ??
+                      (game == Games.GameId.Resistance2 ? null : FindFor(game, strict: false));
         LastResolution = new Resolution(shaders?.SourcePath, shaders != null && IsOwnInstall(shaders.SourcePath));
         return shaders;
     }
@@ -258,10 +261,15 @@ public sealed class NewEngineStandardShaders
         }
 
         // A block of 32 entries (one translucent x two-layer quarter) has exactly the reachable keys set.
-        bool QuarterMatches(int at)
+        // With detailOptional the detail half (keys 16..31) may also be empty: Resistance 2 has no
+        // one-layer detail Moby shaders.
+        bool QuarterMatches(int at, bool detailOptional = false)
         {
             if (at < 0 || at + 32 * 4 > d.Length) return false;
-            for (int k = 0; k < 32; k++)
+            bool detailEmpty = detailOptional;
+            for (int k = 16; k < 32 && detailEmpty; k++)
+                detailEmpty = Word(at + 4 * k) == 0;
+            for (int k = 0; k < (detailEmpty ? 16 : 32); k++)
             {
                 uint p = Word(at + 4 * k);
                 if ((p != 0) != ReachableKey[k]) return false;
@@ -290,7 +298,7 @@ public sealed class NewEngineStandardShaders
                 bool all = true;
                 for (int q = 0; q < 4 && all; q++)
                     all = QuarterMatches(at + q * 128) && QuarterMatches(at + 0x200 + q * 128);
-                all = all && QuarterMatches(at + 0x400) && QuarterMatches(at + 0x400 + 128);
+                all = all && QuarterMatches(at + 0x400, detailOptional: true) && QuarterMatches(at + 0x400 + 128, detailOptional: true);
                 if (!all)
                     continue;
 

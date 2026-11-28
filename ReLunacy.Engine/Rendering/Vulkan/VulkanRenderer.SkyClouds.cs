@@ -264,7 +264,7 @@ void main() {
         VkPipeline pipeline;
         Check(_api.vkCreateGraphicsPipelines(GetPipelineCache(), 1, &info, &pipeline), "vkCreateGraphicsPipelines(skyClouds)");
         _pipelineSkyCloud = pipeline;
-        // With the old engine's bloom on: the retail alpha factors, written (A = Adst (1 - As)).
+        // With the bloom on: the retail alpha factors, written (A = Adst (1 - As)).
         blendAttach.srcAlphaBlendFactor = VkBlendFactor.Zero;
         blendAttach.colorWriteMask = mask;
         Check(_api.vkCreateGraphicsPipelines(GetPipelineCache(), 1, &info, &pipeline), "vkCreateGraphicsPipelines(skyClouds glow)");
@@ -351,7 +351,7 @@ void main() {
             return;
 
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics,
-            DestinationAlphaGlow && _pipelineSkyCloudGlow.Handle != 0 ? _pipelineSkyCloudGlow : _pipelineSkyCloud);
+            SkyGlow && _pipelineSkyCloudGlow.Handle != 0 ? _pipelineSkyCloudGlow : _pipelineSkyCloud);
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _skyCloudLayout, 0, 1, &sceneSet, 0, null);
         VkDescriptorSet* textureSets = stackalloc VkDescriptorSet[3]
         {

@@ -43,6 +43,9 @@ public interface IPlacedInstance<out TAsset> where TAsset : IAsset
     /// lighting.dat slice), or null.</summary>
     byte[]? NewEnginePrelight => null;
 
+    /// <summary>Whether <see cref="NewEnginePrelight"/> holds Tools of Destruction's word encoding (Resistance 2).</summary>
+    bool NewEnginePrelightOldEncoding => false;
+
     /// <summary>
     /// Old engine (ToD): an unbaked placement's prelight, read by its Tie vertex shaders as attribute 4
     /// (UB256 x4 per vertex of the Tie, in the Tie's vertex order): textures.dat at record +0x54

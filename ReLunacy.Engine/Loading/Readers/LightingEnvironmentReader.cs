@@ -72,7 +72,8 @@ public sealed class LightingEnvironmentReader
         // (5.56, 2.9, 1.41)) and levels without their own lighting carry identical defaults (ambient
         // 0.18, sun 1.33, fill 0.67). That is a decoded source, not the presentation fallback.
         if (section.length == 0xA0)
-            return ReadNewEngineShiftedRoot(region, section.offset, key);
+            return ReadNewEngineShiftedRoot(region, section.offset, key,
+                fileManager.GameDefinition?.Id == Games.GameId.Resistance2);
 
         Vector3 towardSun = ReadVec3(region, section.offset + 0x50);
         if (!float.IsFinite(towardSun.X) || towardSun.LengthSquared() < 0.5f || towardSun.LengthSquared() > 1.5f)
@@ -173,11 +174,13 @@ public sealed class LightingEnvironmentReader
     /// amount - Tools of Destruction's main.dat 0x7100 fog (+0x40, +0x4C..+0x54), moved, in the record that
     /// also carries its bloom at the same +0x70 as ToD's. The colour is PROVEN: ACiT's world shaders in the
     /// RPCS3 cache end in colour + (C - colour) x saturate(TEX1.w) with C = zolar_forest's +0x30
-    /// (0.08865559, 0.5583405, 0.5332765) to the last digit. The amount comes from the vertex program
-    /// (TEX1.w), which the cache does not translate and whose EBOOT is not decrypted, so the linear ramp
-    /// over view depth, capped at the amount, is ToD's (LevelFog), taken on the record's resemblance:
-    /// near 50 / far 500 / 0.3 on krell_canyon, 90 / 500 / 0.6 zolar_forest, 10 / 624 / 0.8 axiom_city.
-    /// +0x5C (3500, 2500, 1800) is not known. Null when the amount is 0 or the range invalid.
+    /// (0.08865559, 0.5583405, 0.5332765) to the last digit. The ramp is PROVEN (EBOOT): the region loader
+    /// 0x57DEC8 hands +0x50/+0x54/+0x58 to the view as near/far/amount, 0x5D3124 caps far at 14000 and near
+    /// at far, and 0x5E2BFC (near pulled under far by 0.01) builds scale = amount / (far - near), bias =
+    /// -near x scale. The opaque world is fogged by a full-screen pass (0x5C8D54, FP 0xD486F0): fog =
+    /// saturate(min(distance x scale + bias, amount)) over the camera distance - view ray length x view
+    /// depth - skipping the cleared sky (depth >= 0.99999994), hence Radial. +0x5C (3500, 2500, 1800) is
+    /// not known. Null when the amount is 0 or the range invalid.
     /// </summary>
     private static Assets.Lighting.LevelFog? ReadCrackInTimeFog(IGFile region)
     {
@@ -187,8 +190,12 @@ public sealed class LightingEnvironmentReader
         region.sh.Seek(section.offset + 0x50);
         float near = region.sh.ReadSingle(), far = region.sh.ReadSingle(), amount = region.sh.ReadSingle();
         if (!float.IsFinite(colour.X) || !float.IsFinite(colour.Y) || !float.IsFinite(colour.Z) ||
-            !float.IsFinite(near) || !float.IsFinite(far) || !float.IsFinite(amount) || far <= near || amount <= 0f)
+            !float.IsFinite(near) || !float.IsFinite(far) || !float.IsFinite(amount) || amount <= 0f)
             return null;
+        far = MathF.Min(far, 14000f);
+        near = MathF.Min(near, far);
+        if (far <= near) near = far - 0.01f;
+        if (far <= 0f) return null;
         float scale = amount / (far - near);
         return new Assets.Lighting.LevelFog
         {
@@ -198,6 +205,7 @@ public sealed class LightingEnvironmentReader
             Amount = amount,
             LinearScale = scale,
             LinearBias = -near * scale,
+            Radial = true,
             SourceOffset = section.offset,
         };
     }
@@ -308,8 +316,18 @@ public sealed class LightingEnvironmentReader
         return new Vector2(near, far);
     }
 
-    private static Assets.Lighting.LightingEnvironment? ReadNewEngineShiftedRoot(IGFile region, uint b, string key)
+    private static Assets.Lighting.LightingEnvironment? ReadNewEngineShiftedRoot(IGFile region, uint b, string key,
+        bool resistance2 = false)
     {
+        Vector2? uploadScale = null;
+        if (resistance2)
+        {
+            // Resistance 2's loader 0x655920 copies +0x10 and +0x90 beside the colours, and 0x6015B4 scales
+            // them on upload (LightingEnvironment.UploadScale). chicago: s = 1, a = 0.16.
+            float s = ReadVec4(region, b + 0x10).X, a = ReadVec4(region, b + 0x90).X;
+            if (float.IsFinite(s) && float.IsFinite(a) && s >= 0f && a >= 0f)
+                uploadScale = new Vector2(s, a);
+        }
         var env = new Assets.Lighting.LightingEnvironment
         {
             Version = 0,
@@ -322,6 +340,7 @@ public sealed class LightingEnvironmentReader
             // the borrowed shaders' mask off; without it the (0.01, 0.6) default blacked out the
             // reflection on every dark lightmapped surface.
             ReflectionOcclusion = new Vector2(1f, 1f),
+            UploadScale = uploadScale,
         };
         for (int i = 0; i < MaxLights; i++)
         {
@@ -581,6 +600,101 @@ public sealed class LightingEnvironmentReader
         }
 
         ValidateVoxelPacking(voxelStart, voxelEnd, occupiedVoxelRanges);
+    }
+
+    private const uint NewEngineVolumeStride = 0x100;
+
+    /// <summary>
+    /// A new-engine zone's light volumes (0x8C00, 0x100 each) and their u8 grids (0x8D00), appended to
+    /// <paramref name="volumes"/> with indices continuing theirs. Resistance 2 keeps ToD's 0x80 record in the first
+    /// half (byte colours, s at +0x10); A Crack in Time keeps floats: ambient / light colours +0x00/+0x10/+0x20, directions
+    /// +0x30/+0x40, axes and half-extents +0x50..+0x7F, centre +0x80, s +0xA0, exponents +0xA4, grid +0xA8, k +0xAC.
+    /// Grid pointers are zone-file relative. Both games' loaders (R2 0x6155D4) replace a k outside (0, 1] by 1.
+    /// </summary>
+    public static void ReadNewEngineZoneVolumes(IGFile zone, bool crackInTime, List<Assets.Lighting.SpatialLightingVolume> volumes)
+    {
+        var section = zone.QuerySection(SpatialVolumesID);
+        if (section.id != SpatialVolumesID || section.count == 0) return;
+        if (section.length != NewEngineVolumeStride)
+        {
+            Console.WriteLine($"Zone light volumes: unsupported stride 0x{section.length:X}; skipped.");
+            return;
+        }
+        var voxelSection = zone.QuerySection(SpatialVoxelDataID);
+        long voxelStart = voxelSection.id == SpatialVoxelDataID ? voxelSection.offset : 0;
+        long voxelEnd = voxelSection.id == SpatialVoxelDataID ? (long)voxelSection.offset + voxelSection.length : 0;
+
+        for (uint i = 0; i < section.count; i++)
+        {
+            uint r = checked(section.offset + i * NewEngineVolumeStride);
+            uint b = crackInTime ? 0x50u : 0x40u;
+            Vector4 axisX = ReadVec4(zone, r + b), axisY = ReadVec4(zone, r + b + 0x10), axisZ = ReadVec4(zone, r + b + 0x20);
+            Vector4 centre = ReadVec4(zone, r + b + 0x30);
+            uint grid = crackInTime ? 0xA0u : 0x10u;
+            zone.sh.Seek(r + grid);
+            float voxelScale = zone.sh.ReadSingle();
+            byte expX = zone.sh.ReadByte(), expY = zone.sh.ReadByte(), expZ = zone.sh.ReadByte(), gridFlags = zone.sh.ReadByte();
+            uint voxelPointer = zone.sh.ReadUInt32();
+            float k = zone.sh.ReadSingle();
+            if (!(k > 0f && k <= 1f)) k = 1f;
+
+            byte[] voxels = [];
+            if (voxelPointer != 0 && expX < 16 && expY < 16 && expZ < 16)
+            {
+                int count = (1 << expX) * (1 << expY) * (1 << expZ);
+                if (voxelPointer >= voxelStart && voxelPointer + (long)count <= voxelEnd)
+                    voxels = zone.sh.ReadFromOffset(count, voxelPointer);
+                else
+                    Console.WriteLine($"Zone light volume {i}: grid [0x{voxelPointer:X}, +0x{count:X}) outside 0x8D00; read without it.");
+            }
+
+            uint c0 = 0, c1 = 0, c2 = 0;
+            Vector3 colour0, colour1, colour2, direction0, direction1;
+            if (crackInTime)
+            {
+                colour0 = ReadVec3(zone, r);
+                colour1 = ReadVec3(zone, r + 0x10);
+                colour2 = ReadVec3(zone, r + 0x20);
+                direction0 = ReadVec3(zone, r + 0x30);
+                direction1 = ReadVec3(zone, r + 0x40);
+            }
+            else
+            {
+                c0 = zone.sh.ReadUInt32(r + 0x04); c1 = zone.sh.ReadUInt32(r + 0x08); c2 = zone.sh.ReadUInt32(r + 0x0C);
+                colour0 = DecodeNativeLightingRgb8(c0);
+                colour1 = DecodeNativeLightingRgb8(c1);
+                colour2 = DecodeNativeLightingRgb8(c2);
+                direction0 = ReadVec3(zone, r + 0x20);
+                direction1 = ReadVec3(zone, r + 0x30);
+            }
+
+            volumes.Add(new Assets.Lighting.SpatialLightingVolume
+            {
+                Index = volumes.Count,
+                Colour0Bits = c0,
+                Colour1Bits = c1,
+                Colour2Bits = c2,
+                Colour0 = colour0,
+                Colour1 = colour1,
+                Colour2 = colour2,
+                GridExponentX = expX,
+                GridExponentY = expY,
+                GridExponentZ = expZ,
+                GridFlags = gridFlags,
+                VoxelPointer = voxels.Length != 0 ? voxelPointer : 0,
+                Field1C = k,
+                VoxelScale = float.IsFinite(voxelScale) ? voxelScale : 1f,
+                Direction0 = direction0,
+                Direction1 = direction1,
+                AxisX = new Vector3(axisX.X, axisX.Y, axisX.Z),
+                AxisY = new Vector3(axisY.X, axisY.Y, axisY.Z),
+                AxisZ = new Vector3(axisZ.X, axisZ.Y, axisZ.Z),
+                AxisScale = new Vector3(axisX.W, axisY.W, axisZ.W),
+                Center = new Vector3(centre.X, centre.Y, centre.Z),
+                CenterW = centre.W,
+                Voxels = voxels,
+            });
+        }
     }
 
     private static int GridCellCount(uint index, byte expX, byte expY, byte expZ)

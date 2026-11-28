@@ -14,7 +14,7 @@ namespace ReLunacy.Engine.Packing;
 /// a mirrored or sheared placement keeps exactly what the editor's decompose would lose; its sphere is carried by
 /// the same move; the mirrored byte follows the new matrix. The fourth column is left as the file has it.
 ///
-/// A UFrag's record (UFragMetadata) holds a position - its anchor, x256 (+0x70 new engine, +0x60 old) - and a
+/// A UFrag's record (UFragMetadata) holds a position - its anchor, x256 (+0x70 new engine, +0x60 old and Resistance 2) - and a
 /// world bounding sphere (+0x30), and no rotation or scale: a moved UFrag is written as both moved by how far its
 /// anchor moved. A UFrag rotated or scaled in the editor is reported: that can not be written.
 ///
@@ -82,7 +82,9 @@ public static class ZoneWriter
             long at = ufrag.UFrag.SourceOffset;
             if (at < 0 || delta.LengthSquared() < 1e-8f) continue;
             if (at + 0x80 > file.Length || !written.Add(at)) continue;
-            long anchor = at + (oldEngine ? 0x60 : 0x70);
+            // Resistance 2 keeps the old engine's +0x60 in its new-engine records.
+            bool anchorAt60 = oldEngine || ufrag.UFrag is Assets.UFrags.NewUFrag { Metadata.Resistance2Layout: true };
+            long anchor = at + (anchorAt60 ? 0x60 : 0x70);
             for (int k = 0; k < 3; k++)
             {
                 Put(file, anchor + k * 4, F(original, anchor + k * 4) + delta[k] * EntityUFrag.UFragQuantisation);

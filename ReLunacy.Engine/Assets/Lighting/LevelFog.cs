@@ -28,6 +28,9 @@ public sealed class LevelFog
     public float LinearScale { get; init; }
     public float LinearBias { get; init; }
 
+    /// <summary>The ramp runs over camera distance, not view depth: A Crack in Time's full-screen fog.</summary>
+    public bool Radial { get; init; }
+
     /// <summary>Absolute source offset of the 0x7100 record inside main.dat.</summary>
     public uint SourceOffset { get; init; }
 

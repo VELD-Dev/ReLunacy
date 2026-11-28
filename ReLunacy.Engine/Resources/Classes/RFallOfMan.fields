@@ -2469,7 +2469,7 @@ class 0x1F6 ScriptElem_SetValue : 0xF9
     size 0x44;
     label "Set Value";
     [0x3C, ptr Variable] Variable = "";
-    [0x40, float] = "";
+    [0x40, float] New Value = "";
 }
 
 class 0x1F7 ScriptElem_ComputeValue : 0xF9

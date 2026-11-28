@@ -141,11 +141,15 @@ public class Shader
         }
         else
         {
-            metadataNew = ShaderMetadataNew.Read(sh);
+            long metadataStart = sh.Offset;
             var ig = new IGFile(sh.BaseStream);
             var refSec = ig.QuerySection(ShaderReference.ID);
+            // Resistance 2 writes the four-slot pair; its 0x5D00 length is what tells it apart.
+            bool fourSlot = refSec.length == ShaderReference.FourSlotSize;
+            sh.Seek(metadataStart);
+            metadataNew = fourSlot ? ShaderMetadataNew.ReadFourSlot(sh) : ShaderMetadataNew.Read(sh);
             sh.Seek(refSec.offset);
-            reference = ShaderReference.Read(sh);
+            reference = fourSlot ? ShaderReference.ReadFourSlot(sh) : ShaderReference.Read(sh);
             // reference.Value.TUID reads as a genuine 0 for every shader in this format (see
             // TextureShaderLoader.LoadShadersNew, which already works around this for its own
             // Shaders dictionary key) - tuidOverride carries the real identity instead: the

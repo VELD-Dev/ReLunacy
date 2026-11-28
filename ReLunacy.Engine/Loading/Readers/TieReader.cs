@@ -17,6 +17,8 @@ public sealed class TieReader
     /// UvAnimation.CrackInTimeRecordSize. Set from the level's game, as MaterialReader and
     /// ZoneReader already are.</summary>
     public bool CrackInTimeLayout { get; init; }
+    /// <summary>Resistance 2: old-engine primitive fields in new-engine Ties (see Objects.Tie.UseOldPrimitiveFields).</summary>
+    public bool Resistance2Layout { get; init; }
 
     public TieReader(FileManager fileManager, MaterialReader materialReader, DebugReader debugReader)
     {
@@ -75,7 +77,7 @@ public sealed class TieReader
             using MemoryStream tiems = new(tiedat);
 
             var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
-                                            crackInTime: CrackInTimeLayout);
+                                            crackInTime: CrackInTimeLayout, resistance2: Resistance2Layout);
             // Keyed by the assetlookup pointer-table TUID, not the tie's own embedded TUID field
             // (0x68) - the embedded field isn't reliably unique.
             ties.Add(tiePtrs[i].TUID, ConvertTie(legacyTie, tiePtrs[i].TUID));
@@ -103,7 +105,7 @@ public sealed class TieReader
             byte[] tiedat = NewEngineAssetLookup.ReadPayload(tieStream, pointer, "Tie");
             using MemoryStream tiems = new(tiedat);
             var legacyTie = new Objects.Tie(new IGFile(tiems), _fileManager, old: false,
-                                            crackInTime: CrackInTimeLayout);
+                                            crackInTime: CrackInTimeLayout, resistance2: Resistance2Layout);
             // Keyed by the assetlookup pointer-table TUID, as ReadTiesNew does.
             return ConvertTie(legacyTie, pointer.TUID);
         }, pointer => ReadNewTieName(tieStream, pointer), fileLock);
@@ -114,7 +116,7 @@ public sealed class TieReader
     public Assets.Ties.Tie ReadClass(byte[] classBytes, ulong id)
     {
         using MemoryStream stream = new(classBytes);
-        var legacyTie = new Objects.Tie(new IGFile(stream), _fileManager, old: false, crackInTime: CrackInTimeLayout);
+        var legacyTie = new Objects.Tie(new IGFile(stream), _fileManager, old: false, crackInTime: CrackInTimeLayout, resistance2: Resistance2Layout);
         return ConvertTie(legacyTie, id);
     }
 

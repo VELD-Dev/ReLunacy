@@ -252,7 +252,8 @@ public sealed class CubemapReader
 
         // ACIT's active references are later in 0x8100. The scene cube is the default for
         // 0x71C0 palettes. The separate water default must also be available to water draws.
-        if (_fileManager.GameDefinition?.Id == Games.GameId.ACrackInTime)
+        // Resistance 2's 0x8100 holds them in the same place (chicago: +0xE8 scene, +0xF0 water).
+        if (_fileManager.GameDefinition?.Id is Games.GameId.ACrackInTime or Games.GameId.Resistance2)
         {
             var (scene, water) = ReadAcitDefaultCubes(region);
             return [.. declaredInOrder.Prepend(water).Prepend(scene).Where(available.Contains).Distinct()];
@@ -359,8 +360,11 @@ public sealed class CubemapReader
                 chainTexels = checked(chainTexels + w * w);
 
             long faceBytes = checked((long)chainTexels * 8);
+            // Each face's mip chain starts on a 128-byte boundary: Resistance 2's six-mip 32x32 faces
+            // are 0x2AA8 bytes stored at a 0x2B00 stride (6 x 0x2B00 = its whole 0x5940 payload).
+            long faceStride = (faceBytes + 127) & ~127L;
             long start = checked((long)payload.offset + meta.RsxOffset);
-            long end = checked(start + faceBytes * FaceCount);
+            long end = checked(start + faceStride * (FaceCount - 1) + faceBytes);
             if (start < payload.offset || end > payloadEnd)
             {
                 Console.WriteLine(
@@ -370,7 +374,10 @@ public sealed class CubemapReader
             }
 
             file.sh.Seek(start);
-            byte[] encoded = file.sh.ReadBytes(checked((int)(faceBytes * FaceCount)));
+            byte[] stored = file.sh.ReadBytes(checked((int)(end - start)));
+            byte[] encoded = new byte[checked((int)(faceBytes * FaceCount))];
+            for (int f = 0; f < FaceCount; f++)
+                Buffer.BlockCopy(stored, checked((int)(f * faceStride)), encoded, checked((int)(f * faceBytes)), (int)faceBytes);
 
             ulong textureKey = 0;
             if (keys.id == 0x5A00 && r < keys.count && keys.length >= sizeof(ulong))
@@ -391,9 +398,7 @@ public sealed class CubemapReader
             // a scrambled mosaic - the blocky, "pixelated" reflections.
             // STRONG, not measured: that x takes the EVEN bits. The smoothness metric is transpose-
             // invariant, so it cannot tell x-even from y-even; x-even is the RSX convention and the
-            // order Texture.Deswizzle already applies to every other swizzled texture. Also untested:
-            // face padding - every retail cube has one power-of-two mip, so packed and 128-aligned
-            // strides are the same bytes.
+            // order Texture.Deswizzle already applies to every other swizzled texture.
             var linear = new byte[encoded.Length];
             for (int f = 0; f < FaceCount; f++)
             {

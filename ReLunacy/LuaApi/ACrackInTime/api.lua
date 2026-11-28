@@ -326,6 +326,20 @@ function get_volume_table(area) end
 function prt_table(T, prefix) end
 
 -------------------------------------------------------------------------------------------------
+-- Spec enums
+-------------------------------------------------------------------------------------------------
+
+---Dialogue line ids by name, filled by global_cached's /scripts/dialoguespecs.lua
+---(`DialogueSpecs["GEN_ZURK_MISC001"] = 1`). Ids run 0..186 and from 10001. Pass one to `speak`
+---or `play_explicit_dialog_spec`; the level's fxconduit_packed.dat picks the line it plays.
+---@type table<string, integer>
+DialogueSpecs = {}
+
+---Sound ids by name, filled by /scripts/soundspecs.lua. Pass one to `play_explicit_sound_spec`.
+---@type table<string, integer>
+SoundSpecs = {}
+
+-------------------------------------------------------------------------------------------------
 -- Other functions
 -------------------------------------------------------------------------------------------------
 

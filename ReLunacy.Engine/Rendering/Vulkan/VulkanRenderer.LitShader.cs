@@ -60,7 +60,7 @@ public sealed unsafe partial class VulkanRenderer
     vec3 uEnvDirection1; float uOldEngineMode;
     vec3 uEnvAmbient; float _oldEngineReserved0;
     vec3 uEnvLight0Colour; float _oldEngineReserved1;
-    vec3 uEnvLight1Colour; float _oldEngineReserved2;
+    vec3 uEnvLight1Colour; float uResistance2Mobys;
     vec3 uFogColour; float uFogScale;
     float uFogBias; float uFogAmount; float uFogEnabled; float uFogDebugView;
     float uNewEngineLodScale; float uReflOcclusionFloor; float uReflOcclusionFullLuminance; float uSceneTime;
@@ -293,6 +293,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 viewDir = normalize(uCameraPosition - fWorldPos);
     vec3 viewDirTS = transpose(tbn) * viewDir;
     InstanceLight instanceLight = uInstanceLights.values[fInstanceIndex];
+    // Resistance 2 Moby (EBOOT table 0xF0B83C block 2): its programs differ from the other new-engine games'.
+    bool r2Moby = uResistance2Mobys > 0.5 && abs(instanceLight.direction0.w - 3.0) < 0.5;
     bool oldUFrag = uOldEngineMode > 0.5 && instanceLight.direction0.w > 6.5 && instanceLight.direction0.w < 7.5;
     bool fallOfManBake = instanceLight.direction0.w == 8.0;
     bool fallOfManPrelight = instanceLight.direction0.w == 9.0;
@@ -379,7 +381,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     //   specular *= 1 + d.w * m.
     // The fade is detailFade above (0 when the draw carries no fade distances).
     vec4 detail = vec4(0.0);
-    if (uOldEngineMode < 0.5 && uMat6.z > 0.5 && allowDetail)
+    // Resistance 2's Moby programs have no signed detail: unit 8 is a second albedo blended in by a mask.
+    if (uOldEngineMode < 0.5 && uMat6.z > 0.5 && allowDetail && !r2Moby)
         detail = (texture(uDetail, uv * uMat6.x) * 2.0 - 1.0) * (clamp(uMat6.y * (1.0 - detailFade), 0.0, 1.0) * props.a);
     bool normalPermutation = uMat5.w > 0.5 && !farPermutation && allowNormalMap;
     // PROVEN (QForce EBOOT + retail shaders): the new engine scales the normal map's xy by material
@@ -393,7 +396,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 worldNormal = normalize(tbn * (fallOfManNormalFormat ? fallOfManNormal : vec3(derivativeSum, 1.0)));
     // uPostParams.w < 0 leaves the material's own specular map alone; >= 0 replaces it, so a
     // reflection can be judged without the props texture deciding where it appears.
-    float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w : props.r * (1.0 + detail.w);
+    // Resistance 2's Moby mask is saturate(props.r * saturate(TEX3.w + +0x30)), the fade taken as 1.
+    float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w
+        : r2Moby ? clamp(props.r, 0.0, 1.0) : props.r * (1.0 + detail.w);
     float emissive = props.b;
     // PROVEN (retail Moby, Tie and prelit-Tie shaders): the sun term is multiplied by S, and all the
     // non-emissive light by 0.2 S + 0.8 (below, where lighting is summed). S is 1 on the old engine.
@@ -415,7 +420,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         albedo *= uMat7.rgb;
     // PROVEN (retail Tie VP 64fed2abefb9 paired with the analytic-light FP 5a90cc1a17e6): unbaked Ties
     // on the analytic route use the same hemispheric ambient as Mobys, Amb * (1 + 0.5 * n.y).
-    vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 ? 1.0 + 0.5 * worldNormal.y : 1.0)
+    // Resistance 2's Moby key 0 program has the same Amb * (1 + 0.5 * n.y).
+    vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 || r2Moby ? 1.0 + 0.5 * worldNormal.y : 1.0)
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
     // Direction0.w: 1 = old-engine Moby draw, 2 = old Tie with a retail baked scale,
@@ -576,7 +582,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     //
     // Old engine keeps 1: the recovered ToD Tie permutation Full[0x28] is LM1.rgb * factor +
     // properties.b, with no multiplier, and no ToD shader has been read that says otherwise.
-    float emissiveGain = uOldEngineMode > 0.5 ? 1.0 : 4.0;
+    // Resistance 2's Moby programs add props.b * G6.w, and the game forces G6.w to 1 (EBOOT 0x655920).
+    float emissiveGain = uOldEngineMode > 0.5 || r2Moby ? 1.0 : 4.0;
     // New-engine unbaked Tie with its placement's prelight (Direction0.w = 5), as the retail shaders
     // light it (FP 210bbe6e06dc flat, af2e853165e2 RNM): prelight + key light * N.L * the baked sun
     // visibility bit, with no environment fill. The normal-map permutations weight the three basis
@@ -594,7 +601,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // ToD unbaked Tie with its placement's prelight (Direction0.w = 6, FPs 86591e25cdd7 flat /
     // 952806cc549c normal-mapped): chroma x max(N.TEX3, 0), N the tangent normal (z without a normal map),
     // + props.b (the emissive term below); the albedo already carries TEX0.z (the vertex light scale).
-    if (uOldEngineMode > 0.5 && instanceLight.direction0.w > 5.5 && instanceLight.direction0.w < 6.5)
+    // Also Resistance 2's prelit Ties, which keep these words on the new engine.
+    if (instanceLight.direction0.w > 5.5 && instanceLight.direction0.w < 6.5)
         unbakedFill = fPrelightChroma * max(dot(normalize(vec3(derivativeSum, 1.0)), fPrelightIntensity.xyz), 0.0);
     if (uOldEngineMode < 0.5 && instanceLight.direction0.w > 4.5 && instanceLight.direction0.w < 5.5) {
         vec3 intensities = fPrelightIntensity.xyz;
@@ -724,6 +732,19 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
         * dot(lighting, vec3(0.2126, 0.7152, 0.0722)) / occlusionFull, 0.0, 1.0);
     // PROVEN: the reflection mask also takes material +0x34 (c[21].y, faded into TEX2.w).
     vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
+    // Resistance 2's Moby programs sample no cube. Key 4 adds pow(sat(R.L), material +0x38) * light colour
+    // for both lights, times mix(+0x50 tint, albedo, +0x5C) and props.r, with no shadow on it.
+    if (r2Moby) {
+        float r2Gloss = max(uMat4.w, 1.0);
+        // The lights are the Moby's own rig (its light volume's, or the level's outside every volume).
+        vec3 r2Dir0 = mix(uEnvDirection0, instanceLight.direction0.xyz, useInstanceLighting);
+        vec3 r2Dir1 = mix(uEnvDirection1, instanceLight.direction1.xyz, useInstanceLighting);
+        vec3 r2Colour0 = mix(uEnvLight0Colour, instanceLight.light0Colour.xyz, useInstanceLighting);
+        vec3 r2Colour1 = mix(uEnvLight1Colour, instanceLight.light1Colour.xyz, useInstanceLighting);
+        vec3 r2Highlight = r2Colour0 * pow(clamp(dot(newReflDir, r2Dir0), 0.0, 1.0), r2Gloss)
+            + r2Colour1 * pow(clamp(dot(newReflDir, r2Dir1), 0.0, 1.0), r2Gloss);
+        newReflection = r2Highlight * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * (allowSpecular ? 1.0 : 0.0);
+    }
     // Old-engine Ties and new-engine reflective materials sample the environment cube here.
     vec3 envFill = uOldEngineMode > 0.5
         ? oldReflection * uEnvironmentIntensity * ((oldUFrag || fallOfManSurface) ? 1.0 : oldTieDraw)
@@ -775,9 +796,10 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     }
     // PROVEN (retail Tie and Moby VPs): fog = min(HPOS.w * c5.x + c5.y, c5.w), saturated in the FP.
     // The coordinate is clip-space w (linear view depth), not radial eye distance. In Vulkan
-    // gl_FragCoord.w is 1/clip.w, so the retail coordinate is recovered exactly per pixel.
-    float fogCoordinate = 1.0 / gl_FragCoord.w;
-    float fogFactor = clamp(min(fogCoordinate * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * uFogEnabled;
+    // gl_FragCoord.w is 1/clip.w, so the retail coordinate is recovered exactly per pixel. A Crack in
+    // Time (uFogEnabled 2) fogs in a full-screen pass over the camera distance instead (FP 0xD486F0).
+    float fogCoordinate = uFogEnabled > 1.5 ? distance(fWorldPos, uCameraPosition) : 1.0 / gl_FragCoord.w;
+    float fogFactor = clamp(min(fogCoordinate * uFogScale + uFogBias, uFogAmount), 0.0, 1.0) * min(uFogEnabled, 1.0);
     litColor = uFogDebugView > 0.5 ? vec3(fogFactor) : mix(litColor, uFogColour, fogFactor);
     if (gBeforeAtmosphere) { if (newEngineAtmosphereOn()) litColor = newEngineAtmosphere(litColor, distance(fWorldPos, uCameraPosition), fWorldPos - uCameraPosition); }
     else if (uNewEngineFog.y > 0.5) { vec4 k = newEngineFog(); litColor = mix(litColor, k.rgb, k.w); }
