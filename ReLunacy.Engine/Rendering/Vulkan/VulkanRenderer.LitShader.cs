@@ -293,6 +293,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 viewDir = normalize(uCameraPosition - fWorldPos);
     vec3 viewDirTS = transpose(tbn) * viewDir;
     InstanceLight instanceLight = uInstanceLights.values[fInstanceIndex];
+    // Resistance 2 Moby (EBOOT table 0xF0B83C block 2): its programs differ from the other new-engine games'.
+    bool r2Moby = uResistance2Mobys > 0.5 && abs(instanceLight.direction0.w - 3.0) < 0.5;
     bool oldUFrag = uOldEngineMode > 0.5 && instanceLight.direction0.w > 6.5 && instanceLight.direction0.w < 7.5;
     bool fallOfManBake = instanceLight.direction0.w == 8.0;
     bool fallOfManPrelight = instanceLight.direction0.w == 9.0;
@@ -379,7 +381,8 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     //   specular *= 1 + d.w * m.
     // The fade is detailFade above (0 when the draw carries no fade distances).
     vec4 detail = vec4(0.0);
-    if (uOldEngineMode < 0.5 && uMat6.z > 0.5 && allowDetail)
+    // Resistance 2's Moby programs have no signed detail: unit 8 is a second albedo blended in by a mask.
+    if (uOldEngineMode < 0.5 && uMat6.z > 0.5 && allowDetail && !r2Moby)
         detail = (texture(uDetail, uv * uMat6.x) * 2.0 - 1.0) * (clamp(uMat6.y * (1.0 - detailFade), 0.0, 1.0) * props.a);
     bool normalPermutation = uMat5.w > 0.5 && !farPermutation && allowNormalMap;
     // PROVEN (QForce EBOOT + retail shaders): the new engine scales the normal map's xy by material
@@ -393,7 +396,9 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     vec3 worldNormal = normalize(tbn * (fallOfManNormalFormat ? fallOfManNormal : vec3(derivativeSum, 1.0)));
     // uPostParams.w < 0 leaves the material's own specular map alone; >= 0 replaces it, so a
     // reflection can be judged without the props texture deciding where it appears.
-    float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w : props.r * (1.0 + detail.w);
+    // Resistance 2's Moby mask is saturate(props.r * saturate(TEX3.w + +0x30)), the fade taken as 1.
+    float specIntensity = uPostParams.w >= 0.0 ? uPostParams.w
+        : r2Moby ? clamp(props.r, 0.0, 1.0) : props.r * (1.0 + detail.w);
     float emissive = props.b;
     // PROVEN (retail Moby, Tie and prelit-Tie shaders): the sun term is multiplied by S, and all the
     // non-emissive light by 0.2 S + 0.8 (below, where lighting is summed). S is 1 on the old engine.
@@ -416,7 +421,6 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // PROVEN (retail Tie VP 64fed2abefb9 paired with the analytic-light FP 5a90cc1a17e6): unbaked Ties
     // on the analytic route use the same hemispheric ambient as Mobys, Amb * (1 + 0.5 * n.y).
     // Resistance 2's Moby key 0 program has the same Amb * (1 + 0.5 * n.y).
-    bool r2Moby = uResistance2Mobys > 0.5 && abs(instanceLight.direction0.w - 3.0) < 0.5;
     vec3 globalEnvDiffuse = uEnvAmbient * (uOldEngineMode > 0.5 || r2Moby ? 1.0 + 0.5 * worldNormal.y : 1.0)
         + uEnvLight0Colour * max(dot(worldNormal, uEnvDirection0), 0.0) * sunS
         + uEnvLight1Colour * max(dot(worldNormal, uEnvDirection1), 0.0);
@@ -729,10 +733,10 @@ void shadeInner(out vec3 litColor, out float litAlpha) {
     // PROVEN: the reflection mask also takes material +0x34 (c[21].y, faded into TEX2.w).
     vec3 newReflection = newReflRadiance * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * clamp(uMat5.z * reflectionFade, 0.0, 1.0) * (allowSpecular ? 1.0 : 0.0) * newLitMask * newReflects;
     // Resistance 2's Moby programs sample no cube. Key 4 adds pow(sat(R.L), material +0x38) * light colour
-    // for both lights, times mix(+0x50 tint, albedo, +0x5C) and props.r.
+    // for both lights, times mix(+0x50 tint, albedo, +0x5C) and props.r, with no shadow on it.
     if (r2Moby) {
         float r2Gloss = max(uMat4.w, 1.0);
-        vec3 r2Highlight = uEnvLight0Colour * pow(clamp(dot(newReflDir, uEnvDirection0), 0.0, 1.0), r2Gloss) * sunS
+        vec3 r2Highlight = uEnvLight0Colour * pow(clamp(dot(newReflDir, uEnvDirection0), 0.0, 1.0), r2Gloss)
             + uEnvLight1Colour * pow(clamp(dot(newReflDir, uEnvDirection1), 0.0, 1.0), r2Gloss);
         newReflection = r2Highlight * mix(uMat3.rgb, albedo, uMat3.w) * specIntensity * (allowSpecular ? 1.0 : 0.0);
     }
